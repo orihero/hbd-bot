@@ -6,14 +6,20 @@ import pytest
 
 from hbd.bot.callbacks import NavAction, NavCB
 from hbd.bot.draft import WizardDraft
-from hbd.bot.screens import render_step, resolve_step, welcome_screen
+from hbd.bot.screens import MAX_PREVIEW_LYRIC_CHARS, render_step, resolve_step, welcome_screen
 from hbd.bot.states import WIZARD_ORDER, WizardStep
-from hbd.contracts import Genre, Language, Occasion, VoiceGender
-from tests.conftest import UZBEK_NAME_CANONICAL, make_name
+from hbd.contracts import Genre, Language, LyricDraft, LyricSection, Occasion, VoiceGender
+from tests.conftest import UZBEK_NAME_CANONICAL, make_lyrics, make_name
 from tests.test_bot.conftest import buttons
 
 
 def full_draft(**overrides: object) -> WizardDraft:
+    """A draft every step can render, the approved lyric included.
+
+    The lyric is part of "full" now: without it ``resolve_step`` downgrades both the
+    preview and the summary, and the tests below that walk all of ``WIZARD_ORDER`` would be
+    asserting about a screen the draft cannot actually reach.
+    """
     base = WizardDraft(
         ui_language=Language.EN,
         occasion=Occasion.ANNIVERSARY,
@@ -22,6 +28,7 @@ def full_draft(**overrides: object) -> WizardDraft:
         note="Adores late-night jazz",
         recipient=make_name(),
         output_language=Language.RU,
+        lyrics=make_lyrics(),
     )
     return base.updated(**overrides) if overrides else base
 
@@ -77,14 +84,17 @@ def test_only_the_note_step_offers_skip() -> None:
 
     # Act
     with_skip = {
-        step for step in WIZARD_ORDER if skip in {d for _, d in buttons(render_step(step, draft).markup)}
+        step
+        for step in WIZARD_ORDER
+        if skip in {d for _, d in buttons(render_step(step, draft).markup)}
     }
 
     # Assert
     assert with_skip == {WizardStep.NOTE}
 
 
-def test_text_is_expected_only_on_the_note_and_name_steps() -> None:
+def test_text_is_expected_on_the_note_name_and_lyrics_steps() -> None:
+    """The lyric preview accepts a pasted lyric, so it is a typing step like the other two."""
     # Arrange
     draft = full_draft()
 
@@ -92,7 +102,7 @@ def test_text_is_expected_only_on_the_note_and_name_steps() -> None:
     typing_steps = {step for step in WIZARD_ORDER if render_step(step, draft).is_text_expected}
 
     # Assert
-    assert typing_steps == {WizardStep.NOTE, WizardStep.NAME}
+    assert typing_steps == {WizardStep.NOTE, WizardStep.NAME, WizardStep.LYRICS}
 
 
 def test_name_confirmation_shows_the_display_spelling() -> None:
@@ -170,3 +180,138 @@ def test_resolve_step_leaves_a_renderable_step_alone() -> None:
     # Act / Assert
     for step in WIZARD_ORDER:
         assert resolve_step(step, draft) is step
+
+
+def test_resolve_step_downgrades_a_preview_with_no_lyric() -> None:
+    """Storage lost the lyric under us: ask the language again, which writes a new one."""
+    # Arrange
+    draft = full_draft(lyrics=None)
+
+    # Act / Assert
+    assert resolve_step(WizardStep.LYRICS, draft) is WizardStep.OUTPUT_LANGUAGE
+
+
+def test_resolve_step_downgrades_a_summary_whose_lyric_was_never_approved() -> None:
+    """Every answer given but no lyric: the preview is the only route to the summary."""
+    # Arrange
+    draft = full_draft(lyrics=None)
+
+    # Act / Assert
+    assert resolve_step(WizardStep.CONFIRM, draft) is WizardStep.LYRICS
+
+
+def test_the_preview_falls_back_to_the_language_question_with_no_lyric_to_show() -> None:
+    """Rendered directly, not through ``resolve_step``: the fallback is its own contract.
+
+    Every other test reaches the preview through ``resolve_step``, which downgrades first,
+    so the screen's own guard is never asked to do anything. It still has to work — an
+    empty preview would be a screen with a hole in it — and the fallback is what
+    ``show_step``'s fixpoint relies on agreeing with.
+    """
+    # Arrange
+    draft = full_draft(lyrics=None)
+
+    # Act
+    screen = render_step(WizardStep.LYRICS, draft)
+
+    # Assert
+    assert screen == render_step(WizardStep.OUTPUT_LANGUAGE, draft)
+
+
+def test_the_lyric_preview_shows_the_title_and_the_words() -> None:
+    # Arrange
+    draft = full_draft()
+    lyrics = make_lyrics()
+
+    # Act
+    screen = render_step(WizardStep.LYRICS, draft)
+
+    # Assert
+    assert lyrics.title in screen.text
+    for section in lyrics.sections:
+        for line in section.lines:
+            assert line in screen.text
+
+
+def test_the_lyric_preview_escapes_a_hostile_pasted_lyric() -> None:
+    """A pasted lyric is user text going into a ``parse_mode=HTML`` message."""
+    # Arrange
+    hostile = make_lyrics(
+        sections=(
+            LyricSection(
+                label="verse-1",
+                lines=("<script>alert(1)</script>", UZBEK_NAME_CANONICAL),
+                is_name_hook=True,
+            ),
+        )
+    )
+    draft = full_draft(lyrics=hostile)
+
+    # Act
+    screen = render_step(WizardStep.LYRICS, draft)
+
+    # Assert
+    assert "<script>" not in screen.text
+    assert "&lt;script&gt;" in screen.text
+
+
+def test_a_very_long_lyric_is_elided_so_telegram_will_accept_the_preview() -> None:
+    """Telegram refuses a message over 4096 characters and the retry would refuse it too."""
+    # Arrange — a lyric far past the ceiling, built the way the shape module allows
+    long_line = "x" * 160
+    draft = full_draft(
+        lyrics=LyricDraft(
+            title="Long one",
+            language=Language.RU,
+            sections=tuple(
+                LyricSection(
+                    label=f"section-{index + 1}",
+                    lines=(long_line,) * 8,
+                    is_name_hook=index == 0,
+                )
+                for index in range(8)
+            ),
+            name_display=UZBEK_NAME_CANONICAL,
+        )
+    )
+
+    # Act
+    screen = render_step(WizardStep.LYRICS, draft)
+
+    # Assert
+    assert len(screen.text) < 4_096
+    assert len(draft.lyrics.as_plain_text()) > MAX_PREVIEW_LYRIC_CHARS  # type: ignore[union-attr]
+
+
+def test_an_ampersand_heavy_lyric_is_elided_on_its_escaped_length_not_its_typed_length() -> None:
+    """The clamp has to count what Telegram counts, or it lets the message through anyway.
+
+    ``translate`` escapes every parameter, so ``&`` costs five characters on the wire and one
+    on the keyboard. A lyric of 1 218 typed characters — comfortably inside both the paste
+    limit and the preview clamp — renders as 6 144 and the API refuses it.
+    """
+    # Arrange
+    ampersands = "&" * 160
+    draft = full_draft(
+        lyrics=LyricDraft(
+            title="&&&",
+            language=Language.EN,
+            sections=tuple(
+                LyricSection(
+                    label=f"section-{index + 1}", lines=(ampersands,) * 2, is_name_hook=index == 0
+                )
+                for index in range(4)
+            ),
+            name_display=UZBEK_NAME_CANONICAL,
+        )
+    )
+    typed = draft.lyrics.as_plain_text()  # type: ignore[union-attr]
+    assert len(typed) < MAX_PREVIEW_LYRIC_CHARS, "the typed length must not trip the old clamp"
+
+    # Act
+    screen = render_step(WizardStep.LYRICS, draft)
+
+    # Assert
+    assert len(screen.text) < 4_096
+    assert "&amp;" in screen.text, "entities must survive whole; a slice inside one is invalid"
+    assert "&am;" not in screen.text and "&a;" not in screen.text

@@ -24,8 +24,8 @@ CATALOGUE: Final[dict[str, str]] = {
     "error.payment_failed": "Payment did not go through. Nothing was charged.",
     # -- start -------------------------------------------------------------
     "start.welcome": (
-        "🎂 Welcome! I make a personal celebration kit: one song, three spoken greetings "
-        "and a lyric sheet — with the name pronounced properly."
+        "🎂 Welcome! I make a personal celebration kit: one song and a lyric sheet "
+        "— with the name pronounced properly."
     ),
     "start.choose_ui_language": "First, which language should I talk to you in?",
     # -- wizard ------------------------------------------------------------
@@ -48,7 +48,27 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "wizard.name.confirm": "I will write and sing it as:\n\n<b>{name}</b>\n\nIs that right?",
     "wizard.name.unresolved": "I could not read that name. Please type it again.",
-    "wizard.output_language.prompt": "Which language should the song and greetings be in?",
+    "wizard.output_language.prompt": "Which language should the song be in?",
+    "wizard.lyrics.writing": "✍️ Writing the lyrics… this takes a few seconds.",
+    "wizard.lyrics.preview": (
+        "<b>{title}</b>\n\n"
+        "<pre>{lyrics}</pre>\n\n"
+        "Press ✅ to keep these lyrics, 🔄 to get a different set, "
+        "or simply send me your own lyrics as a message."
+    ),
+    "wizard.lyrics.failed": "I could not write the lyrics. Please try again in a moment.",
+    "wizard.lyrics.too_short": (
+        "That is a little short for a song. Please send at least {limit} characters."
+    ),
+    "wizard.lyrics.too_long": (
+        "That is too long for a song. Please keep the lyrics under {limit} characters."
+    ),
+    "wizard.lyrics.type_only": "Please send the lyrics as text — a voice message will not do.",
+    "wizard.lyrics.updated": "Got it — I will use your lyrics.",
+    "wizard.lyrics.too_many": (
+        "I have already written {limit} sets of lyrics for this song. "
+        "Keep the ones above, or send me your own as a message."
+    ),
     "wizard.confirm.summary": (
         "<b>Your kit</b>\n"
         "Name: <b>{name}</b>\n"
@@ -74,6 +94,8 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.confirm": "✅ Yes, start",
     "button.name_ok": "✅ Correct",
     "button.retype": "✏️ Type it again",
+    "button.lyrics_ok": "✅ Use these lyrics",
+    "button.regenerate": "🔄 Write different lyrics",
     # -- enum labels -------------------------------------------------------
     "occasion.birthday": "Birthday",
     "occasion.anniversary": "Anniversary",

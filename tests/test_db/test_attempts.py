@@ -13,6 +13,7 @@ from hbd.contracts import (
 )
 from hbd.db.attempts import GenerationAttempt, GenerationAttemptRepository, StrategyStat
 from hbd.db.enums import GenerationKind
+from hbd.db.models.generation_attempt import TRANSCRIPT_LENGTH
 from hbd.db.repository import SqlKitRepository
 from tests.test_db.conftest import new_order
 
@@ -176,3 +177,40 @@ def test_a_generation_attempt_is_immutable() -> None:
     except (ValueError, TypeError, AttributeError):
         return
     raise AssertionError("GenerationAttempt must be frozen")
+
+
+async def test_a_song_length_transcript_is_truncated_rather_than_failing_the_order(
+    attempts: GenerationAttemptRepository, repository: SqlKitRepository
+) -> None:
+    """A diagnostic column must never destroy a kit the customer already paid for.
+
+    ``stt_transcript`` was sized for "a transcript of a name chunk, not of a song" — an
+    assumption that held only while inpainting could isolate the name chunk. Inpainting is
+    enterprise-gated, so verification transcribes the whole track and the real transcript
+    ran to ~700 characters. A live order died at the persisting stage with
+    ``value too long for type character varying(200)`` AFTER the song and all three
+    greetings had been generated and paid for.
+
+    The unit suite runs on SQLite, which does not enforce ``varchar`` length, so the
+    truncation is asserted directly rather than left to the database to police.
+    """
+    # Arrange — longer than any column bound we would pick.
+    order = new_order()
+    await repository.create_order(order)
+    transcript = "Bugun quyosh charaqlab turar bogʻlarda. " * 200
+
+    # Act
+    result = await attempts.record(
+        _attempt(strategy=NameStrategy.STRIPPED, is_verified=True, order_id=order.id).model_copy(
+            update={"stt_transcript": transcript}
+        )
+    )
+
+    # Assert
+    assert is_ok(result)
+    stored = await attempts.list_for_order(order.id)
+    assert is_ok(stored)
+    kept = stored.value[0].stt_transcript
+    assert kept is not None
+    assert len(kept) <= TRANSCRIPT_LENGTH
+    assert transcript.startswith(kept)

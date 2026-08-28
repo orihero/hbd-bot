@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from aiogram import Router
 
-from hbd.bot.handlers import confirm, fallback, name, navigation, questions, start
+from hbd.bot.handlers import confirm, fallback, lyrics, name, navigation, questions, start
 
 __all__ = ["build_router"]
 
@@ -22,6 +22,7 @@ def build_router() -> Router:
         navigation.build_router(),
         questions.build_router(),
         name.build_router(),
+        lyrics.build_router(),
         confirm.build_router(),
         fallback.build_router(),
     )

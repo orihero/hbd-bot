@@ -31,6 +31,7 @@ from hbd.config import Settings
 from hbd.contracts import Genre, Language, Occasion, VoiceGender
 from tests.test_bot.conftest import (
     CHAT_ID,
+    RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
     callback_update,
@@ -57,6 +58,8 @@ EXPIRED = translate("wizard.expired", Language.UZ_LATN)
             Wizard.output_language,
             LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.RU).pack(),
         ),
+        (Wizard.lyrics, NavCB(action=NavAction.LYRICS_OK).pack()),
+        (Wizard.lyrics, NavCB(action=NavAction.REGENERATE).pack()),
     ],
 )
 async def test_a_button_with_no_draft_reports_an_expired_session(
@@ -78,7 +81,7 @@ async def test_a_button_with_no_draft_reports_an_expired_session(
     assert await state.get_state() is None
 
 
-@pytest.mark.parametrize("state_value", [Wizard.note, Wizard.name])
+@pytest.mark.parametrize("state_value", [Wizard.note, Wizard.name, Wizard.lyrics])
 async def test_typed_text_with_no_draft_reports_an_expired_session(
     dispatcher: Dispatcher,
     bot: Bot,
@@ -150,7 +153,8 @@ async def test_confirm_falls_back_to_a_new_message_when_the_edit_is_refused(
     # Arrange
     submitter = RecordingSubmitter()
     dispatcher = build_dispatcher(
-        BotDeps(settings=settings, submitter=submitter), storage=MemoryStorage()
+        BotDeps(settings=settings, submitter=submitter, content=RecordingContentWriter()),
+        storage=MemoryStorage(),
     )
     await walk_to_confirm(dispatcher, bot)
     session.failures["EditMessageText"] = TelegramForbiddenError(
@@ -173,7 +177,8 @@ async def test_confirm_reports_failure_when_no_progress_message_can_be_posted(
     # Arrange
     submitter = RecordingSubmitter()
     dispatcher = build_dispatcher(
-        BotDeps(settings=settings, submitter=submitter), storage=MemoryStorage()
+        BotDeps(settings=settings, submitter=submitter, content=RecordingContentWriter()),
+        storage=MemoryStorage(),
     )
     await walk_to_confirm(dispatcher, bot)
     blocked = TelegramForbiddenError(

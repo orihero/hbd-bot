@@ -4,16 +4,19 @@ Four independent clocks run here, and they are independent on purpose — collap
 into one sweep would be simpler and would also be wrong, because they protect different
 things and expire at different times:
 
-======================  ==========================================  ==========
-What                    Where                                       Default
-======================  ==========================================  ==========
-Delivered paid audio    ``assets`` rows, deleted outright           12 months
-Free-tier output        ``assets`` rows, deleted outright           30 days
-Free-text brief         ``briefs.note``, nulled in place            30 days
-Recipient identity      ``briefs`` name columns, nulled in place    90 days
-Recipient identity      ``generation_attempts`` name text, nulled   90 days
-Abandoned drafts        ``orders`` in ``DRAFT``, deleted outright   14 days
-======================  ==========================================  ==========
+======================  ==============================================  ==========
+What                    Where                                           Default
+======================  ==============================================  ==========
+Delivered paid audio    ``assets`` rows, deleted outright               12 months
+Free-tier output        ``assets`` rows, deleted outright               30 days
+Free-text brief         ``briefs.note`` + ``briefs.approved_lyrics``,   30 days
+                        nulled in place
+Free-text transcript    ``generation_attempts.stt_transcript``,         30 days
+                        nulled in place
+Recipient identity      ``briefs`` name columns, nulled in place        90 days
+Recipient identity      ``generation_attempts`` name text, nulled       90 days
+Abandoned drafts        ``orders`` in ``DRAFT``, deleted outright       14 days
+======================  ==============================================  ==========
 
 Two design choices worth stating, because both look like mistakes until you see why:
 
@@ -29,6 +32,23 @@ by deleting bytes and then failing to commit the row deletion. The caller gets t
 back in :class:`PurgeReport` and deletes the objects after the transaction commits, so a
 crash leaves orphaned bytes (recoverable, sweepable) rather than a row pointing at bytes
 that no longer exist (a broken re-send that looks like data corruption).
+
+**The song transcript is free text, not just a name.** ``stt_transcript`` was sized for an
+isolated name chunk; inpainting is enterprise-gated, so verification hears the whole track
+and the column holds the whole lyric — which, since the wizard's preview step, may be words
+the customer wrote about a named third party. Those words live on the 30-day clock in
+``briefs.approved_lyrics``, so the copy of them here gets the same clock rather than the
+90-day identity one; leaving it on identity alone would have retained the customer's free
+text for sixty days past the schedule the privacy notice states. The identity sweep clears
+it as well, for the same "whichever fires first wins" reason as the lyric below.
+
+**The approved lyric is nulled by BOTH brief sweeps, and that is not a duplicate.** It is
+free text, so the 30-day note clock owns it; but it also carries the recipient's identity —
+``LyricDraft.name_display`` is the display name and the name-hook section sings it verbatim
+— and ``RetentionPolicy`` accepts any positive periods, so a deployment with
+``brief_text_days`` longer than ``recipient_identity_days`` would otherwise leave the name
+on disk past its own clock while every other identity column had already been cleared. The
+identity sweep therefore clears it too, and whichever clock fires first wins.
 
 Every sweep is bounded by ``batch_size``. A first run against a year of unpurged data must
 not take a lock on the whole ``assets`` table.
@@ -73,6 +93,7 @@ class PurgeReport(BaseModel):
     brief_notes_purged: int = Field(default=0, ge=0)
     brief_identities_purged: int = Field(default=0, ge=0)
     attempt_identities_purged: int = Field(default=0, ge=0)
+    attempt_transcripts_purged: int = Field(default=0, ge=0)
     name_records_deleted: int = Field(default=0, ge=0)
     abandoned_orders_deleted: int = Field(default=0, ge=0)
 
@@ -83,6 +104,7 @@ class PurgeReport(BaseModel):
             + self.brief_notes_purged
             + self.brief_identities_purged
             + self.attempt_identities_purged
+            + self.attempt_transcripts_purged
             + self.name_records_deleted
             + self.abandoned_orders_deleted
         )
@@ -124,6 +146,7 @@ async def _purge(
         notes = await _purge_brief_notes(session, now=now, limit=batch_size)
         identities = await _purge_brief_identities(session, now=now, limit=batch_size)
         attempts = await _purge_attempt_identities(session, now=now, limit=batch_size)
+        transcripts = await _purge_attempt_transcripts(session, now=now, limit=batch_size)
         names = await _purge_name_records(session, now=now, limit=batch_size)
         drafts = await _purge_abandoned_orders(
             session, cutoff=policy.abandoned_draft_cutoff(now), limit=batch_size
@@ -136,6 +159,7 @@ async def _purge(
         brief_notes_purged=notes,
         brief_identities_purged=identities,
         attempt_identities_purged=attempts,
+        attempt_transcripts_purged=transcripts,
         name_records_deleted=names,
         abandoned_orders_deleted=drafts,
     )
@@ -174,13 +198,23 @@ async def _purge_assets(
 
 
 async def _purge_brief_notes(session: AsyncSession, *, now: datetime, limit: int) -> int:
-    """Clear the recipient's free-text facts. The structured answers stay."""
+    """Clear the recipient's free-text facts — the note AND the approved lyric.
+
+    The predicate is an ``OR`` because a brief may carry only one of the two: a customer
+    who skipped the note but approved a lyric must still be swept, and the lyric is free
+    text about a real person exactly as the note is.
+
+    **Idempotency rests on the two columns being nulled in the same statement.** Unlike
+    :func:`_purge_attempt_identities` this sweep has no ``note_purged_at IS NULL`` guard; a
+    purged row is skipped on the next run only because the ``OR`` no longer matches. Nulling
+    one column and not the other would make the nightly job re-select the same rows forever.
+    """
     due = await _ids_due(
         session,
         sa.select(BriefRow.id)
         .where(
             BriefRow.note_expires_at <= now,
-            BriefRow.note.is_not(None),
+            sa.or_(BriefRow.note.is_not(None), BriefRow.approved_lyrics.is_not(None)),
         )
         .order_by(BriefRow.note_expires_at)
         .limit(limit),
@@ -188,7 +222,9 @@ async def _purge_brief_notes(session: AsyncSession, *, now: datetime, limit: int
     if not due:
         return 0
     await session.execute(
-        sa.update(BriefRow).where(BriefRow.id.in_(due)).values(note=None, note_purged_at=now)
+        sa.update(BriefRow)
+        .where(BriefRow.id.in_(due))
+        .values(note=None, approved_lyrics=None, note_purged_at=now)
     )
     return len(due)
 
@@ -199,6 +235,12 @@ async def _purge_brief_identities(session: AsyncSession, *, now: datetime, limit
     ``identity_purged_at`` is set so the row can prove it was purged on schedule. An
     absent name and an absent audit trail look identical, and only one of them is
     defensible to a regulator.
+
+    ``approved_lyrics`` is nulled here as well as in :func:`_purge_brief_notes`. The lyric
+    names the recipient in its hook, so it must not outlive the identity clock under a
+    policy whose note clock is the longer of the two. This sweep does not stamp
+    ``note_purged_at``: the note clock has not necessarily run, and the audit column must
+    keep meaning "the note sweep visited this row".
     """
     due = await _ids_due(
         session,
@@ -222,6 +264,7 @@ async def _purge_brief_identities(session: AsyncSession, *, now: datetime, limit
             recipient_script=None,
             recipient_language=None,
             recipient_candidates=None,
+            approved_lyrics=None,
             identity_purged_at=now,
         )
     )
@@ -254,6 +297,36 @@ async def _purge_attempt_identities(session: AsyncSession, *, now: datetime, lim
         sa.update(GenerationAttemptRow)
         .where(GenerationAttemptRow.id.in_(due))
         .values(name_candidate_text=None, stt_transcript=None, identity_purged_at=now)
+    )
+    return len(due)
+
+
+async def _purge_attempt_transcripts(session: AsyncSession, *, now: datetime, limit: int) -> int:
+    """Null the song transcript on render attempts, on the free-text clock.
+
+    Separate from :func:`_purge_attempt_identities` because it runs sixty days earlier and
+    clears a different thing: the identity sweep is about the recipient's NAME, this one is
+    about the words of the song, which the customer may have written themselves. Keeping
+    them apart is what lets the name text stay long enough to tune the candidate ladder
+    while the free text goes when the brief's free text goes.
+    """
+    due = await _ids_due(
+        session,
+        sa.select(GenerationAttemptRow.id)
+        .where(
+            GenerationAttemptRow.text_expires_at <= now,
+            GenerationAttemptRow.text_purged_at.is_(None),
+            GenerationAttemptRow.stt_transcript.is_not(None),
+        )
+        .order_by(GenerationAttemptRow.text_expires_at)
+        .limit(limit),
+    )
+    if not due:
+        return 0
+    await session.execute(
+        sa.update(GenerationAttemptRow)
+        .where(GenerationAttemptRow.id.in_(due))
+        .values(stt_transcript=None, text_purged_at=now)
     )
     return len(due)
 

@@ -11,6 +11,7 @@ from pathlib import Path
 from hbd.contracts import (
     AssetKind,
     Err,
+    LyricDraft,
     NameStrategy,
     Order,
     OrderState,
@@ -20,10 +21,19 @@ from hbd.contracts import (
 from hbd.errors import ErrorCode, ProviderTimeoutError, StorageError
 from hbd.pipeline.events import PipelineStage, ProgressStatus
 from hbd.pipeline.outcome import PipelineOutcome
-from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_candidates, make_order
-from tests.test_pipeline.conftest import Studio, failure_of, value_of
+from tests.conftest import (
+    UZBEK_NAME_CANONICAL,
+    make_brief,
+    make_candidates,
+    make_lyrics,
+    make_order,
+)
+from tests.test_pipeline.conftest import SpyContentWriter, Studio, failure_of, value_of
 
 STRIPPED = "Gulomjon"
+#: Deliberately not the title the fake LLM writes, so "whose words are these?" is decidable
+#: from the kit alone.
+APPROVED_TITLE = "Sen uchun qoʻshiq"
 
 
 async def _run(studio: Studio, order: Order) -> PipelineOutcome:
@@ -384,3 +394,208 @@ async def test_a_broken_progress_sink_does_not_stop_delivery(
     # Assert
     assert outcome.kit.song.path.exists()
     assert studio.sink.events == []
+
+
+async def test_delivers_a_song_only_kit_when_greetings_are_switched_off(
+    studio: Studio, ready_order: Order
+) -> None:
+    """``HBD_GREETINGS_PER_KIT=0`` sells the song and the sheet, and buys no speech.
+
+    Zero is a deliberate product setting, not a failure: it must not be confused with
+    "every greeting failed", which still fails the order.
+    """
+    # Arrange
+    studio.settings = studio.settings.model_copy(update={"greetings_per_kit": 0})
+
+    # Act
+    outcome = await _run(studio, ready_order)
+
+    # Assert
+    kit = outcome.kit
+    assert kit.greetings == ()
+    assert kit.song is not None
+    assert kit.lyric_sheet is not None
+    assert studio.repository.states[-1] is OrderState.DELIVERED
+    # No greetings means no speech was bought, and no voice catalogue was even fetched.
+    assert studio.tts.calls == []
+
+
+async def test_switching_greetings_off_still_fails_nothing_else(
+    studio: Studio, ready_order: Order
+) -> None:
+    """The all-greetings-failed guard must keep working when greetings ARE requested."""
+    # Arrange
+    studio.settings = studio.settings.model_copy(update={"greetings_per_kit": 3})
+    studio.tts.failing_personas = {"persona-1", "persona-2", "persona-3"}
+
+    # Act
+    result = await studio.pipeline().run(ready_order)
+
+    # Assert
+    assert isinstance(result, Err)
+    assert studio.repository.states[-1] is OrderState.FAILED
+
+
+async def test_no_greeting_stage_is_narrated_when_greetings_are_off(
+    studio: Studio, ready_order: Order
+) -> None:
+    """The progress bar must not report writing or recording speech that never happens."""
+    # Arrange
+    studio.settings = studio.settings.model_copy(update={"greetings_per_kit": 0})
+
+    # Act
+    outcome = await _run(studio, ready_order)
+
+    # Assert
+    narrated = {stage for stage, _status in studio.sink.stages()}
+    assert PipelineStage.WRITING_SCRIPTS.value not in narrated
+    assert PipelineStage.RENDERING_GREETINGS.value not in narrated
+    assert PipelineStage.COMPOSING_SONG.value in narrated
+    assert outcome.kit.greetings == ()
+
+
+# ---------------------------------------------------------------------------
+# The lyric the customer approved in the wizard
+# ---------------------------------------------------------------------------
+def _approved_lyric() -> LyricDraft:
+    """A lyric the customer already saw and said yes to, before anything was queued."""
+    return make_lyrics(title=APPROVED_TITLE)
+
+
+def _approved_order(studio: Studio, lyric: LyricDraft) -> Order:
+    return studio.enrol(make_order(brief=make_brief(approved_lyrics=lyric)))
+
+
+async def _run_with(studio: Studio, order: Order, writer: SpyContentWriter) -> PipelineOutcome:
+    return value_of(await studio.pipeline(content_writer=writer).run(order))
+
+
+async def test_an_approved_lyric_is_never_rewritten_by_the_content_writer(
+    studio: Studio,
+) -> None:
+    """The customer paid for the words they read. Writing new ones would swap the product."""
+    # Arrange
+    writer = studio.content_spy()
+    order = _approved_order(studio, _approved_lyric())
+
+    # Act
+    await _run_with(studio, order, writer)
+
+    # Assert: the greetings still had to be written, so this is a silent stage, not a dead one
+    assert writer.lyric_briefs == []
+    assert len(writer.script_briefs) == 1
+
+
+async def test_the_kit_carries_the_approved_lyric_word_for_word(studio: Studio) -> None:
+    # Arrange
+    lyric = _approved_lyric()
+    writer = studio.content_spy()
+    order = _approved_order(studio, lyric)
+
+    # Act
+    outcome = await _run_with(studio, order, writer)
+
+    # Assert
+    assert outcome.kit.lyrics == lyric
+    assert outcome.kit.lyrics.title == APPROVED_TITLE
+    assert len(outcome.kit.lyrics.name_hook_sections) == 1
+    assert outcome.kit.lyrics.name_hook_sections[0].label == "hook"
+
+
+async def test_the_delivered_lyric_sheet_is_the_one_the_customer_approved(
+    studio: Studio,
+) -> None:
+    # Arrange
+    lyric = _approved_lyric()
+    writer = studio.content_spy()
+    order = _approved_order(studio, lyric)
+
+    # Act
+    outcome = await _run_with(studio, order, writer)
+
+    # Assert
+    sheet = outcome.kit.lyric_sheet.path.read_text(encoding="utf-8")
+    assert APPROVED_TITLE in sheet
+    for section in lyric.sections:
+        for line in section.lines:
+            assert line in sheet
+
+
+async def test_an_approved_lyric_still_walks_the_order_through_lyrics_ready(
+    studio: Studio,
+) -> None:
+    """The stage becomes instant, not absent: the order still reports the same milestones."""
+    # Arrange
+    writer = studio.content_spy()
+    order = _approved_order(studio, _approved_lyric())
+
+    # Act
+    await _run_with(studio, order, writer)
+
+    # Assert
+    assert studio.repository.states == [
+        OrderState.LYRICS_READY,
+        OrderState.AUTHORIZED,
+        OrderState.GENERATING,
+        OrderState.DELIVERED,
+    ]
+
+
+async def test_the_writing_lyrics_stage_is_still_narrated_when_the_lyric_was_approved(
+    studio: Studio,
+) -> None:
+    """The progress bar must look identical on both paths, only faster on this one."""
+    # Arrange
+    writer = studio.content_spy()
+    order = _approved_order(studio, _approved_lyric())
+
+    # Act
+    outcome = await _run_with(studio, order, writer)
+
+    # Assert
+    stages = studio.sink.stages()
+    assert (PipelineStage.WRITING_LYRICS.value, ProgressStatus.STARTED.value) in stages
+    assert (PipelineStage.WRITING_LYRICS.value, ProgressStatus.SUCCEEDED.value) in stages
+    lyric_timing = next(
+        timing for timing in outcome.timings if timing.stage is PipelineStage.WRITING_LYRICS
+    )
+    assert lyric_timing.attempts == 1
+
+
+async def test_an_approved_lyric_delivers_even_when_the_writer_could_not_have_written_one(
+    studio: Studio,
+) -> None:
+    """Proof by sabotage: every lyric attempt the LLM could be asked for is primed to fail.
+
+    ``llm_parse_max_attempts`` is 2 here, so two queued failures would exhaust the retry
+    and fail the order outright. The run finishing is the assertion.
+    """
+    # Arrange
+    for _ in range(studio.settings.llm_parse_max_attempts):
+        studio.llm.fail_next("LyricsPayload", ProviderTimeoutError("slow", provider="fake"))
+    writer = studio.content_spy()
+    order = _approved_order(studio, _approved_lyric())
+
+    # Act
+    outcome = await _run_with(studio, order, writer)
+
+    # Assert
+    assert outcome.kit.lyrics.title == APPROVED_TITLE
+    assert outcome.kit.song.path.exists()
+
+
+async def test_a_brief_with_no_approved_lyric_still_has_one_written_for_it(
+    studio: Studio, ready_order: Order
+) -> None:
+    """The unchanged path: nothing was approved, so the writer is asked exactly once."""
+    # Arrange
+    writer = studio.content_spy()
+
+    # Act
+    outcome = await _run_with(studio, ready_order, writer)
+
+    # Assert
+    assert writer.lyric_briefs == [ready_order.brief]
+    assert outcome.kit.lyrics.title != APPROVED_TITLE
+    assert len(outcome.kit.lyrics.name_hook_sections) == 1
+    assert outcome.is_complete is True

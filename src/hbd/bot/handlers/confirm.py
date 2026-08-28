@@ -23,6 +23,7 @@ from hbd.bot.callbacks import NavAction, NavCB
 from hbd.bot.deps import BotDeps
 from hbd.bot.draft import WizardDraft
 from hbd.bot.handlers.common import error_text, expire, read_draft, say, show_step
+from hbd.bot.handlers.lyrics import enter_lyrics_step
 from hbd.bot.i18n import translate
 from hbd.bot.progress import queued_text
 from hbd.bot.states import Wizard, WizardStep
@@ -46,6 +47,17 @@ async def handle_confirm(callback: CallbackQuery, state: FSMContext, deps: BotDe
         _LOG.info("confirm pressed on an incomplete draft", extra=brief_result.error.to_log_dict())
         await say(callback, error_text(brief_result.error, draft.ui_language))
         await show_step(callback, state, draft, WizardStep.CONFIRM)
+        return
+    if draft.lyrics is None:
+        # The last gate before money and vendors: this order must carry the words the
+        # customer read. ``REQUIRED_ANSWERS`` deliberately excludes the lyric, so
+        # ``to_brief()`` succeeds without one and nothing else on this path consults
+        # ``is_complete`` — and FSM storage outlives a deploy, so a session parked on this
+        # screen by the previous build arrives here with ``lyrics=None``. Queueing it would
+        # hand the worker a brief to write from and deliver a song nobody approved, with no
+        # error to show for it. Write one and put it in front of them instead.
+        _LOG.info("confirm pressed before a lyric was approved; showing the preview first")
+        await enter_lyrics_step(callback, state, deps, draft)
         return
     await _authorize_and_submit(callback, state, deps, draft, brief_result.value)
 

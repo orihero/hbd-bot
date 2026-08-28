@@ -17,6 +17,13 @@ single greeting.
 
 **Everything is measured.** No vendor publishes latency for music generation, so a
 ``StepTiming`` per stage is the only p95 this product will ever have.
+
+One stage is no longer guaranteed to do work. The lyric may already be decided before the
+pipeline runs, because the customer previewed and approved it in the wizard; in that case
+``brief.approved_lyrics`` carries the exact words they agreed to and WRITING_LYRICS simply
+hands them back. The stage still exists on both paths on purpose — the timing, the progress
+frame and the LYRICS_READY transition stay identical whether the lyric took eight seconds
+to write or zero, so nothing downstream has to know which path an order took.
 """
 
 from __future__ import annotations
@@ -213,20 +220,25 @@ class KitPipeline:
             reporter,
             ledger,
             PipelineStage.WRITING_LYRICS,
-            lambda: self._content.write_lyrics(brief),
+            lambda: self._lyrics_for(brief),
             policy=self._llm_policy,
         )
         if isinstance(lyrics, Err):
             return lyrics
         await self._advance_state(order, OrderState.LYRICS_READY)
 
-        words = await self._staged(
-            reporter,
-            ledger,
-            PipelineStage.WRITING_SCRIPTS,
-            lambda: self._write_scripts(brief, lyrics.value),
-            policy=self._llm_policy,
-        )
+        # With greetings switched off both speech stages are skipped outright rather than
+        # run empty, so the progress bar never narrates work that is not happening.
+        if self._settings.greetings_per_kit > 0:
+            words = await self._staged(
+                reporter,
+                ledger,
+                PipelineStage.WRITING_SCRIPTS,
+                lambda: self._write_scripts(brief, lyrics.value),
+                policy=self._llm_policy,
+            )
+        else:
+            words = await self._write_scripts(brief, lyrics.value)
         if isinstance(words, Err):
             return words
 
@@ -253,12 +265,15 @@ class KitPipeline:
         ledger.record_cost(song.value.cost_usd)
         self._record_name_gap(ledger, song.value)
 
-        batch = await self._staged(
-            reporter,
-            ledger,
-            PipelineStage.RENDERING_GREETINGS,
-            lambda: self._render_greetings(order, words),
-        )
+        if self._settings.greetings_per_kit > 0:
+            batch = await self._staged(
+                reporter,
+                ledger,
+                PipelineStage.RENDERING_GREETINGS,
+                lambda: self._render_greetings(order, words),
+            )
+        else:
+            batch = await self._render_greetings(order, words)
         if isinstance(batch, Err):
             return batch
         ledger.record_cost(batch.value.cost_usd)
@@ -298,7 +313,30 @@ class KitPipeline:
         await reporter.emit(PipelineStage.DELIVERING, ProgressStatus.SUCCEEDED, now=self._clock())
 
     # -- individual steps ---------------------------------------------------
+    async def _lyrics_for(self, brief: Brief) -> Result[LyricDraft]:
+        """The lyric the customer approved, or one written now.
+
+        Approval happens in the wizard, before payment, so by the time a job reaches the
+        worker the words may already be settled. Re-writing them here would deliver a song
+        the customer never saw, so an approved lyric wins outright and the LLM is not
+        called at all.
+        """
+        approved = brief.approved_lyrics
+        if approved is not None:
+            _LOGGER.info(
+                "using the lyric the customer approved in the wizard",
+                extra={"sections": len(approved.sections)},
+            )
+            return ok(approved)
+        return await self._content.write_lyrics(brief)
+
     async def _write_scripts(self, brief: Brief, lyrics: LyricDraft) -> Result[_Words]:
+        # A song-only kit must not touch the speech vendor at all: no catalogue fetch, no
+        # script generation. Asking for zero voices and letting the empty tuple flow on
+        # would still spend a request and could fail the order on a vendor we do not use.
+        if self._settings.greetings_per_kit <= 0:
+            return ok(_Words(lyrics=lyrics, scripts=(), voices=()))
+
         async def call() -> Result[tuple[VoiceDescriptor, ...]]:
             return await self._tts.voices()
 

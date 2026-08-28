@@ -365,18 +365,6 @@ class NameVerdict(_Frozen):
 # ---------------------------------------------------------------------------
 # Brief and generated text
 # ---------------------------------------------------------------------------
-class Brief(_Frozen):
-    """Everything the user told us. Four structured answers plus a free-text note."""
-
-    recipient: RecipientName
-    occasion: Occasion
-    genre: Genre
-    vocal_gender: VoiceGender
-    note: str = Field(default="", max_length=600)
-    ui_language: Language
-    output_language: Language
-
-
 class LyricSection(_Frozen):
     """One structural block. ``is_name_hook`` marks the section that carries the name.
 
@@ -404,6 +392,27 @@ class LyricDraft(_Frozen):
     def as_plain_text(self) -> str:
         blocks = ("\n".join(section.lines) for section in self.sections)
         return "\n\n".join(blocks)
+
+
+class Brief(_Frozen):
+    """Everything the user told us. Four structured answers plus a free-text note.
+
+    ``LyricSection`` and ``LyricDraft`` are defined above rather than below so this class
+    reads top-down: a brief may already carry the lyric it will be sung with.
+    """
+
+    recipient: RecipientName
+    occasion: Occasion
+    genre: Genre
+    vocal_gender: VoiceGender
+    note: str = Field(default="", max_length=600)
+    ui_language: Language
+    output_language: Language
+    #: The lyric the user previewed and approved in the wizard; ``None`` means the pipeline
+    #: writes one itself. It is user-visible free text about the recipient — a pasted lyric
+    #: is whatever the customer typed — so it lives on the 30-day note clock, not the
+    #: 90-day identity clock.
+    approved_lyrics: LyricDraft | None = None
 
 
 class SpokenScript(_Frozen):
@@ -637,11 +646,16 @@ class GeneratedAsset(_Frozen):
 
 
 class Kit(_Frozen):
-    """The full deliverable: one song, three greetings, a lyric sheet, an optional cover."""
+    """The full deliverable: one song, a lyric sheet, an optional cover, and greetings.
+
+    ``greetings`` may be EMPTY, and empty is not a failure: ``HBD_GREETINGS_PER_KIT=0``
+    sells a song-only kit. The "every greeting failed" case is caught in ``assembly``,
+    which knows how many were asked for; this contract cannot tell the two apart.
+    """
 
     order_id: UUID
     song: GeneratedAsset
-    greetings: tuple[GeneratedAsset, ...] = Field(min_length=1)
+    greetings: tuple[GeneratedAsset, ...] = ()
     lyric_sheet: GeneratedAsset
     lyrics: LyricDraft
     cover: GeneratedAsset | None = None

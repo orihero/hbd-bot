@@ -159,3 +159,46 @@ async def test_captions_are_localised(
     caption = session.last_named("SendVoice").caption
     assert caption
     assert "delivery.greeting_caption" not in caption
+
+
+async def test_an_ampersand_heavy_lyric_sheet_stays_inside_the_message_ceiling(
+    bot: Bot, session: RecordingSession, kit: Kit
+) -> None:
+    """The sheet is escaped on the way out, so the split has to budget escaped characters.
+
+    A pasted lyric can be almost all ampersands. Each one costs one character in the draft
+    and five (``&amp;``) in the message Telegram counts, so a sheet budgeted on the raw text
+    sails past 4096, Telegram rejects it, delivery reports a failure and the customer never
+    receives the one artefact that shows the words they approved.
+    """
+    # Arrange — 1280 raw characters, comfortably inside every raw bound we apply
+    hostile = LyricSection(label="verse", lines=tuple(["&" * 160] * 8))
+    lyrics = make_lyrics(sections=(hostile, *make_lyrics().sections))
+    heavy = kit.model_copy(update={"lyrics": lyrics})
+
+    # Act
+    await deliver(bot, heavy)
+
+    # Assert
+    sheet_messages = [call for call in session.named("SendMessage") if isinstance(call, SendMessage)]
+    assert sheet_messages
+    for message in sheet_messages:
+        assert len(message.text) <= MAX_MESSAGE_CHARS
+
+
+async def test_an_oversized_block_is_carried_across_parts_rather_than_truncated(
+    bot: Bot, session: RecordingSession, kit: Kit
+) -> None:
+    """One verse longer than a message is split, not clipped: a lyric sheet loses nothing."""
+    # Arrange — a single block with no blank line in it, well over one message
+    marker = "zzmarkerzz"
+    single_block = LyricSection(label="verse", lines=(*["a line of lyric"] * 400, marker))
+    lyrics = make_lyrics(sections=(single_block,), name_display=UZBEK_NAME_CANONICAL)
+    big = kit.model_copy(update={"lyrics": lyrics})
+
+    # Act
+    await deliver(bot, big)
+
+    # Assert — the last line of the verse survived somewhere in the sheet
+    texts = [call.text for call in session.named("SendMessage") if isinstance(call, SendMessage)]
+    assert any(marker in text for text in texts)

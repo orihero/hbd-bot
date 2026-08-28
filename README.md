@@ -90,8 +90,8 @@ make cov         # unit tests with the 80% gate
 make test-all    # adds the integration tests (need ffmpeg; some need Postgres)
 ```
 
-Verified on this machine: **2508 unit tests pass**, `ruff check` clean, `mypy` clean over
-253 files, unit coverage **95%**. The integration suite adds 21 real-ffmpeg audio tests, 5
+Verified on this machine: **2636 unit tests pass**, `ruff check` clean, `mypy` clean over
+259 files, unit coverage **95%**. The integration suite adds 21 real-ffmpeg audio tests, 5
 full-stack wizard-to-delivery tests, the offline demo, and 8 Postgres tests that need
 `docker compose up -d`.
 
@@ -213,6 +213,10 @@ Honest list, so nobody rediscovers these under pressure.
   `HBD_MAX_ORDERS_PER_USER_PER_DAY` and the four `HBD_FREE_*` knobs were read by nothing, so
   they were removed rather than left looking load-bearing. Enforcement needs
   `KitRepository.list_orders_for_user` in `BotDeps`, and adds its own config back.
+  The one exception is `hbd.bot.handlers.lyrics.MAX_LYRIC_WRITES`: the lyric preview bills an
+  LLM *before* the payment gate, so a per-session cap on how many lyrics one wizard may ask
+  for lives in the draft. It is a spend cap, not a rate limiter, and it does not survive a
+  `/start`.
 - **Retention is a policy object, not configuration.** `RetentionPolicy` in
   `db/retention.py` owns the six periods as dataclass defaults, and `purge_expired` uses
   them. The `HBD_RETENTION_*` settings duplicated those numbers and were wired to nothing —

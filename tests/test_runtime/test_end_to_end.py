@@ -35,6 +35,7 @@ from hbd.bot.callbacks import (
 from hbd.bot.deps import BotDeps
 from hbd.config import Settings
 from hbd.contracts import Genre, Language, Occasion, Ok, VoiceGender
+from hbd.pipeline.content import LlmContentWriter
 from hbd.runtime.container import AppContainer, build_container
 from hbd.runtime.jobs import BOT_CTX_KEY, CONTAINER_CTX_KEY, generate_and_deliver
 from hbd.runtime.submitter import InProcessOrderSubmitter
@@ -85,8 +86,16 @@ async def app(
         await generate_and_deliver(ctx, order_id, chat_id, progress_message_id)
 
     submitter = InProcessOrderSubmitter(container.repository, run_inline)
+    # The wizard writes the lyric on the customer's screen now, so this is the one place
+    # the bot is wired with a REAL writer over the fake LLM provider — the same class the
+    # composition root builds, not a test double.
     dispatcher = build_dispatcher(
-        BotDeps(settings=configured, submitter=submitter, payment=container.payment),
+        BotDeps(
+            settings=configured,
+            submitter=submitter,
+            content=LlmContentWriter(container.providers.llm, configured),
+            payment=container.payment,
+        ),
         storage=MemoryStorage(),
     )
     try:
@@ -110,6 +119,9 @@ async def _walk_the_wizard(dispatcher: Dispatcher, bot: Bot) -> None:
     await dispatcher.feed_update(
         bot, callback_update(LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.UZ_LATN).pack())
     )
+    # The output language is no longer the last press: it writes a lyric and shows it, and
+    # the customer approves those exact words before the order can be confirmed.
+    await dispatcher.feed_update(bot, callback_update(NavCB(action=NavAction.LYRICS_OK).pack()))
     await dispatcher.feed_update(bot, callback_update(NavCB(action=NavAction.CONFIRM).pack()))
 
 

@@ -13,7 +13,14 @@ from hbd.bot.callbacks import (
 )
 from hbd.bot.draft import DRAFT_KEY
 from hbd.bot.i18n import translate
-from hbd.bot.states import WIZARD_ORDER, Wizard, WizardStep, previous_step
+from hbd.bot.states import (
+    WIZARD_ORDER,
+    Wizard,
+    WizardStep,
+    previous_step,
+    state_for,
+    step_for_state,
+)
 from hbd.contracts import Genre, Language, Occasion
 from tests.test_bot.conftest import RecordingSession, buttons
 from tests.test_bot.test_wizard_flow import UZBEK_DISPLAY, UZBEK_TYPED, press, send, walk_to_name
@@ -129,4 +136,19 @@ async def test_previous_step_is_derived_from_the_declared_order() -> None:
     assert previous_step(WIZARD_ORDER[0]) is None
     for earlier, later in pairs:
         assert previous_step(later) is earlier
-    assert previous_step(WizardStep.CONFIRM) is WizardStep.OUTPUT_LANGUAGE
+    assert previous_step(WizardStep.LYRICS) is WizardStep.OUTPUT_LANGUAGE
+    assert previous_step(WizardStep.CONFIRM) is WizardStep.LYRICS
+
+
+def test_every_step_has_a_state_and_a_place_in_the_order() -> None:
+    """The two hand-written tables in ``states.py`` are the easiest thing to half-update.
+
+    Neither is exhaustiveness-checked by mypy: a step missing from ``_STATE_BY_STEP`` is a
+    ``KeyError`` inside ``show_step`` for the first customer who reaches it, and one missing
+    from ``WIZARD_ORDER`` is a ``ValueError`` out of ``previous_step``.
+    """
+    # Arrange / Act / Assert
+    assert set(WIZARD_ORDER) == set(WizardStep)
+    for step in WizardStep:
+        assert state_for(step) is not None
+        assert step_for_state(state_for(step).state) is step

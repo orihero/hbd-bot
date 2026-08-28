@@ -13,15 +13,19 @@ from sqlalchemy.exc import IntegrityError, OperationalError
 
 from hbd.contracts import (
     AssetKind,
+    Genre,
     Language,
     NameCandidate,
     NameStrategy,
+    Occasion,
     Script,
+    VoiceGender,
     is_err,
     is_ok,
 )
 from hbd.db.guard import NotFoundError, not_found, run_guarded
 from hbd.db.mapping import (
+    approved_lyrics_from_json,
     asset_name_candidate_values,
     brief_identity_values,
     candidates_from_json,
@@ -29,6 +33,7 @@ from hbd.db.mapping import (
     lyrics_from_payload,
     lyrics_to_payload,
     payload_for,
+    to_brief,
     to_generated_asset,
     to_recipient_name,
 )
@@ -123,6 +128,71 @@ def test_only_the_lyric_sheet_stores_a_payload(tmp_path: Path) -> None:
     # Act / Assert — audio content lives in object storage, never in a row.
     assert payload_for(song, lyrics) is None
     assert payload_for(sheet, lyrics) is not None
+
+
+# ---------------------------------------------------------------------------
+# The approved lyric — the wizard's JSON boundary
+# ---------------------------------------------------------------------------
+def test_an_absent_approved_lyric_reads_as_none() -> None:
+    # Arrange — a brief written before the column existed, or one whose note clock ran.
+
+    # Act
+    restored = approved_lyrics_from_json(None, order_id=uuid4())
+
+    # Assert — None is a normal answer here: the pipeline writes its own lyric.
+    assert restored is None
+
+
+def test_the_approved_lyric_round_trips_through_the_brief_column() -> None:
+    # Arrange
+    lyrics = make_lyrics()
+
+    # Act
+    restored = approved_lyrics_from_json(lyrics_to_payload(lyrics), order_id=uuid4())
+
+    # Assert — the customer paid for these exact words, down to the hook.
+    assert restored == lyrics
+    assert restored is not None
+    assert restored.name_hook_sections[0].lines == (UZBEK_NAME_CANONICAL,)
+
+
+def test_approved_lyrics_from_json_rejects_a_column_that_is_not_a_payload() -> None:
+    # Arrange — a list is what ``recipient_candidates`` holds, not what a lyric looks like.
+
+    # Act / Assert
+    with pytest.raises(PipelineError):
+        approved_lyrics_from_json(["verse-1"], order_id=uuid4())
+
+
+def test_approved_lyrics_from_json_rejects_a_malformed_payload() -> None:
+    # Arrange — a lyric stored by an older schema is external data, not a safe cast.
+    corrupt = {**lyrics_to_payload(make_lyrics()), "sections": []}
+
+    # Act / Assert — failing beats silently singing words the customer never approved.
+    with pytest.raises(PydanticValidationError):
+        approved_lyrics_from_json(corrupt, order_id=uuid4())
+
+
+def test_a_brief_row_carries_its_approved_lyric_back_into_the_brief() -> None:
+    # Arrange
+    lyrics = make_lyrics()
+
+    # Act
+    brief = to_brief(_brief_row(approved_lyrics=lyrics_to_payload(lyrics)))
+
+    # Assert
+    assert brief.approved_lyrics == lyrics
+
+
+def test_a_brief_row_whose_lyric_was_purged_maps_back_to_none() -> None:
+    # Arrange — 30 days after delivery the note sweep nulls both free-text columns.
+
+    # Act
+    brief = to_brief(_brief_row(note=None, approved_lyrics=None))
+
+    # Assert — the order still reads; the pipeline simply writes its own lyric again.
+    assert brief.approved_lyrics is None
+    assert brief.note == ""
 
 
 # ---------------------------------------------------------------------------
@@ -333,6 +403,33 @@ def test_policy_is_frozen() -> None:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _brief_row(**overrides: Any) -> BriefRow:
+    """A brief row whose identity half is intact, so ``to_brief`` gets that far.
+
+    Built by hand rather than through the repository: this module tests translation, and a
+    session would only prove that SQLAlchemy stores what it is given.
+    """
+    name = make_name()
+    values: dict[str, Any] = {
+        "id": uuid4(),
+        "order_id": uuid4(),
+        "occasion": Occasion.BIRTHDAY,
+        "genre": Genre.UZBEK_POP,
+        "vocal_gender": VoiceGender.FEMALE,
+        "ui_language": Language.UZ_LATN,
+        "output_language": Language.UZ_LATN,
+        "note": "Loves mountains.",
+        "approved_lyrics": None,
+        "recipient_name_raw": name.raw,
+        "recipient_name_display": name.display,
+        "recipient_lookup_key": name.lookup_key,
+        "recipient_script": name.script,
+        "recipient_language": name.language,
+        "recipient_candidates": candidates_to_json(name.candidates),
+    }
+    return BriefRow(**{**values, **overrides})
+
+
 def _returning[T](value: T) -> Callable[[], Coroutine[Any, Any, T]]:
     """A zero-argument coroutine factory in the shape ``run_guarded`` expects."""
 

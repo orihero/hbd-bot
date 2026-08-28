@@ -40,7 +40,7 @@ from hbd.contracts import (
 from hbd.db.base import utc_now
 from hbd.db.enums import GenerationKind
 from hbd.db.guard import run_guarded
-from hbd.db.models.generation_attempt import GenerationAttemptRow
+from hbd.db.models.generation_attempt import TRANSCRIPT_LENGTH, GenerationAttemptRow
 from hbd.db.retention import DEFAULT_RETENTION_POLICY, RetentionPolicy
 
 __all__ = [
@@ -49,10 +49,24 @@ __all__ = [
     "GenerationAttemptRepository",
     "verdict_row_values",
     "name_verdicts_from_rows",
+    "truncate_transcript",
 ]
 
 #: A verdict row records our own judgement, not a vendor call, so it has no provider.
 _VERDICT_PROVIDER: str | None = None
+
+
+def truncate_transcript(transcript: str | None) -> str | None:
+    """Clip a transcript to what the column holds.
+
+    A transcript is DIAGNOSTIC. Losing its tail costs a little tuning signal; letting it
+    overflow costs the customer their kit, because the insert fails after the song and all
+    three greetings have been generated and paid for. A live order died exactly that way.
+    Clipping here rather than widening alone means a longer song can never resurrect it.
+    """
+    if transcript is None or len(transcript) <= TRANSCRIPT_LENGTH:
+        return transcript
+    return transcript[:TRANSCRIPT_LENGTH]
 
 
 class GenerationAttempt(BaseModel):
@@ -109,7 +123,7 @@ def verdict_row_values(verdict: NameVerdict) -> dict[str, Any]:
         "name_candidate_rank": verdict.candidate.rank,
         "is_name_verified": verdict.is_match,
         "match_confidence": verdict.confidence,
-        "stt_transcript": verdict.transcript,
+        "stt_transcript": truncate_transcript(verdict.transcript),
     }
 
 
@@ -204,13 +218,14 @@ class GenerationAttemptRepository:
                     name_candidate_rank=candidate.rank if candidate else None,
                     is_name_verified=attempt.is_name_verified,
                     match_confidence=attempt.match_confidence,
-                    stt_transcript=attempt.stt_transcript,
+                    stt_transcript=truncate_transcript(attempt.stt_transcript),
                     error_code=attempt.error_code,
                     error_message=attempt.error_message,
                     cost_usd=attempt.cost_usd,
                     cost_source=attempt.cost_source,
                     latency_ms=attempt.latency_ms,
                     identity_expires_at=self._policy.identity_expires_at(now),
+                    text_expires_at=self._policy.brief_text_expires_at(now),
                     created_at=now,
                 )
             )

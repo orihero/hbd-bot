@@ -24,7 +24,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 from aiogram.types import FSInputFile
 
-from hbd.bot.i18n import translate
+from hbd.bot.i18n import escape_html, translate
 from hbd.contracts import GeneratedAsset, Kit, Language, Result, err, ok
 from hbd.errors import DeliveryError
 from hbd.logging import get_logger
@@ -191,18 +191,61 @@ def _log_failure(label: str, kit: Kit, exc: TelegramAPIError) -> str:
     return f"{label}:{type(exc).__name__}"
 
 
+def _escaped_len(text: str) -> int:
+    """How many characters Telegram will actually count for ``text``.
+
+    ``translate`` HTML-escapes every parameter, so the string on the wire is not the string
+    we measured: ``&`` costs five characters there and one here, ``<`` and ``>`` cost four.
+    A lyric the customer pasted can be almost all ampersands, and budgeting the raw text
+    is how a sheet well inside the paste limit still arrives over Telegram's ceiling.
+    """
+    return len(escape_html(text))
+
+
+def _clip_to_escaped(text: str, budget: int) -> str:
+    """Longest prefix of ``text`` whose ESCAPED form fits ``budget``.
+
+    Counted one source character at a time rather than by slicing the escaped string,
+    because a slice can land inside ``&amp;`` and hand Telegram a broken entity — the same
+    rejected message this exists to avoid, arrived at from the other side. ``budget`` is
+    assumed to be at least the width of one escaped character, which the only caller's
+    constant satisfies by three orders of magnitude. Text that already fits comes back
+    unchanged, so there is no early return to keep in step with the loop.
+    """
+    kept: list[str] = []
+    spent = 0
+    for char in text:
+        spent += _escaped_len(char)
+        if spent > budget:
+            break
+        kept.append(char)
+    return "".join(kept)
+
+
 def _split_for_telegram(body: str) -> tuple[str, ...]:
-    """Split on blank lines so a verse is never cut in half. Never returns empty."""
+    """Split on blank lines so a verse is never cut in half. Never returns empty.
+
+    The budget is half of Telegram's ceiling, and the other half pays for the sheet's
+    heading — an escaped title inside ``<b>`` tags — which is added by the caller and
+    therefore cannot be measured here. A block too big even on its own is cut across
+    consecutive parts rather than truncated: a lyric sheet is the artefact that shows the
+    customer the words they approved, so losing its tail is not an acceptable saving.
+    """
     budget = MAX_MESSAGE_CHARS // 2
-    blocks = body.split("\n\n") if body else [""]
     parts: list[str] = []
     current = ""
-    for block in blocks:
+    for block in body.split("\n\n") if body else [""]:
         candidate = f"{current}\n\n{block}" if current else block
-        if len(candidate) <= budget or not current:
-            current = candidate[:budget]
+        if _escaped_len(candidate) <= budget:
+            current = candidate
             continue
-        parts.append(current)
-        current = block[:budget]
+        if current:
+            parts.append(current)
+        remainder = block
+        while _escaped_len(remainder) > budget:
+            head = _clip_to_escaped(remainder, budget)
+            parts.append(head)
+            remainder = remainder[len(head) :]
+        current = remainder
     parts.append(current)
     return tuple(parts)

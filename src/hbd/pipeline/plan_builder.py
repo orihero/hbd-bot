@@ -144,6 +144,26 @@ def _durations_by_index(
     return dict(zip(body_indices[:count], durations, strict=True))
 
 
+def _name_chunk_ms(*, settings: Settings, has_body: bool) -> int:
+    """How long the name chunk runs, given whether anything else is being sung.
+
+    Normally the name gets a short chunk of its own so a bad take costs one inpaint instead
+    of the whole track. But a lyric can consist of the hook alone — a customer who pastes
+    four lines with no blank line between them gets exactly one section, and so does a
+    sparse model payload — and then there is no body to carry the rest of the song. Left
+    alone the plan would total ``name_chunk_duration_ms``: a valid plan, above
+    ``MIN_SONG_DURATION_MS``, silently delivering eight seconds of a two-minute song that
+    the customer already paid for. Nothing downstream would notice, because nothing is
+    wrong except the length.
+
+    So when the body is empty the sole chunk takes the whole song budget, clamped to the
+    vendor's per-chunk ceiling.
+    """
+    if has_body:
+        return settings.name_chunk_duration_ms
+    return min(MAX_CHUNK_DURATION_MS, settings.song_length_ms)
+
+
 def _assemble_chunks(
     lyrics: LyricDraft,
     *,
@@ -201,13 +221,14 @@ def build_composition_plan(
         )
 
     hook_index = next(index for index, section in enumerate(lyrics.sections) if section is hooks[0])
+    duration_by_index = _durations_by_index(lyrics, hook_index=hook_index, settings=settings)
     chunks = _assemble_chunks(
         lyrics,
         brief=brief,
         candidate=candidate,
         hook_index=hook_index,
-        name_ms=settings.name_chunk_duration_ms,
-        duration_by_index=_durations_by_index(lyrics, hook_index=hook_index, settings=settings),
+        name_ms=_name_chunk_ms(settings=settings, has_body=bool(duration_by_index)),
+        duration_by_index=duration_by_index,
     )
     return _plan_or_error(
         chunks,

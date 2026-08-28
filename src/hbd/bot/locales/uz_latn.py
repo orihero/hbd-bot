@@ -29,8 +29,8 @@ CATALOGUE: Final[dict[str, str]] = {
     "error.payment_failed": "Toʻlov amalga oshmadi. Hech qanday pul yechilmadi.",
     # -- start -------------------------------------------------------------
     "start.welcome": (
-        "🎂 Salom! Men shaxsiy tabrik toʻplamini tayyorlayman: bitta qoʻshiq, uchta ovozli "
-        "tabrik va qoʻshiq matni — ism toʻgʻri talaffuz qilingan holda."
+        "🎂 Salom! Men shaxsiy tabrik toʻplamini tayyorlayman: bitta qoʻshiq va qoʻshiq "
+        "matni — ism toʻgʻri talaffuz qilingan holda."
     ),
     "start.choose_ui_language": "Avvalo, men siz bilan qaysi tilda gaplashay?",
     # -- wizard ------------------------------------------------------------
@@ -53,7 +53,31 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "wizard.name.confirm": "Men uni shunday yozaman va kuylayman:\n\n<b>{name}</b>\n\nToʻgʻrimi?",
     "wizard.name.unresolved": "Bu ismni oʻqiy olmadim. Iltimos, qaytadan yozing.",
-    "wizard.output_language.prompt": "Qoʻshiq va tabriklar qaysi tilda boʻlsin?",
+    "wizard.output_language.prompt": "Qoʻshiq qaysi tilda boʻlsin?",
+    "wizard.lyrics.writing": "✍️ Qoʻshiq matnini yozayapman… bu bir necha soniya oladi.",
+    "wizard.lyrics.preview": (
+        "<b>{title}</b>\n\n"
+        "<pre>{lyrics}</pre>\n\n"
+        "Shu matn qolsin desangiz ✅ ni, boshqasini koʻrmoqchi boʻlsangiz 🔄 ni bosing "
+        "yoki oʻz matningizni xabar qilib yuboring."
+    ),
+    "wizard.lyrics.failed": (
+        "Qoʻshiq matnini yoza olmadim. Bir ozdan soʻng qayta urinib koʻring."
+    ),
+    "wizard.lyrics.too_short": (
+        "Bu qoʻshiq uchun qisqa. Iltimos, kamida {limit} belgi yuboring."
+    ),
+    "wizard.lyrics.too_long": (
+        "Bu qoʻshiq uchun juda uzun. Iltimos, matn {limit} belgidan oshmasin."
+    ),
+    "wizard.lyrics.type_only": (
+        "Iltimos, qoʻshiq matnini matn koʻrinishida yuboring — ovozli xabar boʻlmaydi."
+    ),
+    "wizard.lyrics.updated": "Qabul qilindi — sizning matningizdan foydalanaman.",
+    "wizard.lyrics.too_many": (
+        "Bu qoʻshiq uchun allaqachon {limit} ta matn yozdim. "
+        "Yuqoridagisini qoldiring yoki oʻz matningizni xabar qilib yuboring."
+    ),
     "wizard.confirm.summary": (
         "<b>Sizning toʻplamingiz</b>\n"
         "Ism: <b>{name}</b>\n"
@@ -84,6 +108,8 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.confirm": "✅ Ha, boshlaymiz",
     "button.name_ok": "✅ Toʻgʻri",
     "button.retype": "✏️ Qaytadan yozish",
+    "button.lyrics_ok": "✅ Shu matn qolsin",
+    "button.regenerate": "🔄 Boshqa matn yozilsin",
     # -- enum labels -------------------------------------------------------
     "occasion.birthday": "Tugʻilgan kun",
     "occasion.anniversary": "Yubiley",

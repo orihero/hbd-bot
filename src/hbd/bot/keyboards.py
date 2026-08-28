@@ -43,12 +43,14 @@ __all__ = [
     "note_keyboard",
     "name_prompt_keyboard",
     "name_confirm_keyboard",
+    "lyrics_keyboard",
     "confirm_keyboard",
     "LANGUAGE_COLUMNS",
     "GENRE_COLUMNS",
     "OCCASION_COLUMNS",
     "VOCAL_GENDER_COLUMNS",
     "VOCAL_GENDER_CHOICES",
+    "REGENERATE_LABEL_KEY",
 ]
 
 #: Layout widths. Telegram truncates a row that is too wide on a narrow phone, and Uzbek
@@ -57,6 +59,11 @@ LANGUAGE_COLUMNS: Final[int] = 2
 GENRE_COLUMNS: Final[int] = 2
 OCCASION_COLUMNS: Final[int] = 1
 VOCAL_GENDER_COLUMNS: Final[int] = 2
+
+#: The one nav button whose label key is not ``button.{action.value}``: the callback value
+#: is abbreviated to ``regen`` to stay small on the wire, while the catalogue spells the key
+#: out. Naming it here keeps the exception visible instead of buried in a call.
+REGENERATE_LABEL_KEY: Final[str] = "button.regenerate"
 
 #: Vocal options offered in the wizard. ``ANY`` is deliberately last: it is the escape
 #: hatch, not the default.
@@ -170,6 +177,24 @@ def name_confirm_keyboard(language: Language) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.row(_nav_button(NavAction.NAME_OK, language))
     builder.row(_nav_button(NavAction.RETYPE, language))
+    return _with_nav(builder, language, is_back_enabled=True)
+
+
+def lyrics_keyboard(language: Language) -> InlineKeyboardMarkup:
+    """Approve, regenerate, or ignore both and type your own lyric.
+
+    There is no Skip: past this screen the lyric is decided, and a kit whose words nobody
+    ever looked at is exactly the outcome this step exists to prevent. Typing is the third,
+    unlabelled option — the step accepts a pasted lyric as a plain message.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.row(_nav_button(NavAction.LYRICS_OK, language))
+    builder.row(
+        InlineKeyboardButton(
+            text=translate(REGENERATE_LABEL_KEY, language),
+            callback_data=NavCB(action=NavAction.REGENERATE).pack(),
+        )
+    )
     return _with_nav(builder, language, is_back_enabled=True)
 
 

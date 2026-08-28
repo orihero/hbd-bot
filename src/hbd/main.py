@@ -32,6 +32,7 @@ from hbd.bot.ports import OrderSubmitter
 from hbd.config import Settings, load_settings
 from hbd.errors import HbdError
 from hbd.logging import configure_logging, get_logger
+from hbd.pipeline.content import LlmContentWriter
 from hbd.runtime.container import AppContainer, build_container
 from hbd.runtime.jobs import BOT_CTX_KEY, CONTAINER_CTX_KEY, generate_and_deliver
 from hbd.runtime.startup import verify_host
@@ -80,6 +81,11 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
     deps = BotDeps(
         settings=settings,
         submitter=submitter,
+        # The wizard writes the lyric before the order is queued, so it needs the same
+        # writer the pipeline uses. The primary provider only: the fallback exists for the
+        # worker's unattended retries, and a customer waiting on a screen is better served
+        # by a quick "please try again" than by a second slow vendor call.
+        content=LlmContentWriter(container.providers.llm, settings),
         payment=container.payment,
         amount_minor=settings.kit_price_amount_minor,
         currency=settings.kit_currency,

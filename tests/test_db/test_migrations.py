@@ -62,6 +62,13 @@ _EXPECTED_TABLES: Final[frozenset[str]] = frozenset(
     {"users", "orders", "briefs", "assets", "name_records", "generation_attempts"}
 )
 
+#: The revision that adds the lyric the customer approves in the wizard, and the one it
+#: builds on. Named here because both halves of the product depend on this column existing
+#: before the wizard ships: without it the worker silently sings a lyric nobody approved.
+_APPROVED_LYRICS_REVISION: Final[str] = "0003"
+_REVISION_BEFORE_APPROVED_LYRICS: Final[str] = "0002"
+_APPROVED_LYRICS_COLUMN: Final[str] = "approved_lyrics"
+
 
 def _config() -> Config:
     config = Config(str(_ALEMBIC_INI))
@@ -192,6 +199,18 @@ def test_no_migration_imports_application_code() -> None:
     assert offenders == [], f"migrations importing application code: {offenders}"
 
 
+def test_the_approved_lyrics_revision_is_reachable_from_head() -> None:
+    # Arrange — walk_revisions starts at head, so membership proves the chain resolves.
+    script = ScriptDirectory.from_config(_config())
+
+    # Act
+    revisions = {revision.revision for revision in script.walk_revisions()}
+
+    # Assert — a revision whose down_revision is missing makes the whole chain unusable.
+    assert _APPROVED_LYRICS_REVISION in revisions
+    assert _REVISION_BEFORE_APPROVED_LYRICS in revisions
+
+
 # ---------------------------------------------------------------------------
 # SQLite — runs everywhere, no Docker
 # ---------------------------------------------------------------------------
@@ -252,6 +271,27 @@ def test_upgrade_is_idempotent_when_already_at_head(
 
     # Assert
     assert set(_schema_of(url)) == set(_EXPECTED_TABLES)
+
+
+def test_the_approved_lyrics_column_is_added_and_dropped_by_its_own_revision(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange — stop one revision short of the column.
+    url = _sqlite_url(tmp_path, "lyrics.db")
+    _upgrade(url, monkeypatch, to=_REVISION_BEFORE_APPROVED_LYRICS)
+    before = _schema_of(url)["briefs"]
+
+    # Act
+    _upgrade(url, monkeypatch, to=_APPROVED_LYRICS_REVISION)
+    after = _schema_of(url)["briefs"]
+    _downgrade(url, monkeypatch, to=_REVISION_BEFORE_APPROVED_LYRICS)
+    reverted = _schema_of(url)["briefs"]
+
+    # Assert — the column is exactly what the revision adds, and batch_alter_table rebuilds
+    # the SQLite table on the way back down without losing any of its other columns.
+    assert _APPROVED_LYRICS_COLUMN not in before
+    assert after == before | {_APPROVED_LYRICS_COLUMN}
+    assert reverted == before
 
 
 def test_the_migration_records_its_revision(

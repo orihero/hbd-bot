@@ -34,6 +34,7 @@ class WizardStep(StrEnum):
     NAME = "name"
     NAME_CONFIRM = "name_confirm"
     OUTPUT_LANGUAGE = "output_language"
+    LYRICS = "lyrics"
     CONFIRM = "confirm"
 
 
@@ -48,6 +49,7 @@ class Wizard(StatesGroup):
     name = State()
     name_confirm = State()
     output_language = State()
+    lyrics = State()
     confirm = State()
     submitting = State()
 
@@ -61,6 +63,7 @@ WIZARD_ORDER: Final[tuple[WizardStep, ...]] = (
     WizardStep.NAME,
     WizardStep.NAME_CONFIRM,
     WizardStep.OUTPUT_LANGUAGE,
+    WizardStep.LYRICS,
     WizardStep.CONFIRM,
 )
 
@@ -73,6 +76,7 @@ _STATE_BY_STEP: Final[dict[WizardStep, State]] = {
     WizardStep.NAME: Wizard.name,
     WizardStep.NAME_CONFIRM: Wizard.name_confirm,
     WizardStep.OUTPUT_LANGUAGE: Wizard.output_language,
+    WizardStep.LYRICS: Wizard.lyrics,
     WizardStep.CONFIRM: Wizard.confirm,
 }
 

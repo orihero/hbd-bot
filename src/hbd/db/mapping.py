@@ -6,9 +6,9 @@ which is what makes the whole conversion layer testable without a database.
 **A stored JSON column is external data.** It was written by an older version of this code,
 possibly against an older schema, and the project rule on parsing untrusted text applies to
 it exactly as it applies to an LLM payload: never an unchecked cast, always a schema
-validation, and a typed error naming what failed. ``candidates_from_json`` and
-``lyrics_from_payload`` are those boundaries; nothing else in the package reads a JSON
-column directly.
+validation, and a typed error naming what failed. ``candidates_from_json``,
+``lyrics_from_payload`` and ``approved_lyrics_from_json`` are those boundaries; nothing else
+in the package reads a JSON column directly.
 
 The other invariant this module protects is the display/submitted split. ``display`` comes
 out of ``recipient_name_display`` and is the only string a human sees; the candidate texts
@@ -45,6 +45,7 @@ __all__ = [
     "candidates_from_json",
     "lyrics_to_payload",
     "lyrics_from_payload",
+    "approved_lyrics_from_json",
     "to_recipient_name",
     "to_brief",
     "to_order",
@@ -98,6 +99,31 @@ def lyrics_from_payload(raw: object, *, order_id: UUID) -> LyricDraft:
     return LyricDraft.model_validate(raw)
 
 
+def approved_lyrics_from_json(raw: object, *, order_id: UUID) -> LyricDraft | None:
+    """Validate the lyric the customer approved in the wizard, if there still is one.
+
+    ``None`` is a normal answer, not a fault: the column is absent from briefs written
+    before it existed, and it is nulled once the 30-day note clock has run. Both mean the
+    same thing downstream — the pipeline writes its own lyric.
+
+    A stored value that no longer matches ``LyricDraft`` raises ``pydantic.ValidationError``
+    and lets ``run_guarded`` turn it into a typed, non-retryable ``Err``, exactly as
+    ``candidates_from_json`` does. Note this is the harsher of the two available answers:
+    a shape mismatch makes the whole order unreadable, where returning ``None`` and logging
+    loudly would degrade to "the pipeline writes its own lyric". The strict reading is
+    deliberate — the customer paid for the words they approved, and silently singing
+    different ones is worse than failing visibly.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise PipelineError(
+            "stored approved lyric is not a lyric payload",
+            context={"order_id": str(order_id), "payload_type": type(raw).__name__},
+        )
+    return LyricDraft.model_validate(raw)
+
+
 # ---------------------------------------------------------------------------
 # Rows -> contracts
 # ---------------------------------------------------------------------------
@@ -130,7 +156,10 @@ def to_recipient_name(row: BriefRow) -> RecipientName:
 
 
 def to_brief(row: BriefRow) -> Brief:
-    """Rebuild the brief. A purged note reads as empty, which is what ``Brief`` defaults to."""
+    """Rebuild the brief. A purged note reads as empty, which is what ``Brief`` defaults to.
+
+    A purged approved lyric reads as ``None`` for the same reason: the pipeline writes one.
+    """
     return Brief(
         recipient=to_recipient_name(row),
         occasion=row.occasion,
@@ -139,6 +168,7 @@ def to_brief(row: BriefRow) -> Brief:
         note=row.note or "",
         ui_language=row.ui_language,
         output_language=row.output_language,
+        approved_lyrics=approved_lyrics_from_json(row.approved_lyrics, order_id=row.order_id),
     )
 
 

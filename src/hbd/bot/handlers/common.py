@@ -61,8 +61,18 @@ async def show_step(
 
     Returns the step actually shown, which can differ from ``step`` when the draft is not
     complete enough to render it.
+
+    ``resolve_step`` downgrades by one rule at a time, and one downgrade is not always
+    enough: a summary whose lyric was never approved resolves to the preview, and a preview
+    with no lyric in it resolves further to the language question. Stopping after the first
+    rule would set the FSM to ``Wizard.lyrics`` and then render the language picker, whose
+    buttons are filtered to ``Wizard.output_language`` — a screen whose every button is
+    dead. So the downgrade runs to a fixpoint. It terminates because every rule moves
+    strictly earlier in ``WIZARD_ORDER``.
     """
     shown = resolve_step(step, draft)
+    while (further := resolve_step(shown, draft)) is not shown:
+        shown = further
     await write_draft(state, draft)
     await state.set_state(state_for(shown))
     await present(event, render_step(shown, draft))

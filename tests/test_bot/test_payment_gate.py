@@ -21,6 +21,7 @@ from tests.test_bot.conftest import (
     CHAT_ID,
     USER_ID,
     DecliningPaymentProvider,
+    RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
 )
@@ -55,7 +56,12 @@ async def test_declined_payment_blocks_the_queue_and_keeps_the_user_on_confirm(
     # Arrange
     submitter = RecordingSubmitter()
     storage = MemoryStorage()
-    deps = BotDeps(settings=settings, submitter=submitter, payment=DecliningPaymentProvider())
+    deps = BotDeps(
+        settings=settings,
+        submitter=submitter,
+        content=RecordingContentWriter(),
+        payment=DecliningPaymentProvider(),
+    )
     dispatcher = build_dispatcher(deps, storage=storage)
     state = FSMContext(
         storage=storage, key=StorageKey(bot_id=bot.id, chat_id=CHAT_ID, user_id=USER_ID)
@@ -79,7 +85,8 @@ async def test_queue_failure_keeps_the_user_on_confirm(
     submitter = RecordingSubmitter(failure=RuntimeError("redis is down"))
     storage = MemoryStorage()
     dispatcher = build_dispatcher(
-        BotDeps(settings=settings, submitter=submitter), storage=storage
+        BotDeps(settings=settings, submitter=submitter, content=RecordingContentWriter()),
+        storage=storage,
     )
     await walk_to_confirm(dispatcher, bot)
 

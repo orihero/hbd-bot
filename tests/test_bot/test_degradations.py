@@ -25,7 +25,12 @@ from hbd.contracts import AssetKind, Err, Kit, Language, Result, err
 from hbd.errors import PaymentError
 from hbd.pipeline.events import PipelineStage, ProgressStatus
 from tests.conftest import make_asset
-from tests.test_bot.conftest import CHAT_ID, RecordingSession, RecordingSubmitter
+from tests.test_bot.conftest import (
+    CHAT_ID,
+    RecordingContentWriter,
+    RecordingSession,
+    RecordingSubmitter,
+)
 from tests.test_bot.test_progress import event
 from tests.test_bot.test_wizard_flow import press, send, walk_to_confirm, walk_to_name
 
@@ -101,7 +106,12 @@ async def test_a_screen_that_cannot_be_edited_is_sent_as_a_new_message(
 ) -> None:
     # Arrange
     dispatcher = build_dispatcher(
-        BotDeps(settings=settings, submitter=RecordingSubmitter()), storage=MemoryStorage()
+        BotDeps(
+            settings=settings,
+            submitter=RecordingSubmitter(),
+            content=RecordingContentWriter(),
+        ),
+        storage=MemoryStorage(),
     )
     await send(dispatcher, bot, "/start")
     session.failures["EditMessageText"] = TelegramBadRequest(
@@ -167,7 +177,12 @@ async def test_a_payment_provider_error_is_shown_in_the_user_s_language(
     # Arrange
     submitter = RecordingSubmitter()
     dispatcher = build_dispatcher(
-        BotDeps(settings=settings, submitter=submitter, payment=FailingPaymentProvider()),
+        BotDeps(
+            settings=settings,
+            submitter=submitter,
+            content=RecordingContentWriter(),
+            payment=FailingPaymentProvider(),
+        ),
         storage=MemoryStorage(),
     )
     await walk_to_confirm(dispatcher, bot)
@@ -187,7 +202,8 @@ async def test_the_wizard_survives_a_second_run_in_the_same_chat(
     # Arrange
     submitter = RecordingSubmitter()
     dispatcher = build_dispatcher(
-        BotDeps(settings=settings, submitter=submitter), storage=MemoryStorage()
+        BotDeps(settings=settings, submitter=submitter, content=RecordingContentWriter()),
+        storage=MemoryStorage(),
     )
 
     # Act

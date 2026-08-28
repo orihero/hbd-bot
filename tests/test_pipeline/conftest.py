@@ -34,6 +34,7 @@ from hbd.contracts import (
     Kit,
     Language,
     LlmRequest,
+    LyricDraft,
     Order,
     OrderState,
     PaymentAuthorization,
@@ -41,6 +42,7 @@ from hbd.contracts import (
     RenderedAudio,
     Result,
     SpeechRequest,
+    SpokenScript,
     StoredObject,
     Transcript,
     VoiceDescriptor,
@@ -54,8 +56,10 @@ from hbd.errors import (
     ProviderUnavailableError,
     StorageError,
 )
+from hbd.pipeline.content import LlmContentWriter
 from hbd.pipeline.events import ProgressEvent
 from hbd.pipeline.orchestrator import KitPipeline
+from hbd.pipeline.ports import ContentWriter
 from tests.conftest import FIXED_NOW, make_order
 
 SONG_PREFIX = "song:"
@@ -299,6 +303,44 @@ def _synthesise(model_name: str, request: LlmRequest) -> dict[str, Any]:
     raise AssertionError(f"the fake LLM has no answer for {model_name}")
 
 
+class SpyContentWriter:
+    """The real writer, plus a record of what it was actually asked to write.
+
+    A lyric the customer approved and a lyric written just now are the same type, so the
+    short circuit in ``KitPipeline._lyrics_for`` is invisible from the outcome alone —
+    a kit comes back either way. Counting the calls is the only honest proof that the
+    writer was never asked. It delegates rather than replaces because a run still has to
+    finish: the greetings must be written for the pipeline to reach a kit at all.
+    """
+
+    def __init__(self, inner: ContentWriter) -> None:
+        self._inner = inner
+        self.lyric_briefs: list[Brief] = []
+        self.script_briefs: list[Brief] = []
+
+    async def write_lyrics(self, brief: Brief) -> Result[LyricDraft]:
+        self.lyric_briefs.append(brief)
+        return await self._inner.write_lyrics(brief)
+
+    async def write_scripts(
+        self,
+        brief: Brief,
+        lyrics: LyricDraft,
+        *,
+        voices: tuple[VoiceDescriptor, ...],
+        name_submitted: str,
+        target_duration_s: float,
+    ) -> Result[tuple[SpokenScript, ...]]:
+        self.script_briefs.append(brief)
+        return await self._inner.write_scripts(
+            brief,
+            lyrics,
+            voices=voices,
+            name_submitted=name_submitted,
+            target_duration_s=target_duration_s,
+        )
+
+
 class FakePaymentProvider:
     name = "noop-fake"
 
@@ -508,6 +550,14 @@ class Studio:
         }
         return KitPipeline(**{**kwargs, **overrides})
 
+    def content_spy(self) -> SpyContentWriter:
+        """A writer that records its calls, wrapped around the real one over the fake LLM.
+
+        Pass it to ``pipeline(content_writer=...)`` when a test needs to know *whether*
+        the words were written, not just what they say.
+        """
+        return SpyContentWriter(LlmContentWriter(self.llm, self.settings))
+
     def enrol(self, order: Order) -> Order:
         self.repository.orders[order.id] = order
         return order
@@ -569,4 +619,5 @@ __all__ = [
     "FakeStorage",
     "FakeKitRepository",
     "FakePaymentProvider",
+    "SpyContentWriter",
 ]

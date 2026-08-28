@@ -22,7 +22,7 @@ from hbd.db.names import NameRecordDraft, NameRecordRepository
 from hbd.db.purge import purge_expired
 from hbd.db.repository import SqlKitRepository
 from hbd.db.retention import DEFAULT_RETENTION_POLICY, RetentionClass, RetentionPolicy
-from tests.conftest import make_candidates
+from tests.conftest import make_brief, make_candidates, make_lyrics
 from tests.test_db.conftest import MovableClock, build_kit, new_order
 
 _DAYS_IN_A_YEAR = 365
@@ -224,6 +224,130 @@ async def test_clearing_the_note_leaves_the_structured_answers_intact(
     assert row.genre is not None
 
 
+async def test_the_approved_lyric_is_cleared_by_the_same_thirty_day_clock(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    clock: MovableClock,
+) -> None:
+    # Arrange — the lyric names the recipient in its hook, so it is free text about them.
+    order = new_order(brief=make_brief(approved_lyrics=make_lyrics()))
+    await repository.create_order(order)
+
+    # Act
+    result = await purge_expired(sessions, now=clock.advance(days=31))
+
+    # Assert
+    assert is_ok(result)
+    assert result.value.brief_notes_purged == 1
+    async with sessions() as session:
+        row = (
+            await session.execute(sa.select(BriefRow).where(BriefRow.order_id == order.id))
+        ).scalar_one()
+    assert row.approved_lyrics is None
+    assert row.note is None
+    assert row.note_purged_at is not None
+
+
+async def test_the_approved_lyric_survives_twenty_nine_days(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    clock: MovableClock,
+) -> None:
+    # Arrange
+    order = new_order(brief=make_brief(approved_lyrics=make_lyrics()))
+    await repository.create_order(order)
+
+    # Act
+    await purge_expired(sessions, now=clock.advance(days=29))
+
+    # Assert — a re-send inside the window must still deliver the words that were approved.
+    async with sessions() as session:
+        stored = await session.scalar(
+            sa.select(BriefRow.approved_lyrics).where(BriefRow.order_id == order.id)
+        )
+    assert stored is not None
+
+
+async def test_a_brief_with_a_lyric_and_no_note_is_still_swept(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    clock: MovableClock,
+) -> None:
+    # Arrange — a customer who skipped the note but approved a lyric. The sweep's predicate
+    # is an OR precisely so this row is not left behind holding a person's name.
+    order = new_order(brief=make_brief(note="", approved_lyrics=make_lyrics()))
+    await repository.create_order(order)
+    async with sessions() as session:
+        assert (
+            await session.scalar(sa.select(BriefRow.note).where(BriefRow.order_id == order.id))
+        ) is None
+
+    # Act
+    result = await purge_expired(sessions, now=clock.advance(days=31))
+
+    # Assert
+    assert is_ok(result)
+    assert result.value.brief_notes_purged == 1
+    async with sessions() as session:
+        row = (
+            await session.execute(sa.select(BriefRow).where(BriefRow.order_id == order.id))
+        ).scalar_one()
+    assert row.approved_lyrics is None
+    assert row.note_purged_at is not None
+
+
+async def test_a_purged_brief_is_not_re_purged_on_the_next_run(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    clock: MovableClock,
+) -> None:
+    # Arrange — one brief with both free-text columns, one with only the lyric. Nulling one
+    # column and not the other would make the nightly job churn these rows forever.
+    with_both = new_order(brief=make_brief(approved_lyrics=make_lyrics()))
+    lyric_only = new_order(brief=make_brief(note="", approved_lyrics=make_lyrics()))
+    await repository.create_order(with_both)
+    await repository.create_order(lyric_only)
+    first = await purge_expired(sessions, now=clock.advance(days=31))
+
+    # Act
+    second = await purge_expired(sessions, now=clock.advance(days=1))
+
+    # Assert — idempotent: the widened OR predicate must not re-select a cleared row.
+    assert is_ok(first)
+    assert first.value.brief_notes_purged == 2
+    assert is_ok(second)
+    assert second.value.brief_notes_purged == 0
+
+
+async def test_the_identity_clock_also_clears_the_lyric_when_it_runs_first(
+    sessions: async_sessionmaker[AsyncSession],
+    clock: MovableClock,
+) -> None:
+    # Arrange — a policy whose note clock outlives its identity clock. Nothing forbids it,
+    # and the recipient's name is sung verbatim in the lyric's hook section.
+    policy = RetentionPolicy(brief_text_days=60, recipient_identity_days=30)
+    repository = SqlKitRepository(sessions, policy=policy, clock=clock)
+    order = new_order(brief=make_brief(approved_lyrics=make_lyrics()))
+    await repository.create_order(order)
+
+    # Act
+    result = await purge_expired(sessions, now=clock.advance(days=31), policy=policy)
+
+    # Assert — the name is gone from every column it lived in, on its own clock.
+    assert is_ok(result)
+    assert result.value.brief_identities_purged == 1
+    assert result.value.brief_notes_purged == 0
+    async with sessions() as session:
+        row = (
+            await session.execute(sa.select(BriefRow).where(BriefRow.order_id == order.id))
+        ).scalar_one()
+    assert row.approved_lyrics is None
+    assert row.recipient_name_display is None
+    # The note clock has not run, so its audit column must not claim that it has.
+    assert row.note is not None
+    assert row.note_purged_at is None
+
+
 # ---------------------------------------------------------------------------
 # Recipient identity — 90 days
 # ---------------------------------------------------------------------------
@@ -340,6 +464,64 @@ async def test_attempt_identity_is_nulled_but_the_tuning_signal_survives(
     assert row.stt_transcript is None
     assert row.name_candidate_strategy is not None
     assert row.is_name_verified is not None
+
+
+async def test_the_song_transcript_goes_at_thirty_days_while_the_name_text_stays(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    clock: MovableClock,
+) -> None:
+    """The transcript is the SONG, so it rides the free-text clock, not the identity one.
+
+    Inpainting is enterprise-gated, so verification transcribes the whole track — which
+    means ``stt_transcript`` holds the lyric, and since the wizard's preview step the lyric
+    may be words the customer wrote. Those words expire from ``briefs.approved_lyrics`` at
+    thirty days; a copy of them surviving here until day ninety would be a retention
+    schedule nobody promised. The candidate ladder is still tuned from the name text, so
+    that half keeps the ninety-day clock.
+    """
+    # Arrange
+    order = await _delivered_order_with_kit(repository, tmp_path, clock)
+
+    # Act
+    result = await purge_expired(sessions, now=clock.advance(days=31))
+
+    # Assert
+    assert is_ok(result)
+    assert result.value.attempt_transcripts_purged >= 1
+    assert result.value.attempt_identities_purged == 0
+    async with sessions() as session:
+        row = (
+            (
+                await session.execute(
+                    sa.select(GenerationAttemptRow).where(GenerationAttemptRow.order_id == order.id)
+                )
+            )
+            .scalars()
+            .first()
+        )
+    assert row is not None
+    assert row.stt_transcript is None
+    assert row.name_candidate_text is not None
+
+
+async def test_a_purged_transcript_is_not_re_purged_on_the_next_run(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    clock: MovableClock,
+) -> None:
+    # Arrange
+    await _delivered_order_with_kit(repository, tmp_path, clock)
+    await purge_expired(sessions, now=clock.advance(days=31))
+
+    # Act
+    second = await purge_expired(sessions, now=clock.advance(days=1))
+
+    # Assert — a nightly job must not churn the same rows forever.
+    assert is_ok(second)
+    assert second.value.attempt_transcripts_purged == 0
 
 
 async def test_a_purged_attempt_is_not_re_purged_on_the_next_run(

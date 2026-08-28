@@ -19,6 +19,7 @@ from hbd.config import Settings
 from hbd.contracts import Language
 from hbd.errors import ModerationRejectedError, ProviderTimeoutError
 from tests.test_bot.conftest import (
+    RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
     callback_update,
@@ -61,7 +62,9 @@ async def test_exception_becomes_a_localised_message(
     expected_key: str,
 ) -> None:
     # Arrange
-    deps = BotDeps(settings=settings, submitter=RecordingSubmitter())
+    deps = BotDeps(
+        settings=settings, submitter=RecordingSubmitter(), content=RecordingContentWriter()
+    )
     dispatcher = exploding_dispatcher(deps, exception)
 
     # Act — must not raise out of feed_update
@@ -75,7 +78,9 @@ async def test_failure_is_logged_with_full_context(
     settings: Settings, bot: Bot, caplog: pytest.LogCaptureFixture
 ) -> None:
     # Arrange
-    deps = BotDeps(settings=settings, submitter=RecordingSubmitter())
+    deps = BotDeps(
+        settings=settings, submitter=RecordingSubmitter(), content=RecordingContentWriter()
+    )
     dispatcher = exploding_dispatcher(deps, RuntimeError("kaboom"))
 
     # Act
@@ -93,7 +98,9 @@ async def test_a_failing_callback_still_gets_its_spinner_stopped(
     settings: Settings, bot: Bot, session: RecordingSession
 ) -> None:
     # Arrange
-    deps = BotDeps(settings=settings, submitter=RecordingSubmitter())
+    deps = BotDeps(
+        settings=settings, submitter=RecordingSubmitter(), content=RecordingContentWriter()
+    )
     dispatcher = exploding_dispatcher(deps, RuntimeError("kaboom"))
 
     # Act

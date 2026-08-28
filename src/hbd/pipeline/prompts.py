@@ -154,8 +154,18 @@ def moderation_system_prompt() -> str:
 
 
 def moderation_user_prompt(brief: Brief) -> str:
-    return (
-        f'Recipient name: "{brief.recipient.display}"\n'
-        f"Occasion: {brief.occasion.value}\n"
-        f'Sender note: "{brief.note.strip()}"'
-    )
+    """The material to judge. The lyric block appears only when there is one to judge.
+
+    A lyric the customer approved in the wizard is user free text that ships as the
+    product, so the reviewer must see it. A brief without one is left byte-identical to
+    what it was before the preview step existed — the reviewer should not be told about an
+    absent lyric, and prompt drift on the common path buys nothing.
+    """
+    blocks = [
+        f'Recipient name: "{brief.recipient.display}"',
+        f"Occasion: {brief.occasion.value}",
+        f'Sender note: "{brief.note.strip()}"',
+    ]
+    if brief.approved_lyrics is not None:
+        blocks.append(f'Song lyrics: "{brief.approved_lyrics.as_plain_text()}"')
+    return "\n".join(blocks)

@@ -33,6 +33,12 @@ class NavAction(StrEnum):
     CONFIRM = "confirm"
     NAME_OK = "name_ok"
     RETYPE = "retype"
+    LYRICS_OK = "lyrics_ok"
+    #: Ask for a different lyric. Abbreviated because the value is packed into the 64-byte
+    #: callback payload; its BUTTON LABEL lives under ``button.regenerate``, so
+    #: ``lyrics_keyboard`` draws this one explicitly instead of via the ``button.{value}``
+    #: convention every other nav button follows.
+    REGENERATE = "regen"
 
 
 class LanguageSlot(StrEnum):

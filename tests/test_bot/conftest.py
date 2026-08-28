@@ -35,8 +35,18 @@ from aiogram.types import (
 from hbd.bot.app import build_dispatcher
 from hbd.bot.deps import BotDeps
 from hbd.config import Settings
-from hbd.contracts import Order, Result, ok
-from hbd.errors import PipelineError
+from hbd.contracts import (
+    Brief,
+    LyricDraft,
+    LyricSection,
+    Order,
+    Result,
+    SpokenScript,
+    VoiceDescriptor,
+    err,
+    ok,
+)
+from hbd.errors import HbdError, PipelineError
 
 BOT_TOKEN = "42:AAF-test-token-value-not-a-real-one"
 BOT_ID = 42
@@ -139,6 +149,75 @@ class RecordingSubmitter:
         return ok(f"job-{uuid4().hex[:8]}")
 
 
+#: What the fake writer puts in a verse. Deliberately says nothing about the recipient, so
+#: a test asserting on the name is asserting on the hook section and nothing else.
+LYRIC_VERSE = "The candles are lit and the table is laid"
+
+
+def canned_lyrics(brief: Brief, *, take: int) -> LyricDraft:
+    """The lyric the fake writer returns on its ``take``-th call.
+
+    ``take`` appears in the title and in the hook, which is what lets a regenerate test
+    tell a genuinely new lyric from the previous one merely being re-rendered.
+
+    Only ``recipient.display`` reaches the text. The submitted candidates — the stripped
+    and hyphenated spellings sent to the voice vendor — must never appear on a screen, and
+    the lyric preview is a screen, so a fake that leaked one would quietly turn that
+    invariant's test green for the wrong reason.
+    """
+    display = brief.recipient.display
+    return LyricDraft(
+        title=f"Take {take} for {display}",
+        language=brief.output_language,
+        sections=(
+            LyricSection(label="verse-1", lines=(LYRIC_VERSE,)),
+            LyricSection(
+                label="hook",
+                lines=(f"{display}, take {take} is for you",),
+                is_name_hook=True,
+            ),
+        ),
+        name_display=display,
+    )
+
+
+class RecordingContentWriter:
+    """A fake lyric writer. Records the briefs it was asked to write for.
+
+    The wizard now calls a :class:`~hbd.pipeline.ports.ContentWriter` on the customer's
+    screen, so the bot tests need one that answers instantly and predictably. Set
+    ``failure`` to a typed error and every subsequent call comes back as an ``Err``, which
+    is how the "the writer fell over mid-wizard" path is exercised without a vendor.
+    """
+
+    def __init__(self, *, failure: HbdError | None = None) -> None:
+        self.briefs: list[Brief] = []
+        self.failure = failure
+
+    @property
+    def calls(self) -> int:
+        """How many times a lyric was asked for. One per preview shown."""
+        return len(self.briefs)
+
+    async def write_lyrics(self, brief: Brief) -> Result[LyricDraft]:
+        self.briefs.append(brief)
+        if self.failure is not None:
+            return err(self.failure)
+        return ok(canned_lyrics(brief, take=len(self.briefs)))
+
+    async def write_scripts(
+        self,
+        brief: Brief,
+        lyrics: LyricDraft,
+        *,
+        voices: tuple[VoiceDescriptor, ...],
+        name_submitted: str,
+        target_duration_s: float,
+    ) -> Result[tuple[SpokenScript, ...]]:
+        """Never reached from the bot: spoken greetings are the worker's half of the job."""
+        raise AssertionError("the wizard must not ask the writer for spoken scripts")
+
+
 class DecliningPaymentProvider:
     """Authorises nothing. Exists to prove the gate is actually consulted."""
 
@@ -182,15 +261,23 @@ def submitter() -> RecordingSubmitter:
 
 
 @pytest.fixture
+def content() -> RecordingContentWriter:
+    return RecordingContentWriter()
+
+
+@pytest.fixture
 def clock() -> Callable[[], datetime]:
     return lambda: FIXED_MOMENT
 
 
 @pytest.fixture
 def deps(
-    settings: Settings, submitter: RecordingSubmitter, clock: Callable[[], datetime]
+    settings: Settings,
+    submitter: RecordingSubmitter,
+    content: RecordingContentWriter,
+    clock: Callable[[], datetime],
 ) -> BotDeps:
-    return BotDeps(settings=settings, submitter=submitter, clock=clock)
+    return BotDeps(settings=settings, submitter=submitter, content=content, clock=clock)
 
 
 @pytest.fixture

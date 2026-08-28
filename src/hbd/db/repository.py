@@ -42,6 +42,7 @@ from hbd.db.mapping import (
     asset_name_candidate_values,
     brief_identity_values,
     lyrics_from_payload,
+    lyrics_to_payload,
     payload_for,
     to_generated_asset,
     to_order,
@@ -153,6 +154,14 @@ class SqlKitRepository:
             ui_language=brief.ui_language,
             output_language=brief.output_language,
             note=brief.note or None,
+            # The only write path for the approved lyric. The queue payload carries an
+            # order id and nothing else, so whatever is missed here the worker will
+            # silently rewrite — a different song from the one the customer approved.
+            approved_lyrics=(
+                lyrics_to_payload(brief.approved_lyrics)
+                if brief.approved_lyrics is not None
+                else None
+            ),
             note_expires_at=self._policy.brief_text_expires_at(now),
             created_at=now,
             updated_at=now,
@@ -194,6 +203,7 @@ class SqlKitRepository:
                 kit.order_id,
                 kit.name_verdicts,
                 identity_expires_at=self._policy.identity_expires_at(now),
+                text_expires_at=self._policy.brief_text_expires_at(now),
                 now=now,
             )
             # Delivery is the anchor FIL-7 measures the personal-data clocks from, and
@@ -338,6 +348,7 @@ async def _replace_verdicts(
     verdicts: tuple[NameVerdict, ...],
     *,
     identity_expires_at: datetime,
+    text_expires_at: datetime,
     now: datetime,
 ) -> None:
     """Rewrite this order's acoustic verdicts.
@@ -346,6 +357,11 @@ async def _replace_verdicts(
     kit, because that table is what the name subsystem is tuned from. A verdict that only
     existed inside a kit would be invisible to the query that reorders
     ``HBD_NAME_CANDIDATE_ORDER``.
+
+    Two clocks are stamped, not one. ``stt_transcript`` is a transcript of the whole song,
+    so it holds the lyric — free text the customer may have written — and it goes on the
+    30-day free-text clock. The name columns stay on the 90-day identity clock, because the
+    candidate ladder is tuned from them.
     """
     await session.execute(
         sa.delete(GenerationAttemptRow).where(
@@ -360,6 +376,7 @@ async def _replace_verdicts(
                 order_id=order_id,
                 created_at=now,
                 identity_expires_at=identity_expires_at,
+                text_expires_at=text_expires_at,
                 **verdict_row_values(verdict),
             )
         )

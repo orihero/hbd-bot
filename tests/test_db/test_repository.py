@@ -21,7 +21,13 @@ from hbd.contracts import (
 from hbd.db.models import AssetRow, BriefRow, OrderRow, UserRow
 from hbd.db.repository import MAX_ORDER_HISTORY, SqlKitRepository
 from hbd.errors import ErrorCode
-from tests.conftest import UZBEK_NAME_CANONICAL, UZBEK_NAME_TYPED, make_brief, make_name
+from tests.conftest import (
+    UZBEK_NAME_CANONICAL,
+    UZBEK_NAME_TYPED,
+    make_brief,
+    make_lyrics,
+    make_name,
+)
 from tests.test_db.conftest import MovableClock, build_kit, make_verdict, new_order
 
 
@@ -125,6 +131,83 @@ async def test_create_order_returns_a_terminal_error_on_a_duplicate_id(
     assert is_err(duplicate)
     assert duplicate.error.is_retryable is False
     assert duplicate.error.error_code is ErrorCode.STORAGE_FAILED
+
+
+async def test_the_approved_lyric_survives_the_round_trip_word_for_word(
+    repository: SqlKitRepository,
+) -> None:
+    # Arrange — this is what the customer read on the preview screen and paid for.
+    lyrics = make_lyrics()
+    order = new_order(brief=make_brief(approved_lyrics=lyrics))
+
+    # Act
+    await repository.create_order(order)
+    fetched = await repository.get_order(order.id)
+
+    # Assert — the worker sings this back; a single dropped line is a wrong product.
+    assert is_ok(fetched)
+    approved = fetched.value.brief.approved_lyrics
+    assert approved is not None
+    assert approved == lyrics
+    assert approved.title == lyrics.title
+    assert approved.name_display == UZBEK_NAME_CANONICAL
+    assert approved.sections == lyrics.sections
+    assert tuple(section.is_name_hook for section in approved.sections) == (False, True, False)
+
+
+async def test_an_order_without_an_approved_lyric_reads_back_as_none(
+    repository: SqlKitRepository,
+) -> None:
+    # Arrange — a brief from before the preview step, or one the wizard never filled in.
+    order = new_order(brief=make_brief())
+
+    # Act
+    await repository.create_order(order)
+    fetched = await repository.get_order(order.id)
+
+    # Assert — None, not an empty draft: it means "the pipeline writes its own".
+    assert is_ok(fetched)
+    assert fetched.value.brief.approved_lyrics is None
+
+
+async def test_create_order_is_the_write_path_for_the_approved_lyric(
+    repository: SqlKitRepository, sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    # Arrange — there is no UPDATE path for briefs, and the queue payload carries only an
+    # order id, so whatever this insert misses the worker can never learn.
+    order = new_order(brief=make_brief(approved_lyrics=make_lyrics()))
+
+    # Act
+    await repository.create_order(order)
+
+    # Assert
+    async with sessions() as session:
+        stored = await session.scalar(
+            sa.select(BriefRow.approved_lyrics).where(BriefRow.order_id == order.id)
+        )
+    assert isinstance(stored, dict)
+    assert stored["title"] == "Tugʻilgan kun"
+
+
+async def test_a_brief_without_a_lyric_stores_sql_null_not_the_json_text_null(
+    repository: SqlKitRepository, sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    # Arrange — ``sa.JSON`` persists Python ``None`` as the JSON text ``'null'`` unless told
+    # otherwise. That reads back as ``None``, so nothing in Python notices; but the purge
+    # job's predicate is SQL, and ``'null' IS NOT NULL`` is true.
+    order = new_order(brief=make_brief())
+
+    # Act
+    await repository.create_order(order)
+    async with sessions() as session:
+        matched = await session.scalar(
+            sa.select(sa.func.count())
+            .select_from(BriefRow)
+            .where(BriefRow.approved_lyrics.is_not(None))
+        )
+
+    # Assert — otherwise the 30-day note sweep re-selects every brief ever written, forever.
+    assert matched == 0
 
 
 async def test_get_order_returns_err_for_an_unknown_id(repository: SqlKitRepository) -> None:

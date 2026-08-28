@@ -20,8 +20,10 @@ from hbd.bot.callbacks import (
     OccasionCB,
     VocalGenderCB,
 )
+from hbd.bot.deps import BotDeps
 from hbd.bot.draft import MAX_NOTE_CHARS
 from hbd.bot.handlers.common import expire, read_draft, say, show_step
+from hbd.bot.handlers.lyrics import enter_lyrics_step
 from hbd.bot.i18n import translate
 from hbd.bot.states import Wizard, WizardStep
 from hbd.logging import get_logger
@@ -107,16 +109,33 @@ async def handle_note(message: Message, state: FSMContext) -> None:
 
 
 async def handle_output_language(
-    callback: CallbackQuery, callback_data: LanguageCB, state: FSMContext
+    callback: CallbackQuery, callback_data: LanguageCB, state: FSMContext, deps: BotDeps
 ) -> None:
-    """The language the song and the greetings are IN. Unrelated to the interface language."""
+    """The language the song and the greetings are IN. Unrelated to the interface language.
+
+    This is the last answer, so it is also where the lyric gets written: every input the
+    writer needs is now in the draft, and the customer goes straight from the last question
+    to the words themselves rather than to a summary of a song nobody has read.
+
+    Re-picking the SAME language is not an answer, it is navigation — Back from the preview
+    lands here, and the obvious way onwards is to press the button that is already ticked.
+    Treating that as a fresh answer would call the writer again and throw away whatever
+    lyric the draft holds, which for a customer who pasted their aunt's poem means losing
+    it with no warning and no way back. So an unchanged language with a lyric already in
+    hand simply returns to the preview; changing the language still rewrites, because a
+    lyric in the wrong language is not the lyric they asked for.
+    """
     await callback.answer()
     draft = await read_draft(state)
     if draft is None:
         await expire(callback, state)
         return
-    await show_step(
-        callback, state, draft.updated(output_language=callback_data.code), WizardStep.CONFIRM
+    if callback_data.code == draft.output_language and draft.lyrics is not None:
+        _LOG.info("output language re-picked unchanged; keeping the lyric already in hand")
+        await show_step(callback, state, draft, WizardStep.LYRICS)
+        return
+    await enter_lyrics_step(
+        callback, state, deps, draft.updated(output_language=callback_data.code)
     )
 
 

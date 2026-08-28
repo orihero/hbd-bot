@@ -53,11 +53,28 @@ async def walk_to_name(dispatcher: Dispatcher, bot: Bot) -> None:
     await send(dispatcher, bot, "Loves plov and the mountains")
 
 
-async def walk_to_confirm(dispatcher: Dispatcher, bot: Bot) -> None:
+async def approve_lyrics(dispatcher: Dispatcher, bot: Bot) -> None:
+    """Press ✅ on the lyric preview.
+
+    Choosing the output language no longer lands on the summary: it writes a lyric and
+    shows it. Every walk to CONFIRM therefore goes through this one press, and it lives
+    here rather than being open-coded per test so a further change to the preview is one
+    edit and not a dozen.
+    """
+    await press(dispatcher, bot, NavCB(action=NavAction.LYRICS_OK).pack())
+
+
+async def walk_to_lyrics(dispatcher: Dispatcher, bot: Bot) -> None:
+    """/start through to the lyric preview, with a lyric already on screen."""
     await walk_to_name(dispatcher, bot)
     await send(dispatcher, bot, UZBEK_TYPED)
     await press(dispatcher, bot, NavCB(action=NavAction.NAME_OK).pack())
     await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.UZ_LATN).pack())
+
+
+async def walk_to_confirm(dispatcher: Dispatcher, bot: Bot) -> None:
+    await walk_to_lyrics(dispatcher, bot)
+    await approve_lyrics(dispatcher, bot)
 
 
 async def test_start_offers_every_supported_interface_language(
@@ -251,6 +268,7 @@ async def test_skip_leaves_the_note_empty(
     await send(dispatcher, bot, UZBEK_TYPED)
     await press(dispatcher, bot, NavCB(action=NavAction.NAME_OK).pack())
     await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.RU).pack())
+    await approve_lyrics(dispatcher, bot)
     await press(dispatcher, bot, NavCB(action=NavAction.CONFIRM).pack())
 
     # Assert

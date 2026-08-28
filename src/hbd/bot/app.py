@@ -7,6 +7,9 @@ Telegram, and nothing else calls it.
 
 from __future__ import annotations
 
+from datetime import timedelta
+from typing import Final
+
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -18,11 +21,24 @@ from hbd.bot.deps import DEPS_KEY, BotDeps
 from hbd.bot.handlers import build_router
 from hbd.bot.middleware import ErrorGuardMiddleware
 from hbd.config import Settings
+from hbd.db.retention import DEFAULT_RETENTION_POLICY
 from hbd.logging import get_logger
 
-__all__ = ["build_bot", "build_storage", "build_dispatcher", "run_polling"]
+__all__ = [
+    "build_bot",
+    "build_storage",
+    "build_dispatcher",
+    "run_polling",
+    "WIZARD_STATE_TTL",
+]
 
 _LOG = get_logger(__name__)
+
+#: How long an untouched wizard session survives in Redis. Sized to
+#: ``RetentionPolicy.abandoned_draft_days`` so the copy of the customer's free text in
+#: FSM storage expires on the same clock as the ``orders`` row the wizard would have
+#: written, rather than on no clock at all.
+WIZARD_STATE_TTL: Final[timedelta] = timedelta(days=DEFAULT_RETENTION_POLICY.abandoned_draft_days)
 
 
 def build_bot(settings: Settings) -> Bot:
@@ -35,8 +51,19 @@ def build_bot(settings: Settings) -> Bot:
 
 
 def build_storage(settings: Settings) -> BaseStorage:
-    """Redis in production so a restart does not throw away a half-typed wizard."""
-    return RedisStorage.from_url(settings.redis_url)
+    """Redis in production so a restart does not throw away a half-typed wizard.
+
+    The TTL is not a tidiness setting, it is the retention clock. A draft holds the
+    recipient's display name, the free-text note and — since the preview step — the whole
+    approved lyric, which is the same personal data ``hbd.db.purge`` is legally obliged to
+    clear from Postgres. That job only ever touches Postgres, so an abandoned wizard would
+    otherwise keep a second copy in Redis forever, outliving both the 14-day sweep that
+    deletes the order it would have created and the 30-day sweep that nulls the lyric.
+    Expiring on the abandoned-draft clock is what makes the two copies agree.
+    """
+    return RedisStorage.from_url(
+        settings.redis_url, state_ttl=WIZARD_STATE_TTL, data_ttl=WIZARD_STATE_TTL
+    )
 
 
 def build_dispatcher(deps: BotDeps, *, storage: BaseStorage | None = None) -> Dispatcher:

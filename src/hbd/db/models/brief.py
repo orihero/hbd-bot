@@ -3,7 +3,8 @@
 Everything a user told us about a real third party lives here and nowhere else, on two
 independent clocks:
 
-* the **free-text note** (recipient facts) is cleared 30 days after delivery;
+* the **free-text note** (recipient facts) and the **approved lyric** are cleared 30 days
+  after delivery;
 * the **recipient's identity** (name, script, candidate orthographies) is cleared at 90
   days absent reminder consent.
 
@@ -52,7 +53,7 @@ _MAX_MONTH: Final[int] = 12
 
 
 class BriefRow(TimestampMixin, Base):
-    """The four structured answers, the free-text note, and the recipient's name."""
+    """The four structured answers, the free-text note and lyric, and the recipient's name."""
 
     __tablename__ = "briefs"
     __table_args__ = (
@@ -80,6 +81,19 @@ class BriefRow(TimestampMixin, Base):
 
     # -- free-text facts: cleared at brief_text_expires_at --------------------
     note: Mapped[str | None] = mapped_column(sa.String(MAX_NOTE_CHARS), nullable=True)
+    #: The lyric the customer approved in the wizard, stored as the serialised
+    #: :class:`hbd.contracts.LyricDraft`. It is free text about the recipient — pasted or
+    #: approved by the customer, and it names them in the hook — so it is nulled by the
+    #: same 30-day clock as ``note`` rather than kept for the life of the order.
+    #:
+    #: ``none_as_null`` is not optional here. ``sa.JSON`` defaults to persisting Python
+    #: ``None`` as the JSON text ``'null'``, which reads back as ``None`` but is *not* SQL
+    #: NULL — so ``approved_lyrics IS NOT NULL`` would stay true for a brief that has no
+    #: lyric and for one the purge job has already cleared, and the note sweep in
+    #: ``hbd.db.purge`` would re-select the same rows every night forever.
+    approved_lyrics: Mapped[dict[str, Any] | None] = mapped_column(
+        sa.JSON(none_as_null=True), nullable=True
+    )
     note_expires_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, index=True)
     note_purged_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 

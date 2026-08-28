@@ -183,3 +183,43 @@ def test_seed_is_derived_from_the_order_so_a_retry_renders_the_same_song() -> No
     # Assert
     assert first == second
     assert first != derive_seed(UUID("99999999-2222-3333-4444-555555555555"))
+
+
+def test_a_single_section_lyric_still_fills_the_whole_song(settings: Settings) -> None:
+    """A hook-only lyric must not become an eight-second song the customer paid two minutes for.
+
+    The name normally gets a short chunk so a bad take costs one inpaint instead of a whole
+    track, and the body carries the rest of ``song_length_ms``. A lyric with exactly one
+    section has no body — which is what a customer gets when they paste four lines with no
+    blank line between them, and what a sparse model payload produces too. Left alone the
+    plan totals ``name_chunk_duration_ms``, validates cleanly because that is still above
+    ``MIN_SONG_DURATION_MS``, logs nothing, and silently ships a fraction of the product.
+    """
+    # Arrange
+    hook_only = make_lyrics(
+        sections=(
+            LyricSection(
+                label="hook",
+                lines=(f"Bugun {UZBEK_NAME_CANONICAL} tugʻilgan kun", "Yillar oʻtsa ham"),
+                is_name_hook=True,
+            ),
+        )
+    )
+
+    # Act
+    plan = value_of(_plan(settings, lyrics=hook_only))
+
+    # Assert
+    assert len(plan.chunks) == 1
+    assert plan.total_duration_ms == settings.song_length_ms
+    assert plan.total_duration_ms > settings.name_chunk_duration_ms
+
+
+def test_a_multi_section_lyric_still_gets_the_short_name_chunk(settings: Settings) -> None:
+    """The single-section rescue must not leak into the ordinary case."""
+    # Arrange / Act
+    plan = value_of(_plan(settings))
+
+    # Assert
+    assert plan.name_chunk_index is not None
+    assert plan.chunks[plan.name_chunk_index].duration_ms == settings.name_chunk_duration_ms

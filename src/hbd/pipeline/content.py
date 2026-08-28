@@ -10,6 +10,12 @@ where it is not.
 
 Payload models use ``extra="ignore"`` on purpose. A model that adds a helpful
 ``"explanation"`` key should not fail the order; a model that omits ``sections`` must.
+
+What a well-formed lyric *is* — the clamps, the labels, the one-hook-carries-the-name rule
+— no longer lives here. It moved to ``hbd.pipeline.lyric_shape`` when the wizard gained a
+paste-your-own path, so a written lyric and a pasted one cannot be shaped differently. This
+module keeps only what is about the LLM payload: reading it, judging it usable, reporting
+it unusable.
 """
 
 from __future__ import annotations
@@ -26,7 +32,6 @@ from hbd.contracts import (
     LlmProvider,
     LlmRequest,
     LyricDraft,
-    LyricSection,
     Result,
     SpokenScript,
     VoiceDescriptor,
@@ -35,6 +40,13 @@ from hbd.contracts import (
 )
 from hbd.errors import LlmParseError
 from hbd.logging import get_logger
+from hbd.pipeline.lyric_shape import (
+    MAX_LINES_PER_SECTION,
+    MAX_LYRIC_SECTIONS,
+    build_lyric_draft,
+    clean_label,
+    clean_lines,
+)
 from hbd.pipeline.prompts import (
     lyrics_system_prompt,
     lyrics_user_prompt,
@@ -48,22 +60,15 @@ __all__ = [
     "GreetingsPayload",
     "GreetingPayload",
     "LlmContentWriter",
+    # Re-exported from ``lyric_shape`` so importers (and mypy's no_implicit_reexport)
+    # that learned these names here keep working after the move.
     "MAX_LYRIC_SECTIONS",
     "MAX_LINES_PER_SECTION",
 ]
 
 _LOGGER = get_logger(__name__)
 
-#: A composition plan tops out at 30 chunks; a lyric never needs anywhere near that.
-MAX_LYRIC_SECTIONS: Final[int] = 8
-MAX_LINES_PER_SECTION: Final[int] = 8
-MAX_LINE_CHARS: Final[int] = 160
-MAX_TITLE_CHARS: Final[int] = 120
-MAX_LABEL_CHARS: Final[int] = 40
 MAX_SCRIPT_CHARS: Final[int] = 2_000
-#: Fallback label when the model returns a blank one.
-DEFAULT_SECTION_LABEL: Final[str] = "section"
-DEFAULT_TITLE: Final[str] = "Tabrik"
 
 
 class _Payload(BaseModel):
@@ -92,50 +97,18 @@ class GreetingsPayload(_Payload):
     greetings: tuple[GreetingPayload, ...] = ()
 
 
-def _clean_lines(lines: tuple[str, ...]) -> tuple[str, ...]:
-    trimmed = (line.strip()[:MAX_LINE_CHARS] for line in lines)
-    return tuple(line for line in trimmed if line)[:MAX_LINES_PER_SECTION]
-
-
-def _clean_label(label: str, *, index: int) -> str:
-    cleaned = label.strip()[:MAX_LABEL_CHARS]
-    return cleaned or f"{DEFAULT_SECTION_LABEL}-{index + 1}"
-
-
 def _usable_sections(payload: LyricsPayload) -> tuple[tuple[str, tuple[str, ...], bool], ...]:
-    """Drop empty sections and normalise the survivors into plain tuples."""
+    """Drop empty sections and normalise the survivors into plain tuples.
+
+    This one stays here rather than moving to ``lyric_shape``: it is about the *payload*
+    shape, and only the LLM path ever has a ``LyricsPayload`` to normalise.
+    """
     usable: list[tuple[str, tuple[str, ...], bool]] = []
     for index, section in enumerate(payload.sections[:MAX_LYRIC_SECTIONS]):
-        lines = _clean_lines(section.lines)
+        lines = clean_lines(section.lines)
         if lines:
-            usable.append((_clean_label(section.label, index=index), lines, section.is_name_hook))
+            usable.append((clean_label(section.label, index=index), lines, section.is_name_hook))
     return tuple(usable)
-
-
-def _hook_index(sections: tuple[tuple[str, tuple[str, ...], bool], ...], name: str) -> int:
-    """Pick exactly one hook: the model's first flag, else the first mention of the name."""
-    for index, (_, _, is_hook) in enumerate(sections):
-        if is_hook:
-            return index
-    folded = name.casefold()
-    for index, (_, lines, _) in enumerate(sections):
-        if any(folded in line.casefold() for line in lines):
-            return index
-    return 0
-
-
-def _build_sections(
-    sections: tuple[tuple[str, tuple[str, ...], bool], ...], *, name: str, hook_index: int
-) -> tuple[LyricSection, ...]:
-    """Materialise domain sections, guaranteeing the hook actually carries the name."""
-    built: list[LyricSection] = []
-    for index, (label, lines, _) in enumerate(sections):
-        is_hook = index == hook_index
-        final_lines = lines
-        if is_hook and not any(name.casefold() in line.casefold() for line in lines):
-            final_lines = (name, *lines)[:MAX_LINES_PER_SECTION]
-        built.append(LyricSection(label=label, lines=final_lines, is_name_hook=is_hook))
-    return tuple(built)
 
 
 def _assign_persona(
@@ -211,13 +184,15 @@ class LlmContentWriter:
                 )
             )
 
-        name = brief.recipient.display
-        hook_index = _hook_index(sections, name)
-        draft = LyricDraft(
-            title=(payload.title.strip()[:MAX_TITLE_CHARS] or DEFAULT_TITLE),
+        draft = build_lyric_draft(
+            sections,
+            title=payload.title,
             language=brief.output_language,
-            sections=_build_sections(sections, name=name, hook_index=hook_index),
-            name_display=name,
+            name_display=brief.recipient.display,
+        )
+        # ``build_sections`` flags exactly one hook, so this never comes up empty.
+        hook_index = next(
+            index for index, section in enumerate(draft.sections) if section.is_name_hook
         )
         _LOGGER.info(
             "lyrics written",

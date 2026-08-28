@@ -20,6 +20,7 @@ from hbd.contracts import (
     Brief,
     Genre,
     Language,
+    LyricDraft,
     Occasion,
     RecipientName,
     Result,
@@ -37,7 +38,11 @@ DRAFT_KEY: Final[str] = "draft"
 #: Mirrors ``Brief.note``'s bound. ``test_draft.py`` asserts the two stay in step.
 MAX_NOTE_CHARS: Final[int] = 600
 
-#: Answers without which no :class:`Brief` can exist. ``note`` is deliberately absent.
+#: Answers without which no :class:`Brief` can exist. ``note`` is deliberately absent, and
+#: so is ``lyrics``: the wizard has to hand the lyric writer a finished :class:`Brief` in
+#: order to GET a lyric, so ``to_brief()`` must keep succeeding while the lyric is still
+#: being written. Completeness for the purposes of *submitting* is :attr:`is_complete`,
+#: which requires the lyric on top of these.
 REQUIRED_ANSWERS: Final[tuple[str, ...]] = (
     "occasion",
     "genre",
@@ -59,6 +64,15 @@ class WizardDraft(BaseModel):
     note: str = Field(default="", max_length=MAX_NOTE_CHARS)
     recipient: RecipientName | None = None
     output_language: Language | None = None
+    #: The lyric the user previewed and approved. ``None`` while it is being written, or
+    #: after a regenerate has thrown the previous one away.
+    lyrics: LyricDraft | None = None
+    #: How many times this session has asked the writer for a lyric. The preview step is
+    #: the first place a vendor is billed and it sits BEFORE the payment gate, so without
+    #: a number here a stranger who never pays can hold the regenerate button down and
+    #: spend the operator's LLM budget. Counted here rather than in the handler because the
+    #: draft is the only per-session state that survives a restart.
+    lyric_writes: int = Field(default=0, ge=0)
 
     def updated(self, **changes: Any) -> WizardDraft:
         """Return a NEW draft with ``changes`` applied and revalidated. Never mutates."""
@@ -71,7 +85,8 @@ class WizardDraft(BaseModel):
 
     @property
     def is_complete(self) -> bool:
-        return not self.missing_answers
+        """Ready to confirm: every required answer given AND a lyric approved."""
+        return not self.missing_answers and self.lyrics is not None
 
     def to_state_data(self) -> dict[str, Any]:
         """The dict handed to ``FSMContext.update_data``."""
@@ -103,6 +118,7 @@ class WizardDraft(BaseModel):
                 note=self.note,
                 ui_language=self.ui_language,
                 output_language=output_language,
+                approved_lyrics=self.lyrics,
             )
         )
 

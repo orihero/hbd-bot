@@ -10,8 +10,15 @@ The row is split along a privacy seam that matters:
 * ``name_candidate_strategy``, ``name_candidate_rank`` and ``is_name_verified`` are the
   tuning signal. They are not personal data — "stripped ranked 0 and passed" says nothing
   about anyone — so they are kept indefinitely and the analysis stays valid.
-* ``name_candidate_text`` and ``stt_transcript`` **are** the recipient's name. They carry
-  the 90-day identity clock and the purge nulls them, leaving the tuning signal intact.
+* ``name_candidate_text`` is the recipient's name. It carries the 90-day identity clock
+  and the purge nulls it, leaving the tuning signal intact.
+* ``stt_transcript`` is the recipient's name AND the whole song around it, which since the
+  lyric preview may be text the customer wrote themselves. It therefore carries a SECOND,
+  shorter clock: ``text_expires_at``, stamped from ``RetentionPolicy.brief_text_days``, the
+  same 30 days that owns ``briefs.note`` and ``briefs.approved_lyrics``. Without it a
+  near-verbatim copy of the customer's free text would outlive the copy it was made from by
+  sixty days, which is not a retention schedule anybody promised. The 90-day identity sweep
+  clears it too, so whichever clock fires first wins.
 
 ``order_id`` is nullable with ``ON DELETE SET NULL``: a name preview happens before an
 order exists, and an attempt must outlive the order it belonged to or the tuning data
@@ -41,8 +48,11 @@ __all__ = [
 
 PROVIDER_LENGTH: Final[int] = 64
 REMOTE_ID_LENGTH: Final[int] = 128
-#: A transcript of a name chunk, not of a song. Generous, but bounded.
-TRANSCRIPT_LENGTH: Final[int] = 200
+#: Sized for a transcript of a whole SONG, not of a name chunk. The original 200 assumed
+#: inpainting would isolate the name chunk before we transcribed it; inpainting is
+#: enterprise-gated, so verification hears the entire track and a real transcript ran to
+#: ~700 characters. Writers truncate to this bound — see ``attempts.truncate_transcript``.
+TRANSCRIPT_LENGTH: Final[int] = 4_000
 ERROR_CODE_LENGTH: Final[int] = 48
 ERROR_MESSAGE_LENGTH: Final[int] = 500
 
@@ -54,6 +64,7 @@ class GenerationAttemptRow(Base):
     __table_args__ = (
         sa.Index("ix_generation_attempts_tuning", "name_candidate_strategy", "is_name_verified"),
         sa.Index("ix_generation_attempts_identity_sweep", "identity_expires_at"),
+        sa.Index("ix_generation_attempts_text_sweep", "text_expires_at"),
     )
 
     id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid4)
@@ -86,9 +97,16 @@ class GenerationAttemptRow(Base):
     name_candidate_text: Mapped[str | None] = mapped_column(
         sa.String(MAX_CANDIDATE_CHARS), nullable=True
     )
-    stt_transcript: Mapped[str | None] = mapped_column(sa.String(TRANSCRIPT_LENGTH), nullable=True)
     identity_expires_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
     identity_purged_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+    # -- free text: nulled at text_expires_at, and again by the identity sweep ------
+    #: What verification heard. Inpainting is enterprise-gated, so this is a transcript of
+    #: the WHOLE song — which means it echoes the lyric, which the customer may have
+    #: written. Free text about a real person, on the free-text clock.
+    stt_transcript: Mapped[str | None] = mapped_column(sa.String(TRANSCRIPT_LENGTH), nullable=True)
+    text_expires_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    text_purged_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
     # -- cost and failure ledger ----------------------------------------------
     error_code: Mapped[str | None] = mapped_column(sa.String(ERROR_CODE_LENGTH), nullable=True)
