@@ -123,7 +123,10 @@ async def assemble_kit(
     voice_notes = await _greeting_assets(
         song, greetings, workspace=workspace, post=post, settings=settings, ledger=ledger
     )
-    if not voice_notes:
+    # An empty batch means none were requested (greetings_per_kit=0) — a product setting,
+    # not a failure. Only a batch that ATTEMPTED greetings and produced none is fatal.
+    was_attempted = bool(greetings.renders or greetings.failures)
+    if not voice_notes and was_attempted:
         return err(
             PipelineError(
                 "every greeting failed, so no kit can be assembled",

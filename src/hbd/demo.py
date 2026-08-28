@@ -87,7 +87,6 @@ def _demo_settings(data_root: Path) -> Settings:
         # Two minutes of silence takes ffmpeg real time to normalise three times over,
         # and the demo is about wiring, not duration.
         song_length_ms=30_000,
-        greetings_per_kit=3,
     )
 
 

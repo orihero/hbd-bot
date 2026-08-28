@@ -219,5 +219,8 @@ async def test_the_offline_demo_produces_a_complete_kit(tmp_path: Path) -> None:
 
     # Assert
     assert code == 0
-    assert list(tmp_path.rglob("*.ogg")), "no voice note was produced"
+    assert list(tmp_path.rglob("*.mp3")), "no song was produced"
     assert list(tmp_path.rglob("lyrics.txt")), "no lyric sheet was produced"
+    # greetings_per_kit defaults to 0: a song-only kit buys no speech, so no OGG/Opus
+    # voice notes exist. Raise the setting and this becomes a non-empty list again.
+    assert not list(tmp_path.rglob("*.ogg")), "speech was rendered despite greetings being off"

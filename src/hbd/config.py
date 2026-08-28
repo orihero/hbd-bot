@@ -183,7 +183,12 @@ class Settings(BaseSettings):
     song_body_chunk_duration_ms: int = Field(default=20_000, ge=3_000, le=120_000)
     greeting_min_duration_s: float = Field(default=20.0, gt=0)
     greeting_max_duration_s: float = Field(default=45.0, gt=0)
-    greetings_per_kit: int = Field(default=3, ge=1, le=5)
+    greetings_per_kit: int = Field(
+        default=0,
+        ge=0,
+        le=5,
+        description="0 sells a song-only kit and buys no speech at all.",
+    )
 
     # -- audio post ---------------------------------------------------------
     ffmpeg_binary: str = Field(default="ffmpeg")

@@ -4,10 +4,16 @@ A Telegram bot for the Uzbekistan market. A user types a recipient's full name, 
 four short structured questions, and receives a **celebration kit**:
 
 - one AI-generated song (~2 min) that names the recipient,
-- three AI-generated spoken greetings in three different character voices,
 - a lyric sheet,
 
 with the recipient's name **pronounced correctly**. That last part is the entire product.
+
+> **Greetings are switched off.** `HBD_GREETINGS_PER_KIT` defaults to **0**, so a kit is the
+> song and the sheet, and no TTS call is made at all. The spoken-greeting subsystem
+> (`hbd.providers.tts`, personas, OGG/Opus voice notes) is fully built and tested and comes
+> back by raising that one setting to 1–5. Note this contradicts SOW §4.5 (FR-38–FR-45),
+> which makes song+speech the differentiator; it was switched off by product decision on
+> 2026-08-28, not by accident.
 
 Interface language and output language are chosen independently across Uzbek Latin
 (default), Uzbek Cyrillic, Russian and English. All four ship complete.
