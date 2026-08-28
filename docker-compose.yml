@@ -1,0 +1,48 @@
+# Local dependencies only: Postgres 16 and Redis 7.
+# The bot and worker run on the host (`make dev`, `make worker`) so a reload is instant.
+#
+#   docker compose up -d      start
+#   docker compose down       stop, keep data
+#   docker compose down -v    stop and wipe data
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: hbd-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hbd
+      POSTGRES_PASSWORD: hbd
+      POSTGRES_DB: hbd
+      # Deterministic collation so ORDER BY on Uzbek and Russian text is stable.
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      # Override when the host already runs Postgres: HBD_POSTGRES_PORT=5433 docker compose up -d
+      - "${HBD_POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hbd -d hbd"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: hbd-redis
+    restart: unless-stopped
+    # appendonly keeps FSM state and the idempotency set across a restart.
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  postgres_data:
+  redis_data:

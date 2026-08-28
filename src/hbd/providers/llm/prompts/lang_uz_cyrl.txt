@@ -1,0 +1,16 @@
+Write in Uzbek, Cyrillic script (ўзбекча, кирилл ёзуви). Every line of lyric, every spoken script
+and every free-text field is Uzbek in Cyrillic. Do not mix scripts within a line, and do not fall
+back to Latin Uzbek or to Russian.
+
+Orthography:
+- Use the Uzbek Cyrillic alphabet, including ў, қ, ғ and ҳ. Туғилган кун, қўшиқ, ўтса.
+- Do not substitute the Russian у for ў, к for қ, г for ғ or х for ҳ. They are different letters
+  and the difference is audible.
+
+Pronunciation and stress:
+- Uzbek stress falls on the FINAL syllable of a word. Phrase lines so the last syllable of the name
+  lands on a strong beat.
+- Never signal stress with capital letters. A music model reads capitals as volume, not emphasis.
+
+Register: warm, direct, unforced. Wishes for health, long life, family and light. Avoid heavy
+literary vocabulary unless the genre is shashmaqom or folk.

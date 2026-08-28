@@ -1,0 +1,132 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hbd-bot"
+version = "0.1.0"
+description = "Telegram celebration-kit bot for the Uzbekistan market: one AI song, three spoken greetings, a lyric sheet, and the recipient's name pronounced correctly."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "Proprietary" }
+
+dependencies = [
+    "aiogram>=3.15,<4",
+    "arq>=0.26,<0.27",
+    "redis>=5.0,<6",
+    "sqlalchemy[asyncio]>=2.0.36,<3",
+    "asyncpg>=0.30,<0.31",
+    "alembic>=1.14,<2",
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.6,<3",
+    "httpx>=0.27,<0.29",
+    "json-repair>=0.30,<1",
+    "orjson>=3.10,<4",
+    "typing-extensions>=4.12,<5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.24,<0.26",
+    "pytest-cov>=5.0,<7",
+    "ruff>=0.7,<0.13",
+    "mypy>=1.13,<2",
+    "types-redis>=4.6",
+    "aiosqlite>=0.20,<1",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hbd"]
+
+# ---------------------------------------------------------------------------
+# ruff
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # bugbear
+    "C4",   # comprehensions
+    "SIM",  # simplify
+    "RET",  # return
+    "PTH",  # pathlib
+    "ASYNC",
+    "TRY",  # tryceratops (no silent swallow)
+    "RUF",
+]
+ignore = [
+    "TRY003",  # long messages outside exception class: our errors carry operator context
+    "RUF012",  # mutable class attrs need ClassVar: noisy with pydantic
+    "RUF022",  # __all__ is grouped by concern here, not alphabetised
+    # Uzbek, Russian and Uzbek-Cyrillic text is the product, not a typo. Without these
+    # every locale file, lyric prompt and test fixture is a lint error.
+    "RUF001",  # ambiguous unicode character in a string
+    "RUF002",  # ... in a docstring
+    "RUF003",  # ... in a comment
+]
+
+# U+02BB (and its neighbours) are CORRECT Uzbek Latin orthography, not typos.
+# Without this, the one character the product exists to get right is a lint error.
+allowed-confusables = ["\u02BB", "\u02BC", "\u2018", "\u2019", "\u02B9"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["hbd", "tests"]
+
+# ---------------------------------------------------------------------------
+# mypy
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+files = ["src", "tests"]
+strict = true
+warn_unreachable = true
+warn_no_return = true
+disallow_any_generics = true
+plugins = ["pydantic.mypy"]
+# Every tests/ subdirectory has its own conftest.py. Without these two, mypy aborts before
+# checking anything with "Source file found twice under different module names".
+explicit_package_bases = true
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["json_repair.*", "arq.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-q --strict-markers --strict-config"
+markers = [
+    "integration: needs a real network, Redis, Postgres or ffmpeg (excluded from unit runs)",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["src/hbd"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "\\.\\.\\.",
+]

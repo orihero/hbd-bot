@@ -1,0 +1,4 @@
+
+IMPORTANT — your previous reply could not be read. It was not a single valid JSON object
+matching the schema. Reply again with one JSON object and nothing else: no reasoning, no
+markdown fence, no trailing commentary, every required field present, every bracket closed.
