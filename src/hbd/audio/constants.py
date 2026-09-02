@@ -117,13 +117,13 @@ MODIFIER_APOSTROPHE: Final[str] = "ʼ"
 APOSTROPHE_LIKE: Final[frozenset[str]] = frozenset(
     "\u0027"  # APOSTROPHE
     "\u0060"  # GRAVE ACCENT
-    "\u00B4"  # ACUTE ACCENT
+    "\u00b4"  # ACUTE ACCENT
     "\u2018"  # LEFT SINGLE QUOTATION MARK   <- what a phone keyboard actually types
     "\u2019"  # RIGHT SINGLE QUOTATION MARK  <- what a word processor autocorrects to
-    "\u201B"  # SINGLE HIGH-REVERSED-9 QUOTATION MARK
-    "\u02B9"  # MODIFIER LETTER PRIME
-    "\u02BB"  # MODIFIER LETTER TURNED COMMA <- the correct one, in o-/g-
-    "\u02BC"  # MODIFIER LETTER APOSTROPHE   <- the correct one, for the glottal stop
+    "\u201b"  # SINGLE HIGH-REVERSED-9 QUOTATION MARK
+    "\u02b9"  # MODIFIER LETTER PRIME
+    "\u02bb"  # MODIFIER LETTER TURNED COMMA <- the correct one, in o-/g-
+    "\u02bc"  # MODIFIER LETTER APOSTROPHE   <- the correct one, for the glottal stop
     "\u2032"  # PRIME
 )
 #: Only these four letters take the turned comma. After anything else the mark is a

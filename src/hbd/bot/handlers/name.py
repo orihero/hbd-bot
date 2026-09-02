@@ -32,7 +32,6 @@ __all__ = ["build_router"]
 _LOG = get_logger(__name__)
 
 
-
 async def handle_name_typed(message: Message, state: FSMContext, deps: BotDeps) -> None:
     draft = await read_draft(state)
     if draft is None:

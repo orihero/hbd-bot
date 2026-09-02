@@ -119,9 +119,7 @@ def test_two_different_adapters_expose_distinct_stable_names(settings: Settings)
     # same adapter (both OpenRouter), which would make this assertion vacuous.
     primary = build_llm_provider(settings.model_copy(update={"llm_provider": "gemini"}))
     fallback = build_fallback_llm_provider(
-        settings.model_copy(
-            update={"llm_fallback_api_key": "k", "llm_fallback_provider": "openai"}
-        )
+        settings.model_copy(update={"llm_fallback_api_key": "k", "llm_fallback_provider": "openai"})
     )
 
     assert fallback is not None

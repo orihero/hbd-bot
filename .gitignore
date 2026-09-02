@@ -2,6 +2,10 @@
 .env
 .env.*
 !.env.example
+!.env.admin.example
+# The admin process's own environment. Separate from .env so a shared file cannot leak a
+# vendor key into a process that must not hold one.
+.env.admin
 *.pem
 *.key
 
@@ -36,6 +40,13 @@ coverage.xml
 *.wav
 *.opus
 !tests/**/fixtures/**
+
+# Admin panel — the SPA's build output is a build artefact, not source. The API serves
+# src/hbd/admin/static/, which `npm run build` writes; committing it would let the served
+# bundle drift from admin-ui/ with nothing to notice.
+admin-ui/node_modules/
+admin-ui/dist/
+src/hbd/admin/static/
 
 # Editors / OS
 .idea/

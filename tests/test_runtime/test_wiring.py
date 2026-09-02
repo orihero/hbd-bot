@@ -8,6 +8,7 @@ cannot accidentally be served silence.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -23,7 +24,11 @@ from hbd.contracts import (
     SttProvider,
     TtsProvider,
 )
+from hbd.db.credits import SqlCreditLedger
+from hbd.db.lyric_budget import SqlLyricBudget
+from hbd.entitlements import EntitlementStore
 from hbd.errors import ConfigError
+from hbd.payments import CreditGatedPaymentProvider, NoopPaymentProvider
 from hbd.providers.llm.fake import FakeLlmProvider
 from hbd.providers.music.fake import FakeMusicProvider
 from hbd.providers.tts.fakes import FakeTtsProvider
@@ -199,3 +204,102 @@ def test_the_similarity_port_is_bound_the_right_way_round() -> None:
 
     # Assert: the scorer window-scans the *heard* side, so only one order finds the name.
     assert heard_extra_words > reversed_arguments
+
+
+# ---------------------------------------------------------------------------
+# The render gate — wired on the worker's side of the container, and only there
+# ---------------------------------------------------------------------------
+async def test_the_entitlement_store_is_wired_whatever_the_enforcement_flag_says(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """Wiring and enforcing are two decisions, and only one of them is a flag.
+
+    The store is always built, so an operator can flip ``HBD_CREDITS_ENFORCED`` without a
+    redeploy and so ``/balance`` has an honest number to read while the meter is still dark.
+    """
+    # Arrange / Act
+    container = await build_container(_sqlite(settings, tmp_path), data_root=tmp_path)
+
+    # Assert
+    try:
+        assert not container.settings.credits_enforced  # the shipped default
+        assert isinstance(container.credits, EntitlementStore)
+    finally:
+        await container.aclose()
+
+
+async def test_the_lyric_budget_is_wired_and_reads_its_ceiling_from_settings(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """The one meter the BOT writes, and the only ceiling on pre-gate vendor spend.
+
+    Never behind ``credits_enforced``: that flag covers the credit balance, which refuses a
+    paying-intent customer, while this refuses abuse — and the lyric write happens before
+    every gate the flag touches, so shipping it dark would leave the free tier uncapped per
+    person exactly as it was.
+    """
+    # Arrange
+    configured = _sqlite(settings, tmp_path).model_copy(update={"lyric_writes_per_day": 4})
+
+    # Act
+    container = await build_container(configured, data_root=tmp_path)
+
+    # Assert
+    try:
+        assert not container.settings.credits_enforced  # the shipped default, and irrelevant
+        budget = container.lyric_budget
+        assert isinstance(budget, SqlLyricBudget)
+        assert budget.policy.writes_per_day == 4
+    finally:
+        await container.aclose()
+
+
+async def test_the_pipeline_gets_the_credit_gate_and_the_bot_gets_the_bare_provider(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """The asymmetry that keeps a credit from being spent where it cannot be refunded.
+
+    ``hbd.main`` builds ``BotDeps.payment`` from ``container.payment``, so if that field
+    were the gated provider the bot would become a writer — and its three early returns
+    after the gate (payment declined, ``_start_progress`` returned ``None``,
+    ``submitter.submit`` returned ``Err``) can reach no refund, because no order row and no
+    ARQ job exist yet. The worker is the only process whose terminal paths can compensate,
+    so the gate is built per job inside ``pipeline()`` instead.
+    """
+    # Arrange
+    container = await build_container(_sqlite(settings, tmp_path), data_root=tmp_path)
+
+    # Act
+    try:
+        gate = container.pipeline()._payment
+
+        # Assert
+        assert isinstance(gate, CreditGatedPaymentProvider)
+        # Dark by default, wired all the same — and the flag is read off the STORE's policy
+        # now, not off the decorator, so the block gate and the in-flight cap (which need
+        # the rows this gate writes) enforce whatever it says.
+        assert isinstance(container.credits, SqlCreditLedger)
+        assert not container.credits.policy.is_balance_enforced
+        assert isinstance(container.payment, NoopPaymentProvider)
+        assert not isinstance(container.payment, CreditGatedPaymentProvider)
+    finally:
+        await container.aclose()
+
+
+async def test_a_container_without_an_entitlement_store_still_builds_a_working_pipeline(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """``credits=None`` means "not wired at all", which is not the same as "wired, dark".
+
+    Every test that predates the meter constructs a container without one, so the render
+    gate has to degrade to the bare seam rather than to an exception at job time.
+    """
+    # Arrange
+    container = await build_container(_sqlite(settings, tmp_path), data_root=tmp_path)
+    unmetered = replace(container, credits=None)
+
+    # Act / Assert
+    try:
+        assert unmetered.pipeline()._payment is unmetered.payment
+    finally:
+        await container.aclose()

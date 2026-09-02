@@ -20,11 +20,11 @@ from hbd.providers.music.payload import (
     build_inpaint_body,
     guard_plan,
 )
-from tests.test_providers_music.conftest import TEST_MODEL_ID, TEST_OUTPUT_FORMAT, simple_plan
+from tests.test_providers_music.conftest import TEST_MODEL_ID, simple_plan
 
 
 def _compose(plan: CompositionPlan) -> dict[str, object]:
-    return build_compose_body(plan, model_id=TEST_MODEL_ID, output_format=TEST_OUTPUT_FORMAT)
+    return build_compose_body(plan, model_id=TEST_MODEL_ID)
 
 
 def test_body_uses_the_vendors_documented_field_names() -> None:
@@ -35,10 +35,12 @@ def test_body_uses_the_vendors_documented_field_names() -> None:
     assert set(body) >= {
         "composition_plan",
         "model_id",
-        "output_format",
         "force_instrumental",
         "store_for_inpainting",
     }
+    # output_format is a QUERY parameter at this vendor. A body field of that name is
+    # accepted and ignored, which is how the configured format went unused for so long.
+    assert "output_format" not in body
 
 
 def test_music_length_ms_is_never_sent_alongside_a_composition_plan() -> None:
@@ -130,7 +132,6 @@ def test_inpaint_keeps_the_song_stored_so_a_second_re_roll_is_possible() -> None
         source_song_id="song_abc123",
         chunk_index=1,
         model_id=TEST_MODEL_ID,
-        output_format=TEST_OUTPUT_FORMAT,
     )
 
     # Assert
@@ -148,7 +149,6 @@ def test_building_a_body_does_not_mutate_the_plan() -> None:
         source_song_id="song_abc123",
         chunk_index=0,
         model_id=TEST_MODEL_ID,
-        output_format=TEST_OUTPUT_FORMAT,
     )
 
     # Assert
@@ -245,7 +245,7 @@ def test_context_adherence_serialises_as_the_vendor_enum_not_a_float() -> None:
     )
 
     # Act
-    body = build_compose_body(plan, model_id="music_v2", output_format="mp3_44100_128")
+    body = build_compose_body(plan, model_id="music_v2")
 
     # Assert
     sent = body["composition_plan"]["chunks"][0]["context_adherence"]
@@ -271,7 +271,6 @@ def test_inpaint_replays_untouched_sections_as_audio_reference_chunks() -> None:
         source_song_id="song_abc123",
         chunk_index=1,
         model_id=TEST_MODEL_ID,
-        output_format=TEST_OUTPUT_FORMAT,
     )
 
     # Assert
@@ -296,7 +295,6 @@ def test_inpaint_omits_the_leading_reference_when_the_first_chunk_is_the_target(
         source_song_id="song_abc123",
         chunk_index=0,
         model_id=TEST_MODEL_ID,
-        output_format=TEST_OUTPUT_FORMAT,
     )
 
     # Assert
@@ -316,7 +314,6 @@ def test_inpaint_omits_the_trailing_reference_when_the_last_chunk_is_the_target(
         source_song_id="song_abc123",
         chunk_index=2,
         model_id=TEST_MODEL_ID,
-        output_format=TEST_OUTPUT_FORMAT,
     )
 
     # Assert

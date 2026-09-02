@@ -50,7 +50,7 @@ from hbd.db.mapping import (
 from hbd.db.models.asset import AssetRow
 from hbd.db.models.brief import BriefRow
 from hbd.db.models.generation_attempt import GenerationAttemptRow
-from hbd.db.models.order import OrderRow
+from hbd.db.models.order import FAILED_REASON_LENGTH, OrderRow
 from hbd.db.models.user import UserRow
 from hbd.db.retention import DEFAULT_RETENTION_POLICY, RetentionClass, RetentionPolicy
 
@@ -97,11 +97,22 @@ class SqlKitRepository:
         )
 
     async def set_order_state(
-        self, order_id: UUID, state: OrderState, *, now: datetime
+        self,
+        order_id: UUID,
+        state: OrderState,
+        *,
+        now: datetime,
+        failed_reason: str | None = None,
     ) -> Result[Order]:
+        """Move the order to ``state``, optionally recording WHY it failed.
+
+        ``failed_reason`` is operator triage text and NOTHING else. See
+        ``_set_order_state`` for the rule it has to obey; it is spelled out there rather
+        than here because that is where the value meets the column.
+        """
         return await run_guarded(
             "set_order_state",
-            lambda: self._set_order_state(order_id, state, now),
+            lambda: self._set_order_state(order_id, state, now, failed_reason),
             order_id=str(order_id),
             state=str(state),
         )
@@ -175,7 +186,26 @@ class SqlKitRepository:
             order_row, brief_row = await _load_order(session, order_id)
             return to_order(order_row, brief_row)
 
-    async def _set_order_state(self, order_id: UUID, state: OrderState, now: datetime) -> Order:
+    async def _set_order_state(
+        self, order_id: UUID, state: OrderState, now: datetime, failed_reason: str | None
+    ) -> Order:
+        """Apply one state transition, including what ``failed_reason`` now says.
+
+        **``orders.failed_reason`` MUST NEVER CONTAIN USER TEXT OR PERSONAL DATA.** The
+        order row deliberately outlives the brief purge (see the ``orders`` model
+        docstring, SoW DAT-3): the recipient's name, the sender's note and the lyric are
+        deleted on their own clock while this row survives forever as the tax record.
+        Anything written here therefore escapes the purge. The caller — today only
+        ``PipelineOrchestrator._fail`` — is responsible for handing us a string built from
+        a closed vocabulary (error code, exception class, pipeline stage, allowlisted
+        scalars). This layer only bounds the length; it cannot tell PII from triage text.
+
+        The reason describes the state the order is in NOW, so any transition out of
+        ``FAILED`` clears it. Without that, an order that fails at MODERATING, is retried,
+        and then delivers would keep a rejection notice on a delivered row and read as a
+        false positive forever. With the default ``failed_reason=None`` the column is
+        never anything but ``NULL``, which is exactly what every pre-existing caller saw.
+        """
         async with self._sessions.begin() as session:
             order_row, brief_row = await _load_order(session, order_id)
             order_row.state = state
@@ -184,6 +214,9 @@ class SqlKitRepository:
             order_row.is_paid = order_row.is_paid or state in _PAID_STATES
             if state is OrderState.DELIVERED:
                 order_row.delivered_at = now
+            order_row.failed_reason = (
+                _bounded_failed_reason(failed_reason) if state is OrderState.FAILED else None
+            )
             return to_order(order_row, brief_row)
 
     async def _save_kit(self, kit: Kit) -> Kit:
@@ -255,6 +288,20 @@ class SqlKitRepository:
                 )
             ).all()
             return tuple(to_order(order_row, brief_row) for order_row, brief_row in rows)
+
+
+def _bounded_failed_reason(reason: str | None) -> str | None:
+    """Fit a triage string into ``orders.failed_reason`` without ever raising.
+
+    This is the last line of defence, not the formatter — the caller composes a reason
+    that already fits. But the failure path is the LAST thing that runs for a doomed
+    order, and a ``DataError: value too long for type character varying(256)`` here would
+    roll the transaction back and leave the order stuck in its old state with no record of
+    anything. Truncating is always better than that, so we truncate rather than validate.
+    """
+    if reason is None:
+        return None
+    return reason.strip()[:FAILED_REASON_LENGTH] or None
 
 
 # ---------------------------------------------------------------------------

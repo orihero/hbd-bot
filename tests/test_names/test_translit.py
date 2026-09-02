@@ -1,4 +1,3 @@
-
 # Latin ones are the SUBJECT of this module, not a typo in it.
 """Uzbek Latin <-> Cyrillic, both directions, with the digraphs and the Russian differences."""
 

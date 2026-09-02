@@ -7,11 +7,11 @@ SRC     := src/hbd
 TESTS   := tests
 
 .DEFAULT_GOAL := help
-.PHONY: help install up down dev worker demo test test-all cov lint format typecheck check migrate revision clean
+.PHONY: help install up down dev worker admin admin-bootstrap demo test test-all cov cov-admin lint format typecheck check migrate revision clean
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
 install: ## Create .venv and install the package with dev extras
 	uv venv --python 3.12 .venv
@@ -29,6 +29,12 @@ dev: ## Run the Telegram bot (long polling)
 worker: ## Run the ARQ worker
 	$(PYTHON) -m arq hbd.worker.WorkerSettings
 
+admin: ## Run the admin API (loopback only; put a TLS proxy in front of it)
+	$(PYTHON) -m uvicorn hbd.admin.app:app --host 127.0.0.1 --port 8080
+
+admin-bootstrap: ## Create the first OWNER account (prompts for the password)
+	$(PYTHON) -m hbd.admin.bootstrap
+
 demo: ## One full kit, offline: no keys, no Redis, no Postgres, no spend
 	HBD_USE_FAKE_PROVIDERS=1 $(PYTHON) -m hbd.demo
 
@@ -40,6 +46,9 @@ test-all: ## Every test, including those marked integration
 
 cov: ## Unit tests with the 80% coverage gate
 	$(PYTHON) -m pytest -m "not integration" --cov --cov-report=term-missing
+
+cov-admin: cov ## Re-report the same run against src/hbd/admin alone, gated at 85%
+	$(PYTHON) -m coverage report --include='src/hbd/admin/*' --fail-under=85
 
 lint: ## ruff check
 	$(PYTHON) -m ruff check $(SRC) $(TESTS)

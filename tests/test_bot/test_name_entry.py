@@ -3,7 +3,6 @@
 
 # every apostrophe variant a real keyboard emits, plus a zero-width/no-break space.
 
-
 from __future__ import annotations
 
 import pytest
@@ -234,9 +233,7 @@ def test_the_machine_readable_reason_survives_into_the_operator_log() -> None:
 def test_the_bot_and_the_golden_set_resolver_agree_exactly(typed: str) -> None:
     # Arrange / Act — one resolver, so an accepted name must be identical either way
     through_bot = resolve(typed)
-    through_core = resolve_name(
-        typed, candidate_order=DEFAULT_ORDER, ui_language=Language.UZ_LATN
-    )
+    through_core = resolve_name(typed, candidate_order=DEFAULT_ORDER, ui_language=Language.UZ_LATN)
 
     # Assert
     assert isinstance(through_bot, Ok)

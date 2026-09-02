@@ -19,6 +19,7 @@ from hbd.contracts import (
     is_ok,
 )
 from hbd.db.models import AssetRow, BriefRow, OrderRow, UserRow
+from hbd.db.models.order import FAILED_REASON_LENGTH
 from hbd.db.repository import MAX_ORDER_HISTORY, SqlKitRepository
 from hbd.errors import ErrorCode
 from tests.conftest import (
@@ -291,6 +292,129 @@ async def test_set_order_state_returns_err_for_an_unknown_order(
 
     # Assert
     assert is_err(result)
+
+
+# ---------------------------------------------------------------------------
+# set_order_state / failed_reason
+#
+# The column is operator triage text on a row that OUTLIVES the brief purge. These tests
+# pin the length bound and the lifecycle; the "no personal data ever reaches it" half of
+# the contract is pinned where the string is composed — see tests/test_pipeline.
+# ---------------------------------------------------------------------------
+async def test_set_order_state_persists_the_failed_reason_it_was_given(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    clock: MovableClock,
+) -> None:
+    # Arrange
+    order = new_order(state=OrderState.GENERATING)
+    await repository.create_order(order)
+    reason = "CONTENT_REJECTED: ModerationRejectedError at moderating; retryable=false"
+
+    # Act
+    await repository.set_order_state(
+        order.id, OrderState.FAILED, now=clock.advance(days=1), failed_reason=reason
+    )
+
+    # Assert
+    async with sessions() as session:
+        stored = await session.get(OrderRow, order.id)
+        assert stored is not None
+        assert stored.failed_reason == reason
+
+
+async def test_set_order_state_leaves_the_failed_reason_null_when_none_is_given(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    clock: MovableClock,
+) -> None:
+    # Arrange — the pre-existing call shape, which must behave exactly as it always did.
+    order = new_order(state=OrderState.GENERATING)
+    await repository.create_order(order)
+
+    # Act
+    await repository.set_order_state(order.id, OrderState.FAILED, now=clock.advance(days=1))
+
+    # Assert
+    async with sessions() as session:
+        stored = await session.get(OrderRow, order.id)
+        assert stored is not None
+        assert stored.failed_reason is None
+
+
+async def test_set_order_state_truncates_a_reason_too_long_for_the_column(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    clock: MovableClock,
+) -> None:
+    # Arrange — a bug upstream must not turn a clean failure into a DataError that rolls
+    # the whole transition back and leaves the order stuck in its old state.
+    order = new_order(state=OrderState.GENERATING)
+    await repository.create_order(order)
+    overlong = "UPSTREAM_TIMEOUT: " + ("x" * FAILED_REASON_LENGTH * 3)
+
+    # Act
+    await repository.set_order_state(
+        order.id, OrderState.FAILED, now=clock.advance(days=1), failed_reason=overlong
+    )
+
+    # Assert
+    async with sessions() as session:
+        stored = await session.get(OrderRow, order.id)
+        assert stored is not None
+        assert stored.failed_reason is not None
+        assert len(stored.failed_reason) == FAILED_REASON_LENGTH
+        assert stored.failed_reason.startswith("UPSTREAM_TIMEOUT: ")
+
+
+async def test_set_order_state_clears_a_stale_failed_reason_when_the_retry_succeeds(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    clock: MovableClock,
+) -> None:
+    # Arrange — the retry ladder: fail, requeue, deliver. A delivered order that still
+    # carries "CONTENT_REJECTED" reads as a false positive forever.
+    order = new_order(state=OrderState.GENERATING)
+    await repository.create_order(order)
+    await repository.set_order_state(
+        order.id,
+        OrderState.FAILED,
+        now=clock.advance(days=1),
+        failed_reason="UPSTREAM_TIMEOUT: ProviderTimeoutError at composing_song",
+    )
+
+    # Act
+    await repository.set_order_state(order.id, OrderState.DELIVERED, now=clock.advance(days=1))
+
+    # Assert
+    async with sessions() as session:
+        stored = await session.get(OrderRow, order.id)
+        assert stored is not None
+        assert stored.failed_reason is None
+
+
+async def test_set_order_state_never_writes_a_failed_reason_onto_a_non_failed_state(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    clock: MovableClock,
+) -> None:
+    # Arrange
+    order = new_order(state=OrderState.BRIEF_READY)
+    await repository.create_order(order)
+
+    # Act — a caller that passes a reason on a happy transition is confused, not obeyed.
+    await repository.set_order_state(
+        order.id,
+        OrderState.GENERATING,
+        now=clock.advance(days=1),
+        failed_reason="UPSTREAM_TIMEOUT: ProviderTimeoutError at composing_song",
+    )
+
+    # Assert
+    async with sessions() as session:
+        stored = await session.get(OrderRow, order.id)
+        assert stored is not None
+        assert stored.failed_reason is None
 
 
 # ---------------------------------------------------------------------------

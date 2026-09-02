@@ -369,9 +369,7 @@ async def test_creates_and_closes_its_own_client_when_none_is_injected() -> None
         (Language.EN, "eng"),
     ],
 )
-async def test_sends_the_iso_639_3_code_scribe_demands(
-    language: Language, expected: str
-) -> None:
+async def test_sends_the_iso_639_3_code_scribe_demands(language: Language, expected: str) -> None:
     """Scribe takes ISO 639-3, NOT the two-letter codes the TTS endpoint takes.
 
     These are two different vocabularies on the same vendor. Sharing one map sent ``uz``,

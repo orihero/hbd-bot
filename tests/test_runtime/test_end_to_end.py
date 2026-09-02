@@ -64,6 +64,12 @@ def _settings(base: Settings, tmp_path: Path) -> Settings:
             # Real ffmpeg runs three passes per asset; the test is about wiring.
             "song_length_ms": 30_000,
             "greetings_per_kit": 3,
+            # The meter ships dark, so every other test in this repository exercises the
+            # pass-through. This one turns it ON, because the only place the ledger, the
+            # gate, the real orchestrator and a real delivery can be proven to agree is
+            # here: the customer must still get their kit AND be charged exactly once for
+            # it, and neither half is evidence of the other.
+            "credits_enforced": True,
         },
     )
 
@@ -93,7 +99,7 @@ async def app(
         BotDeps(
             settings=configured,
             submitter=submitter,
-            content=LlmContentWriter(container.providers.llm, configured),
+            content=LlmContentWriter(container.require_providers().llm, configured),
             payment=container.payment,
         ),
         storage=MemoryStorage(),
@@ -200,12 +206,42 @@ async def test_the_order_and_its_kit_survive_in_the_database(
     assert len(kit.value.greetings) == 3
 
 
+async def test_one_delivered_kit_costs_the_customer_exactly_one_credit(
+    app: tuple[Dispatcher, Bot, RecordingSession, AppContainer, InProcessOrderSubmitter],
+) -> None:
+    """The whole meter, end to end, against the real ledger the worker writes through.
+
+    The customer has never been seen before, so the rolling allowance is minted by the very
+    charge that spends from it — three credits opened and one spent, in one transaction,
+    with nothing seeded by hand. ``in_flight`` is back to 0 because the job SETTLED the
+    debit once the kit landed (``jobs._settle``, CONSUME on DELIVERED): the credit is spent,
+    not returned, and the slot the abuse cap counts is free again. Both numbers matter and
+    neither implies the other — a settlement that refunded would read ``credits == 3``, and
+    one that never ran would read ``in_flight == 1`` and wedge this customer out of their
+    next song until the grace window expired.
+    """
+    # Arrange
+    dispatcher, bot, session, container, submitter = app
+    assert container.credits is not None, "the e2e container must wire the entitlement store"
+
+    # Act
+    await _walk_the_wizard(dispatcher, bot)
+    await submitter.drain()
+
+    # Assert: the kit arrived AND it was paid for. Neither proves the other.
+    assert len(session.named("SendAudio")) == 1
+    balance = await container.credits.balance_for(CHAT_ID)
+    assert isinstance(balance, Ok), f"the balance could not be read: {balance}"
+    assert balance.value.credits == 2
+    assert balance.value.in_flight == 0
+
+
 async def test_the_name_chunk_carried_a_submitted_orthography_never_the_display_one(
     app: tuple[Dispatcher, Bot, RecordingSession, AppContainer, InProcessOrderSubmitter],
 ) -> None:
     # Arrange
     dispatcher, bot, _session, container, submitter = app
-    music: Any = container.providers.music
+    music: Any = container.require_providers().music
 
     # Act
     await _walk_the_wizard(dispatcher, bot)

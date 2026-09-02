@@ -22,8 +22,16 @@ from hbd.bot.callbacks import (
 )
 from hbd.bot.i18n import translate
 from hbd.bot.states import Wizard
-from hbd.contracts import Genre, Language, Occasion, OrderState, VoiceGender
+from hbd.contracts import (
+    MAX_RECIPIENT_NAME_CHARS,
+    Genre,
+    Language,
+    Occasion,
+    OrderState,
+    VoiceGender,
+)
 from tests.test_bot.conftest import (
+    RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
     buttons,
@@ -97,7 +105,9 @@ async def test_wizard_reaches_the_name_step_in_the_chosen_interface_language(
     await walk_to_name(dispatcher, bot)
 
     # Assert
-    assert session.last_screen.text == translate("wizard.name.prompt", Language.EN)
+    assert session.last_screen.text == translate(
+        "wizard.name.prompt", Language.EN, limit=MAX_RECIPIENT_NAME_CHARS
+    )
     assert await state.get_state() == Wizard.name.state
 
 
@@ -128,7 +138,59 @@ async def test_confirming_the_name_moves_on_to_the_output_language(
 
     # Assert
     assert await state.get_state() == Wizard.output_language.state
-    assert session.last_screen.text == translate("wizard.output_language.prompt", Language.EN)
+    assert session.last_screen.text == translate(
+        "wizard.output_language.prompt", Language.EN, name=UZBEK_DISPLAY
+    )
+
+
+async def test_repicking_the_same_song_language_keeps_the_lyric_already_approved(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    session: RecordingSession,
+    content: RecordingContentWriter,
+    state: FSMContext,
+) -> None:
+    """NAV-05. Back from the summary lands on the language picker, and the obvious way
+    onwards is the button that is already ticked. Treating that as a fresh answer would
+    call the writer again and silently destroy a lyric the customer had approved — or, far
+    worse, one they had pasted in themselves and cannot get back.
+    """
+    # Arrange — a lyric is written, approved, and the user steps Back to the picker
+    await walk_to_lyrics(dispatcher, bot)
+    assert content.calls == 1
+    approved = session.last_screen.text
+    await press(dispatcher, bot, NavCB(action=NavAction.LYRICS_OK).pack())
+    await press(dispatcher, bot, NavCB(action=NavAction.BACK).pack())
+    await press(dispatcher, bot, NavCB(action=NavAction.BACK).pack())
+    assert await state.get_state() == Wizard.output_language.state
+    session.clear()
+
+    # Act — re-tap the language that is already chosen
+    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.UZ_LATN).pack())
+
+    # Assert — the same words, and the writer was never asked again
+    assert content.calls == 1
+    assert await state.get_state() == Wizard.lyrics.state
+    assert session.last_screen.text == approved
+
+
+async def test_choosing_a_different_song_language_does_rewrite_the_lyric(
+    dispatcher: Dispatcher, bot: Bot, content: RecordingContentWriter, state: FSMContext
+) -> None:
+    """The short circuit is about an UNCHANGED answer. A lyric in the wrong language is
+    not the lyric they asked for, so changing the language must still write a new one."""
+    # Arrange
+    await walk_to_lyrics(dispatcher, bot)
+    await press(dispatcher, bot, NavCB(action=NavAction.BACK).pack())
+    assert await state.get_state() == Wizard.output_language.state
+
+    # Act
+    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.RU).pack())
+
+    # Assert
+    assert content.calls == 2
+    assert content.briefs[-1].output_language is Language.RU
+    assert await state.get_state() == Wizard.lyrics.state
 
 
 async def test_summary_shows_the_display_name_and_every_answer(
@@ -145,13 +207,19 @@ async def test_summary_shows_the_display_name_and_every_answer(
     assert "Loves plov and the mountains" in text
 
 
-async def test_confirming_submits_the_order_and_clears_the_session(
+async def test_confirming_submits_the_order_and_parks_the_session(
     dispatcher: Dispatcher,
     bot: Bot,
     session: RecordingSession,
     submitter: RecordingSubmitter,
     state: FSMContext,
 ) -> None:
+    """Every answer reaches the queue, and the session stays parked while it runs.
+
+    The FSM is deliberately NOT cleared here. Generation takes minutes, and a cleared
+    session makes anything the customer types in the meantime look like no session at all —
+    which the fallback would answer with "that expired, send /start", mid-run.
+    """
     # Arrange
     await walk_to_confirm(dispatcher, bot)
 
@@ -166,7 +234,7 @@ async def test_confirming_submits_the_order_and_clears_the_session(
     assert order.brief.output_language is Language.UZ_LATN
     assert order.brief.ui_language is Language.EN
     assert chat_id and progress_message_id
-    assert await state.get_state() is None
+    assert await state.get_state() == Wizard.submitting.state
 
 
 async def test_submitted_candidates_are_ranked_and_never_shown_to_the_user(
@@ -182,9 +250,7 @@ async def test_submitted_candidates_are_ranked_and_never_shown_to_the_user(
     order, _, _ = submitter.submitted[0]
     candidates = order.brief.recipient.candidates
     assert tuple(candidate.rank for candidate in candidates) == tuple(range(len(candidates)))
-    screen_text = " ".join(
-        call.text or "" for call in session.calls if hasattr(call, "text")
-    )
+    screen_text = " ".join(call.text or "" for call in session.calls if hasattr(call, "text"))
     submitted_only = [c.text for c in candidates if c.text != UZBEK_DISPLAY]
     assert submitted_only, "the fixture name must produce at least one distinct submit form"
     for spelling in submitted_only:
@@ -251,6 +317,77 @@ async def test_note_longer_than_the_limit_is_rejected_without_losing_the_step(
     assert await state.get_state() == Wizard.note.state
     assert "601" not in session.last_screen.text
     assert "600" in session.last_screen.text
+
+
+async def test_the_skip_button_keeps_a_note_that_was_already_written(
+    dispatcher: Dispatcher, bot: Bot, submitter: RecordingSubmitter
+) -> None:
+    """One callback, two labels — and pressing it must do what the label says.
+
+    ``note_keyboard`` relabels Skip to "Keep this note" once a note exists, so Back into
+    the note step has an obvious way onwards that is not retyping it. The handler wrote
+    ``note=""`` regardless, which made the second label a lie: the customer pressed Keep
+    and the note they had written was deleted on the way to the name step.
+    """
+    # Arrange — write a note, then come back to the step it was written on
+    await walk_to_name(dispatcher, bot)
+    await press(dispatcher, bot, NavCB(action=NavAction.BACK).pack())
+
+    # Act — press the button that now reads "Keep this note"
+    await press(dispatcher, bot, NavCB(action=NavAction.SKIP).pack())
+    await send(dispatcher, bot, UZBEK_TYPED)
+    await press(dispatcher, bot, NavCB(action=NavAction.NAME_OK).pack())
+    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.EN).pack())
+    await approve_lyrics(dispatcher, bot)
+    await press(dispatcher, bot, NavCB(action=NavAction.CONFIRM).pack())
+
+    # Assert
+    order, _, _ = submitter.submitted[0]
+    assert order.brief.note == "Loves plov and the mountains"
+
+
+async def test_a_command_at_the_note_step_is_never_stored_as_the_note(
+    dispatcher: Dispatcher, bot: Bot, state: FSMContext, session: RecordingSession
+) -> None:
+    # Arrange — at the note step, one answer short of the name
+    await send(dispatcher, bot, "/start")
+    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack())
+    await press(dispatcher, bot, OccasionCB(value=Occasion.BIRTHDAY).pack())
+    await press(dispatcher, bot, GenreCB(value=Genre.POP).pack())
+    await press(dispatcher, bot, VocalGenderCB(value=VoiceGender.MALE).pack())
+
+    # Act — a command nothing else claims, so it reaches the free-text handler
+    await send(dispatcher, bot, "/halp me write this")
+
+    # Assert — the step is re-shown and nothing was written
+    assert await state.get_state() == Wizard.note.state
+    assert "/halp" not in session.last_screen.text
+
+
+async def test_a_command_at_the_lyrics_step_is_never_accepted_as_the_lyric(
+    dispatcher: Dispatcher, bot: Bot, state: FSMContext, submitter: RecordingSubmitter
+) -> None:
+    """The same hole the note step had. ``parse_typed_lyrics`` has no view on a slash.
+
+    Only the twenty-character minimum rejected any of these, and only by accident — this
+    command is longer than that, so before the guard it was accepted verbatim, previewed
+    as the lyric and queued to be sung.
+    """
+    # Arrange
+    await walk_to_lyrics(dispatcher, bot)
+    command = "/halp me write this song about her please"
+
+    # Act
+    await send(dispatcher, bot, command)
+
+    # Assert — still on the preview, and the queued lyric is the writer's, not the command
+    assert await state.get_state() == Wizard.lyrics.state
+    await approve_lyrics(dispatcher, bot)
+    await press(dispatcher, bot, NavCB(action=NavAction.CONFIRM).pack())
+    order, _, _ = submitter.submitted[0]
+    approved = order.brief.approved_lyrics
+    assert approved is not None
+    assert command not in "\n".join(line for s in approved.sections for line in s.lines)
 
 
 async def test_skip_leaves_the_note_empty(

@@ -52,15 +52,11 @@ def upgrade() -> None:
         batch.add_column(sa.Column(_PURGED, sa.DateTime(timezone=True), nullable=True))
 
     op.execute(
-        sa.text(
-            f"UPDATE {_TABLE} SET {_EXPIRES} = identity_expires_at WHERE {_EXPIRES} IS NULL"
-        )
+        sa.text(f"UPDATE {_TABLE} SET {_EXPIRES} = identity_expires_at WHERE {_EXPIRES} IS NULL")
     )
 
     with op.batch_alter_table(_TABLE) as batch:
-        batch.alter_column(
-            _EXPIRES, existing_type=sa.DateTime(timezone=True), nullable=False
-        )
+        batch.alter_column(_EXPIRES, existing_type=sa.DateTime(timezone=True), nullable=False)
         batch.create_index(_INDEX, [_EXPIRES], unique=False)
 
 

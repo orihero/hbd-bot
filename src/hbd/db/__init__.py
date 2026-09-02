@@ -21,9 +21,12 @@ from hbd.db.attempts import (
     StrategyStat,
 )
 from hbd.db.base import Base, utc_now
+from hbd.db.credit_sql import verify_balances
+from hbd.db.credits import SqlCreditLedger
 from hbd.db.engine import create_engine, create_session_factory, ping
 from hbd.db.enums import GenerationKind, NameSource
 from hbd.db.guard import NotFoundError
+from hbd.db.lyric_budget import SqlLyricBudget
 from hbd.db.models import (
     AssetRow,
     BriefRow,
@@ -32,6 +35,7 @@ from hbd.db.models import (
     OrderRow,
     UserRow,
 )
+from hbd.db.models.credit_ledger import ACTOR_LENGTH
 from hbd.db.names import NameRecordDraft, NameRecordRepository
 from hbd.db.purge import PurgeReport, purge_expired
 from hbd.db.repository import SqlKitRepository
@@ -66,6 +70,21 @@ __all__ = [
     "NameRecordRepository",
     "NameRecordDraft",
     "NotFoundError",
+    # Entitlements. The ledger's *rows* are deliberately absent, like every other ``*Row``:
+    # ``SqlCreditLedger`` returns the frozen ``hbd.entitlements`` view models instead, so a
+    # gate never holds a mapped object with a closed session attached. ``verify_balances``
+    # is exported because an operator tool and the tests both need to prove that
+    # ``credit_accounts.balance`` still equals ``SUM(credit_ledger.delta)``.
+    "SqlCreditLedger",
+    "verify_balances",
+    # The daily lyric-write ceiling. A SEPARATE seam from ``SqlCreditLedger`` on
+    # purpose: the bot writes this counter and may never write a credit, and one store
+    # carrying both would be the place that rule quietly stopped being true.
+    "SqlLyricBudget",
+    # The width of ``credit_ledger.actor``. A constant, not a row: the operator CLI has to
+    # refuse a name that would be silently truncated, and it must not learn that number by
+    # copying it.
+    "ACTOR_LENGTH",
     # Retention
     "RetentionPolicy",
     "RetentionClass",

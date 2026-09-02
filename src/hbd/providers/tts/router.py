@@ -194,9 +194,7 @@ class LanguageRoutingTts:
                     extra={"provider": provider.name, **result.error.to_log_dict()},
                 )
                 continue
-            accepted, seen = _accept_voices(
-                result.value, languages=languages, seen=seen
-            )
+            accepted, seen = _accept_voices(result.value, languages=languages, seen=seen)
             collected.extend(accepted)
         if not collected:
             return err(

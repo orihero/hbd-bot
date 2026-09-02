@@ -30,6 +30,7 @@ __all__ = ["ErrorGuardMiddleware", "resolve_language"]
 
 _LOG = get_logger(__name__)
 
+
 async def resolve_language(state: FSMContext | None) -> Language:
     """The user's interface language, or the fallback. Never raises."""
     if state is None:

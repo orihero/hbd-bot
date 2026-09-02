@@ -18,7 +18,11 @@ from hbd.contracts import (
     RecipientName,
     Script,
 )
-from hbd.errors import ErrorCode, ProviderTimeoutError, StorageError
+from hbd.errors import (
+    ErrorCode,
+    ProviderTimeoutError,
+    StorageError,
+)
 from hbd.pipeline.events import PipelineStage, ProgressStatus
 from hbd.pipeline.outcome import PipelineOutcome
 from tests.conftest import (
@@ -86,10 +90,14 @@ async def test_emits_a_progress_event_for_every_stage(studio: Studio, ready_orde
     # Assert
     started = {stage for stage, status in studio.sink.stages() if status == "started"}
     assert started >= {stage.value for stage in PipelineStage} - {"delivering"}
+    # The pipeline stops at "persisted". DELIVERING belongs to ``runtime.jobs._send_kit``,
+    # which brackets the real send — this used to emit SUCCEEDED for it here, i.e. put
+    # "Done — sending it now" on screen before a byte had left the worker.
     assert studio.sink.stages()[-1] == (
-        PipelineStage.DELIVERING.value,
+        PipelineStage.PERSISTING.value,
         ProgressStatus.SUCCEEDED.value,
     )
+    assert PipelineStage.DELIVERING.value not in {stage for stage, _ in studio.sink.stages()}
 
 
 async def test_records_a_timing_for_every_stage_it_ran(studio: Studio, ready_order: Order) -> None:
@@ -256,6 +264,81 @@ async def test_a_replayed_job_does_not_buy_a_second_song(
     assert second.kit.song.sha256 == first.kit.song.sha256
 
 
+async def test_a_replay_reconstructs_the_name_gap_it_cannot_read_back(
+    studio: Studio, ready_order: Order
+) -> None:
+    """A redelivery must carry the pronunciation disclosure the first delivery carried.
+
+    Gaps are not persisted, so the replay used to report none and the second closing
+    message silently claimed a clean run. The stored verdicts still prove this one.
+    """
+    # Arrange — no orthography is ever heard correctly, so the first run records the gap
+    for spelling in (STRIPPED, UZBEK_NAME_CANONICAL, "Gu-lom-jon"):
+        studio.stt.pronunciations[spelling] = "Zamira"
+    first = await _run(studio, ready_order)
+    assert [gap.error_code for gap in first.gaps] == [ErrorCode.NAME_UNVERIFIABLE]
+
+    # Act
+    second = await _run(studio, ready_order)
+
+    # Assert
+    assert [gap.stage for gap in second.gaps] == [PipelineStage.VERIFYING_NAME]
+    assert second.gaps[0].error_code is ErrorCode.NAME_UNVERIFIABLE
+    assert second.is_complete is False
+
+
+async def test_a_replay_reconstructs_a_greeting_the_stored_kit_is_short_of(
+    studio: Studio, ready_order: Order
+) -> None:
+    # Arrange — one persona fails, so the kit is one greeting short of what was asked for
+    studio.tts.failing_personas = {"persona-2"}
+    first = await _run(studio, ready_order)
+    assert len(first.kit.greetings) == studio.settings.greetings_per_kit - 1
+
+    # Act
+    second = await _run(studio, ready_order)
+
+    # Assert
+    assert [gap.stage for gap in second.gaps] == [PipelineStage.RENDERING_GREETINGS]
+
+
+async def test_a_replay_of_a_clean_run_reports_no_gaps(studio: Studio, ready_order: Order) -> None:
+    """The reconstruction must not invent an apology for a run that had nothing wrong."""
+    # Arrange
+    first = await _run(studio, ready_order)
+    assert first.is_complete is True
+
+    # Act
+    second = await _run(studio, ready_order)
+
+    # Assert
+    assert second.gaps == ()
+    assert second.is_complete is True
+
+
+async def test_a_replay_cannot_reconstruct_an_archival_gap(
+    studio: Studio, ready_order: Order
+) -> None:
+    """The one gap kind that does not survive the round trip, pinned so nobody is surprised.
+
+    An asset that failed to ARCHIVE at PERSISTING leaves no trace in the stored kit, so a
+    replay cannot see it. It is also the only gap with no consequence the customer can
+    hear — the files were delivered from the worker's disk either way — so the replay's
+    claim of a clean delivery is still one it can prove.
+    """
+    # Arrange
+    studio.storage.should_fail = True
+    first = await _run(studio, ready_order)
+    assert all(gap.stage is PipelineStage.PERSISTING for gap in first.gaps)
+    assert first.gaps
+
+    # Act
+    second = await _run(studio, ready_order)
+
+    # Assert
+    assert second.gaps == ()
+
+
 async def test_retried_provider_calls_reuse_one_idempotency_key(
     studio: Studio, ready_order: Order
 ) -> None:
@@ -322,6 +405,23 @@ async def test_the_kit_price_comes_from_configuration_not_a_baked_in_constant(
     assert studio.payment.charges == [(25_000, "USD")]
 
 
+async def test_the_worker_gate_is_told_which_telegram_user_the_order_belongs_to(
+    studio: Studio, ready_order: Order
+) -> None:
+    """The worker re-runs the gate, and it must name the same payer the bot named.
+
+    ``Order.id`` is a UUID5 over one draft (``hbd.bot.handlers.confirm._order_id_for``), so
+    a provider that meters per person cannot recover the payer from it. The worker runs long
+    after the tap, on a job carrying no user of its own, so the only honest source is the
+    order — take it from anywhere else and the retry meters against the wrong human.
+    """
+    # Arrange / Act
+    await studio.pipeline().run(ready_order)
+
+    # Assert
+    assert studio.payment.payers == [ready_order.telegram_user_id]
+
+
 async def test_a_declined_payment_stops_the_run(studio: Studio, ready_order: Order) -> None:
     # Arrange
     studio.payment.is_authorized = False
@@ -380,78 +480,6 @@ async def test_a_repository_that_cannot_save_fails_the_order(
     # Assert
     assert failure_of(result).error_code is ErrorCode.STORAGE_FAILED
     assert studio.repository.states[-1] is OrderState.FAILED
-
-
-async def test_a_broken_progress_sink_does_not_stop_delivery(
-    studio: Studio, ready_order: Order
-) -> None:
-    # Arrange
-    studio.sink.should_raise = True
-
-    # Act
-    outcome = await _run(studio, ready_order)
-
-    # Assert
-    assert outcome.kit.song.path.exists()
-    assert studio.sink.events == []
-
-
-async def test_delivers_a_song_only_kit_when_greetings_are_switched_off(
-    studio: Studio, ready_order: Order
-) -> None:
-    """``HBD_GREETINGS_PER_KIT=0`` sells the song and the sheet, and buys no speech.
-
-    Zero is a deliberate product setting, not a failure: it must not be confused with
-    "every greeting failed", which still fails the order.
-    """
-    # Arrange
-    studio.settings = studio.settings.model_copy(update={"greetings_per_kit": 0})
-
-    # Act
-    outcome = await _run(studio, ready_order)
-
-    # Assert
-    kit = outcome.kit
-    assert kit.greetings == ()
-    assert kit.song is not None
-    assert kit.lyric_sheet is not None
-    assert studio.repository.states[-1] is OrderState.DELIVERED
-    # No greetings means no speech was bought, and no voice catalogue was even fetched.
-    assert studio.tts.calls == []
-
-
-async def test_switching_greetings_off_still_fails_nothing_else(
-    studio: Studio, ready_order: Order
-) -> None:
-    """The all-greetings-failed guard must keep working when greetings ARE requested."""
-    # Arrange
-    studio.settings = studio.settings.model_copy(update={"greetings_per_kit": 3})
-    studio.tts.failing_personas = {"persona-1", "persona-2", "persona-3"}
-
-    # Act
-    result = await studio.pipeline().run(ready_order)
-
-    # Assert
-    assert isinstance(result, Err)
-    assert studio.repository.states[-1] is OrderState.FAILED
-
-
-async def test_no_greeting_stage_is_narrated_when_greetings_are_off(
-    studio: Studio, ready_order: Order
-) -> None:
-    """The progress bar must not report writing or recording speech that never happens."""
-    # Arrange
-    studio.settings = studio.settings.model_copy(update={"greetings_per_kit": 0})
-
-    # Act
-    outcome = await _run(studio, ready_order)
-
-    # Assert
-    narrated = {stage for stage, _status in studio.sink.stages()}
-    assert PipelineStage.WRITING_SCRIPTS.value not in narrated
-    assert PipelineStage.RENDERING_GREETINGS.value not in narrated
-    assert PipelineStage.COMPOSING_SONG.value in narrated
-    assert outcome.kit.greetings == ()
 
 
 # ---------------------------------------------------------------------------

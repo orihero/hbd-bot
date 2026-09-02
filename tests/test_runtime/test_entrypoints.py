@@ -24,6 +24,7 @@ from hbd.runtime.jobs import (
     BOT_CTX_KEY,
     CONTAINER_CTX_KEY,
     KIT_JOB_NAME,
+    RETENTION_JOB_NAME,
     build_kit_worker_settings,
     generate_and_deliver,
 )
@@ -84,7 +85,9 @@ async def test_the_offline_shape_runs_the_job_in_process(
 
     # Act
     try:
-        submitter, closeable = await main_module.build_submitter(configured, container, bot)
+        submitter, closeable = await main_module.build_submitter(
+            configured, container, bot, MemoryStorage()
+        )
 
         # Assert
         assert isinstance(submitter, InProcessOrderSubmitter)
@@ -159,8 +162,13 @@ async def test_the_worker_registers_the_job_the_submitter_enqueues(settings: Set
     # Act
     worker_settings = build_kit_worker_settings(settings=settings, build_dependencies=dependencies)
 
-    # Assert
-    assert [fn.__name__ for fn in worker_settings.functions] == [KIT_JOB_NAME]
+    # Assert — both jobs, named exactly. The retention sweep joined the kit job when the
+    # hourly cron landed; leaving this as an exact list is what keeps a third job from being
+    # registered without somebody deciding it should be.
+    assert [fn.__name__ for fn in worker_settings.functions] == [
+        KIT_JOB_NAME,
+        RETENTION_JOB_NAME,
+    ]
     assert worker_settings.max_jobs == settings.worker_concurrency
     assert worker_settings.job_timeout == settings.queue_job_timeout_s
 

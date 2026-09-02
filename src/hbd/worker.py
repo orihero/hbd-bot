@@ -14,11 +14,16 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from hbd.bot.app import build_bot
+from hbd.bot.app import build_bot, build_storage
 from hbd.config import Settings, load_settings
 from hbd.logging import configure_logging, get_logger
 from hbd.runtime.container import build_container
-from hbd.runtime.jobs import BOT_CTX_KEY, CONTAINER_CTX_KEY, build_kit_worker_settings
+from hbd.runtime.jobs import (
+    BOT_CTX_KEY,
+    CONTAINER_CTX_KEY,
+    STORAGE_CTX_KEY,
+    build_kit_worker_settings,
+)
 from hbd.runtime.startup import verify_host
 
 __all__ = ["WorkerSettings", "build_dependencies", "shutdown"]
@@ -43,14 +48,23 @@ async def build_dependencies() -> Mapping[str, Any]:
         "worker dependencies built",
         extra={"is_fake": _SETTINGS.use_fake_providers, "environment": _SETTINGS.environment},
     )
-    return {CONTAINER_CTX_KEY: container, BOT_CTX_KEY: build_bot(_SETTINGS)}
+    # The wizard's FSM storage, so a finished run can un-park the session waiting on it.
+    # Same URL and same default key builder as the bot process, which is what makes the
+    # key this worker writes the key that process reads.
+    return {
+        CONTAINER_CTX_KEY: container,
+        BOT_CTX_KEY: build_bot(_SETTINGS),
+        STORAGE_CTX_KEY: build_storage(_SETTINGS),
+    }
 
 
 async def shutdown(ctx: Mapping[str, Any]) -> None:
     """Release the pools the worker opened. Failures are reported, never masked."""
     container = ctx.get(CONTAINER_CTX_KEY)
     bot = ctx.get(BOT_CTX_KEY)
+    storage = ctx.get(STORAGE_CTX_KEY)
     for label, close in (
+        ("fsm_storage", getattr(storage, "close", None)),
         ("bot", getattr(getattr(bot, "session", None), "close", None)),
         ("container", getattr(container, "aclose", None)),
     ):

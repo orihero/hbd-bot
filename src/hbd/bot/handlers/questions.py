@@ -22,7 +22,7 @@ from hbd.bot.callbacks import (
 )
 from hbd.bot.deps import BotDeps
 from hbd.bot.draft import MAX_NOTE_CHARS
-from hbd.bot.handlers.common import expire, read_draft, say, show_step
+from hbd.bot.handlers.common import COMMAND_PREFIX, expire, read_draft, say, show_step
 from hbd.bot.handlers.lyrics import enter_lyrics_step
 from hbd.bot.i18n import translate
 from hbd.bot.states import Wizard, WizardStep
@@ -31,7 +31,6 @@ from hbd.logging import get_logger
 __all__ = ["build_router"]
 
 _LOG = get_logger(__name__)
-
 
 
 async def handle_ui_language(
@@ -84,21 +83,40 @@ async def handle_vocal_gender(
 
 
 async def handle_note_skipped(callback: CallbackQuery, state: FSMContext) -> None:
-    """The note is the only optional answer, so it is the only step with a Skip."""
+    """The note is the only optional answer, so it is the only step with a Skip.
+
+    The draft is passed through UNCHANGED, which is the whole behaviour. The button is one
+    callback with two labels: "Skip" on an empty note, "Keep this note" once one has been
+    written — ``note_keyboard`` relabels it so Back-into-the-note-step has an obvious way
+    onwards that is not "type it all again". Writing ``note=""`` here made that second
+    label a lie: the customer pressed Keep and the note was deleted. An empty note needs no
+    write either, because the field already defaults to the empty string.
+    """
     await callback.answer()
     draft = await read_draft(state)
     if draft is None:
         await expire(callback, state)
         return
-    await show_step(callback, state, draft.updated(note=""), WizardStep.NAME)
+    await show_step(callback, state, draft, WizardStep.NAME)
 
 
 async def handle_note(message: Message, state: FSMContext) -> None:
+    """The one free-text answer about the recipient. Commands are not answers.
+
+    The command guard is the fix for a defect, not a nicety: this handler is bound to any
+    text at the note step, so before it a customer who typed ``/help`` here had "/help"
+    stored as the fact we knew about their mother and sung back to her. Re-showing the step
+    puts the prompt and its Skip button back rather than leaving the chat silent.
+    """
     draft = await read_draft(state)
     if draft is None:
         await expire(message, state)
         return
     note = (message.text or "").strip()
+    if note.startswith(COMMAND_PREFIX):
+        _LOG.info("command-shaped text at the note step; not stored", extra={"length": len(note)})
+        await show_step(message, state, draft, WizardStep.NOTE)
+        return
     if len(note) > MAX_NOTE_CHARS:
         _LOG.info("note rejected: too long", extra={"length": len(note), "limit": MAX_NOTE_CHARS})
         await say(
@@ -146,9 +164,7 @@ def build_router() -> Router:
     )
     router.callback_query.register(handle_occasion, Wizard.occasion, OccasionCB.filter())
     router.callback_query.register(handle_genre, Wizard.genre, GenreCB.filter())
-    router.callback_query.register(
-        handle_vocal_gender, Wizard.vocal_gender, VocalGenderCB.filter()
-    )
+    router.callback_query.register(handle_vocal_gender, Wizard.vocal_gender, VocalGenderCB.filter())
     router.callback_query.register(
         handle_note_skipped, Wizard.note, NavCB.filter(F.action == NavAction.SKIP)
     )

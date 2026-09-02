@@ -21,9 +21,7 @@ from hbd.names.resolve import MAX_NAME_WORDS, display_form, resolve_name
 ORDER = DEFAULT_NAME_CANDIDATE_ORDER
 
 
-def _resolve(
-    raw: str, ui_language: Language = Language.UZ_LATN
-) -> Result[RecipientName]:
+def _resolve(raw: str, ui_language: Language = Language.UZ_LATN) -> Result[RecipientName]:
     return resolve_name(raw, candidate_order=ORDER, ui_language=ui_language)
 
 

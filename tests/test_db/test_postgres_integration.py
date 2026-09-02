@@ -12,10 +12,12 @@ already taken on the host.
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Final
+from uuid import uuid4
 
 import pytest
 import sqlalchemy as sa
@@ -23,11 +25,15 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from hbd.contracts import NameStrategy, OrderState, is_err, is_ok
 from hbd.db.attempts import GenerationAttemptRepository
+from hbd.db.credit_sql import verify_balances
+from hbd.db.credits import SqlCreditLedger
 from hbd.db.engine import create_engine, create_session_factory, ping
-from hbd.db.models import Base, BriefRow
+from hbd.db.enums import CreditEntryKind
+from hbd.db.models import Base, BriefRow, CreditAccountRow, CreditLedgerRow
 from hbd.db.purge import purge_expired
 from hbd.db.repository import SqlKitRepository
 from hbd.db.retention import RetentionClass
+from hbd.entitlements import ChargeOutcome, EntitlementPolicy, InsufficientCreditsError
 from tests.conftest import UZBEK_NAME_CANONICAL
 from tests.test_db.conftest import MovableClock, build_kit, new_order
 
@@ -206,3 +212,64 @@ async def test_generation_attempts_survive_on_postgres(
     assert is_ok(stats)
     assert stats.value[0].strategy is NameStrategy.STRIPPED
     assert stats.value[0].attempts == 1
+
+
+# ---------------------------------------------------------------------------
+# The entitlement race — the one guarantee SQLite structurally cannot prove
+# ---------------------------------------------------------------------------
+async def test_two_concurrent_charges_on_one_credit_produce_exactly_one_render(
+    pg_sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    # Arrange — the whole correctness argument for the entitlement layer rests on
+    # `UPDATE … SET balance = balance - :cost WHERE balance >= :cost` being race-free under
+    # Postgres READ COMMITTED (EvalPlanQual re-evaluates the predicate against the row the
+    # winner committed). The unit suite CANNOT test this: tests/test_db/conftest.py runs
+    # SQLite in-memory behind a StaticPool with one shared connection, so two AsyncSessions
+    # there are never genuinely simultaneous. This is the only honest home for it.
+    #
+    # The allowance is switched off and the in-flight cap widened so that the BALANCE is
+    # unambiguously the thing that refuses the loser: with the shipped cap of 1, the second
+    # charge would be refused for being a second render rather than for being unaffordable.
+    ledger = SqlCreditLedger(
+        pg_sessions,
+        clock=clock,
+        policy=EntitlementPolicy(allowance_credits=0, max_orders_in_flight=5),
+    )
+    telegram_user_id = 8_912_345_678_901
+    seeded = await ledger.grant(
+        telegram_user_id=telegram_user_id,
+        credits=1,
+        idempotency_key="grant:admin:race-seed",
+        actor="admin:test",
+    )
+    assert is_ok(seeded)
+
+    # Act — two distinct orders, one credit, genuinely concurrent connections.
+    first, second = await asyncio.gather(
+        ledger.charge(telegram_user_id=telegram_user_id, order_id=uuid4(), actor="pipeline"),
+        ledger.charge(telegram_user_id=telegram_user_id, order_id=uuid4(), actor="pipeline"),
+    )
+
+    # Assert — exactly one winner, one typed refusal, and no negative balance anywhere.
+    outcomes = [first, second]
+    winners = [result for result in outcomes if is_ok(result)]
+    losers = [result for result in outcomes if is_err(result)]
+    assert len(winners) == 1
+    assert winners[0].value[0] is ChargeOutcome.CHARGED
+    assert len(losers) == 1
+    assert isinstance(losers[0].error, InsufficientCreditsError)
+    async with pg_sessions() as session:
+        assert await verify_balances(session) == ()
+        balance = await session.scalar(
+            sa.select(CreditAccountRow.balance).where(
+                CreditAccountRow.telegram_user_id == telegram_user_id
+            )
+        )
+        debits = await session.scalar(
+            sa.select(sa.func.count())
+            .select_from(CreditLedgerRow)
+            .where(CreditLedgerRow.kind == CreditEntryKind.DEBIT)
+        )
+    assert balance == 0
+    # The loser's whole transaction rolled back, so it left no half-written debit behind.
+    assert debits == 1

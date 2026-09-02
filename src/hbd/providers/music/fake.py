@@ -30,7 +30,6 @@ from hbd.contracts import (
 )
 from hbd.errors import HbdError, ValidationError
 from hbd.providers.music.payload import guard_plan
-from hbd.providers.music.planner import plan_with_chunk_text
 
 __all__ = [
     "FakeMusicProvider",
@@ -175,27 +174,6 @@ class FakeMusicProvider:
         if self._failure is not None:
             return err(self._failure)
         return ok(self._render(plan))
-
-    async def regenerate_chunk(
-        self,
-        plan: CompositionPlan,
-        *,
-        source_song_id: str,
-        chunk_index: int,
-        new_text: str,
-        idempotency_key: str,
-        timeout_s: float,
-    ) -> Result[RenderedAudio]:
-        updated = plan_with_chunk_text(plan, chunk_index, new_text)
-        if isinstance(updated, Err):
-            return updated
-        return await self.inpaint(
-            updated.value,
-            source_song_id=source_song_id,
-            chunk_index=chunk_index,
-            idempotency_key=idempotency_key,
-            timeout_s=timeout_s,
-        )
 
     async def health(self) -> Result[ProviderHealth]:
         return ok(

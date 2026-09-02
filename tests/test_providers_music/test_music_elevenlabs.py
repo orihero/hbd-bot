@@ -98,7 +98,7 @@ async def test_compose_sends_the_api_key_and_the_idempotency_key() -> None:
     # Assert
     assert seen[0].headers[API_KEY_HEADER] == "test-elevenlabs-key"
     assert seen[0].headers[IDEMPOTENCY_HEADER] == IDEMPOTENCY_KEY
-    assert str(seen[0].url) == f"{TEST_BASE_URL}/v1/music"
+    assert seen[0].url.path == "/v1/music"
 
 
 async def test_compose_posts_the_planned_composition_and_the_configured_model() -> None:
@@ -112,7 +112,8 @@ async def test_compose_posts_the_planned_composition_and_the_configured_model() 
     # Assert
     body = body_of(seen[0])
     assert body["model_id"] == "music_v2"
-    assert body["output_format"] == "mp3_44100_128"
+    assert "output_format" not in body
+    assert seen[0].url.params["output_format"] == "mp3_44100_128"
     assert "music_length_ms" not in body
     assert body["store_for_inpainting"] is True
     assert len(body["composition_plan"]["chunks"]) == 3
@@ -141,7 +142,7 @@ async def test_a_trailing_slash_on_the_base_url_does_not_double_up() -> None:
         await provider.compose(simple_plan(), idempotency_key="k", timeout_s=5.0)
 
     # Assert
-    assert str(seen[0].url) == f"{TEST_BASE_URL}/v1/music"
+    assert seen[0].url.path == "/v1/music"
 
 
 # ---------------------------------------------------------------------------
@@ -328,51 +329,6 @@ async def test_inpaint_refuses_a_chunk_index_that_does_not_exist() -> None:
     # Assert
     assert is_err(result)
     assert result.error.context["chunk_index"] == 9
-    assert seen == []
-
-
-async def test_regenerate_chunk_swaps_the_orthography_and_inpaints_that_chunk_only() -> None:
-    # Arrange: the name failed acoustic verification; try the next candidate.
-    seen: list[httpx.Request] = []
-    plan = simple_plan(name_text="Gulomjon")
-
-    # Act
-    async with music_provider(recording(audio_response(), seen)) as provider:
-        result = await provider.regenerate_chunk(
-            plan,
-            source_song_id="song_abc123",
-            chunk_index=1,
-            new_text="Gu-lom-jon",
-            idempotency_key="k",
-            timeout_s=5.0,
-        )
-
-    # Assert
-    assert is_ok(result)
-    chunks = body_of(seen[0])["composition_plan"]["chunks"]
-    # [0] and [2] replay the untouched intro and outro; only [1] is regenerated.
-    assert chunks[1]["text"] == "Gu-lom-jon"
-    assert chunks[0] == {"song_id": "song_abc123", "range": {"start_ms": 0, "end_ms": 20_000}}
-    assert plan.chunks[1].text == "Gulomjon"
-
-
-async def test_regenerate_chunk_rejects_blank_replacement_text() -> None:
-    # Arrange
-    seen: list[httpx.Request] = []
-
-    # Act
-    async with music_provider(recording(audio_response(), seen)) as provider:
-        result = await provider.regenerate_chunk(
-            simple_plan(),
-            source_song_id="s1",
-            chunk_index=1,
-            new_text="   ",
-            idempotency_key="k",
-            timeout_s=5.0,
-        )
-
-    # Assert
-    assert is_err(result)
     assert seen == []
 
 

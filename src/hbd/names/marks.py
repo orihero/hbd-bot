@@ -1,4 +1,3 @@
-
 # Latin ones are the SUBJECT of this module, not a typo in it.
 """Unicode canonicalisation of the one character this product lives or dies by.
 

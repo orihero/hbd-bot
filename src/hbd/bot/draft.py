@@ -57,6 +57,20 @@ class WizardDraft(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
+    #: Which run through the wizard this draft belongs to. Minted once per clean slate by
+    #: ``handlers.common.reset_to_welcome`` and carried unchanged through every step, so it
+    #: is constant for a double tap on one Confirm screen and different for the next run.
+    #:
+    #: It exists because the order id is a UUID5 over the draft (see
+    #: ``handlers.confirm._order_id_for``): without it, two runs that answer identically —
+    #: same recipient, same four answers, same pasted lyric — mint the same order id
+    #: forever, the second one dies on the ``orders`` primary key, and a customer who
+    #: genuinely wants a second copy of the same song is told "I could not hand this to the
+    #: studio" with no reason and no way out.
+    #:
+    #: Defaults to empty rather than to a fresh value: a draft written by a build that
+    #: predates this field must keep hashing to the id its order was already queued under.
+    session_id: str = ""
     ui_language: Language = FALLBACK_LANGUAGE
     occasion: Occasion | None = None
     genre: Genre | None = None

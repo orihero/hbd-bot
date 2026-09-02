@@ -22,11 +22,14 @@ from hbd.errors import (
     GENERIC_USER_MESSAGE_KEY,
     AudioProcessingError,
     DeliveryError,
+    EntitlementError,
     HbdError,
+    InsufficientCreditsError,
     ModerationRejectedError,
     PaymentError,
     ProviderRateLimitedError,
     ProviderTimeoutError,
+    TooManyOrdersInFlightError,
     ValidationError,
 )
 from hbd.pipeline.events import STAGE_MESSAGE_KEYS
@@ -76,6 +79,14 @@ def test_catalogue_uses_the_same_placeholders_as_the_reference(language: Languag
         AudioProcessingError("x"),
         DeliveryError("x"),
         PaymentError("x"),
+        # The three entitlement refusals. This hardcoded list is the ONLY thing proving
+        # their keys exist: ``test_locale_contract`` exempts the whole ``error.`` prefix
+        # from its code scan, and ``translate`` degrades a missing key to the key itself,
+        # so a refusal with no catalogue entry would ship reading "error.credits_exhausted"
+        # with every test in the suite green.
+        EntitlementError("x"),
+        InsufficientCreditsError("x"),
+        TooManyOrdersInFlightError("x"),
         HbdError("x"),
     ],
 )
@@ -84,6 +95,28 @@ def test_every_error_user_message_key_exists_in_every_catalogue(error: HbdError)
     for language in Language:
         assert error.user_message_key in CATALOGUES[language]
     assert GENERIC_USER_MESSAGE_KEY in CATALOGUES[REFERENCE_LANGUAGE]
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_no_error_message_carries_a_placeholder(language: Language) -> None:
+    """The worker renders these bare, so a placeholder in one reaches a customer as braces.
+
+    ``runtime.jobs._tell_the_customer_why`` sends ``translate(key, language)`` with no
+    parameters at all — it has the failed error, not its context — while the bot's
+    ``handlers.common.error_text`` does pass the context through. A key rendered from both
+    sides must therefore read correctly with nothing interpolated, which is why the date in
+    the out-of-credits refusal is a SEPARATE line (``credits.next_opens``) that only the
+    read-only confirm-screen gate sends.
+    """
+    # Arrange / Act
+    offenders = {
+        key: sorted(placeholders(template))
+        for key, template in CATALOGUES[language].items()
+        if key.startswith("error.") and placeholders(template)
+    }
+
+    # Assert
+    assert offenders == {}
 
 
 def test_every_pipeline_stage_has_a_progress_message() -> None:

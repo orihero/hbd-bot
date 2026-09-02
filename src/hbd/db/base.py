@@ -46,7 +46,12 @@ NAMING_CONVENTION: Final[dict[str, str]] = {
     "pk": "pk_%(table_name)s",
 }
 
-#: Every enum value in ``hbd.contracts`` fits comfortably; the longest is 17 characters.
+#: Every persisted enum value fits comfortably. The longest across ``hbd.contracts`` and
+#: ``hbd.db.enums`` is 17 characters (``GenerationKind.NAME_VERIFICATION``) — not a value
+#: in ``hbd.contracts``, as this note used to imply. The margin is kept rather than trimmed
+#: because widening a Postgres ``VARCHAR`` later is a migration and the space is free;
+#: ``tests/test_db/test_enum_lengths.py`` fails the build if a new member outgrows it,
+#: since SQLite would accept the over-length value and only Postgres would reject it.
 ENUM_LENGTH: Final[int] = 32
 SHA256_LENGTH: Final[int] = 64
 

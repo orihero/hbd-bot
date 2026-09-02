@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Final
 
 from hbd.contracts import Language, LyricDraft, LyricSection
+from hbd.names.marks import canonicalize_marks
 
 __all__ = [
     "MAX_LYRIC_SECTIONS",
@@ -28,6 +29,8 @@ __all__ = [
     "MAX_LABEL_CHARS",
     "DEFAULT_SECTION_LABEL",
     "DEFAULT_TITLE",
+    "MARK_CANONICAL_LANGUAGES",
+    "canonical_text",
     "clean_lines",
     "clean_label",
     "hook_index",
@@ -41,9 +44,28 @@ MAX_LINES_PER_SECTION: Final[int] = 8
 MAX_LINE_CHARS: Final[int] = 160
 MAX_TITLE_CHARS: Final[int] = 120
 MAX_LABEL_CHARS: Final[int] = 40
+#: Languages whose orthography depends on the apostrophe-class modifier letters, and so
+#: must be canonicalised before the text is sung. Uzbek Latin writes oʻ/gʻ with U+02BB and
+#: the tutuq belgisi with U+02BC; a model that emits U+0027 or U+2018 instead is wrong on
+#: the one character this product lives or dies by. Do NOT widen this set: ``marks.py``
+#: assigns U+02BB after o/g and U+02BC elsewhere, which would mangle an English possessive
+#: or a Russian quotation.
+MARK_CANONICAL_LANGUAGES: Final[frozenset[Language]] = frozenset({Language.UZ_LATN})
+
 #: Fallback label when the model returns a blank one.
 DEFAULT_SECTION_LABEL: Final[str] = "section"
 DEFAULT_TITLE: Final[str] = "Tabrik"
+
+
+def canonical_text(text: str, language: Language) -> str:
+    """Fix the apostrophe-class marks for languages that need it; pass everything else through.
+
+    This runs on BOTH producers — the model and a customer's pasted lyric — because a model
+    asked to emit U+02BB obeys only when it feels like it (measured: without an explicit
+    codepoint rule, zero of fifteen samples across four models came back clean), and a
+    customer typing on a phone keyboard gets U+2019 whether they want it or not.
+    """
+    return canonicalize_marks(text) if language in MARK_CANONICAL_LANGUAGES else text
 
 
 def clean_lines(lines: tuple[str, ...]) -> tuple[str, ...]:
@@ -104,10 +126,14 @@ def build_lyric_draft(
     The title is stripped before it is clamped: a whitespace-only title must collapse to
     ``DEFAULT_TITLE``, not ship three spaces as the name of the song.
     """
-    hook = hook_index(sections, name_display)
+    canonical = tuple(
+        (label, tuple(canonical_text(line, language) for line in lines), is_hook)
+        for label, lines, is_hook in sections
+    )
+    hook = hook_index(canonical, name_display)
     return LyricDraft(
-        title=(title.strip()[:MAX_TITLE_CHARS] or DEFAULT_TITLE),
+        title=(canonical_text(title, language).strip()[:MAX_TITLE_CHARS] or DEFAULT_TITLE),
         language=language,
-        sections=build_sections(sections, name=name_display, hook_index=hook),
+        sections=build_sections(canonical, name=name_display, hook_index=hook),
         name_display=name_display,
     )

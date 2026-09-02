@@ -1,14 +1,27 @@
 """Alembic environment. Async engine, config-sourced URL, no credentials on disk.
 
-Two decisions worth knowing:
+Three decisions worth knowing:
 
-* **The DSN comes from ``hbd.config``, never from ``alembic.ini``.** One place configures a
-  database, and a tracked file can never grow a password. A missing ``HBD_DATABASE_URL``
-  fails here with the same ``ConfigError`` the application would raise, naming the variable.
+* **Migrations connect as the owner role when there is one.** ``HBD_DB_MIGRATION_URL`` is
+  read first and ``HBD_DATABASE_URL`` is the fallback, with a WARNING naming what is not
+  deployed. This is §4.5's two-role split, and without it the audit log's ``REVOKE`` in
+  migration ``0007`` has nothing to revoke *from*: run as the application role, that role
+  owns every table it created, and revoking a privilege from a table's owner is undone by
+  that owner with one ``GRANT``. The variable is read from the environment rather than added
+  to ``Settings`` on purpose — the bot and the worker must never hold the owner credential,
+  and a field on the shared settings object is an invitation to.
+* **The application DSN comes from ``hbd.config``, never from ``alembic.ini``.** One place
+  configures a database, and a tracked file can never grow a password. A missing
+  ``HBD_DATABASE_URL`` fails here with the same ``ConfigError`` the application would raise,
+  naming the variable.
 * **``render_as_batch=True``.** SQLite cannot ``ALTER TABLE`` in the ways a migration
   routinely needs; batch mode rewrites the table instead. Production is Postgres, where the
   flag is a no-op, but a migration that cannot run against the test database is a migration
   nobody exercises before it reaches production.
+
+Nothing here ever logs a DSN: the WARNING names the variable that is unset and stops there,
+because a connection string carries ``user:password@host`` and this line goes to whatever
+ships the deploy log.
 
 ``compare_type`` is on so a widened column is caught by autogenerate rather than by a
 truncation in production.
@@ -23,8 +36,10 @@ so the DDL it emits is exactly ``sa.DateTime(timezone=True)`` and that is what g
 from __future__ import annotations
 
 import asyncio
+import logging
+import os
 from logging.config import fileConfig
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from alembic import context
 from alembic.autogenerate.api import AutogenContext
@@ -55,8 +70,33 @@ def _render_item(type_: str, obj: Any, autogen_context: AutogenContext) -> str |
     return False
 
 
+#: The owner role's DSN. Set it and migrations run as the role that owns the tables, which
+#: is what makes migration ``0007``'s ``REVOKE`` on ``admin_audit_log`` mean something
+#: (§4.5, §12.4). Unset, everything still works and the panel reports the audit chain as
+#: ``"hmac-only"`` — a control that is not deployed is reported as not deployed.
+MIGRATION_URL_VAR: Final[str] = "HBD_DB_MIGRATION_URL"
+
+_LOGGER: Final = logging.getLogger("alembic.env")
+
+_SINGLE_ROLE_WARNING: Final[str] = (
+    "%s is not set, so migrations are running as the application role. That role owns every "
+    "table it creates, and an owner can GRANT back anything revoked from it — so the audit "
+    "log's REVOKE is not a control on this deployment. See README 'Two Postgres roles'."
+)
+
+
 def _database_url() -> str:
-    """The one place a migration learns where the database is."""
+    """The one place a migration learns where the database is, and as whom.
+
+    The owner DSN wins when it is set; otherwise the application DSN is used and the WARNING
+    says which control that costs. Falling back rather than refusing is deliberate: every
+    existing dev setup has one role, and a migration runner that started failing on them
+    would be a worse outcome than a one-role deployment that says so out loud.
+    """
+    owner = os.environ.get(MIGRATION_URL_VAR, "").strip()
+    if owner:
+        return owner
+    _LOGGER.warning(_SINGLE_ROLE_WARNING, MIGRATION_URL_VAR)
     return load_settings().database_url
 
 

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.methods import EditMessageText
+from aiogram.methods import EditMessageText, TelegramMethod
 
 from hbd.bot.i18n import translate
 from hbd.bot.progress import (
@@ -18,6 +19,7 @@ from hbd.bot.progress import (
     TelegramProgressSink,
     queued_text,
     render_progress,
+    timed_out_text,
 )
 from hbd.contracts import Language
 from hbd.pipeline.events import (
@@ -26,10 +28,13 @@ from hbd.pipeline.events import (
     PipelineStage,
     ProgressEvent,
     ProgressStatus,
+    scheduled_stages,
 )
 from tests.test_bot.conftest import CHAT_ID, RecordingSession
 
 NOW = datetime(2026, 3, 21, 9, 0, tzinfo=UTC)
+
+RECIPIENT = "Gʻulomjon"
 
 
 def event(
@@ -37,6 +42,7 @@ def event(
     status: ProgressStatus = ProgressStatus.STARTED,
     *,
     attempt: int = 0,
+    stage_plan: tuple[PipelineStage, ...] = STAGE_ORDER,
 ) -> ProgressEvent:
     return ProgressEvent(
         order_id=uuid4(),
@@ -46,7 +52,19 @@ def event(
         at=NOW,
         attempt=attempt,
         detail_key=STAGE_MESSAGE_KEYS[stage],
+        stage_plan=stage_plan,
     )
+
+
+def percent(text: str) -> int:
+    """The percentage a frame is showing, read back off the screen."""
+    return int(text.split("\n")[0].split(" ")[1].rstrip("%"))
+
+
+def screen_text(call: TelegramMethod[Any]) -> str:
+    """The text of a recorded edit, narrowed so a wrong call type fails loudly."""
+    assert isinstance(call, EditMessageText)
+    return call.text or ""
 
 
 def sink(bot: Bot, language: Language = Language.EN) -> TelegramProgressSink:
@@ -115,10 +133,168 @@ def test_retry_frame_shows_a_human_attempt_number() -> None:
 
 def test_queued_text_is_the_empty_bar() -> None:
     # Arrange / Act
-    text = queued_text(Language.EN)
+    text = queued_text(Language.EN, name=RECIPIENT)
 
     # Assert
     assert text.startswith(EMPTY_BLOCK * PROGRESS_BAR_WIDTH)
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_the_queued_frame_names_the_recipient(language: Language) -> None:
+    # Arrange / Act
+    text = queued_text(language, name=RECIPIENT)
+
+    # Assert — whose song this is, on the one screen that stays up for minutes
+    assert RECIPIENT in text
+    assert "{name}" not in text
+
+
+# ---------------------------------------------------------------------------
+# the denominator: only stages this run will actually enter
+# ---------------------------------------------------------------------------
+def test_skipped_stages_are_not_counted_against_the_customer() -> None:
+    # Arrange — the shipped default runs no spoken greetings
+    plan = scheduled_stages(has_greetings=False)
+
+    # Act
+    frame = render_progress(
+        event(PipelineStage.COMPOSING_SONG, ProgressStatus.SUCCEEDED, stage_plan=plan),
+        Language.EN,
+    )
+    full = render_progress(
+        event(PipelineStage.COMPOSING_SONG, ProgressStatus.SUCCEEDED), Language.EN
+    )
+
+    # Assert — nine real steps, not eleven with two that never happen
+    assert len(plan) == len(STAGE_ORDER) - 2
+    assert percent(frame) > percent(full)
+
+
+def test_the_last_scheduled_stage_finishes_at_a_hundred_percent() -> None:
+    # Arrange
+    plan = scheduled_stages(has_greetings=False)
+
+    # Act
+    text = render_progress(
+        event(PipelineStage.DELIVERING, ProgressStatus.SUCCEEDED, stage_plan=plan), Language.EN
+    )
+
+    # Assert
+    assert percent(text) == 100
+
+
+def test_a_stage_outside_the_plan_still_renders() -> None:
+    # Arrange — VERIFYING_NAME is announced from inside the composing wrapper, and a
+    # greeting stage can surface on a plan that skipped it. Neither may raise.
+    plan = scheduled_stages(has_greetings=False)
+
+    # Act
+    text = render_progress(
+        event(PipelineStage.RENDERING_GREETINGS, ProgressStatus.STARTED, stage_plan=plan),
+        Language.EN,
+    )
+
+    # Assert
+    assert 0 <= percent(text) <= 100
+
+
+# ---------------------------------------------------------------------------
+# the bar never runs backwards
+# ---------------------------------------------------------------------------
+async def test_the_bar_never_runs_backwards(bot: Bot, session: RecordingSession) -> None:
+    # Arrange — the real emission order: the name check reports from inside composing,
+    # so the honest per-event fraction genuinely drops on the next frame.
+    plan = scheduled_stages(has_greetings=False)
+    target = sink(bot)
+    frames = (
+        event(PipelineStage.COMPOSING_SONG, ProgressStatus.STARTED, stage_plan=plan),
+        event(PipelineStage.VERIFYING_NAME, ProgressStatus.SUCCEEDED, stage_plan=plan),
+        event(PipelineStage.COMPOSING_SONG, ProgressStatus.SUCCEEDED, stage_plan=plan),
+    )
+
+    # Act
+    for frame in frames:
+        await target.emit(frame)
+
+    # Assert — the raw events dip; nothing the customer saw did
+    assert frames[2].progress_ratio < frames[1].progress_ratio
+    shown = [percent(screen_text(call)) for call in session.named("EditMessageText")]
+    assert shown == sorted(shown)
+
+
+async def test_the_clamp_invents_no_progress(bot: Bot, session: RecordingSession) -> None:
+    # Arrange
+    target = sink(bot)
+
+    # Act
+    await target.emit(event(PipelineStage.WRITING_LYRICS, ProgressStatus.STARTED))
+
+    # Assert — exactly what the event said, no rounding it forward
+    frame = session.last_named("EditMessageText")
+    assert percent(frame.text) == round(
+        event(PipelineStage.WRITING_LYRICS, ProgressStatus.STARTED).progress_ratio * 100
+    )
+
+
+async def test_a_failure_after_a_dip_keeps_the_furthest_bar(
+    bot: Bot, session: RecordingSession
+) -> None:
+    # Arrange
+    target = sink(bot)
+    await target.emit(event(PipelineStage.PERSISTING, ProgressStatus.SUCCEEDED))
+
+    # Act
+    await target.emit(event(PipelineStage.COMPOSING_SONG, ProgressStatus.FAILED))
+
+    # Assert — the headline is the failure; the bar stays where the run got to
+    frame = session.last_named("EditMessageText")
+    assert translate("progress.failed", Language.EN) in frame.text
+    assert percent(frame.text) == round(target.high_water * 100)
+
+
+# ---------------------------------------------------------------------------
+# the queue timeout
+# ---------------------------------------------------------------------------
+async def test_a_cancelled_run_gets_one_terminal_frame(bot: Bot, session: RecordingSession) -> None:
+    # Arrange
+    target = sink(bot)
+    await target.emit(event(PipelineStage.COMPOSING_SONG, ProgressStatus.STARTED))
+    session.clear()
+
+    # Act
+    await target.emit_timed_out()
+
+    # Assert
+    edits = session.named("EditMessageText")
+    assert len(edits) == 1
+    assert translate("progress.timed_out", Language.EN) in screen_text(edits[0])
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_the_timed_out_frame_never_claims_the_song_is_ready(language: Language) -> None:
+    # Arrange / Act
+    text = timed_out_text(language, ratio=0.5)
+
+    # Assert
+    assert translate("progress.timed_out", language) in text
+    assert translate("progress.done", language) not in text
+    assert percent(text) == 50
+
+
+async def test_the_timed_out_frame_survives_telegram_refusing_it(
+    bot: Bot, session: RecordingSession
+) -> None:
+    # Arrange
+    session.failures["EditMessageText"] = TelegramBadRequest(
+        method=EditMessageText(chat_id=CHAT_ID, message_id=99, text="x"), message="boom"
+    )
+    target = sink(bot)
+
+    # Act — a dying job must not die twice
+    await target.emit_timed_out()
+
+    # Assert
+    assert target.last_text is None
 
 
 async def test_sink_edits_the_message_in_place(bot: Bot, session: RecordingSession) -> None:
@@ -135,9 +311,7 @@ async def test_sink_edits_the_message_in_place(bot: Bot, session: RecordingSessi
     assert edit.chat_id == CHAT_ID
 
 
-async def test_sink_never_sends_the_same_frame_twice(
-    bot: Bot, session: RecordingSession
-) -> None:
+async def test_sink_never_sends_the_same_frame_twice(bot: Bot, session: RecordingSession) -> None:
     # Arrange
     reporter = sink(bot)
     same = event(PipelineStage.WRITING_LYRICS)

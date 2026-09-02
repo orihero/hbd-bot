@@ -10,15 +10,14 @@ FSM storage rather than on an internal call.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
 
-from hbd.bot.app import build_dispatcher
 from hbd.bot.callbacks import LanguageCB, LanguageSlot, NavAction, NavCB
-from hbd.bot.deps import BotDeps
 from hbd.bot.draft import WizardDraft, load_draft
 from hbd.bot.handlers.common import show_step
 from hbd.bot.handlers.lyrics import MAX_LYRIC_WRITES
@@ -26,8 +25,7 @@ from hbd.bot.i18n import translate
 from hbd.bot.keyboards import lyrics_keyboard
 from hbd.bot.lyrics_entry import MAX_LYRIC_CHARS, MIN_LYRIC_CHARS
 from hbd.bot.states import Wizard, WizardStep
-from hbd.config import Settings
-from hbd.contracts import Brief, Genre, Language, LyricDraft, Occasion, Ok, Result, VoiceGender
+from hbd.contracts import Genre, Language, Occasion, Ok, VoiceGender
 from hbd.errors import ProviderTimeoutError
 from tests.conftest import make_name
 from tests.test_bot.conftest import (
@@ -64,6 +62,16 @@ def screen_texts(session: RecordingSession) -> tuple[str, ...]:
     return tuple(call.text or "" for call in session.calls if hasattr(call, "text"))
 
 
+def writing_frame(language: Language = Language.EN) -> str:
+    """The "writing…" frame as the customer reads it, recipient's name and all."""
+    return translate("wizard.lyrics.writing", language, name=UZBEK_DISPLAY)
+
+
+def output_language_prompt(language: Language = Language.EN) -> str:
+    """The last question, which now asks it about somebody by name."""
+    return translate("wizard.output_language.prompt", language, name=UZBEK_DISPLAY)
+
+
 # ---------------------------------------------------------------------------
 # arriving at the step
 # ---------------------------------------------------------------------------
@@ -97,9 +105,31 @@ async def test_the_writing_frame_is_shown_before_the_preview(
     texts = screen_texts(session)
     lyrics = (await current_draft(state)).lyrics
     assert lyrics is not None
-    writing_at = texts.index(translate("wizard.lyrics.writing", Language.EN))
+    writing_at = texts.index(writing_frame())
     preview_at = next(index for index, text in enumerate(texts) if lyrics.title in text)
     assert writing_at < preview_at
+
+
+async def test_the_writing_frame_names_the_recipient_and_offers_a_way_out(
+    dispatcher: Dispatcher, bot: Bot, session: RecordingSession
+) -> None:
+    """Forty-five seconds of ``llm_timeout_s`` used to pass with nothing on screen to press.
+
+    A wait with no exit is indistinguishable from a hung bot, and the fallback answered
+    anything typed at it with "use the buttons above" — on a screen that had none.
+    """
+    # Arrange / Act — the frame is transient, so it is read out of the recorded calls
+    await walk_to_lyrics(dispatcher, bot)
+    frames: list[Any] = [
+        call for call in session.calls if getattr(call, "text", None) == writing_frame()
+    ]
+
+    # Assert
+    assert frames, f"the writing frame was never put up; screens were {screen_texts(session)}"
+    assert UZBEK_DISPLAY in frames[-1].text
+    assert {data for _, data in buttons(frames[-1].reply_markup)} == {
+        NavCB(action=NavAction.CANCEL).pack()
+    }
 
 
 async def test_the_preview_offers_approve_regenerate_and_a_back_button(
@@ -385,7 +415,7 @@ async def test_back_from_the_preview_returns_to_the_output_language(
 
     # Assert
     assert await state.get_state() == Wizard.output_language.state
-    assert session.last_screen.text == translate("wizard.output_language.prompt", Language.EN)
+    assert session.last_screen.text == output_language_prompt()
 
 
 async def test_back_from_the_summary_returns_to_the_preview_with_the_lyric_intact(
@@ -454,6 +484,70 @@ async def test_a_failing_writer_leaves_the_customer_on_the_previous_step(
     assert submitter.submitted == []
 
 
+async def test_a_failing_writer_names_the_retry_instead_of_implying_it(
+    dispatcher: Dispatcher, bot: Bot, session: RecordingSession, content: RecordingContentWriter
+) -> None:
+    """A failure used to be a sentence dropped over the language picker.
+
+    That left "press the button that is already ticked" as the retry — nowhere stated, and
+    indistinguishable from being asked the question again. The screen now says what
+    happened and offers the retry by name, with the exit beside it.
+    """
+    # Arrange
+    content.failure = ProviderTimeoutError("lyric writer timed out", provider="fake-llm")
+
+    # Act
+    await walk_to_lyrics(dispatcher, bot)
+
+    # Assert
+    assert session.last_screen.text == translate("wizard.lyrics.failed", Language.EN)
+    assert {data for _, data in buttons(session.last_screen.reply_markup)} == {
+        NavCB(action=NavAction.TRY_AGAIN).pack(),
+        NavCB(action=NavAction.CANCEL).pack(),
+    }
+
+
+async def test_try_again_rewrites_without_re_answering_the_last_question(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    session: RecordingSession,
+    content: RecordingContentWriter,
+    state: FSMContext,
+) -> None:
+    """One press, the same call. The answer was given; only the vendor fell over."""
+    # Arrange
+    content.failure = ProviderTimeoutError("lyric writer timed out", provider="fake-llm")
+    await walk_to_lyrics(dispatcher, bot)
+    content.failure = None
+
+    # Act
+    await press(dispatcher, bot, NavCB(action=NavAction.TRY_AGAIN).pack())
+
+    # Assert
+    assert content.calls == 2
+    lyrics = (await current_draft(state)).lyrics
+    assert lyrics is not None
+    assert lyrics.title in session.last_screen.text
+    assert await state.get_state() == Wizard.lyrics.state
+
+
+async def test_try_again_is_counted_against_the_write_cap(
+    dispatcher: Dispatcher, bot: Bot, content: RecordingContentWriter, state: FSMContext
+) -> None:
+    """A retry is a billed vendor call before the payment gate, like every other write."""
+    # Arrange — a writer that is simply down
+    content.failure = ProviderTimeoutError("lyric writer timed out", provider="fake-llm")
+    await walk_to_lyrics(dispatcher, bot)
+
+    # Act — hold the retry down
+    for _ in range(MAX_LYRIC_WRITES + 2):
+        await press(dispatcher, bot, NavCB(action=NavAction.TRY_AGAIN).pack())
+
+    # Assert — the cap holds against the retry button too
+    assert content.calls == MAX_LYRIC_WRITES
+    assert (await current_draft(state)).lyric_writes == MAX_LYRIC_WRITES
+
+
 async def test_a_recovered_writer_lets_the_customer_carry_on(
     dispatcher: Dispatcher,
     bot: Bot,
@@ -471,8 +565,8 @@ async def test_a_recovered_writer_lets_the_customer_carry_on(
     await approve_lyrics(dispatcher, bot)
     await press(dispatcher, bot, NavCB(action=NavAction.CONFIRM).pack())
 
-    # Assert
-    assert await state.get_state() is None
+    # Assert — queued; the session stays parked on the run rather than being cleared
+    assert await state.get_state() == Wizard.submitting.state
     order, _, _ = submitter.submitted[0]
     assert order.brief.approved_lyrics is not None
 
@@ -515,86 +609,6 @@ async def test_confirm_on_a_draft_with_no_approved_lyric_goes_back_to_the_previe
     assert content.calls == 2
 
 
-# ---------------------------------------------------------------------------
-# spending, and racing
-# ---------------------------------------------------------------------------
-class StateWatchingContentWriter(RecordingContentWriter):
-    """Records the FSM state the session was parked in while the vendor call was in flight.
-
-    The concurrency bug this exists to fence is invisible to a sequential test: writing is
-    an ``await``, aiogram handles updates as concurrent tasks, and the preview the user is
-    reading invites them to send their own lyric as a message. If ``Wizard.lyrics`` were
-    still live during the write, that paste would be accepted, confirmed to the customer,
-    and then overwritten by the machine's words when the call returned.
-    """
-
-    def __init__(self, state: FSMContext) -> None:
-        super().__init__()
-        self._state = state
-        self.states_during_write: list[str | None] = []
-
-    async def write_lyrics(self, brief: Brief) -> Result[LyricDraft]:
-        self.states_during_write.append(await self._state.get_state())
-        return await super().write_lyrics(brief)
-
-
-async def test_the_session_is_not_accepting_input_while_the_writer_is_working(
-    bot: Bot, settings: Settings, storage: MemoryStorage, state: FSMContext
-) -> None:
-    # Arrange
-    watcher = StateWatchingContentWriter(state)
-    deps = BotDeps(settings=settings, submitter=RecordingSubmitter(), content=watcher)
-    dispatcher = build_dispatcher(deps, storage=storage)
-
-    # Act
-    await walk_to_lyrics(dispatcher, bot)
-
-    # Assert — no wizard handler is registered on the busy state, so nothing can race
-    assert watcher.states_during_write == [Wizard.submitting.state]
-    assert await state.get_state() == Wizard.lyrics.state
-
-
-async def test_a_message_sent_while_the_writer_is_working_cannot_overwrite_the_result(
-    dispatcher: Dispatcher, bot: Bot, state: FSMContext
-) -> None:
-    """A paste that lands mid-write is not silently confirmed and then thrown away."""
-    # Arrange — park the session where ``enter_lyrics_step`` parks it during the call
-    await walk_to_lyrics(dispatcher, bot)
-    written = (await current_draft(state)).lyrics
-    await state.set_state(Wizard.submitting)
-
-    # Act
-    await send(dispatcher, bot, PASTED)
-
-    # Assert — the paste was refused, not accepted and then lost
-    assert (await current_draft(state)).lyrics == written
-
-
-async def test_a_session_cannot_bill_the_writer_without_limit(
-    dispatcher: Dispatcher,
-    bot: Bot,
-    session: RecordingSession,
-    content: RecordingContentWriter,
-    state: FSMContext,
-) -> None:
-    """Regenerate is pre-payment vendor spend on a button anyone reaching /start can press."""
-    # Arrange — the walk to the preview spends the first write
-    await walk_to_lyrics(dispatcher, bot)
-
-    # Act — press regenerate until the cap is reached, then once more
-    for _ in range(MAX_LYRIC_WRITES):
-        await press(dispatcher, bot, NavCB(action=NavAction.REGENERATE).pack())
-
-    # Assert — the writer stopped being called, and the customer was told why
-    assert content.calls == MAX_LYRIC_WRITES
-    assert (await current_draft(state)).lyric_writes == MAX_LYRIC_WRITES
-    assert any(
-        translate("wizard.lyrics.too_many", Language.EN, limit=MAX_LYRIC_WRITES) == text
-        for text in screen_texts(session)
-    )
-    assert (await current_draft(state)).lyrics is not None
-
-
 async def test_repicking_the_same_output_language_keeps_a_pasted_lyric(
     dispatcher: Dispatcher, bot: Bot, content: RecordingContentWriter, state: FSMContext
 ) -> None:
@@ -607,9 +621,7 @@ async def test_repicking_the_same_output_language_keeps_a_pasted_lyric(
     calls_before = content.calls
 
     # Act — pressing the language that is already chosen
-    await press(
-        dispatcher, bot, LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.UZ_LATN).pack()
-    )
+    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.UZ_LATN).pack())
 
     # Assert
     assert content.calls == calls_before

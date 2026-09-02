@@ -19,7 +19,17 @@ dependencies = [
     "alembic>=1.14,<2",
     "pydantic>=2.9,<3",
     "pydantic-settings>=2.6,<3",
+    # Imported directly by src/hbd/admin/app.py, which parses .env.admin for vendor
+    # credentials the admin host must not hold. pydantic-settings pulls it in today, but a
+    # security check must not rest on another package's transitive graph.
+    "python-dotenv>=1.0,<2",
     "httpx>=0.27,<0.29",
+    # Admin panel (src/hbd/admin). FastAPI reuses the pins above; argon2-cffi is the only
+    # C extension in the tree. The admin API speaks JSON only — the login form posts JSON,
+    # so python-multipart is deliberately absent.
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.32,<1",
+    "argon2-cffi>=23.1,<26",
     "json-repair>=0.30,<1",
     "orjson>=3.10,<4",
     "typing-extensions>=4.12,<5",
@@ -120,9 +130,21 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["src/hbd"]
+# SQLAlchemy's asyncio layer crosses a greenlet boundary on every `await` that touches the
+# database. Without "greenlet" here, coverage loses the frames on the far side of that
+# switch and reports every statement AFTER the first DB await in a coroutine as unrun —
+# it scored `admin/routers/auth.py` at 92% and `admin/deps.py` at 85% while the tests were
+# demonstrably executing those lines (a spy on `resolve_session` fires; the request returns
+# 204). That under-report also drifted run to run with test ordering, which is a CI flake
+# waiting to happen against `fail_under`. "thread" is kept because it is coverage's default
+# and FastAPI still runs sync dependencies in a threadpool.
+concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
 show_missing = true
+# Repo-wide floor. src/hbd/admin carries a higher one (85%) because it is the only package
+# that authenticates anyone, and it is measured on its own by `make cov-admin` — an `omit`
+# would have hidden it from this number instead of holding it to a stricter one.
 fail_under = 80
 exclude_lines = [
     "pragma: no cover",

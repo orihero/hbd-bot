@@ -46,9 +46,19 @@ from hbd.pipeline.plan_builder import with_name_candidate
 from hbd.pipeline.ports import Clock, NameSimilarity, Sleeper
 from hbd.pipeline.retry import RetryPolicy, call_with_retry
 
-__all__ = ["SongRender", "render_song", "best_similarity", "MAX_NAME_TOKEN_WINDOW"]
+__all__ = [
+    "SongRender",
+    "render_song",
+    "best_similarity",
+    "MAX_NAME_TOKEN_WINDOW",
+    "VERIFICATION_EVENT",
+]
 
 _LOGGER = get_logger(__name__)
+
+#: Grep-able event name. One line per completed verification loop, whatever the outcome.
+#: This is where the re-roll rate is read from: nothing else aggregates ``verdicts``.
+VERIFICATION_EVENT: Final[str] = "name.verification"
 
 #: A name may be transcribed as up to three tokens ("Gu lom jon"), so windows of one to
 #: three consecutive tokens are scored. Beyond that the window is longer than any name.
@@ -143,6 +153,7 @@ class _NameLoop:
         self._best: _Take | None = None
         self._cost_usd = 0.0
         self._source_song_id: str | None = None
+        self._warned_no_stored_song: bool = False
 
     @property
     def _max_renders(self) -> int:
@@ -273,8 +284,27 @@ class _NameLoop:
     def _keep(self, audio: RenderedAudio, plan: CompositionPlan, candidate: NameCandidate) -> _Take:
         self._cost_usd += audio.cost_usd
         if self._source_song_id is None:
+            if audio.remote_id is None:
+                self._warn_no_stored_song()
             self._source_song_id = audio.remote_id
         return _Take(candidate=candidate, audio=audio, plan=plan)
+
+    def _warn_no_stored_song(self) -> None:
+        """Say it out loud, once, when the cheap re-roll path is unavailable.
+
+        Without a stored-song handle ``_render`` falls back to ``compose``, so every
+        re-roll re-renders the WHOLE track instead of inpainting the eight-second name
+        chunk — the same order, at up to three times the music bill. That fallback was
+        silent, which is how it could be load-bearing and unnoticed at the same time.
+        """
+        if self._warned_no_stored_song:
+            return
+        self._warned_no_stored_song = True
+        _LOGGER.warning(
+            "vendor returned no stored-song handle; name re-rolls will re-compose the whole "
+            "track instead of inpainting one chunk",
+            extra={"order_id": str(self._order_id)},
+        )
 
     def _ship(
         self,
@@ -284,7 +314,7 @@ class _NameLoop:
         was_checked: bool,
         is_verified: bool = False,
     ) -> SongRender:
-        return SongRender(
+        render = SongRender(
             audio=take.audio,
             plan=take.plan,
             candidate=take.candidate,
@@ -294,6 +324,21 @@ class _NameLoop:
             renders=max(1, renders),
             cost_usd=self._cost_usd,
         )
+        _LOGGER.info(
+            VERIFICATION_EVENT,
+            extra={
+                "order_id": str(self._order_id),
+                "renders": render.renders,
+                "attempts": len(self._verdicts),
+                "is_verified": is_verified,
+                "was_checked": was_checked,
+                "best_score": take.score,
+                "strategy": take.candidate.strategy.value,
+                "did_inpaint": self._source_song_id is not None,
+                "cost_usd": self._cost_usd,
+            },
+        )
+        return render
 
     def _on_render_failure(self, failure: Err, *, attempt: int) -> Result[SongRender]:
         if self._best is None:

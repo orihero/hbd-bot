@@ -477,9 +477,7 @@ async def test_omits_the_language_code_for_uzbek_because_v3_rejects_it() -> None
 
     # Act
     result = await provider.synthesize(
-        make_speech_request(
-            text="Assalomu alaykum!", persona_id="bobo", language=Language.UZ_LATN
-        ),
+        make_speech_request(text="Assalomu alaykum!", persona_id="bobo", language=Language.UZ_LATN),
         idempotency_key=IDEMPOTENCY_KEY,
         timeout_s=TIMEOUT_S,
     )

@@ -39,6 +39,15 @@ class NavAction(StrEnum):
     #: ``lyrics_keyboard`` draws this one explicitly instead of via the ``button.{value}``
     #: convention every other nav button follows.
     REGENERATE = "regen"
+    #: The four buttons that exist so no message is a dead end. A screen that ends a flow —
+    #: cancelled, expired, delivered, or a lyric the writer could not produce — leaves the
+    #: user with nothing to do, and "send /start" is not an answer. These are what it
+    #: carries instead. They spell their action out because every one of them is well
+    #: inside the payload budget: ``nav:report_problem`` is 18 of the 64 bytes.
+    START_OVER = "start_over"
+    MAKE_ANOTHER = "make_another"
+    REPORT_PROBLEM = "report_problem"
+    TRY_AGAIN = "try_again"
 
 
 class LanguageSlot(StrEnum):

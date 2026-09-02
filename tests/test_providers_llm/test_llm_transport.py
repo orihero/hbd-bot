@@ -78,8 +78,12 @@ async def test_sends_the_supplied_headers_and_json_body() -> None:
         # A 404 is a wrong URL, never a moderation block. Its HTML error page may well
         # contain "violate" in an acceptable-use footer link, which used to classify it
         # as CONTENT_REJECTED and send the reader off to rewrite an innocent prompt.
-        (404, "<html><a href='/terms'>you may not violate our policies</a></html>",
-         ErrorCode.UNKNOWN, False),
+        (
+            404,
+            "<html><a href='/terms'>you may not violate our policies</a></html>",
+            ErrorCode.UNKNOWN,
+            False,
+        ),
         (500, "internal error", ErrorCode.UPSTREAM_5XX, True),
         (503, "service unavailable", ErrorCode.UPSTREAM_5XX, True),
     ],

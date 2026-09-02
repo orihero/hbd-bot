@@ -180,3 +180,32 @@ def new_order(*, state: OrderState = OrderState.BRIEF_READY, **overrides: Any) -
 
 def utc(year: int, month: int, day: int) -> datetime:
     return datetime(year, month, day, tzinfo=UTC)
+
+
+async def refuse_a_foreign_database(engine: AsyncEngine) -> None:
+    """Raise unless every table in this database belongs to this project.
+
+    Every Postgres fixture in the suite runs ``Base.metadata.drop_all`` against whatever
+    answers at ``HBD_TEST_POSTGRES_URL``, whose default is ``localhost:5432`` — the port a
+    developer's unrelated Postgres is most likely to be on. ``drop_all`` only drops tables
+    the metadata names, so the blast radius was always bounded, but "bounded" is not the
+    same as "checked": a database that happens to contain a table called ``users`` or
+    ``orders`` would lose it.
+
+    The check is deliberately one-directional. An EMPTY database passes (that is a fresh
+    container), and a database holding only this project's tables passes. Anything else is
+    somebody's data.
+    """
+    import sqlalchemy as sa
+
+    from hbd.db.models import Base
+
+    async with engine.connect() as connection:
+        found = await connection.run_sync(lambda sync: set(sa.inspect(sync).get_table_names()))
+    unknown = found - set(Base.metadata.tables) - {"alembic_version"}
+    if unknown:
+        raise RuntimeError(
+            "refusing to drop_all against a database this project did not create; it holds "
+            f"{sorted(unknown)}. Point HBD_TEST_POSTGRES_URL at the project's container "
+            "(docker compose up -d), or set HBD_POSTGRES_PORT to a free port."
+        )

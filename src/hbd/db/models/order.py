@@ -36,6 +36,19 @@ class OrderRow(TimestampMixin, Base):
     """
 
     __tablename__ = "orders"
+    __table_args__ = (
+        # The admin read layer's two list shapes (§5.11, migration 0009). Declared here and
+        # not only in the migration so ``Base.metadata.create_all`` builds the same schema
+        # the migration chain does — otherwise the unit suite exercises query plans that
+        # production will not have, which is exactly how three unused indexes shipped.
+        #
+        # ``id`` is the third column because the keyset order is ``(created_at DESC, id
+        # DESC)``: without it the trailing term is sorted at runtime on every page
+        # (Postgres shows ``Incremental Sort … Presorted Key: created_at``), and the buffer
+        # grows with the size of tie groups — which a bulk import is made of.
+        sa.Index("ix_orders_state_created_at", "state", "created_at", "id"),
+        sa.Index("ix_orders_telegram_user_id_created_at", "telegram_user_id", "created_at", "id"),
+    )
 
     id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True)
     user_id: Mapped[UUID] = mapped_column(

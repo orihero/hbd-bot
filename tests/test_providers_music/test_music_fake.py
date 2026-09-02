@@ -160,45 +160,6 @@ async def test_inpaint_rejects_a_chunk_index_that_does_not_exist() -> None:
     assert is_err(result)
 
 
-async def test_regenerate_chunk_records_the_new_orthography_it_was_given() -> None:
-    # Arrange
-    provider = FakeMusicProvider()
-    plan = simple_plan(name_text="Gulomjon")
-
-    # Act
-    result = await provider.regenerate_chunk(
-        plan,
-        source_song_id="s1",
-        chunk_index=1,
-        new_text="Ghoolomjon",
-        idempotency_key="k",
-        timeout_s=1.0,
-    )
-
-    # Assert
-    assert is_ok(result)
-    assert provider.calls[-1].plan.chunks[1].text == "Ghoolomjon"
-    assert plan.chunks[1].text == "Gulomjon"
-
-
-async def test_regenerate_chunk_rejects_blank_text() -> None:
-    # Arrange
-    provider = FakeMusicProvider()
-
-    # Act
-    result = await provider.regenerate_chunk(
-        simple_plan(),
-        source_song_id="s1",
-        chunk_index=1,
-        new_text="",
-        idempotency_key="k",
-        timeout_s=1.0,
-    )
-
-    # Assert
-    assert is_err(result)
-
-
 async def test_health_is_reportable_and_configurable() -> None:
     # Arrange
     provider = FakeMusicProvider(health_state=HealthState.DEGRADED)

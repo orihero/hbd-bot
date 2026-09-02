@@ -344,3 +344,61 @@ def test_build_lyric_draft_shapes_a_pasted_lyric_exactly_like_a_written_one() ->
     assert len(draft.name_hook_sections) == 1
     assert draft.name_hook_sections[0].lines[0] == UZBEK_NAME_CANONICAL
     assert [section.label for section in draft.sections] == ["section-1", "section-2"]
+
+
+# ---------------------------------------------------------------------------
+# Orthography canonicalisation
+# ---------------------------------------------------------------------------
+def test_uzbek_latin_lines_are_canonicalised_whatever_mark_the_writer_used() -> None:
+    """The one character this product lives or dies by is not left to the model.
+
+    A model asked for U+02BB obeys inconsistently and a customer's phone keyboard emits
+    U+2019 regardless, so both producers are normalised here rather than trusted.
+    """
+    # Arrange
+    mixed = "Bugun o'g'lim tug'ilgan kun, san'at bilan"
+
+    # Act
+    draft = _draft(("verse-1", (mixed,), False), ("hook", (UZBEK_NAME_CANONICAL,), True))
+
+    # Assert
+    assert draft.sections[0].lines[0] == "Bugun oʻgʻlim tugʻilgan kun, sanʼat bilan"
+    assert "'" not in draft.sections[0].lines[0]
+
+
+def test_the_title_is_canonicalised_before_it_is_clamped() -> None:
+    # Arrange / Act
+    draft = _draft(("hook", (UZBEK_NAME_CANONICAL,), True), title="Tug’ilgan kun")
+
+    # Assert
+    assert draft.title == "Tugʻilgan kun"
+
+
+def test_a_curly_apostrophe_is_canonicalised_so_the_hook_still_finds_the_name() -> None:
+    """Marks are fixed BEFORE the hook is chosen, or the name match silently misses."""
+    # Arrange / Act
+    draft = build_lyric_draft(
+        (("verse-1", ("Bayram keldi",), False), ("chorus", ("G‘ulomjon, bugun bayram",), False)),
+        title="Bayram",
+        language=Language.UZ_LATN,
+        name_display=UZBEK_NAME_CANONICAL,
+    )
+
+    # Assert
+    assert draft.name_hook_sections[0].label == "chorus"
+    assert draft.name_hook_sections[0].lines[0] == f"{UZBEK_NAME_CANONICAL}, bugun bayram"
+
+
+def test_non_uzbek_languages_keep_their_apostrophes_untouched() -> None:
+    """``marks.py`` maps a mark after o/g to U+02BB — which would mangle an English possessive."""
+    # Arrange / Act
+    draft = build_lyric_draft(
+        (("verse-1", ("It's Bob's day, go's and all",), False),),
+        title="Bob's song",
+        language=Language.EN,
+        name_display="Bob",
+    )
+
+    # Assert
+    assert draft.sections[0].lines[0] == "It's Bob's day, go's and all"
+    assert draft.title == "Bob's song"

@@ -40,9 +40,11 @@ __all__ = [
 
 REDACTED: Final[str] = "***REDACTED***"
 
-#: Field names that must never reach a log line intact.
+#: Field names that must never reach a log line intact. A connection string carries its
+#: own password in the userinfo, so the URL field names belong here as much as the keys do.
 _SECRET_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"(api[_-]?key|secret|token|password|passwd|authorization|credential|private[_-]?key)",
+    r"(api[_-]?key|secret|token|password|passwd|authorization|credential|private[_-]?key"
+    r"|database_url|redis_url|dsn|connection_string|conn_str|hmac_key)",
     re.IGNORECASE,
 )
 
@@ -50,12 +52,42 @@ _SECRET_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(
 _SECRET_VALUE_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"\b\d{6,12}:[A-Za-z0-9_-]{30,}\b"),  # Telegram bot token
     re.compile(r"\bsk_[A-Za-z0-9]{20,}\b"),  # ElevenLabs style
+    # OpenRouter (sk-or-v1-…) and current OpenAI (sk-proj-…) keys use hyphens, so the
+    # underscore pattern above never saw them.
+    re.compile(r"\bsk-[a-z0-9-]{2,}-[A-Za-z0-9_-]{20,}\b"),
     re.compile(r"\bAIza[0-9A-Za-z_-]{30,}\b"),  # Google API key
     re.compile(r"\bBearer\s+[A-Za-z0-9._-]{10,}\b", re.IGNORECASE),
+    # DSN userinfo: scheme://user:password@host. Masks the credentials and keeps the host,
+    # because "which database" is the half of the string an operator is reading the log for.
+    re.compile(r"\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^/\s@]+@"),
 )
 
 #: Long free text is truncated so a raw LLM payload cannot flood the log.
 MAX_LOGGED_VALUE_CHARS: Final[int] = 2_000
+
+#: Loggers floored at WARNING no matter how low the root goes.
+#:
+#: This is a privacy control, not tidiness. ``sqlalchemy.engine`` at DEBUG echoes every
+#: statement **with its bound parameters** — recipient names, notes, approved lyrics, STT
+#: transcripts — into stdout, which has no retention clock and is reachable by neither
+#: ``hbd.db.purge`` nor a per-user erasure. One ``HBD_LOG_LEVEL=DEBUG`` would otherwise turn
+#: the whole retention design into a no-op for as long as it is on, and leave an unclocked
+#: copy behind afterwards. ``aiogram`` and ``uvicorn.access`` carry the same data by a
+#: different route (update bodies, request lines).
+_NOISY_LOGGERS: Final[tuple[str, ...]] = (
+    "httpx",
+    "httpcore",
+    "asyncio",
+    "aiogram",
+    "aiogram.event",
+    "arq",
+    "sqlalchemy",
+    "sqlalchemy.engine",
+    "sqlalchemy.pool",
+    "uvicorn",
+    "uvicorn.access",
+    "uvicorn.error",
+)
 
 _CORRELATION_ID: ContextVar[str] = ContextVar("hbd_correlation_id", default="-")
 
@@ -170,8 +202,9 @@ def configure_logging(*, level: str = "INFO", is_json: bool = True) -> None:
     root.addHandler(handler)
     root.setLevel(level.upper())
 
-    # Vendor clients are chatty and their debug logs echo request bodies.
-    for noisy in ("httpx", "httpcore", "asyncio", "aiogram.event"):
+    # Vendor clients and the ORM are chatty, and their debug logs echo request bodies and
+    # bound SQL parameters. Floored, never merely defaulted: see _NOISY_LOGGERS.
+    for noisy in _NOISY_LOGGERS:
         logging.getLogger(noisy).setLevel(max(logging.WARNING, root.level))
 
 

@@ -65,6 +65,32 @@ class GenerationAttemptRow(Base):
         sa.Index("ix_generation_attempts_tuning", "name_candidate_strategy", "is_name_verified"),
         sa.Index("ix_generation_attempts_identity_sweep", "identity_expires_at"),
         sa.Index("ix_generation_attempts_text_sweep", "text_expires_at"),
+        # The admin generation explorer (§5.11, migration 0009), declared here so
+        # ``create_all`` and the migration chain build the same indexes.
+        #
+        # There is deliberately no ``(kind, created_at)``. ``kind`` has four values, so a
+        # single-kind filter selects about a quarter of the table and Postgres walks
+        # ``ix_generation_attempts_created_at`` backwards with a filter instead — it refuses
+        # the composite even with ``enable_seqscan=off``, which means it is not a costing
+        # preference. On the second-largest, only-grows table that index was pure write cost.
+        #
+        # These two are chosen only for a SELECTIVE value. That is the honest claim and it
+        # is the one the docstring now makes: an operator chasing one rare error code or one
+        # failing vendor is served; a filter on a common value is not, and no index shape
+        # can change that.
+        sa.Index("ix_generation_attempts_error_code_created_at", "error_code", "created_at", "id"),
+        sa.Index("ix_generation_attempts_provider_created_at", "provider", "created_at", "id"),
+        # ``metrics.failure_breakdown`` groups by ``error_code`` inside a ``created_at``
+        # window with no equality predicate on the leading column, so the composite above
+        # cannot serve it — Postgres seq-scans, and did so on every dashboard refresh. This
+        # is the shape that query actually wants: ``created_at`` leading, restricted to the
+        # rows it looks at.
+        sa.Index(
+            "ix_generation_attempts_failures_created_at",
+            "created_at",
+            postgresql_where=sa.text("is_success = false"),
+            sqlite_where=sa.text("is_success = 0"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(sa.Uuid, primary_key=True, default=uuid4)

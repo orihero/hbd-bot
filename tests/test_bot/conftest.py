@@ -120,9 +120,7 @@ class RecordingSession(BaseSession):
     def last_screen(self) -> Any:
         """The most recent call that put text on the screen, sent or edited."""
         screens = [
-            call
-            for call in self.calls
-            if type(call).__name__ in {"SendMessage", "EditMessageText"}
+            call for call in self.calls if type(call).__name__ in {"SendMessage", "EditMessageText"}
         ]
         assert screens, f"nothing was put on screen; calls were {self.call_names}"
         return screens[-1]
@@ -132,19 +130,29 @@ class RecordingSession(BaseSession):
 
 
 class RecordingSubmitter:
-    """A fake job queue. Records what it was handed; can be told to fail."""
+    """A fake job queue. Records what it was handed; can be told to fail.
+
+    It refuses an order id it has already accepted, the way the real one does: production
+    persists before it enqueues, so a duplicate id hits the ``orders`` primary key and
+    ``db.guard`` turns that into a non-retryable ``Err``. A fake that accepted duplicates
+    made a double tap look harmless in a test and buy two songs in production.
+    """
 
     def __init__(self, *, failure: Exception | None = None) -> None:
         self.submitted: list[tuple[Order, int, int]] = []
         self.failure = failure
 
-    async def submit(
-        self, order: Order, *, chat_id: int, progress_message_id: int
-    ) -> Result[str]:
-        if self.failure is not None:
-            from hbd.contracts import err
+    @property
+    def submitted_ids(self) -> tuple[str, ...]:
+        return tuple(str(order.id) for order, _chat, _message in self.submitted)
 
+    async def submit(self, order: Order, *, chat_id: int, progress_message_id: int) -> Result[str]:
+        from hbd.contracts import err
+
+        if self.failure is not None:
             return err(PipelineError("queue unavailable", cause=self.failure))
+        if str(order.id) in self.submitted_ids:
+            return err(PipelineError("order already exists", context={"order_id": str(order.id)}))
         self.submitted.append((order, chat_id, progress_message_id))
         return ok(f"job-{uuid4().hex[:8]}")
 
@@ -223,7 +231,9 @@ class DecliningPaymentProvider:
 
     name = "declining"
 
-    async def authorize(self, *, order_id: Any, amount_minor: int, currency: str) -> Result[Any]:
+    async def authorize(
+        self, *, order_id: Any, amount_minor: int, currency: str, telegram_user_id: int
+    ) -> Result[Any]:
         from hbd.contracts import PaymentAuthorization
 
         return ok(

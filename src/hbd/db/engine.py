@@ -48,12 +48,23 @@ def _is_sqlite(url: str) -> bool:
     return url.startswith("sqlite")
 
 
-def create_engine(url: str, *, is_echo: bool = False) -> AsyncEngine:
+def create_engine(
+    url: str,
+    *,
+    is_echo: bool = False,
+    pool_size: int = _POOL_SIZE,
+    max_overflow: int = _MAX_OVERFLOW,
+) -> AsyncEngine:
     """Build an async engine for ``url``.
 
     SQLite gets no pool arguments at all: ``aiosqlite`` uses ``StaticPool``/``NullPool``
     depending on the URL and rejects ``pool_size``, so passing the Postgres tuning would
-    make the test suite fail for a reason that has nothing to do with the test.
+    make the test suite fail for a reason that has nothing to do with the test — which is
+    also why ``pool_size`` and ``max_overflow`` are silently ignored there.
+
+    The two pool arguments exist for the third process: bot + worker + admin API at the
+    defaults is ``3 × 30 = 90`` connections against a stock ``max_connections`` of 100, so
+    the API asks for a smaller share rather than everyone quietly sharing a cliff edge.
     """
     if _is_sqlite(url):
         return create_async_engine(url, echo=is_echo, future=True)
@@ -61,8 +72,8 @@ def create_engine(url: str, *, is_echo: bool = False) -> AsyncEngine:
         url,
         echo=is_echo,
         future=True,
-        pool_size=_POOL_SIZE,
-        max_overflow=_MAX_OVERFLOW,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
         pool_recycle=_POOL_RECYCLE_S,
         pool_pre_ping=True,
     )

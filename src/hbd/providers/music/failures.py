@@ -156,9 +156,7 @@ def _payload_rejection(detail: str, context: dict[str, Any], provider: str) -> P
     )
 
 
-def map_status_error(
-    response: httpx.Response, *, provider: str, operation: str
-) -> ProviderError:
+def map_status_error(response: httpx.Response, *, provider: str, operation: str) -> ProviderError:
     """Map a non-2xx response to a typed error. Never raises, never reads a stream twice."""
     status = response.status_code
     detail = describe_error_body(response.content)

@@ -1,14 +1,34 @@
-"""Moderation: fail-closed on a verdict, and on an outage only when the note is ours."""
+"""Moderation: fail-closed on a verdict, and on an outage only when the note is ours.
+
+The last section is about the opposite failure. A gate that refuses a paying customer's
+harmless note is not "safe", it is broken, and it broke silently in production — so the
+wording of the reject list is pinned here, and the live model is asked the real question
+under ``integration``.
+"""
 
 from __future__ import annotations
 
-from hbd.config import Settings
-from hbd.contracts import Err, LyricDraft, LyricSection
+from typing import Final
+
+import httpx
+import pytest
+
+from hbd.config import Settings, build_settings
+from hbd.contracts import Err, LlmRequest, LyricDraft, LyricSection
 from hbd.errors import ErrorCode, ProviderUnavailableError
 from hbd.pipeline.moderation import AllowAllModerator, LlmModerator, ModerationPayload
-from hbd.pipeline.prompts import moderation_user_prompt
+from hbd.pipeline.prompts import moderation_system_prompt, moderation_user_prompt
+from hbd.providers.llm.factory import build_llm_provider
 from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_lyrics
 from tests.test_pipeline.conftest import FakeLlmProvider, failure_of
+
+#: The live golden test needs the real credential, so it must be able to name it in the
+#: skip message an operator reads when nothing ran.
+_LLM_KEY_ENV: Final[str] = "HBD_LLM_API_KEY"
+
+#: ``Settings`` requires a database URL and the golden test opens no connection; this keeps
+#: an unconfigured host from turning a moderation question into a config error.
+_UNUSED_DATABASE_URL: Final[str] = "postgresql+asyncpg://unused/unused"
 
 
 async def test_allows_an_ordinary_birthday_note(settings: Settings) -> None:
@@ -213,3 +233,92 @@ def test_the_moderation_prompt_shows_the_lyric_when_the_customer_approved_one() 
     # Assert: the old material first, byte for byte, then the lyric appended whole
     assert prompt == f'{_PROMPT_WITHOUT_LYRICS}\nSong lyrics: "{lyric.as_plain_text()}"'
     assert UZBEK_NAME_CANONICAL in prompt
+
+
+# ---------------------------------------------------------------------------
+# The alcohol false positive that cost a real order
+# ---------------------------------------------------------------------------
+#: The exact note from order 1251314e-2138-4d4e-a263-2874a0c08601, which failed at
+#: MODERATING five seconds in and showed a paying customer 9% and a generic error.
+#: Roughly: "he loves drinking beer, works at a logistics company! Married, recently had a
+#: child" — an ordinary affectionate ribbing of a friend, and the product's core use case.
+LIVE_BEER_NOTE = (
+    "Pivo ichishni yqotiradi, logistica kompaniyasida ishlaydi! Uylangan yaqinda farzandli bo'lafi"
+)
+
+
+def test_the_moderation_prompt_permits_a_light_hearted_mention_of_drinking() -> None:
+    """The reject list must name the behaviour, not the noun.
+
+    "promotes alcohol or drugs" made the model treat any mention of beer as promotion, and
+    that item outranked the sentence right after it that allows an affectionate note about
+    a friend. Regression pin for order 1251314e-2138-4d4e-a263-2874a0c08601.
+    """
+    # Arrange / Act
+    prompt = moderation_system_prompt()
+
+    # Assert: the over-broad formulation is gone …
+    assert "promotes alcohol" not in prompt
+    # … replaced by one that only refuses celebrating the behaviour …
+    assert "glorifies drug use or drunkenness" in prompt
+    # … and the carve-out now says out loud what an Uzbek birthday note actually contains.
+    assert "including light-hearted references to drinking, food or habits" in prompt
+
+
+async def test_the_local_denylist_does_not_fire_on_the_live_beer_note(
+    settings: Settings,
+) -> None:
+    """The cheap layer was never the problem here; this keeps it that way.
+
+    The denylist is a tripwire for unmistakable abuse, so the note that broke the order in
+    production must reach the model rather than being refused before the call.
+    """
+    # Arrange
+    llm = FakeLlmProvider()
+
+    # Act
+    result = await LlmModerator(llm, settings).review(make_brief(note=LIVE_BEER_NOTE))
+
+    # Assert
+    assert not isinstance(result, Err)
+    assert len(llm.requests) == 1
+
+
+@pytest.mark.integration
+async def test_the_configured_model_allows_the_live_beer_note() -> None:
+    """The golden test: the real note, the real configured model, a real verdict.
+
+    Everything above pins wording; only this pins *behaviour*, because the failure was the
+    model's reading of the wording and no fake can reproduce that. Skips rather than fails
+    without a key, so a keyless CI run is unaffected — ``make test`` excludes it anyway.
+
+    It deliberately does not take the ``settings`` fixture: that fixture strips every
+    ``HBD_`` variable from the environment, which is right for a unit test and fatal for
+    one whose whole point is to ask the vendor the customer's model was asked. The database
+    URL is overridden because nothing here touches a database and a missing one must not
+    turn this into a config failure; every LLM setting still comes from the environment or
+    ``.env``, so what answers here is what answers in production.
+    """
+    # Arrange
+    live = build_settings({"database_url": _UNUSED_DATABASE_URL}, require_vendor_secrets=False)
+    if not live.llm_api_key:
+        pytest.skip(f"{_LLM_KEY_ENV} is not set; skipping the live moderation golden test")
+    request = LlmRequest(
+        system_prompt=moderation_system_prompt(),
+        user_prompt=moderation_user_prompt(make_brief(note=LIVE_BEER_NOTE)),
+        temperature=0.0,
+        max_output_tokens=live.llm_max_output_tokens,
+    )
+
+    # Act
+    async with httpx.AsyncClient() as client:
+        llm = build_llm_provider(live, client=client)
+        result = await llm.generate_json(request, ModerationPayload, timeout_s=live.llm_timeout_s)
+
+    # Assert: a transport failure is a failed test, not a pass — fail-open lives in the
+    # moderator, and this test is about what the model says.
+    assert not isinstance(result, Err), f"moderation call failed: {result}"
+    assert result.value.is_allowed is True, (
+        f"{live.llm_model_id} still rejects an affectionate note about a friend: "
+        f"{result.value.reason}"
+    )

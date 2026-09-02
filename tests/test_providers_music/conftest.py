@@ -17,7 +17,6 @@ import orjson
 
 from hbd.contracts import Chunk, CompositionPlan, Language, LyricDraft, LyricSection
 from hbd.providers.music.elevenlabs import ElevenLabsMusicProvider
-from hbd.providers.music.planner import PlanShape
 
 TEST_API_KEY = "test-elevenlabs-key"
 TEST_BASE_URL = "https://api.elevenlabs.test"
@@ -31,10 +30,6 @@ AUDIO_BODY = b"\xff\xfb\x10\xc0" + bytes(100)
 Handler = (
     Callable[[httpx.Request], httpx.Response]
     | Callable[[httpx.Request], Coroutine[Any, Any, httpx.Response]]
-)
-
-DEFAULT_SHAPE = PlanShape(
-    song_length_ms=120_000, name_chunk_duration_ms=8_000, body_chunk_target_ms=20_000
 )
 
 
@@ -117,7 +112,9 @@ def make_lyrics(*, section_count: int = 3, name_display: str = "Gʻulomjon") -> 
     """A lyric whose SECOND section is the name hook."""
     sections: list[LyricSection] = [
         LyricSection(label="verse-1", lines=("Bugun quyosh boshqacha porlaydi",)),
-        LyricSection(label="hook", lines=(f"{name_display}, tugʻilgan kuning bilan",), is_name_hook=True),
+        LyricSection(
+            label="hook", lines=(f"{name_display}, tugʻilgan kuning bilan",), is_name_hook=True
+        ),
     ]
     for index in range(section_count - 2):
         sections.append(

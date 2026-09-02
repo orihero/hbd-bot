@@ -145,8 +145,29 @@ def test_the_initial_migration_creates_the_day_and_month_columns() -> None:
 
 
 def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
+    """A column check, and ONLY a column check — see the note below.
+
+    This guard was the one that should have caught ``admin_audit_log``'s two decorative
+    clocks and it could not: it asserts a clock column EXISTS, never that anything reads it.
+    ``admin_audit_log`` passed cleanly while ``reason_text`` was retained forever, and
+    ``admin_sessions`` was not in the set at all. It is kept because a missing column is
+    still worth catching early and cheaply, but the real guard is
+    ``tests/test_db/test_audit_retention.py::test_every_retention_clock_in_the_schema_is_read_by_a_sweep``,
+    which derives the answer from ``rows_past_expiry_statements``' own predicates.
+    """
     # Arrange — the purge is a single indexed predicate per table only if this holds.
-    tables_with_personal_data = {"briefs", "assets", "generation_attempts", "name_records"}
+    # ``admin_audit_log`` is here for one column: ``reason_text``, the operator's optional
+    # free text, which really does read "Dilnoza asked us to delete her mother's song". It
+    # carries two clocks — ``reason_expires_at`` at 90 days for that text and ``expires_at``
+    # at 730 days for the row — and this set is hardcoded, so a new table is silently exempt
+    # until it is named here (ADMIN_PANEL_PLAN §5.4).
+    tables_with_personal_data = {
+        "briefs",
+        "assets",
+        "generation_attempts",
+        "name_records",
+        "admin_audit_log",
+    }
 
     # Act
     missing = [

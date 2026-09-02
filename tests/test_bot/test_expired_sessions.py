@@ -28,12 +28,13 @@ from hbd.bot.deps import BotDeps
 from hbd.bot.i18n import translate
 from hbd.bot.states import Wizard
 from hbd.config import Settings
-from hbd.contracts import Genre, Language, Occasion, VoiceGender
+from hbd.contracts import MAX_RECIPIENT_NAME_CHARS, Genre, Language, Occasion, VoiceGender
 from tests.test_bot.conftest import (
     CHAT_ID,
     RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
+    buttons,
     callback_update,
     message_update,
 )
@@ -129,8 +130,29 @@ async def test_name_confirmation_with_a_draft_that_lost_its_name_asks_again(
     await press(dispatcher, bot, NavCB(action=NavAction.NAME_OK).pack())
 
     # Assert
-    assert session.last_screen.text == translate("wizard.name.prompt", Language.EN)
+    assert session.last_screen.text == translate(
+        "wizard.name.prompt", Language.EN, limit=MAX_RECIPIENT_NAME_CHARS
+    )
     assert await state.get_state() == Wizard.name.state
+
+
+async def test_the_expired_screen_offers_a_way_back_in(
+    dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
+) -> None:
+    """An expired session is the end of a flow, and a flow may not end in a dead end.
+
+    Before this button the only exit was a ``/start`` the customer had to know about and
+    type, which is the shape of a message people close instead of answering.
+    """
+    # Arrange — a live state with no draft behind it
+    await state.set_state(Wizard.confirm)
+
+    # Act
+    await press(dispatcher, bot, NavCB(action=NavAction.CONFIRM).pack())
+
+    # Assert
+    offered = {data for _, data in buttons(session.last_screen.reply_markup)}
+    assert NavCB(action=NavAction.START_OVER).pack() in offered
 
 
 async def test_a_corrupt_draft_is_treated_as_expired(

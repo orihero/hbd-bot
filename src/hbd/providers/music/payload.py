@@ -82,16 +82,19 @@ def _chunk_offsets(plan: CompositionPlan) -> list[int]:
     return offsets
 
 
-def build_compose_body(
-    plan: CompositionPlan, *, model_id: str, output_format: str
-) -> dict[str, Any]:
-    """Render the POST body for a full-track compose. Pure; never mutates ``plan``."""
+def build_compose_body(plan: CompositionPlan, *, model_id: str) -> dict[str, Any]:
+    """Render the POST body for a full-track compose. Pure; never mutates ``plan``.
+
+    ``output_format`` is deliberately absent: the vendor reads it as a QUERY parameter and
+    ignores a body field of that name, so putting it here silently left the account default
+    (``mp3_48000_192`` on music_v2) in force. The transport adds it to the URL — the same
+    way the TTS adapter in this repo already does.
+    """
     # No ``music_length_ms``: the vendor rejects it outright when a ``composition_plan`` is
     # present, because the chunk durations already state the length. Sending both is a 422.
     body: dict[str, Any] = {
         "composition_plan": {"chunks": [_chunk_body(chunk) for chunk in plan.chunks]},
         "model_id": model_id,
-        "output_format": output_format,
         "force_instrumental": plan.is_instrumental,
         "store_for_inpainting": plan.should_store_for_inpainting,
     }
@@ -108,7 +111,6 @@ def build_inpaint_body(
     source_song_id: str,
     chunk_index: int,
     model_id: str,
-    output_format: str,
 ) -> dict[str, Any]:
     """Render the POST body that re-renders ONE chunk of an already-stored song.
 
@@ -152,7 +154,6 @@ def build_inpaint_body(
     body: dict[str, Any] = {
         "composition_plan": {"chunks": chunks},
         "model_id": model_id,
-        "output_format": output_format,
         "force_instrumental": plan.is_instrumental,
         "store_for_inpainting": True,
     }

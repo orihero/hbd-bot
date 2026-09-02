@@ -24,9 +24,7 @@ DISPLAY = "Gʻulomjon"  # U+02BB, the canonical spelling the hook must carry
 
 
 def parse(text: str, *, title: str = "Tugʻilgan kun") -> Result[LyricDraft]:
-    return parse_typed_lyrics(
-        text, language=Language.UZ_LATN, name_display=DISPLAY, title=title
-    )
+    return parse_typed_lyrics(text, language=Language.UZ_LATN, name_display=DISPLAY, title=title)
 
 
 def value_of(result: Result[LyricDraft]) -> LyricDraft:

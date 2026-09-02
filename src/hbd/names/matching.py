@@ -1,4 +1,3 @@
-
 # Latin ones are the SUBJECT of this module, not a typo in it.
 """Did the model actually say the name? Comparing an intended name to an STT transcript.
 

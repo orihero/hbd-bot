@@ -10,9 +10,11 @@ music renders on Starter/Creator/Pro and five on Scale, and exceeding it earns a
 costs a retry. The semaphore here holds this process to that ceiling regardless of how many
 ARQ workers pick up jobs at once.
 
-The name re-roll path is ``regenerate_chunk``: it swaps one chunk's text and inpaints the
-stored song, so a mispronounced name costs one chunk instead of a whole track. The stored
-handle is kept alive across re-rolls because attempt two needs it as much as attempt one.
+The name re-roll path is ``inpaint``, called directly by ``pipeline.name_stage``: it
+re-renders one chunk of the stored song, so a mispronounced name costs a chunk instead of a
+whole track. It works only while the vendor hands back a stored-song handle; without one the
+caller falls back to ``compose`` and pays for the whole track again, which is why
+``name_stage`` says so in the log rather than absorbing it quietly.
 """
 
 from __future__ import annotations
@@ -51,7 +53,6 @@ from hbd.providers.music.payload import (
     build_inpaint_body,
     guard_plan,
 )
-from hbd.providers.music.planner import plan_with_chunk_text
 from hbd.providers.music.usage import (
     DEFAULT_MUSIC_USD_PER_MINUTE,
     MusicUsage,
@@ -169,11 +170,12 @@ class ElevenLabsMusicProvider:
         guarded = guard_plan(plan)
         if isinstance(guarded, Err):
             return guarded
-        body = build_compose_body(
-            plan, model_id=self._model_id, output_format=self._output_format
-        )
+        body = build_compose_body(plan, model_id=self._model_id)
         return await self._post_music(
-            body, plan=plan, operation=_OPERATION_COMPOSE, timeout_s=timeout_s,
+            body,
+            plan=plan,
+            operation=_OPERATION_COMPOSE,
+            timeout_s=timeout_s,
             idempotency_key=idempotency_key,
         )
 
@@ -204,37 +206,14 @@ class ElevenLabsMusicProvider:
             source_song_id=source_song_id,
             chunk_index=chunk_index,
             model_id=self._model_id,
-            output_format=self._output_format,
         )
         return await self._post_music(
-            body, plan=plan, operation=_OPERATION_INPAINT, timeout_s=timeout_s,
-            idempotency_key=idempotency_key, source_song_id=source_song_id,
-        )
-
-    async def regenerate_chunk(
-        self,
-        plan: CompositionPlan,
-        *,
-        source_song_id: str,
-        chunk_index: int,
-        new_text: str,
-        idempotency_key: str,
-        timeout_s: float,
-    ) -> Result[RenderedAudio]:
-        """Re-render ONE chunk with new text. The name re-roll path.
-
-        The caller supplies the next candidate orthography; this swaps it into the plan and
-        inpaints, so a rejected pronunciation costs a single chunk.
-        """
-        updated = plan_with_chunk_text(plan, chunk_index, new_text)
-        if isinstance(updated, Err):
-            return updated
-        return await self.inpaint(
-            updated.value,
-            source_song_id=source_song_id,
-            chunk_index=chunk_index,
-            idempotency_key=idempotency_key,
+            body,
+            plan=plan,
+            operation=_OPERATION_INPAINT,
             timeout_s=timeout_s,
+            idempotency_key=idempotency_key,
+            source_song_id=source_song_id,
         )
 
     async def health(self) -> Result[ProviderHealth]:
@@ -249,9 +228,7 @@ class ElevenLabsMusicProvider:
             return ok(self._health_state(HealthState.UNAVAILABLE, detail=str(exc)))
 
         if response.status_code in (401, 403):
-            return err(
-                map_status_error(response, provider=self.name, operation=_OPERATION_HEALTH)
-            )
+            return err(map_status_error(response, provider=self.name, operation=_OPERATION_HEALTH))
         if response.status_code >= _HTTP_ERROR_FLOOR:
             state = (
                 HealthState.UNAVAILABLE
@@ -285,9 +262,7 @@ class ElevenLabsMusicProvider:
             )
         used = payload.get("character_count")
         limit = payload.get("character_limit")
-        remaining = (
-            limit - used if isinstance(used, int) and isinstance(limit, int) else None
-        )
+        remaining = limit - used if isinstance(used, int) and isinstance(limit, int) else None
         if remaining is not None and remaining <= 0:
             return self._health_state(
                 HealthState.DEGRADED, detail="character quota exhausted", quota_remaining=0
@@ -312,6 +287,7 @@ class ElevenLabsMusicProvider:
                 response = await self._client.post(
                     url,
                     json=body,
+                    params={"output_format": self._output_format},
                     headers=self._headers(idempotency_key),
                     timeout=httpx.Timeout(timeout_s),
                 )

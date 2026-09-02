@@ -16,7 +16,18 @@ Free-text transcript    ``generation_attempts.stt_transcript``,         30 days
 Recipient identity      ``briefs`` name columns, nulled in place        90 days
 Recipient identity      ``generation_attempts`` name text, nulled       90 days
 Abandoned drafts        ``orders`` in ``DRAFT``, deleted outright       14 days
+Operator free text      ``admin_audit_log.reason_text``, nulled         90 days
+Audited actions         ``admin_audit_log`` rows, deleted outright      730 days
+Admin sessions          ``admin_sessions`` rows, deleted outright       12 h
+Sweep records           ``purge_runs``, deleted outright                12 months
 ======================  ==============================================  ==========
+
+The last row is not customer data — it is this job's own audit trail, swept by the same
+run so the bookkeeping cannot outgrow the thing it books. The three admin rows above it
+live in :mod:`hbd.db.purge_admin`, because they are the only sweeps that have to know
+about Postgres privileges: §12.4 revokes ``UPDATE``/``DELETE`` on ``admin_audit_log`` from
+the application role, so on a two-role deployment they go through the ``SECURITY DEFINER``
+functions migration 0007 installs.
 
 Two design choices worth stating, because both look like mistakes until you see why:
 
@@ -56,7 +67,8 @@ not take a lock on the whole ``assets`` table.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Any, Final
 from uuid import UUID
 
 import sqlalchemy as sa
@@ -64,21 +76,48 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from hbd.contracts import OrderState, Result
+from hbd.db.credits import settle_stale_debits
 from hbd.db.guard import run_guarded
+from hbd.db.models.admin_audit import AdminAuditRow
+from hbd.db.models.admin_session import AdminSessionRow
 from hbd.db.models.asset import AssetRow
 from hbd.db.models.brief import BriefRow
 from hbd.db.models.generation_attempt import GenerationAttemptRow
 from hbd.db.models.name_record import NameRecordRow
 from hbd.db.models.order import OrderRow
+from hbd.db.models.purge_run import PurgeRunRow
+from hbd.db.purge_admin import (
+    admin_sessions_due,
+    audit_reasons_due,
+    audit_rows_due,
+    pin_audit_head,
+    purge_admin_sessions,
+    purge_audit_log,
+    purge_audit_reasons,
+)
 from hbd.db.retention import DEFAULT_RETENTION_POLICY, RetentionPolicy
+from hbd.entitlements import DEFAULT_ENTITLEMENT_POLICY, EntitlementPolicy
 from hbd.logging import get_logger
 
-__all__ = ["PurgeReport", "purge_expired", "DEFAULT_PURGE_BATCH_SIZE"]
+__all__ = [
+    "PurgeReport",
+    "purge_expired",
+    "DEFAULT_PURGE_BATCH_SIZE",
+    "PURGE_RUN_RETENTION_DAYS",
+    "rows_past_expiry_statements",
+]
 
 _log = get_logger(__name__)
 
 #: Rows touched per table per run. Sized so a sweep stays well inside a statement timeout.
 DEFAULT_PURGE_BATCH_SIZE: int = 500
+
+#: How long the sweep's own records are kept (admin plan §12.5). Not a ``RetentionPolicy``
+#: field on purpose: the policy holds periods for CUSTOMER data, every one of which is a
+#: published legal commitment an operator may tune. This one bounds an internal counter
+#: table that holds no personal data, so making it configurable would add a knob whose only
+#: possible effect is to lose operational history.
+PURGE_RUN_RETENTION_DAYS: Final[int] = 365
 
 
 class PurgeReport(BaseModel):
@@ -87,6 +126,9 @@ class PurgeReport(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     ran_at: datetime
+    #: The bound every sweep below ran under. Carried on the report rather than left with
+    #: the caller because ``has_work_remaining`` cannot be answered without it.
+    batch_size: int = Field(default=DEFAULT_PURGE_BATCH_SIZE, gt=0)
     assets_deleted: int = Field(default=0, ge=0)
     #: Object-store keys whose rows are gone. The CALLER deletes these objects.
     storage_keys: tuple[str, ...] = ()
@@ -96,23 +138,61 @@ class PurgeReport(BaseModel):
     attempt_transcripts_purged: int = Field(default=0, ge=0)
     name_records_deleted: int = Field(default=0, ge=0)
     abandoned_orders_deleted: int = Field(default=0, ge=0)
+    #: ``admin_audit_log.reason_text`` nulled at 90 days — the operator's own free text, the
+    #: one column in that table an operator can type a customer's name into.
+    audit_reasons_purged: int = Field(default=0, ge=0)
+    #: ``admin_audit_log`` rows deleted at 730 days. Every deletion writes a chain anchor.
+    audit_rows_deleted: int = Field(default=0, ge=0)
+    #: ``admin_sessions`` past their absolute cap. Token digests, CSRF tokens and operator
+    #: IP addresses; the sweep existed and had no caller until this pass.
+    admin_sessions_deleted: int = Field(default=0, ge=0)
+    purge_runs_deleted: int = Field(default=0, ge=0)
+    #: Open credit debits the sweep closed — refunded, or consumed when the kit was already
+    #: rendered. Not a retention clock and not personal data; it rides this run because this
+    #: is the transaction the worker already schedules. Deliberately NOT added to
+    #: ``rows_past_expiry_statements``: that function answers "how far behind is the
+    #: RETENTION schedule", which the panel renders as a legal backlog, and a stale debit is
+    #: not one.
+    stale_debits_settled: int = Field(default=0, ge=0)
 
     @property
-    def total_rows_affected(self) -> int:
+    def per_sweep_counts(self) -> tuple[int, ...]:
+        """Every sweep's own count, unsummed. The order is the order they ran in."""
         return (
-            self.assets_deleted
-            + self.brief_notes_purged
-            + self.brief_identities_purged
-            + self.attempt_identities_purged
-            + self.attempt_transcripts_purged
-            + self.name_records_deleted
-            + self.abandoned_orders_deleted
+            self.assets_deleted,
+            self.brief_notes_purged,
+            self.brief_identities_purged,
+            self.attempt_identities_purged,
+            self.attempt_transcripts_purged,
+            self.name_records_deleted,
+            self.abandoned_orders_deleted,
+            self.audit_reasons_purged,
+            self.audit_rows_deleted,
+            self.admin_sessions_deleted,
+            self.purge_runs_deleted,
+            self.stale_debits_settled,
         )
 
     @property
+    def total_rows_affected(self) -> int:
+        return sum(self.per_sweep_counts)
+
+    @property
     def has_work_remaining(self) -> bool:
-        """True when a sweep filled its batch, so the scheduler should run again soon."""
-        return self.total_rows_affected > 0
+        """True when a sweep filled its batch, so the scheduler should run again soon.
+
+        This used to be ``total_rows_affected > 0``, which is a different predicate wearing
+        this one's docstring: it was true of every run that did any work at all and false
+        the instant nothing was due. A nightly sweep that deleted three rows reported "more
+        remaining" forever, and the panel's "run again" affordance would have been lit
+        permanently — which is the same as not being there.
+
+        A sweep is bounded by ``LIMIT batch_size``. The only evidence that more rows were
+        due than one pass could take is a sweep that came back **full**, so that is what is
+        asked. Each count is compared on its own: one saturated table means work remains
+        even when every other clock had nothing due.
+        """
+        return any(count >= self.batch_size for count in self.per_sweep_counts)
 
 
 async def purge_expired(
@@ -120,16 +200,41 @@ async def purge_expired(
     *,
     now: datetime,
     policy: RetentionPolicy = DEFAULT_RETENTION_POLICY,
+    entitlements: EntitlementPolicy = DEFAULT_ENTITLEMENT_POLICY,
     batch_size: int = DEFAULT_PURGE_BATCH_SIZE,
 ) -> Result[PurgeReport]:
-    """Run every retention clock once. Never raises; returns a typed ``Err`` on failure.
+    """Run every retention clock once, and close every debit nobody settled. Never raises.
 
     ``now`` is injected rather than read from the system clock so a test can advance time
     thirteen months without waiting thirteen months.
+
+    ``entitlements`` supplies the settlement grace, and it is DEFAULTED rather than required
+    because the caller on the cron (``hbd.runtime.retention_job``) predates it and passes
+    only ``policy=``. The default is derived from the SHIPPED queue ladder — see
+    ``hbd.entitlements.derive_settlement_grace_s`` — so a deployment that lengthens
+    ``HBD_QUEUE_JOB_TIMEOUT_S`` (or sets ``HBD_SETTLEMENT_GRACE_S``) moves the ledger's
+    in-flight window, which ``AppContainer`` resolves from ``Settings``, without moving this
+    one. Passing ``entitlements=resolve_entitlement_policy(settings)`` at that call site is
+    still the tidier wiring.
+
+    **It is no longer a correctness gap, and that is deliberate rather than lucky.** A grace
+    shorter than the deployment's own retry ladder used to let the sweep refund an order that
+    was still rendering — the customer then kept the credit and got the song. The selection
+    in ``credit_sql.stale_debits`` now requires the ORDERS ROW to have been quiet for the
+    grace as well as the debit, and every stage transition stamps ``orders.updated_at``
+    (``repository._set_order_state``), so a live job is visible as live whatever number this
+    parameter carries. A short grace can now only make the sweep tidy up sooner than
+    necessary, never take a credit back from a job that is about to deliver.
     """
     return await run_guarded(
         "purge_expired",
-        lambda: _purge(session_factory, now=now, policy=policy, batch_size=batch_size),
+        lambda: _purge(
+            session_factory,
+            now=now,
+            policy=policy,
+            entitlements=entitlements,
+            batch_size=batch_size,
+        ),
         now=now.isoformat(),
     )
 
@@ -139,6 +244,7 @@ async def _purge(
     *,
     now: datetime,
     policy: RetentionPolicy,
+    entitlements: EntitlementPolicy,
     batch_size: int,
 ) -> PurgeReport:
     async with session_factory.begin() as session:
@@ -151,9 +257,22 @@ async def _purge(
         drafts = await _purge_abandoned_orders(
             session, cutoff=policy.abandoned_draft_cutoff(now), limit=batch_size
         )
+        # The admin panel's own three clocks. They run before the anchor is pinned, so a
+        # truncation this run made is recorded below the head this run records.
+        audit_reasons = await purge_audit_reasons(session, now=now, limit=batch_size)
+        audit_rows = await purge_audit_log(session, now=now, limit=batch_size)
+        admin_sessions = await purge_admin_sessions(session, now=now, limit=batch_size)
+        await pin_audit_head(session, now=now)
+        runs = await _purge_purge_runs(
+            session, cutoff=now - timedelta(days=PURGE_RUN_RETENTION_DAYS), limit=batch_size
+        )
+        # Last, and inside the same transaction: it writes ledger rows rather than deleting
+        # anything, so a purge that fails half way must take these back with it.
+        debits = await settle_stale_debits(session, now=now, limit=batch_size, policy=entitlements)
 
     report = PurgeReport(
         ran_at=now,
+        batch_size=batch_size,
         assets_deleted=assets_deleted,
         storage_keys=storage_keys,
         brief_notes_purged=notes,
@@ -162,6 +281,11 @@ async def _purge(
         attempt_transcripts_purged=transcripts,
         name_records_deleted=names,
         abandoned_orders_deleted=drafts,
+        audit_reasons_purged=audit_reasons,
+        audit_rows_deleted=audit_rows,
+        admin_sessions_deleted=admin_sessions,
+        purge_runs_deleted=runs,
+        stale_debits_settled=debits,
     )
     # A purge that runs and does nothing is as important to see as one that deletes 40k
     # rows: silence here is indistinguishable from a scheduler that stopped firing.
@@ -170,6 +294,107 @@ async def _purge(
     summary = report.model_dump(mode="json", exclude={"storage_keys"})
     _log.info("retention purge complete", extra={**summary, "storage_key_count": len(storage_keys)})
     return report
+
+
+# ---------------------------------------------------------------------------
+# The predicates, named once
+# ---------------------------------------------------------------------------
+# Each sweep below and :func:`rows_past_expiry_statements` ask the SAME question, one with
+# a ``LIMIT`` and one with a ``COUNT``. Writing that question twice is how the panel comes
+# to report a backlog the job does not sweep — or, worse, reports none while rows rot — so
+# it is written once, here, and both callers read it from the same place.
+def _assets_due(now: datetime) -> sa.ColumnElement[bool]:
+    return AssetRow.expires_at <= now
+
+
+def _brief_notes_due(now: datetime) -> sa.ColumnElement[bool]:
+    return sa.and_(
+        BriefRow.note_expires_at <= now,
+        sa.or_(BriefRow.note.is_not(None), BriefRow.approved_lyrics.is_not(None)),
+    )
+
+
+def _brief_identities_due(now: datetime) -> sa.ColumnElement[bool]:
+    return sa.and_(
+        BriefRow.identity_expires_at <= now,
+        BriefRow.recipient_name_display.is_not(None),
+    )
+
+
+def _attempt_identities_due(now: datetime) -> sa.ColumnElement[bool]:
+    return sa.and_(
+        GenerationAttemptRow.identity_expires_at <= now,
+        GenerationAttemptRow.identity_purged_at.is_(None),
+        sa.or_(
+            GenerationAttemptRow.name_candidate_text.is_not(None),
+            GenerationAttemptRow.stt_transcript.is_not(None),
+        ),
+    )
+
+
+def _attempt_transcripts_due(now: datetime) -> sa.ColumnElement[bool]:
+    return sa.and_(
+        GenerationAttemptRow.text_expires_at <= now,
+        GenerationAttemptRow.text_purged_at.is_(None),
+        GenerationAttemptRow.stt_transcript.is_not(None),
+    )
+
+
+def _name_records_due(now: datetime) -> sa.ColumnElement[bool]:
+    return sa.and_(NameRecordRow.expires_at.is_not(None), NameRecordRow.expires_at <= now)
+
+
+def _abandoned_orders_due(cutoff: datetime) -> sa.ColumnElement[bool]:
+    return sa.and_(OrderRow.state == OrderState.DRAFT, OrderRow.created_at <= cutoff)
+
+
+def _purge_runs_due(cutoff: datetime) -> sa.ColumnElement[bool]:
+    return PurgeRunRow.ran_at <= cutoff
+
+
+def rows_past_expiry_statements(
+    *,
+    now: datetime,
+    policy: RetentionPolicy = DEFAULT_RETENTION_POLICY,
+) -> tuple[tuple[str, sa.Select[tuple[int]]], ...]:
+    """``(report field name, COUNT statement)`` for every clock, unbounded by ``batch_size``.
+
+    This is what ``GET /api/retention``'s ``rowsPastExpiry`` is built from, and it is the
+    number an operator actually wants: ``has_work_remaining`` only says "a batch came back
+    full", which answers *whether* to run again but never *how far behind* the sweep is.
+
+    The keys are ``PurgeReport`` field names so a caller can line the backlog up against
+    the last run's counts without a translation table in between.
+    """
+    return (
+        ("assets_deleted", _count_of(AssetRow, _assets_due(now))),
+        ("brief_notes_purged", _count_of(BriefRow, _brief_notes_due(now))),
+        ("brief_identities_purged", _count_of(BriefRow, _brief_identities_due(now))),
+        (
+            "attempt_identities_purged",
+            _count_of(GenerationAttemptRow, _attempt_identities_due(now)),
+        ),
+        (
+            "attempt_transcripts_purged",
+            _count_of(GenerationAttemptRow, _attempt_transcripts_due(now)),
+        ),
+        ("name_records_deleted", _count_of(NameRecordRow, _name_records_due(now))),
+        (
+            "abandoned_orders_deleted",
+            _count_of(OrderRow, _abandoned_orders_due(policy.abandoned_draft_cutoff(now))),
+        ),
+        ("audit_reasons_purged", _count_of(AdminAuditRow, audit_reasons_due(now))),
+        ("audit_rows_deleted", _count_of(AdminAuditRow, audit_rows_due(now))),
+        ("admin_sessions_deleted", _count_of(AdminSessionRow, admin_sessions_due(now))),
+        (
+            "purge_runs_deleted",
+            _count_of(PurgeRunRow, _purge_runs_due(now - timedelta(days=PURGE_RUN_RETENTION_DAYS))),
+        ),
+    )
+
+
+def _count_of(model: type[Any], predicate: sa.ColumnElement[bool]) -> sa.Select[tuple[int]]:
+    return sa.select(sa.func.count()).select_from(model).where(predicate)
 
 
 async def _ids_due(session: AsyncSession, statement: sa.Select[tuple[UUID]]) -> list[UUID]:
@@ -184,7 +409,7 @@ async def _purge_assets(
     rows = (
         await session.execute(
             sa.select(AssetRow.id, AssetRow.storage_key)
-            .where(AssetRow.expires_at <= now)
+            .where(_assets_due(now))
             .order_by(AssetRow.expires_at)
             .limit(limit)
         )
@@ -212,10 +437,7 @@ async def _purge_brief_notes(session: AsyncSession, *, now: datetime, limit: int
     due = await _ids_due(
         session,
         sa.select(BriefRow.id)
-        .where(
-            BriefRow.note_expires_at <= now,
-            sa.or_(BriefRow.note.is_not(None), BriefRow.approved_lyrics.is_not(None)),
-        )
+        .where(_brief_notes_due(now))
         .order_by(BriefRow.note_expires_at)
         .limit(limit),
     )
@@ -245,10 +467,7 @@ async def _purge_brief_identities(session: AsyncSession, *, now: datetime, limit
     due = await _ids_due(
         session,
         sa.select(BriefRow.id)
-        .where(
-            BriefRow.identity_expires_at <= now,
-            BriefRow.recipient_name_display.is_not(None),
-        )
+        .where(_brief_identities_due(now))
         .order_by(BriefRow.identity_expires_at)
         .limit(limit),
     )
@@ -280,14 +499,7 @@ async def _purge_attempt_identities(session: AsyncSession, *, now: datetime, lim
     due = await _ids_due(
         session,
         sa.select(GenerationAttemptRow.id)
-        .where(
-            GenerationAttemptRow.identity_expires_at <= now,
-            GenerationAttemptRow.identity_purged_at.is_(None),
-            sa.or_(
-                GenerationAttemptRow.name_candidate_text.is_not(None),
-                GenerationAttemptRow.stt_transcript.is_not(None),
-            ),
-        )
+        .where(_attempt_identities_due(now))
         .order_by(GenerationAttemptRow.identity_expires_at)
         .limit(limit),
     )
@@ -296,7 +508,18 @@ async def _purge_attempt_identities(session: AsyncSession, *, now: datetime, lim
     await session.execute(
         sa.update(GenerationAttemptRow)
         .where(GenerationAttemptRow.id.in_(due))
-        .values(name_candidate_text=None, stt_transcript=None, identity_purged_at=now)
+        .values(
+            name_candidate_text=None,
+            stt_transcript=None,
+            identity_purged_at=now,
+            # The text clock owns ``stt_transcript``, and this sweep is nulling it: stamping
+            # only ``identity_purged_at`` left the transcript deleted with no proof of when.
+            # That is the backlog case — every historical row on the first run of a system
+            # whose 90-day identity clock has already passed — so the transcript sweep never
+            # reaches it (its predicate needs ``stt_transcript IS NOT NULL``) and the column
+            # stays NULL forever. The data goes either way; only the audit trail was lost.
+            text_purged_at=now,
+        )
     )
     return len(due)
 
@@ -313,11 +536,7 @@ async def _purge_attempt_transcripts(session: AsyncSession, *, now: datetime, li
     due = await _ids_due(
         session,
         sa.select(GenerationAttemptRow.id)
-        .where(
-            GenerationAttemptRow.text_expires_at <= now,
-            GenerationAttemptRow.text_purged_at.is_(None),
-            GenerationAttemptRow.stt_transcript.is_not(None),
-        )
+        .where(_attempt_transcripts_due(now))
         .order_by(GenerationAttemptRow.text_expires_at)
         .limit(limit),
     )
@@ -341,10 +560,7 @@ async def _purge_name_records(session: AsyncSession, *, now: datetime, limit: in
     due = await _ids_due(
         session,
         sa.select(NameRecordRow.id)
-        .where(
-            NameRecordRow.expires_at.is_not(None),
-            NameRecordRow.expires_at <= now,
-        )
+        .where(_name_records_due(now))
         .order_by(NameRecordRow.expires_at)
         .limit(limit),
     )
@@ -367,10 +583,7 @@ async def _purge_abandoned_orders(session: AsyncSession, *, cutoff: datetime, li
     due = await _ids_due(
         session,
         sa.select(OrderRow.id)
-        .where(
-            OrderRow.state == OrderState.DRAFT,
-            OrderRow.created_at <= cutoff,
-        )
+        .where(_abandoned_orders_due(cutoff))
         .order_by(OrderRow.created_at)
         .limit(limit),
     )
@@ -384,4 +597,29 @@ async def _purge_abandoned_orders(session: AsyncSession, *, cutoff: datetime, li
     await session.execute(sa.delete(BriefRow).where(BriefRow.order_id.in_(due)))
     await session.execute(sa.delete(AssetRow).where(AssetRow.order_id.in_(due)))
     await session.execute(sa.delete(OrderRow).where(OrderRow.id.in_(due)))
+    return len(due)
+
+
+async def _purge_purge_runs(session: AsyncSession, *, cutoff: datetime, limit: int) -> int:
+    """Delete sweep records older than ``cutoff``. The bookkeeping must not outgrow the data.
+
+    A table written once an hour forever is a table that eventually costs more than the
+    rows it accounts for, so the sweep sweeps itself. It is the LAST sweep in the run on
+    purpose: the count it produces belongs to the report of the run that produced it, and
+    running it first would delete rows that the current run is about to be judged against.
+
+    The row this run is about to write does not exist yet — the job writes it after
+    ``purge_expired`` returns — so there is no self-deletion hazard to guard against, and
+    ``cutoff`` is a year in the past regardless.
+    """
+    due = await _ids_due(
+        session,
+        sa.select(PurgeRunRow.id)
+        .where(_purge_runs_due(cutoff))
+        .order_by(PurgeRunRow.ran_at)
+        .limit(limit),
+    )
+    if not due:
+        return 0
+    await session.execute(sa.delete(PurgeRunRow).where(PurgeRunRow.id.in_(due)))
     return len(due)

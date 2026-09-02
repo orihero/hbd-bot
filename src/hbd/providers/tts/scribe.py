@@ -101,6 +101,8 @@ _REPORTED_ALIASES: Final[Mapping[str, tuple[Language, ...]]] = {
 def scribe_language_code_for(language: Language) -> str:
     """The ISO 639-3 code Scribe expects. Total over ``Language``."""
     return SCRIBE_LANGUAGE_CODES[language]
+
+
 _FIELD_KEYTERMS: Final[str] = "keyterms"
 _FIELD_DIARIZE: Final[str] = "diarize"
 _FIELD_AUDIO_EVENTS: Final[str] = "tag_audio_events"

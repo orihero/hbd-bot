@@ -5,6 +5,7 @@ from __future__ import annotations
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pytest
 from aiogram import Bot
@@ -15,15 +16,16 @@ from aiogram.methods import EditMessageText, SendMessage
 from hbd.bot import i18n
 from hbd.bot.app import build_dispatcher
 from hbd.bot.callbacks import NavAction, NavCB
-from hbd.bot.delivery import deliver_kit
+from hbd.bot.delivery import DeliveryLedger, deliver_kit, order_reference
 from hbd.bot.deps import BotDeps
 from hbd.bot.i18n import translate
 from hbd.bot.progress import render_progress
 from hbd.bot.states import WIZARD_ORDER, Wizard, WizardStep, next_step, step_for_state
 from hbd.config import Settings
 from hbd.contracts import AssetKind, Err, Kit, Language, Result, err
-from hbd.errors import PaymentError
+from hbd.errors import ErrorCode, PaymentError
 from hbd.pipeline.events import PipelineStage, ProgressStatus
+from hbd.pipeline.outcome import PipelineGap
 from tests.conftest import make_asset
 from tests.test_bot.conftest import (
     CHAT_ID,
@@ -40,7 +42,9 @@ class FailingPaymentProvider:
 
     name = "failing"
 
-    async def authorize(self, *, order_id: Any, amount_minor: int, currency: str) -> Result[Any]:
+    async def authorize(
+        self, *, order_id: Any, amount_minor: int, currency: str, telegram_user_id: int
+    ) -> Result[Any]:
         return err(PaymentError("the rail is down", context={"order_id": str(order_id)}))
 
 
@@ -166,6 +170,56 @@ async def test_a_lyric_sheet_that_cannot_be_sent_is_reported(
     failures = str(result.error.context["failures"])
     assert "lyric_sheet" in failures
     assert "closing" in failures
+
+
+async def test_a_gap_from_a_stage_nobody_mapped_is_disclosed_without_an_error_string(
+    bot: Bot, session: RecordingSession, kit: Kit
+) -> None:
+    """``gap_message_key`` is total: an unmapped stage costs a detail, never the disclosure.
+
+    A gap recorded at PERSISTING is an asset that failed to ARCHIVE — an operator concern
+    with nothing a customer can hear, since the file was delivered from local disk either
+    way. It must not put ``error.generic`` under a delivered song, and it must not quietly
+    turn the closing message back into a clean one.
+    """
+    # Arrange
+    gap = PipelineGap(
+        stage=PipelineStage.PERSISTING,
+        error_code=ErrorCode.STORAGE_FAILED,
+        detail="asset was not archived",
+        user_message_key="error.generic",
+    )
+
+    # Act
+    await deliver_kit(bot, chat_id=CHAT_ID, kit=kit, language=Language.EN, gaps=(gap,))
+
+    # Assert
+    closing = session.named("SendMessage")[-1].text  # type: ignore[attr-defined]
+    assert translate("error.generic", Language.EN) not in closing
+    assert order_reference(kit.order_id) in closing
+
+
+async def test_a_ledger_that_forgot_an_order_resends_rather_than_sending_nothing(
+    bot: Bot, session: RecordingSession, kit: Kit
+) -> None:
+    """The ledger is process-local and bounded, so eviction is a real state to survive.
+
+    Losing the song is far worse than sending it twice, so an evicted order falls back to
+    a duplicate send — never to a silent no-op.
+    """
+    # Arrange — a ledger with room for exactly one order, then a second order to evict it
+    ledger = DeliveryLedger(max_orders=1)
+    await deliver_kit(bot, chat_id=CHAT_ID, kit=kit, language=Language.EN, ledger=ledger)
+    other = kit.model_copy(update={"order_id": uuid4()})
+    await deliver_kit(bot, chat_id=CHAT_ID, kit=other, language=Language.EN, ledger=ledger)
+    session.clear()
+
+    # Act
+    result = await deliver_kit(bot, chat_id=CHAT_ID, kit=kit, language=Language.EN, ledger=ledger)
+
+    # Assert
+    assert not isinstance(result, Err)
+    assert session.named("SendAudio")
 
 
 # ---------------------------------------------------------------------------

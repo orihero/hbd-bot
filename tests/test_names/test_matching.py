@@ -97,9 +97,7 @@ def test_a_repeated_name_in_the_transcript_still_scores_perfectly() -> None:
         pytest.param("Sanʼat", "Санъат", id="tutuq-belgisi-vs-hard-sign"),
     ],
 )
-def test_known_transcription_confusions_are_treated_as_matches(
-    intended: str, heard: str
-) -> None:
+def test_known_transcription_confusions_are_treated_as_matches(intended: str, heard: str) -> None:
     assert name_similarity(intended, heard) == 1.0
 
 

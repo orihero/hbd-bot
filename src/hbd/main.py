@@ -22,11 +22,16 @@ from pathlib import Path
 from aiogram import Bot
 from aiogram.fsm.storage.base import BaseStorage
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.storage.redis import RedisStorage
 from arq import create_pool
 from arq.connections import RedisSettings
 
-from hbd.bot.app import build_bot, build_dispatcher, run_polling
+from hbd.bot.app import (
+    build_bot,
+    build_dispatcher,
+    build_event_isolation,
+    build_storage,
+    run_polling,
+)
 from hbd.bot.deps import BotDeps
 from hbd.bot.ports import OrderSubmitter
 from hbd.config import Settings, load_settings
@@ -34,7 +39,12 @@ from hbd.errors import HbdError
 from hbd.logging import configure_logging, get_logger
 from hbd.pipeline.content import LlmContentWriter
 from hbd.runtime.container import AppContainer, build_container
-from hbd.runtime.jobs import BOT_CTX_KEY, CONTAINER_CTX_KEY, generate_and_deliver
+from hbd.runtime.jobs import (
+    BOT_CTX_KEY,
+    CONTAINER_CTX_KEY,
+    STORAGE_CTX_KEY,
+    generate_and_deliver,
+)
 from hbd.runtime.startup import verify_host
 from hbd.runtime.submitter import ArqOrderSubmitter, InProcessOrderSubmitter
 
@@ -44,18 +54,30 @@ _LOG = get_logger(__name__)
 
 
 def _fsm_storage(settings: Settings) -> BaseStorage:
-    """Redis in production so a restart does not throw away a half-typed wizard."""
+    """Redis in production so a restart does not throw away a half-typed wizard.
+
+    Delegates to ``bot.app.build_storage`` rather than calling ``RedisStorage.from_url``
+    itself. That function is where the retention TTL lives — an abandoned draft holds the
+    recipient's name, the note and the approved lyric, and without the TTL that copy
+    outlived every sweep in ``hbd.db.purge`` — and having the production path skip it made
+    the setting decorative.
+    """
     if settings.use_fake_providers:
         return MemoryStorage()
-    return RedisStorage.from_url(settings.redis_url)
+    return build_storage(settings)
 
 
 async def build_submitter(
-    settings: Settings, container: AppContainer, bot: Bot
+    settings: Settings, container: AppContainer, bot: Bot, storage: BaseStorage
 ) -> tuple[OrderSubmitter, object | None]:
-    """The queue seam. Returns the submitter and whatever must be closed with it."""
+    """The queue seam. Returns the submitter and whatever must be closed with it.
+
+    The demo path runs the job inside this process, so it is handed the very storage the
+    dispatcher uses: the job releases the wizard session when the run ends, and it has to
+    release the same session the wizard is parked in.
+    """
     if settings.use_fake_providers:
-        ctx = {CONTAINER_CTX_KEY: container, BOT_CTX_KEY: bot}
+        ctx = {CONTAINER_CTX_KEY: container, BOT_CTX_KEY: bot, STORAGE_CTX_KEY: storage}
 
         async def run_inline(order_id: str, chat_id: int, progress_message_id: int) -> None:
             summary = await generate_and_deliver(ctx, order_id, chat_id, progress_message_id)
@@ -77,7 +99,8 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
     verify_host(settings)
     container = await build_container(settings, data_root=data_root)
     bot = build_bot(settings)
-    submitter, closeable = await build_submitter(settings, container, bot)
+    storage = _fsm_storage(settings)
+    submitter, closeable = await build_submitter(settings, container, bot, storage)
     deps = BotDeps(
         settings=settings,
         submitter=submitter,
@@ -85,12 +108,33 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         # writer the pipeline uses. The primary provider only: the fallback exists for the
         # worker's unattended retries, and a customer waiting on a screen is better served
         # by a quick "please try again" than by a second slow vendor call.
-        content=LlmContentWriter(container.providers.llm, settings),
+        content=LlmContentWriter(container.require_providers().llm, settings),
+        # ``container.payment`` is the PLAIN no-op provider. The credit-gated decorator is
+        # built per job inside ``AppContainer._render_gate`` and deliberately never reaches
+        # here: the bot must not be able to write a debit, because its three early returns
+        # after the gate cannot compensate one. What the bot gets instead is the line below.
         payment=container.payment,
+        # Read on every gate, spent by none of them. ``handlers.confirm._entitlement_refusal``
+        # and ``handlers.balance`` call exactly one method — ``balance_for`` — so a customer
+        # learns what they have on the Confirm screen and from ``/balance`` rather than after
+        # the progress bar has been running, and nothing on this side spends anything. The
+        # only write the bot makes through this seam is ``/forget``, which removes rows and
+        # therefore cannot be turned into a free song.
+        entitlements=container.credits,
+        # The one meter the bot writes. A lyric write is an LLM call made on the
+        # customer's screen before any gate the worker enforces, and the per-draft cap
+        # is reset by ``/start`` — so without this the free tier had no per-person
+        # ceiling at all. It cannot spend a credit or refuse an order; it only bounds
+        # how many times a day one account may bill the writer.
+        lyric_budget=container.lyric_budget,
         amount_minor=settings.kit_price_amount_minor,
         currency=settings.kit_currency,
     )
-    dispatcher = build_dispatcher(deps, storage=_fsm_storage(settings))
+    # The lock that makes a state filter a real gate. Built from the same Redis as the
+    # storage, so it holds across every process that could handle this chat.
+    dispatcher = build_dispatcher(
+        deps, storage=storage, events_isolation=build_event_isolation(settings)
+    )
     _LOG.info(
         "bot starting",
         extra={

@@ -301,8 +301,7 @@ def test_every_shipped_voice_id_is_an_elevenlabs_id_not_a_vendor_name() -> None:
     offenders = [
         (entry.language.value, entry.persona_id, entry.vendor_voice_id)
         for entry in DEFAULT_VOICE_ENTRIES
-        if len(entry.vendor_voice_id) != expected_length
-        or not entry.vendor_voice_id.isalnum()
+        if len(entry.vendor_voice_id) != expected_length or not entry.vendor_voice_id.isalnum()
     ]
 
     # Assert

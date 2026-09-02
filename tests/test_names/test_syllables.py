@@ -1,4 +1,3 @@
-
 # Latin ones are the SUBJECT of this module, not a typo in it.
 """Syllabification, hyphenated respelling and final-syllable stress."""
 

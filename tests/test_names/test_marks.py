@@ -1,4 +1,3 @@
-
 # Latin ones are the SUBJECT of this module, not a typo in it.
 """Unicode canonicalisation: one test per apostrophe variant a real keyboard emits."""
 

@@ -41,6 +41,9 @@ __all__ = [
     "StorageError",
     "DeliveryError",
     "PaymentError",
+    "EntitlementError",
+    "InsufficientCreditsError",
+    "TooManyOrdersInFlightError",
 ]
 
 #: Fallback locale key. Every localisation catalogue MUST define it.
@@ -73,6 +76,16 @@ class ErrorCode(StrEnum):
     STORAGE_FAILED = "STORAGE_FAILED"
     DELIVERY_FAILED = "DELIVERY_FAILED"
     PAYMENT_FAILED = "PAYMENT_FAILED"
+
+    # Entitlement. Deliberately NOT filed under "# Provider transport" and deliberately
+    # not reusing QUOTA_EXHAUSTED: that code belongs to ProviderQuotaExhaustedError, means
+    # "OUR balance with a vendor is gone" and renders "error.service_unavailable". Telling
+    # a customer who has simply used their allowance that the studio is down would be a
+    # lie, and it would poison every vendor-failure dashboard with ordinary business
+    # declines. These three are business outcomes: nothing is broken.
+    CREDITS_EXHAUSTED = "CREDITS_EXHAUSTED"
+    TOO_MANY_IN_FLIGHT = "TOO_MANY_IN_FLIGHT"
+    ACCOUNT_BLOCKED = "ACCOUNT_BLOCKED"
 
     UNKNOWN = "UNKNOWN"
 
@@ -354,4 +367,54 @@ class PaymentError(HbdError):
 
     code = ErrorCode.PAYMENT_FAILED
     default_user_message_key = "error.payment_failed"
+    default_is_retryable = False
+
+
+# ---------------------------------------------------------------------------
+# Entitlement — the customer is refused for a BUSINESS reason, not a technical one
+# ---------------------------------------------------------------------------
+class EntitlementError(HbdError):
+    """This account may not have this render. Nothing is broken and nothing is retryable.
+
+    ``default_is_retryable = False`` is the load-bearing attribute, not a default anyone
+    should override: ``Err.is_retryable`` drives the ARQ ladder in ``hbd.runtime.jobs``, so
+    a retryable refusal would re-run the whole pipeline on a schedule for a customer whose
+    answer cannot change until an operator or the calendar changes it.
+
+    Raised **directly** for a barred account, which is why the base carries a user message
+    of its own rather than the generic one: a block is the one entitlement refusal with no
+    number attached to it, so it has no subclass to carry a count. The two refusals that do
+    carry numbers subclass it below, and every caller that only needs "was this a business
+    decline?" catches this type.
+    """
+
+    code = ErrorCode.ACCOUNT_BLOCKED
+    default_user_message_key = "error.blocked"
+    default_is_retryable = False
+
+
+class InsufficientCreditsError(EntitlementError):
+    """The allowance is spent. ``context`` must say by how much and when it reopens.
+
+    The gate that renders this has exactly one chance to be useful, so the writer is
+    expected to pass ``balance``, ``needed`` and ``next_grant_at`` as scalars — a refusal
+    that says only "no" sends the customer to support, and the allowance is rolling, so
+    "the next one opens on <date>" is both actionable and true.
+    """
+
+    code = ErrorCode.CREDITS_EXHAUSTED
+    default_user_message_key = "error.credits_exhausted"
+    default_is_retryable = False
+
+
+class TooManyOrdersInFlightError(EntitlementError):
+    """A render this account already paid for has not finished yet.
+
+    Terminal for *this* attempt even though the situation clears on its own: retrying it
+    inside the queue would burn the retry budget waiting for an unrelated job, and the
+    customer can simply press again when their song arrives.
+    """
+
+    code = ErrorCode.TOO_MANY_IN_FLIGHT
+    default_user_message_key = "error.too_many_in_flight"
     default_is_retryable = False

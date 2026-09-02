@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from uuid import uuid4
+
+import pytest
 
 from hbd.config import Settings
 from hbd.contracts import (
@@ -21,7 +24,12 @@ from hbd.errors import (
     ProviderUnavailableError,
 )
 from hbd.pipeline.events import PipelineStage, ProgressReporter, ProgressStatus
-from hbd.pipeline.name_stage import SongRender, best_similarity, render_song
+from hbd.pipeline.name_stage import (
+    VERIFICATION_EVENT,
+    SongRender,
+    best_similarity,
+    render_song,
+)
 from hbd.pipeline.plan_builder import build_composition_plan
 from hbd.pipeline.retry import RetryPolicy
 from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_lyrics
@@ -325,3 +333,65 @@ def test_fakes_satisfy_the_frozen_protocols() -> None:
     # Arrange / Act / Assert — structural conformance, no inheritance
     assert hasattr(FakeMusicProvider(), "inpaint")
     assert hasattr(FakeSttProvider(), "transcribe")
+
+
+# ---------------------------------------------------------------------------
+# Observability: the two facts nobody could previously read off a running system
+# ---------------------------------------------------------------------------
+async def test_a_missing_stored_song_handle_is_reported_once_not_silently(
+    studio: Studio, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Without a handle every re-roll re-composes the whole track. That must not be silent.
+
+    ``_render`` falls back from inpaint to compose when there is no stored-song id, which
+    is a three-fold music bill wearing the costume of a cheap chunk re-roll.
+    """
+    # Arrange: a vendor that returns audio but no song id, and a name never heard right,
+    # so the loop takes every re-roll it is allowed and could warn once per render.
+    studio.music.remote_id = None
+    for spelling in (STRIPPED, UZBEK_NAME_CANONICAL, HYPHENATED):
+        studio.stt.pronunciations[spelling] = "Zamira"
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger="hbd.pipeline.name_stage"):
+        result = await _run(studio)
+
+    # Assert
+    assert value_of(result).renders > 1
+    warnings = [
+        record for record in caplog.records if "no stored-song handle" in record.getMessage()
+    ]
+    assert len(warnings) == 1
+
+
+async def test_a_stored_song_handle_produces_no_warning(
+    studio: Studio, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Act
+    with caplog.at_level(logging.WARNING, logger="hbd.pipeline.name_stage"):
+        await _run(studio)
+
+    # Assert
+    assert not [
+        record for record in caplog.records if "no stored-song handle" in record.getMessage()
+    ]
+
+
+async def test_every_completed_loop_emits_one_verification_line(
+    studio: Studio, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The re-roll rate is read from this line; ``verdicts`` is aggregated nowhere else."""
+    # Act
+    with caplog.at_level(logging.INFO, logger="hbd.pipeline.name_stage"):
+        result = await _run(studio)
+
+    # Assert
+    lines = [record for record in caplog.records if record.getMessage() == VERIFICATION_EVENT]
+    assert len(lines) == 1
+    # ``extra=`` values land on the LogRecord itself, which is untyped; reading them
+    # through ``__dict__`` keeps the assertion honest without lying to the type checker.
+    fields = dict(lines[0].__dict__)
+    render = value_of(result)
+    assert fields["renders"] == render.renders
+    assert fields["attempts"] == len(render.verdicts)
+    assert fields["did_inpaint"] is True

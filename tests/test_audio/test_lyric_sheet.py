@@ -53,7 +53,7 @@ def test_a_mark_after_any_other_letter_is_the_glottal_stop_not_the_turned_comma(
 
 
 def test_every_apostrophe_variant_a_keyboard_emits_is_canonicalised() -> None:
-    for variant in ("'", "\u0060", "\u00B4", LEFT_QUOTE, RIGHT_QUOTE, "\u2032", "\u02B9"):
+    for variant in ("'", "\u0060", "\u00b4", LEFT_QUOTE, RIGHT_QUOTE, "\u2032", "\u02b9"):
         assert canonicalize_uzbek_latin(f"o{variant}z") == f"o{TURNED_COMMA}z"
 
 

@@ -112,8 +112,17 @@ class BriefRow(TimestampMixin, Base):
     recipient_script: Mapped[Script | None] = mapped_column(enum_type(Script), nullable=True)
     recipient_language: Mapped[Language | None] = mapped_column(enum_type(Language), nullable=True)
     #: Ranked candidate orthographies, serialised. Never rendered to a user.
+    #:
+    #: ``none_as_null=True`` for the same reason ``approved_lyrics`` two columns above
+    #: carries it, and the safeguard was applied to one of the pair and not the other:
+    #: without it, assigning ``None`` persists the JSON **scalar** ``null`` — the four
+    #: characters — rather than SQL ``NULL``. The identity sweep really does destroy the
+    #: candidate orthographies either way, so this is not a retention leak; what it broke is
+    #: the *proof*, because ``recipient_candidates IS NULL`` came back false on a row that
+    #: had been purged, and that predicate is what an erasure proof and §6.6's data
+    #: inventory are built from.
     recipient_candidates: Mapped[list[dict[str, Any]] | None] = mapped_column(
-        sa.JSON, nullable=True
+        sa.JSON(none_as_null=True), nullable=True
     )
     identity_expires_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, index=True)
     identity_purged_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)

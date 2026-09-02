@@ -782,8 +782,15 @@ class PaymentProvider(Protocol):
     name: str
 
     async def authorize(
-        self, *, order_id: UUID, amount_minor: int, currency: str
-    ) -> Result[PaymentAuthorization]: ...
+        self, *, order_id: UUID, amount_minor: int, currency: str, telegram_user_id: int
+    ) -> Result[PaymentAuthorization]:
+        """``telegram_user_id`` is the payer, which ``order_id`` alone cannot supply: an
+        order id is a UUID5 over one draft (``hbd.bot.handlers.confirm._order_id_for``), so
+        no provider that meters, blocks or bills per person can recover who is buying from
+        it. Both call sites already hold an ``Order`` carrying the field, so this costs no
+        plumbing — see ``confirm._is_authorized`` and ``orchestrator._authorize``.
+        """
+        ...
 
 
 @runtime_checkable
@@ -825,8 +832,21 @@ class KitRepository(Protocol):
     async def get_order(self, order_id: UUID) -> Result[Order]: ...
 
     async def set_order_state(
-        self, order_id: UUID, state: OrderState, *, now: datetime
-    ) -> Result[Order]: ...
+        self,
+        order_id: UUID,
+        state: OrderState,
+        *,
+        now: datetime,
+        failed_reason: str | None = None,
+    ) -> Result[Order]:
+        """Move an order to ``state``, recording operator triage text on a failure.
+
+        ``failed_reason`` lands on a row that OUTLIVES the brief purge, so it must carry
+        no recipient name, no sender note, no lyric and no vendor prose quoting any of
+        them — only a closed vocabulary an operator can grep. It is cleared on any
+        transition out of ``FAILED``.
+        """
+        ...
 
     async def save_kit(self, kit: Kit) -> Result[Kit]: ...
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Final
 
 from hbd.contracts import Brief, Genre, Language, LyricDraft, Occasion, VoiceDescriptor
+from hbd.providers.llm.prompt_loader import language_guide
 
 __all__ = [
     "LANGUAGE_NAMES",
@@ -85,9 +86,18 @@ def _note_line(brief: Brief) -> str:
 
 
 def lyrics_system_prompt(language: Language) -> str:
+    """The live lyric prompt. ``language_guide`` carries the orthography and stress rules.
+
+    That guide already existed — correctly written, with U+02BB and U+02BC spelled out as
+    non-negotiable — and was reachable only from a writer with no production callers. So
+    the rules the product depends on were maintained in a file nothing sent. Injecting it
+    here is what puts them in front of the model that actually writes the song; the code
+    still canonicalises the result afterwards, because a rule is a request, not a promise.
+    """
     return (
         "You are a professional songwriter for a celebration-song service in Uzbekistan. "
         f"You write only in {LANGUAGE_NAMES[language]}.\n\n"
+        f"{language_guide(language)}\n\n"
         f"{_LYRIC_SECTION_RULES}\n\n{_SHARED_RULES}"
     )
 
@@ -140,14 +150,36 @@ def scripts_user_prompt(
 
 
 def moderation_system_prompt() -> str:
+    """The reviewer's brief. The substance clause targets GLORIFICATION, not mention.
+
+    It used to read "promotes alcohol or drugs", and that wording cost us a real order.
+    Order ``1251314e-2138-4d4e-a263-2874a0c08601`` failed at MODERATING five seconds in,
+    showing a paying customer 9% and a generic failure, on this note about a friend:
+    "Pivo ichishni yqotiradi, logistica kompaniyasida ishlaydi! Uylangan yaqinda farzandli
+    bo'lafi". The model answered ``{"is_allowed": false, "reason": "Sender note references
+    alcohol consumption ... which promotes alcohol and is not allowed."}`` — it read a bare
+    *mention* as promotion, and that reading beat the very next sentence, which allows an
+    affectionate note about a friend. A list item outranks a general permission, so the
+    permission has to be made specific enough to win.
+
+    Two changes, both aimed at the same failure: the reject item now names the behaviour we
+    actually refuse to celebrate (drug use, drunkenness) rather than the noun, and the
+    carve-out enumerates the ordinary things an Uzbek birthday note ribs a friend about.
+    Ribbing a friend about beer in a birthday message is routine here; refusing it is not a
+    safety win, it is lost revenue and a customer who saw a broken product.
+
+    The JSON-verdict sentence is left byte-identical: ``ModerationPayload`` parses what it
+    produces, and prompt tuning has no business drifting the contract.
+    """
     return (
         "You are a content safety reviewer for a family celebration-song service in "
         "Uzbekistan. Decide whether the submitted material can be turned into a public "
         "birthday song.\n\n"
         "Reject material that is sexual, hateful, harassing, political, religious, "
-        "defamatory, threatening, promotes alcohol or drugs, targets a public figure, or "
-        "impersonates a real artist or brand. A personal, affectionate or humorous note "
-        "about a friend or relative is allowed.\n\n"
+        "defamatory, threatening, glorifies drug use or drunkenness, targets a public "
+        "figure, or impersonates a real artist or brand. A personal, affectionate or "
+        "humorous note about a friend or relative is allowed, including light-hearted "
+        "references to drinking, food or habits.\n\n"
         'Respond with a single JSON object {"is_allowed": bool, "reason": str} and '
         "nothing else."
     )

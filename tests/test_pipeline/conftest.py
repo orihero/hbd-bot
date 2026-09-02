@@ -350,12 +350,17 @@ class FakePaymentProvider:
         #: What the pipeline actually asked to be charged, so a test can assert it came
         #: from configuration rather than from a constant baked into the orchestrator.
         self.charges: list[tuple[int, str]] = []
+        #: Who the worker named as the payer. Recorded separately from ``calls`` because
+        #: the order id is a UUID5 over a draft and carries no identity of its own, so a
+        #: gate that meters per person can only be wrong here — silently — without this.
+        self.payers: list[int] = []
 
     async def authorize(
-        self, *, order_id: UUID, amount_minor: int, currency: str
+        self, *, order_id: UUID, amount_minor: int, currency: str, telegram_user_id: int
     ) -> Result[PaymentAuthorization]:
         self.calls.append(order_id)
         self.charges.append((amount_minor, currency))
+        self.payers.append(telegram_user_id)
         return ok(
             PaymentAuthorization(
                 order_id=order_id,
@@ -443,6 +448,9 @@ class FakeKitRepository:
         self.orders: dict[UUID, Order] = {}
         self.kits: dict[UUID, Kit] = {}
         self.states: list[OrderState] = []
+        #: One entry per ``set_order_state`` call, so a test can assert what the pipeline
+        #: chose to write to ``orders.failed_reason`` — including that it wrote nothing.
+        self.failed_reasons: list[str | None] = []
         self.save_failures: list[HbdError] = []
 
     async def create_order(self, order: Order) -> Result[Order]:
@@ -456,7 +464,12 @@ class FakeKitRepository:
         return ok(found)
 
     async def set_order_state(
-        self, order_id: UUID, state: OrderState, *, now: datetime
+        self,
+        order_id: UUID,
+        state: OrderState,
+        *,
+        now: datetime,
+        failed_reason: str | None = None,
     ) -> Result[Order]:
         found = self.orders.get(order_id)
         if found is None:
@@ -464,6 +477,7 @@ class FakeKitRepository:
         updated = found.with_state(state, now=now)
         self.orders[order_id] = updated
         self.states.append(state)
+        self.failed_reasons.append(failed_reason)
         return ok(updated)
 
     async def save_kit(self, kit: Kit) -> Result[Kit]:

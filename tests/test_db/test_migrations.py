@@ -9,6 +9,9 @@ here, in one place:
   reversible — a migration that cannot be rolled back is one nobody dares deploy.
 * :func:`test_the_migrated_schema_matches_the_model_metadata` proves the chain and the
   models agree, so ``create_all`` in the other tests is a faithful stand-in.
+* ``_CORE_TABLES`` keeps the original six named explicitly, asserted as a subset, so the
+  regression guard survives the schema growing without every new table having to edit
+  this file.
 
 Every test here is **synchronous**, deliberately. ``env.py`` drives an async engine and
 calls ``asyncio.run`` itself, which raises if a loop is already running — so an ``async
@@ -58,9 +61,18 @@ _REQUIRED_ENV: Final[tuple[str, ...]] = (
     "HBD_LLM_API_KEY",
 )
 
-_EXPECTED_TABLES: Final[frozenset[str]] = frozenset(
+#: The six tables the product cannot run without. Asserted as a SUBSET, never as the whole
+#: schema: this is a regression guard against a migration that quietly stops creating one
+#: of them, and it must not become a chore that every new table has to edit.
+_CORE_TABLES: Final[frozenset[str]] = frozenset(
     {"users", "orders", "briefs", "assets", "name_records", "generation_attempts"}
 )
+
+#: Derived, not hardcoded. The chain and the models agreeing is what
+#: :func:`test_the_migrated_schema_matches_the_model_metadata` proves; restating the table
+#: list by hand only means a PR that adds a table turns this file red for everyone else
+#: while proving nothing extra.
+_EXPECTED_TABLES: Final[frozenset[str]] = frozenset(Base.metadata.tables)
 
 #: The revision that adds the lyric the customer approves in the wizard, and the one it
 #: builds on. Named here because both halves of the product depend on this column existing
@@ -130,6 +142,32 @@ def _schema_of(url: str) -> dict[str, set[str]]:
         inspector = inspect(connection)
         return {
             table: {column["name"] for column in inspector.get_columns(table)}
+            for table in inspector.get_table_names()
+            if table != _ALEMBIC_TABLE
+        }
+
+    async def _run() -> dict[str, set[str]]:
+        engine = create_async_engine(url)
+        try:
+            async with engine.connect() as connection:
+                return await connection.run_sync(_read)
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(_run())
+
+
+def _indexes_of(url: str) -> dict[str, set[str]]:
+    """Table -> index names, read back from a live database. Its own event loop."""
+
+    def _read(connection: Connection) -> dict[str, set[str]]:
+        inspector = inspect(connection)
+        return {
+            table: {
+                str(name)
+                for name in (index.get("name") for index in inspector.get_indexes(table))
+                if name is not None
+            }
             for table in inspector.get_table_names()
             if table != _ALEMBIC_TABLE
         }
@@ -224,7 +262,9 @@ def test_upgrade_creates_every_expected_table(
     _upgrade(url, monkeypatch)
 
     # Assert
-    assert set(_schema_of(url)) == set(_EXPECTED_TABLES)
+    created = set(_schema_of(url))
+    assert created == set(_EXPECTED_TABLES)
+    assert created >= _CORE_TABLES, f"missing core tables: {sorted(_CORE_TABLES - created)}"
 
 
 def test_the_migrated_schema_matches_the_model_metadata(
@@ -243,6 +283,36 @@ def test_the_migrated_schema_matches_the_model_metadata(
 
     # Assert — this is what licenses every other test to build its schema with create_all.
     assert migrated == expected
+
+
+def test_the_migrated_indexes_match_the_model_metadata(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An index declared in a migration and not on a model is an index ``create_all`` — and
+    therefore the whole unit suite and the admin container's schema shortcut — does not
+    build. That divergence is how three unused read indexes reached review: every test ran
+    against query plans production would never have."""
+    # Arrange
+    url = _sqlite_url(tmp_path, "indexes.db")
+    _upgrade(url, monkeypatch)
+
+    # Act
+    migrated = _indexes_of(url)
+    expected = {
+        name: {index.name for index in table.indexes if index.name is not None}
+        | {f"ix_{name}_{column.name}" for column in table.columns if column.index}
+        for name, table in Base.metadata.tables.items()
+    }
+
+    # Assert — declared-but-uncreated is the failure that matters; SQLite also reports
+    # implicit unique-constraint indexes the metadata does not name, so those are excluded
+    # by comparing in one direction.
+    missing = {
+        table: sorted(names - migrated.get(table, set()))
+        for table, names in expected.items()
+        if names - migrated.get(table, set())
+    }
+    assert missing == {}, f"declared on the model but not created by the chain: {missing}"
 
 
 def test_upgrade_then_downgrade_leaves_no_tables_behind(
@@ -270,7 +340,9 @@ def test_upgrade_is_idempotent_when_already_at_head(
     _upgrade(url, monkeypatch)
 
     # Assert
-    assert set(_schema_of(url)) == set(_EXPECTED_TABLES)
+    created = set(_schema_of(url))
+    assert created == set(_EXPECTED_TABLES)
+    assert created >= _CORE_TABLES
 
 
 def test_the_approved_lyrics_column_is_added_and_dropped_by_its_own_revision(

@@ -17,9 +17,16 @@ __all__ = ["UserRow"]
 class UserRow(TimestampMixin, Base):
     """A Telegram user.
 
-    Deliberately thin. Free-tier counters, referral graph and revenue totals belong to
-    modules that are out of scope for this build; adding empty columns for them now would
-    be speculative schema that the first real requirement would immediately contradict.
+    Deliberately thin, and it stays that way now that free-tier counters exist: the
+    entitlement balance lives in ``credit_accounts``, keyed on ``telegram_user_id``, not in
+    a column here. Two commitments make that the only workable place. ``docs/
+    ADMIN_PANEL_PLAN.md`` §5.11 rules out DDL on this table, and — more concretely — this
+    row is created only by ``repository._ensure_user`` from ``_create_order``, so a person
+    who walks the wizard and never confirms has no row at all, while the very first thing
+    the gate must do for them is open an account and mint an allowance. A balance column
+    here would be a mutable money counter on the row the erasure design treats as
+    content-erasable-but-identity-surviving; a separate account row costs nothing and keeps
+    both promises. Referral graph and revenue totals remain out of scope.
     """
 
     __tablename__ = "users"

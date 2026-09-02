@@ -1,5 +1,21 @@
 """Interface localisation for the four locales this product ships complete.
 
+.. warning::
+
+   **Nothing the customer reads comes from this package.** Every string the bot sends is
+   rendered by :func:`hbd.bot.i18n.translate` out of :mod:`hbd.bot.locales`, and ``t`` /
+   ``translate_error`` here have no call site outside ``tests/``. What survives is the
+   loader: ``runtime.startup.verify_host`` calls :func:`get_translator` so a malformed
+   locale file fails the boot rather than a message, and the orthography and plural rules
+   below are enforced on ``locales/*.json`` at that moment.
+
+   The consequence to know before editing anything: ``locales/*.json`` is a SECOND, stale
+   set of four catalogues carrying its own ``error.*`` register and its own payment copy,
+   none of which can reach a customer. Fixing wording here fixes nothing. The catalogues
+   that ship are ``src/hbd/bot/locales/{en,ru,uz_latn,uz_cyrl}.py``. Retiring this package
+   (and folding its orthography and plural checks into ``tests/test_bot``) is open work —
+   see the module report — and is deliberately not done as part of a copy pass.
+
 Copy lives in ``locales/*.json`` — data files, not Python literals — so a wording change
 is a one-line diff and no module owns a sentence. Code here loads, validates and renders
 them.
