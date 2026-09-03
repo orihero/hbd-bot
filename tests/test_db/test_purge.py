@@ -9,8 +9,9 @@ should be able to hide inside a passing suite.
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
+import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -22,6 +23,7 @@ from hbd.db.names import NameRecordDraft, NameRecordRepository
 from hbd.db.purge import purge_expired
 from hbd.db.repository import SqlKitRepository
 from hbd.db.retention import DEFAULT_RETENTION_POLICY, RetentionClass, RetentionPolicy
+from hbd.storage import archive_key
 from tests.conftest import make_brief, make_candidates, make_lyrics
 from tests.test_db.conftest import MovableClock, build_kit, new_order
 
@@ -157,6 +159,129 @@ async def test_purge_returns_storage_keys_rather_than_deleting_objects_itself(
     # Assert — this module owns rows, not buckets; the caller deletes the bytes.
     assert is_ok(result)
     assert "kits/abc/song.mp3" in result.value.storage_keys
+
+
+async def test_a_row_written_before_storage_key_existed_still_yields_its_archive_key(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    clock: MovableClock,
+) -> None:
+    """The historical half of the archive-orphan fix.
+
+    Every row written before ``_replace_assets`` recorded ``storage_key`` has NULL there
+    and bytes sitting in the archive under a key nobody wrote down. The pairing is still
+    recoverable from ``order_id`` and ``path``, so the sweep reconstructs it — through the
+    same function the ``put`` used, because two spellings of the key is the bug itself.
+    """
+    # Arrange — a legacy row: the key is nulled back out after ``save_kit`` wrote it.
+    order = await _delivered_order_with_kit(repository, tmp_path, clock)
+    async with sessions.begin() as session:
+        await session.execute(
+            sa.update(AssetRow).where(AssetRow.order_id == order.id).values(storage_key=None)
+        )
+        kit_assets = list(
+            (
+                await session.scalars(sa.select(AssetRow.path).where(AssetRow.order_id == order.id))
+            ).all()
+        )
+
+    # Act
+    result = await purge_expired(sessions, now=clock.advance(days=_DAYS_IN_A_YEAR + 1))
+
+    # Assert — one reconstructed key per row, spelled exactly as the archive spelled it.
+    assert is_ok(result)
+    assert set(result.value.storage_keys) == {
+        archive_key(order.id, PurePosixPath(path).name) for path in kit_assets
+    }
+
+
+async def test_a_recorded_key_is_handed_over_verbatim_rather_than_reconstructed(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    clock: MovableClock,
+) -> None:
+    """A row that knows where its bytes are is believed, even when the guess would differ."""
+    # Arrange
+    order = await _delivered_order_with_kit(repository, tmp_path, clock)
+    async with sessions.begin() as session:
+        await session.execute(
+            sa.update(AssetRow)
+            .where(AssetRow.order_id == order.id)
+            .values(storage_key="legacy/bucket/somewhere-else.mp3")
+        )
+
+    # Act
+    result = await purge_expired(sessions, now=clock.advance(days=_DAYS_IN_A_YEAR + 1))
+
+    # Assert
+    assert is_ok(result)
+    assert set(result.value.storage_keys) == {"legacy/bucket/somewhere-else.mp3"}
+
+
+@pytest.mark.parametrize(
+    "stored_path",
+    [
+        "C:\\Users\\hbd\\song.mp3",  # a Windows path: the whole string is one "name"
+        "/var/lib/hbd/song file.mp3",  # a space is not a shape the pipeline produces
+        "",  # a corrupt row: no path at all
+        "/var/lib/hbd/" + "x" * 129 + ".mp3",  # longer than any name it writes
+    ],
+)
+async def test_a_legacy_path_that_is_not_a_pipeline_filename_yields_no_key(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    clock: MovableClock,
+    stored_path: str,
+) -> None:
+    """Stored data is untrusted on read, and this output is handed straight to a delete.
+
+    Reporting "no key" is recoverable. Reporting a key assembled out of an unrecognised
+    filename is a retention sweep aimed at whatever else the key namespace can address, so
+    an unrecognised shape withholds the guess instead of making one.
+    """
+    # Arrange
+    order = await _delivered_order_with_kit(repository, tmp_path, clock)
+    async with sessions.begin() as session:
+        await session.execute(
+            sa.update(AssetRow)
+            .where(AssetRow.order_id == order.id)
+            .values(storage_key=None, path=stored_path)
+        )
+
+    # Act
+    result = await purge_expired(sessions, now=clock.advance(days=_DAYS_IN_A_YEAR + 1))
+
+    # Assert — the rows are still deleted; only the guess is withheld.
+    assert is_ok(result)
+    assert result.value.storage_keys == ()
+    assert result.value.assets_deleted == 5
+
+
+async def test_a_reconstructed_key_is_built_from_the_filename_and_nothing_else(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+    clock: MovableClock,
+) -> None:
+    """A traversing directory part cannot travel into the key: only the basename is used."""
+    # Arrange
+    order = await _delivered_order_with_kit(repository, tmp_path, clock)
+    async with sessions.begin() as session:
+        await session.execute(
+            sa.update(AssetRow)
+            .where(AssetRow.order_id == order.id)
+            .values(storage_key=None, path="/var/lib/hbd/../../../etc/song.mp3")
+        )
+
+    # Act
+    result = await purge_expired(sessions, now=clock.advance(days=_DAYS_IN_A_YEAR + 1))
+
+    # Assert
+    assert is_ok(result)
+    assert set(result.value.storage_keys) == {archive_key(order.id, "song.mp3")}
 
 
 # ---------------------------------------------------------------------------

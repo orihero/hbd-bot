@@ -47,6 +47,7 @@ from hbd.contracts import (
     ok,
 )
 from hbd.errors import HbdError, PipelineError
+from tests.conftest import recipient_of
 
 BOT_TOKEN = "42:AAF-test-token-value-not-a-real-one"
 BOT_ID = 42
@@ -173,7 +174,7 @@ def canned_lyrics(brief: Brief, *, take: int) -> LyricDraft:
     the lyric preview is a screen, so a fake that leaked one would quietly turn that
     invariant's test green for the wrong reason.
     """
-    display = brief.recipient.display
+    display = recipient_of(brief).display
     return LyricDraft(
         title=f"Take {take} for {display}",
         language=brief.output_language,

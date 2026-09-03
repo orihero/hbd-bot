@@ -32,17 +32,14 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 import sqlalchemy as sa
-from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hbd.admin.app import create_app
 from hbd.admin.container import AdminContainer
 from hbd.admin.routers.orders import (
     ORDER_ASSETS_PATH,
     ORDER_ATTEMPTS_PATH,
     ORDER_TIMELINE_PATH,
     ORDERS_PATH,
-    build_orders_router,
 )
 from hbd.contracts import (
     AssetKind,
@@ -85,21 +82,6 @@ _ROLES: Final[tuple[AdminRole, ...]] = (
     AdminRole.ADMIN,
     AdminRole.OWNER,
 )
-
-
-@pytest.fixture
-def admin_app(container: AdminContainer) -> FastAPI:
-    """The application with ``/orders`` mounted, whether or not the factory does it yet.
-
-    ``create_app`` is the real factory — middleware, error handlers and lifespan included —
-    so this only supplies the ``include_router`` line a later step of the slice adds. Guarded
-    on the path so that when it lands, this fixture stops doing anything at all rather than
-    registering a shadow copy of every route.
-    """
-    application = create_app(container=container)
-    if not any(getattr(route, "path", None) == ORDERS_PATH for route in application.routes):
-        application.include_router(build_orders_router())
-    return application
 
 
 # ---------------------------------------------------------------------------

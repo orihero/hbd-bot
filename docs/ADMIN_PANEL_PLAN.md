@@ -1674,77 +1674,151 @@ names.
 
 ### 11.3 Design tokens
 
+> **Amended 2026-09-03, at the user's explicit direction.** The original §11.3 palette — a
+> dark-first console built out of 1px borders, with `--bg-0…3` / `--fg-0…3` positional names —
+> was replaced wholesale by the "Gogo" language after the user said, verbatim, "I do not like
+> the design of admin panel at all! Please implement this design:
+> https://gogo-next.crealeaf.com/". This block is now the design of record; the palette it
+> replaces is preserved only in this repository's history. **Light is home** — `:root` is the
+> light palette and `[data-theme="dark"]` overrides it, the reverse of the original.
+>
+> Two things about the transcription. First, the tokens are named by ROLE, not by position:
+> the old numbering is what allowed 131 prose sites to be painted with a token meant for marks
+> and 41 more with a token meant for rules, and `--ink` / `--ink-muted` / `--ink-mark` /
+> `--ink-rule` make the misuse visible in the class name. Second, **every one of Gogo's twelve
+> hues had to be darkened for the light theme**: Gogo's own HSL values are dark-theme values
+> that it only ever uses as chart fills under `#4D4D4D` text. Measured on `#FAFAFA`, Gogo's own
+> page ground, eleven of the twelve are under 4.5:1 (only `--primary` clears it, at 4.75:1) and
+> eight are under the 3:1 graphic bar as well — success 2.04:1, info 2.03:1, warning 2.40:1,
+> the amber accent 1.77:1. Hue and saturation are Gogo's exactly; only lightness moved, and
+> only nine of the twelve had to move in their graphic member (primary, secondary and error
+> ship at Gogo's own lightness as `--brand-fill`, `--accent-fill` and `--error-fill`). Every
+> family therefore has
+> a text-safe member (`--x`, ≥4.5:1) and a graphic member (`--x-fill`, ≥3:1) at or near Gogo's
+> own lightness, plus a `--x-tint` chip ground. The full per-token deviation log, with measured
+> before/after, is at the bottom of `admin-ui/src/styles/tokens.css`.
+>
+> Every ratio below is measured and is re-measured on every run by
+> `admin-ui/src/styles/tokenContrast.test.ts`, which also cross-checks each token comment's
+> claimed ratio against the palette it annotates. **Do not write a ratio into this document
+> that has not been measured** — §11.3's original annotations carried four wrong numbers and
+> one of them ("`--fg-2` 4.6:1 — floor for real text", actually 4.34:1) is what licensed the
+> incident above.
+
 ```css
-:root {
-  /* Surfaces (dark is home) */
-  --bg-0:#07080C; --bg-1:#0D0F16; --bg-2:#141824; --bg-3:#1C2130; --bg-inset:#050609;
-  --border:#232838; --border-strong:#313850; --border-accent:#7C5CFF;
-  /* Foreground */
-  --fg-0:#EEF1F8;  /* 14.9:1 on --bg-1 */   --fg-1:#A3ACC2;  /* 7.4:1 */
-  --fg-2:#6E7891;  /* 4.6:1 — floor for real text */ --fg-3:#4A5266; /* rules only */
-  /* Saturated accents */
-  --violet:#7C5CFF; --violet-hi:#9B85FF; --violet-dim:#7C5CFF1F;
-  --cyan:#22D3EE;   --cyan-hi:#67E8F9;   --cyan-dim:#22D3EE1F;
-  --green:#4ADE80;  --green-hi:#86EFAC;  --green-dim:#4ADE801F;
-  --amber:#FBBF24;  --amber-hi:#FCD34D;  --amber-dim:#FBBF241F;
-  --orange:#FB923C; --orange-hi:#FDBA74; --orange-dim:#FB923C1F;
-  --red:#FF4D6D;    --red-hi:#FF7D95;    --red-dim:#FF4D6D1F;
-  --magenta:#F472B6;--magenta-hi:#F9A8D4;--magenta-dim:#F472B61F;
-  --slate:#6E7891;  --slate-hi:#8B94AC;  --slate-dim:#6E78911F;
-  /* Order state */
-  --st-draft:var(--slate); --st-brief-ready:var(--cyan); --st-lyrics-ready:var(--cyan);
-  --st-authorized:var(--violet); --st-generating:var(--amber); --st-delivered:var(--green);
-  --st-failed:var(--red); --st-cancelled:#4B5468; --st-held:var(--magenta);
-  /* Pipeline status */
-  --pg-started:var(--cyan); --pg-retrying:var(--amber); --pg-succeeded:var(--green);
-  --pg-degraded:var(--orange); --pg-failed:var(--red); --pg-skipped:var(--slate);
-  --retryable:var(--amber); --terminal:var(--red);
-  /* Elevation — dark UI: borders + inner light + coloured glow */
-  --e-1: inset 0 1px 0 0 rgb(255 255 255/.04);
-  --e-2: 0 8px 24px -8px rgb(0 0 0/.72), 0 0 0 1px var(--border-strong);
-  --e-3: 0 32px 64px -16px rgb(0 0 0/.82), 0 0 0 1px var(--border-strong);
-  --glow-violet: 0 0 0 1px var(--violet), 0 0 24px -6px rgb(124 92 255/.55);
-  --glow-red:    0 0 0 1px var(--red),    0 0 24px -6px rgb(255 77 109/.50);
-  --glow-green:  0 0 0 1px var(--green),  0 0 24px -6px rgb(74 222 128/.45);
-  /* Radii / motion / layout */
-  --r-xs:4px; --r-sm:6px; --r-md:10px; --r-lg:14px; --r-xl:20px; --r-full:9999px;
+:root {                                  /* LIGHT IS HOME */
+  /* Surfaces — a card is separated from the ground by colour + shadow, never by a border */
+  --surface:#FAFAFA; --surface-card:#FFFFFF; --surface-sunken:#F2F2F5;
+  --surface-control:#F0F0F3; --surface-control-hover:#E7E7EC;
+  --surface-nav:var(--surface-card); --surface-topbar:var(--surface-card);
+  /* Ink — only the first two may paint a character */
+  --ink:#4D4D4D;        /* 6.61:1 worst — all prose and headings */
+  --ink-muted:#636363;  /* 4.70:1 worst — the one muted TEXT colour */
+  --ink-mark:#767680;   /* 3.52:1 worst, 4.49:1 best — marks and glyphs, POLICED */
+  --ink-rule:#ADADB4;   /* 2.23:1 at best — rules and dead controls, POLICED */
+  --ink-on-brand:#FFFFFF;                /* 4.95:1 on --brand-solid */
+  /* Lines — this design draws almost none */
+  --hairline:#E6E6EA; --hairline-strong:#D6D6DC;
+  --edge:#8F8F95;       /* 3.08:1 — the one border that carries meaning: a popover ring */
+  --focus-ring:var(--brand-fill);
+  /* Semantic hues: --x text-safe (4.5:1) · --x-fill graphic (3:1) · --x-tint chip ground */
+  --brand:#A92D9D;   --brand-fill:#BD32AF;   --brand-tint:#BD32AF24; --brand-solid:#BD32AF;
+  --accent:#823CD7;  --accent-fill:#9256DC;  --accent-tint:#9256DC24;
+  --success:#3A732B; --success-fill:#4A9438; --success-tint:#4A943824;
+  --caution:#7E6110; --caution-fill:#A27D15; --caution-tint:#A27D1524;
+  --warning:#A74F11; --warning-fill:#D16315; --warning-tint:#D1631524;
+  --error:#C02A4B;   --error-fill:#D64363;   --error-tint:#D6436324;
+  --info:#166F88;    --info-fill:#1D90AF;    --info-tint:#1D90AF24;
+  --neutral:#67676F; --neutral-fill:#71717A; --neutral-tint:#71717A24;
+  --slate:#566786;   --slate-fill:#5B6E8F;   --slate-tint:#5B6E8F24;
+  /* Order state — aliases, all three members each (--st-x, --st-x-fill, --st-x-tint) */
+  --st-draft:var(--neutral); --st-brief-ready:var(--info); --st-lyrics-ready:var(--info);
+  --st-authorized:var(--accent); --st-generating:var(--caution); --st-delivered:var(--success);
+  --st-failed:var(--error); --st-cancelled:var(--slate); --st-held:var(--brand);
+  /* Pipeline status — likewise */
+  --pg-started:var(--info); --pg-retrying:var(--caution); --pg-succeeded:var(--success);
+  --pg-degraded:var(--warning); --pg-failed:var(--error); --pg-skipped:var(--neutral);
+  --retryable:var(--caution); --terminal:var(--error);
+  /* Elevation — Gogo's scale verbatim; a card is a whisper of shadow and nothing else */
+  --shadow-2xs:0px 3px 4px #0000000A;  --shadow-xs:0px 3px 8px #0000000A;
+  --shadow-md:0px 3px 12px #0000000A;  --shadow-lg:0px 3px 20px #0000000A;
+  --shadow-2xl:0px 3px 28px #0000000A; /* + a -darker variant of each at #0000000F */
+  --shadow-card:var(--shadow-xs); --shadow-card-hover:var(--shadow-md-darker);
+  --shadow-overlay:0 0 0 1px var(--edge), 0px 3px 28px #0000001F;
+  --ring-brand:0 0 0 1px var(--brand-fill); /* + --ring-error, --ring-success */
+  /* Geometry — Gogo's radius scale verbatim. Soft and round; nothing has a 4px corner */
+  --r-4xs:.5rem; --r-3xs:.65rem; --r-2xs:.75rem; --r-xs:.785rem; --r-sm:.875rem; --r-md:1rem;
+  --r-lg:1.125rem; --r-xl:1.375rem; --r-2xl:1.5rem; --r-3xl:1.75rem; --r-4xl:2rem;
+  --r-full:9999px;
+  --r-card:var(--r-3xl);    /* 28px */   --r-button:var(--r-md);  /* 16px */
+  --r-control:var(--r-sm);  --r-pill:var(--r-full);
+  /* Motion — unchanged */
   --d-instant:90ms; --d-fast:140ms; --d-base:200ms; --d-slow:320ms; --d-pulse:1600ms;
   --ease-standard:cubic-bezier(.2,0,0,1); --ease-decel:cubic-bezier(0,0,0,1);
   --ease-emphasis:cubic-bezier(.2,0,0,1.2);
-  --nav-w:220px; --topbar-h:56px; --row-h:40px; --row-h-compact:32px;
-  --font-sans:"Inter var",Inter,ui-sans-serif,system-ui,"Noto Sans","Noto Sans Uzbek",sans-serif;
-  --font-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,"Noto Sans Mono",monospace;
+  /* Layout — the rail nests children, so it is wider, and the whole console is airier */
+  --nav-w:264px; --nav-w-collapsed:76px; --topbar-h:68px; --row-h:44px; --row-h-compact:34px;
+  --gutter:24px; --card-pad:24px;
+  /* --font-sans / --font-heading / --font-mono are NOT here. They live in
+     admin-ui/src/styles/fonts.css beside the @font-face rules that self-host the faces they
+     name — the value and the binary have to change together. */
 }
-[data-theme="light"] {                   /* hand-built, not a programmatic inversion */
-  --bg-0:#F4F6FB; --bg-1:#FFFFFF; --bg-2:#EEF1F7; --bg-3:#E3E8F1;
-  --border:#D8DFEA; --border-strong:#BCC6D8;
-  --fg-0:#0A0D15; --fg-1:#414A63; --fg-2:#656E86; --fg-3:#98A1B5;
-  --violet:#5B3DF5; --cyan:#0E7490; --green:#15803D; --amber:#A16207;
-  --orange:#C2410C; --red:#DC2626; --magenta:#BE185D; --slate:#5A6478;
+[data-theme="dark"] {   /* hand-built at Gogo's dark values, not a programmatic inversion */
+  --surface:#202022; --surface-card:#26262A; --surface-sunken:#1A1A1C;
+  --surface-control:#2C2C31; --surface-control-hover:#33333A;
+  --ink:#E6E6E6;       /* 8.00:1 worst */   --ink-muted:#B2B2BA;  /* 4.74:1 worst */
+  --ink-mark:#9A9AA2;  /* 3.58:1 worst */   --ink-rule:#5E5E66;   /* 2.71:1 at best */
+  --hairline:#313138; --hairline-strong:#404048; --edge:#767680;  /* 3.35:1 */
+  --brand:#DC7AD2;   --brand-fill:#CD42BF;   --brand-tint:#CD42BF30;
+  --accent:#B68DE8;  --accent-fill:#9A62DF;  --accent-tint:#9A62DF30;
+  --success:#77C464; --success-fill:#77C464; --success-tint:#77C46430;
+  --caution:#E6B93D; --caution-fill:#E6B93D; --caution-tint:#E6B93D30;
+  --warning:#EE914F; --warning-fill:#ED8B45; --warning-tint:#ED8B4530;
+  --error:#E38297;   --error-fill:#D84B6A;   --error-tint:#D84B6A30;
+  --info:#47C0E1;    --info-fill:#47C0E1;    --info-tint:#47C0E130;
+  --neutral:#A0A0A7; --neutral-fill:#7D7D87; --neutral-tint:#7D7D8730;
+  --slate:#92A1B9;   --slate-fill:#6A7DA0;   --slate-tint:#6A7DA030;
+  /* Gogo's 4%-black shadows are invisible on a #202022 ground. Same geometry, deeper alpha. */
+  --shadow-xs:0px 3px 8px #00000052;  /* …and the rest of the scale, likewise */
+  --shadow-overlay:0 0 0 1px var(--edge), 0px 3px 28px #0000008A;
 }
 @media (prefers-reduced-motion: reduce) {
   :root { --d-instant:1ms; --d-fast:1ms; --d-base:1ms; --d-slow:1ms; --d-pulse:0ms; }
 }
 ```
 
-`#7C5CFF` on white is 3.9:1 — it fails. That is exactly why light mode is a hand-built palette of the
-same hues pushed down in lightness, not a filter.
+**`--brand` and `--brand-solid` are different magentas on purpose.** `--brand-solid:#BD32AF` is
+Gogo's `--primary 306 58% 47%` unmodified, and it is the primary-button fill because white on it is
+4.95:1. `--brand:#A92D9D` is five points darker because brand-coloured TEXT also has to clear 4.5:1
+when it sits on `--brand-tint`, which is exactly what Gogo's secondary button does. The same split —
+a text-safe member and a graphic member — is why the light palette is hand-built out of Gogo's hues
+pushed down in lightness rather than derived by a filter: regenerating it programmatically
+reintroduces the contrast failure it exists to remove.
 
-**Type:** `hero` 44/44 650 −0.03em · `metric` 28/32 600 · `h1` 22/28 620 · `h2` 17/24 600 · `body`
-14/20 450 · `body-sm` 13/18 · `caption` 11/16 600 0.06em uppercase · `mono` 13/18. Every numeric
-column and metric gets `font-variant-numeric: tabular-nums slashed-zero`.
+**Type:** `hero` 40/44 700 −0.02em · `metric` 28/34 700 · `h1` 26/34 700 · `h2` 18/26 600 · `h3`
+15/22 600 · `body` 14/22 400 · `body-sm` 13/20 400 · `button` 14/20 500 · `caption` 11/16 600 0.06em
+uppercase · `mono` 13/20. Headings and numerals are set in `--font-heading`; everything else in
+`--font-sans`. Every numeric column and metric gets `font-variant-numeric: tabular-nums
+slashed-zero`.
 
 **Status pills are never colour alone** — glyph + text + colour, so they survive greyscale and a bad
 projector: `○` draft, `◔` brief_ready, `◑` lyrics_ready, `◆` authorized, `◉` generating (the only
 animated one), `✓` delivered, `✗` failed, `⊘` cancelled, `⚑` held. Error badges add `↻` retryable
-(amber rule) vs `■` terminal (red rule), driven by `HbdError.is_retryable` — the operator's real
-decision is "is retrying worth anything", and that is one glyph away.
+(caution rule) vs `■` terminal (error rule), driven by `HbdError.is_retryable` — the operator's real
+decision is "is retrying worth anything", and that is one glyph away. The pill puts its WORD in
+`--ink` on an `--st-x-tint` ground and the hue in the glyph, so the word clears 4.5:1 whatever the
+state is.
 
-**Chart palette:** `--c-1..8` = `#7C5CFF #22D3EE #4ADE80 #FBBF24 #FF4D6D #F472B6 #FB923C #A78BFA`;
-sequential violet ramp `#141828 → #C9BEFF`; diverging `#FF4D6D / #6E7891 / #4ADE80`. Semantic series
-(delivered/failed) always use the **status** colours, never the categorical ramp — green must mean the
-same thing everywhere. Series also differ by dash pattern and marker shape so hue is never the only
-channel.
+**Chart palette:** `--c-1..8`, light `#4585D9 #D8602C #2A938E #BD32AF #699031 #9256DC #A27D15
+#33944D`, dark `#5690DC #DF7A4E #4CCDC6 #CD42BF #87BA40 #9A62DF #E6B93D #40BA60`; slots are ordered
+so no two neighbours are within 90° of hue. Sequential brand ramp `#F6E2F4 → #7E2274` (dark
+`#2B1F2B → #E9A9E2`); diverging `--error-fill / --neutral-fill / --success-fill`. Every slot is a
+GRAPHIC token — 3:1 on every surface, never 4.5:1 — so a series label is `--ink`/`--ink-muted` and
+never the series colour. Semantic series (delivered/failed) always use the **status** colours, never
+the categorical ramp: green must mean the same thing everywhere. Note that `--success` and `--error`
+are 1.00:1 against *each other* in the light palette, because both were pushed to the same lightness
+to clear AA on a white card — which is exactly why series must also differ by dash pattern and marker
+shape, and why hue is never the only channel.
 
 ### 11.4 Component inventory
 
@@ -1777,8 +1851,15 @@ glyph + the purge stamp + which clock did it; never a blank, never an error).
 
 Two components carry non-obvious weight. **`NameText`** is the only way a name reaches the DOM: it
 emits `<span lang="uz-Latn" dir="ltr">`, and the SPA never calls `.normalize()`, `toLowerCase()`,
-`localeCompare()` or `text-transform` on user content — `NFKD` folds U+02BB to a plain apostrophe and
-one accidental call destroys the datum this product exists to get right (banned by an ESLint
+`localeCompare()` or `text-transform` on user content — one accidental call destroys the datum this
+product exists to get right. (An earlier draft of this paragraph said `NFKD` folds U+02BB to a plain
+apostrophe. **It does not**: NFC, NFD, NFKC and NFKD are all the identity for U+02BB and U+02BC,
+neither codepoint has a decomposition mapping, and `src/components/domain/codepointIntegrity.test.tsx`
+proves it. What actually destroys these names is case folding — `Gʻulom` → `gʻulom` — and
+`localeCompare`, which equates strings this product must keep distinct, and `text-transform`, which
+alters what the operator reads with no trace in the data. `normalize` stays banned as the entry point
+to that class, not because it eats the turned comma. The rule was always right; only its stated
+reason was wrong, and a wrong reason is how a correct rule gets argued away.) (banned by an ESLint
 `no-restricted-syntax` rule inside `components/domain/`). Its codepoint toggle renders
 `O<sub>U+02BB</sub>ktam` — when a verification fails, the first question is which apostrophe the
 customer typed, and the answer is invisible at 14px. **`RetryOrderDialog`** turns the three retry
@@ -1833,7 +1914,7 @@ fire-and-forget and a subscriber disconnected during a publish never learns.
 | T4 | Path traversal on asset serving | The API accepts an **asset UUID only** — never a filename, key or path. The key is reconstructed server-side as `orders/{order_id}/{Path(row.path).name}` and resolved **only** through the `Storage` protocol's new `open_range` seam (§12.7), which delegates to `LocalFileStorage._resolve` (`storage.py:66-79`) — already rejecting absolute keys, `\`, NUL and `.`/`..` and re-checking containment. We do not re-implement confinement and we do not reach into a private method. `Path(row.path).name` is additionally regex-validated `^[A-Za-z0-9._-]{1,128}$`, because DB-sourced data is untrusted on read (rule 9). `Content-Type` from `assets.mime`, allowlisted to `{audio/mpeg, audio/ogg}` for `/stream` — **`text/plain` is no longer streamed at all** (§12.1 T7). Anything else is 415. Range/206 streams in 64 KiB chunks, never `LocalFileStorage.get` (which reads whole objects). Volume mounted `:ro` |
 | T5 | **SSRF via the config editor** | `*_base_url` fields are hostnames the worker attaches a live API key to. They are **absent from the allowlist**, so the API has no code path that can set them. Secondary surface closed by construction: the admin process holds no `httpx` client, no vendor key and no URL-fetching endpoint, webhook tester or avatar proxy anywhere |
 | T6 | Log injection | `JsonFormatter` serialises one object per record, so newlines in a value are escaped. **Rule: user-controlled text is passed only via `extra=`, never interpolated into the message string,** which is always a constant. `redact()` truncates at 2000 chars. The request line logs the route **template**, never the raw path or query string — the key-name redaction matches on the extra key, not on URL substrings, so a `?token=` would sail through |
-| T7 | XSS via names, notes, lyrics, chat bodies — **and via a sniffed asset stream** | React escapes by default; `dangerouslySetInnerHTML` is banned by `react/no-danger: error` in CI. No markdown renderer, no HTML sanitiser — each is a bypass. Outbound chat bodies are HTML (`parse_mode=HTML`, escaped params), stored verbatim with `parse_mode` recorded, rendered **as text**. **The draft's `text/plain` lyric stream was a stored-XSS primitive that bypasses React entirely**: a same-origin response whose body is customer-written free text (up to 3000 chars), served without `nosniff`, is a document the browser may sniff as HTML and render at the panel's origin under the operator's session cookie — and `script-src 'self'` does not stop inline event handlers in it. So: `X-Content-Type-Options: nosniff` on **every** admin response; lyric text is served as `application/json` from `/assets/{id}/text`; any non-audio stream that survives carries `Content-Disposition: attachment`. CSP: `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-<per-response>'; img-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; worker-src 'none'`. Plus `Referrer-Policy: no-referrer`. No CDN links for fonts or scripts — self-hosted Inter and JetBrains Mono, which also guarantees U+02BB/U+02BC and Cyrillic coverage |
+| T7 | XSS via names, notes, lyrics, chat bodies — **and via a sniffed asset stream** | React escapes by default; `dangerouslySetInnerHTML` is banned by `react/no-danger: error` in CI. No markdown renderer, no HTML sanitiser — each is a bypass. Outbound chat bodies are HTML (`parse_mode=HTML`, escaped params), stored verbatim with `parse_mode` recorded, rendered **as text**. **The draft's `text/plain` lyric stream was a stored-XSS primitive that bypasses React entirely**: a same-origin response whose body is customer-written free text (up to 3000 chars), served without `nosniff`, is a document the browser may sniff as HTML and render at the panel's origin under the operator's session cookie — and `script-src 'self'` does not stop inline event handlers in it. So: `X-Content-Type-Options: nosniff` on **every** admin response; lyric text is served as `application/json` from `/assets/{id}/text`; any non-audio stream that survives carries `Content-Disposition: attachment`. CSP: `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-<per-response>'; img-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; worker-src 'none'`. Plus `Referrer-Policy: no-referrer`. No CDN links for fonts or scripts — every face is self-hosted from this origin, so fonts load under `default-src 'self'` (there is no separate `font-src` directive). **The faces named in the original draft were Inter and JetBrains Mono, and the coverage claim attached to them was never verified against the binaries** — the reskin's font work reports that JetBrains Mono lacks U+02BB and the Uzbek Cyrillic letters Ғ/Қ/Ҳ entirely, so that sentence should not be cited to restore it to `--font-mono`. The reskin ships Mulish (body), Urbanist (headings) and Noto Sans Mono (ids, hashes, payloads), all SIL OFL, plus a vendored symbol face for §11.3's glyphs. Coverage is no longer asserted in prose: `admin-ui/src/assets/fonts/README.md` records it as read out of the binaries, and `admin-ui/e2e/font-coverage.spec.ts` re-measures it in a real browser on every `make ui-e2e` — including that Urbanist has NO Cyrillic, which is why `--font-heading` names Mulish behind it |
 | T8 | CSRF on operational actions | Three layers, because CSRF is the class where one control failing silently is normal: `SameSite=Lax` (blocks every cross-site POST/DELETE); **exact `Origin` match** against `admin_public_origin` on every non-GET, with a missing `Origin` on a non-GET rejected; and **`X-CSRF-Token` compared against the stored `admin_sessions.csrf_token`** with `hmac.compare_digest`. The draft specified plain cookie-vs-header double-submit, which never uses the column it defines and falls to cookie injection from a sibling subdomain or a MITM on any `http://` host under the same registrable domain. The cookie is only the transport that hands the SPA its token. All mutations are POST/DELETE — no state change on GET, ever, asserted by the same route-enumerating test, which is also what makes `Lax` safe. Destructive actions additionally need step-up, which no cross-site request can satisfy |
 | T9 | Privilege escalation | `Role`/`Permission` `StrEnum`s with a single `Final[Mapping[Role, frozenset[Permission]]]` — a pure data table, **no wildcard**, because a wildcard is how a new permission silently lands on a role nobody reviewed. `role`, `is_active` and `password_changed_at` are read from the DB row on **every** request, never from the session or the Redis mirror, so a demotion or a deactivation takes effect immediately. An admin can never change their own role or `is_active`; **at least one active OWNER must always remain** — enforced against self-demotion *and* against demotion or deactivation by another OWNER. No impersonation feature |
 | T10 | Data in browser caches | `Cache-Control: no-store` on every `/api/**` response and on asset streams. SPA bundles get normal immutable caching (they hold no data) |
@@ -1880,10 +1961,20 @@ operator needs the second and often not the first. **M** = read masked · **R** 
 | **Config validate / commit / rollback** | — | — | — | W+S (fresh) |
 | Single-order evidence pack export | — | — | — | W+S |
 | Audit export | — | — | — | W+S |
-| Admin account CRUD, revoke others' sessions | — | — | — | W+S |
+| Admin roster read (`GET /admins`) | — | — | — | W |
+| Admin account writes (create / patch / reset password), revoke others' sessions | — | — | — | W+S |
 
 Every `A` cell routes through the **same** `POST /reveal` endpoint. One reveal path, one audit shape,
 one budget — multiple reveal endpoints is how one of them ends up unaudited.
+
+The last two rows were **one** row — `Admin account CRUD, revoke others' sessions | W+S` — until it
+was split here. §6.8's endpoint table is the authority on this one and it never collapsed them:
+`| GET | /admins | List | W |` carries no `+S`, while each of `POST /admins`, `PATCH /admins/{id}`,
+`POST /admins/{id}/reset-password` and `DELETE /admins/{id}/sessions` carries `W +S` explicitly. The
+collapsed row read literally made the roster unreachable by every role, the OWNER included: the
+router-level guard holds no subject and therefore no grant, so it answers `STEP_UP_REQUIRED` to any
+cell carrying a step-up and never consults one. The read is `admin.read`; the four writes keep
+`admin.manage`.
 
 ### 12.3 Redaction policy and the reveal budget
 

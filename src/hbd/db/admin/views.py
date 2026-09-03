@@ -73,6 +73,9 @@ __all__ = [
     "LatencySummary",
     "FailureCount",
     "StrategyOutcome",
+    "SimilarityBucket",
+    "StrategyAnalysis",
+    "NameAnalytics",
     "ReadCapabilities",
 ]
 
@@ -134,8 +137,13 @@ class BriefView:
 
     @property
     def is_identity_purged(self) -> bool:
-        """Mirrors ``BriefRow.is_identity_purged`` — either signal is proof enough."""
-        return self.identity_purged_at is not None or self.recipient_name_display is None
+        """Mirrors ``BriefRow.is_identity_purged``: the audit column is the only proof.
+
+        A null display name is no longer evidence of a purge — an order from the
+        bring-your-own-lyrics path never had a name — and reporting one as purged would tell
+        an operator that personal data was erased on schedule when none was ever held.
+        """
+        return self.identity_purged_at is not None
 
     @property
     def is_note_purged(self) -> bool:
@@ -245,10 +253,12 @@ class OrderListItem:
 
     @property
     def is_identity_purged(self) -> bool:
-        """True when a brief exists and its identity columns have been cleared."""
-        return self.is_brief_present and (
-            self.identity_purged_at is not None or self.recipient_name_display is None
-        )
+        """True when a brief exists and the purge job has stamped it.
+
+        See ``BriefView.is_identity_purged`` for why the null display name is no longer
+        part of the test.
+        """
+        return self.is_brief_present and self.identity_purged_at is not None
 
     @property
     def has_assets(self) -> bool:
@@ -433,6 +443,101 @@ class StrategyOutcome:
     def verification_rate(self) -> float:
         if self.attempts <= 0:
             return 0.0
+        return self.verified / self.attempts
+
+
+@dataclass(frozen=True, slots=True)
+class SimilarityBucket:
+    """One bar of the match-confidence histogram: a half-open ``[lower, upper)`` band.
+
+    The top bucket is closed at ``1.0`` — a verifier that returns exactly ``1.0`` has said
+    the strongest thing it can say, and dropping that sample or giving it a bucket of its
+    own would be a worse answer than a single closed edge on the last bar.
+
+    A ``count`` of ``0`` here is an empty BIN, not an absent measurement: every bucket is
+    returned, always, because a histogram with holes in it is unreadable. Whether the
+    distribution as a whole is worth drawing is answered by
+    :attr:`NameAnalytics.scored`, not by the bars.
+    """
+
+    lower: float
+    upper: float
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class StrategyAnalysis:
+    """One candidate orthography's whole row on ``/generations/names``.
+
+    A superset of :class:`StrategyOutcome` rather than a replacement for it: the bake-off
+    bars need ``attempts``/``verified``, the histogram needs ``buckets``, and the "is the
+    threshold deciding coin flips" question needs ``near_threshold`` — and all three have to
+    describe the SAME window and the same population or the screen argues with itself.
+
+    ``scored`` is not ``attempts``. Verification can run and record a verdict without a
+    similarity score, so the histogram's denominator is its own number and travels with it.
+    """
+
+    strategy: NameStrategy
+    #: Rows where verification RAN. The bake-off denominator.
+    attempts: int
+    verified: int
+    #: Rows carrying a ``match_confidence``. The histogram's denominator.
+    scored: int
+    #: Scored rows within the band of the threshold, or ``None`` when this deployment has
+    #: not published ``name_match_min_similarity``. ``None`` is "not knowable here"; ``0``
+    #: is "nothing sits near the cliff", and the two lead to opposite decisions.
+    near_threshold: int | None
+    buckets: tuple[SimilarityBucket, ...]
+
+    @property
+    def verification_rate(self) -> float:
+        """Share of attempts that passed. Zero attempts reads as ``0.0`` — see the note on
+        :class:`StrategyOutcome`; the caller renders "no attempts" from the denominator."""
+        if self.attempts <= 0:
+            return 0.0
+        return self.verified / self.attempts
+
+
+@dataclass(frozen=True, slots=True)
+class NameAnalytics:
+    """Everything ``/generations/names`` needs to answer one question, from one window.
+
+    The question is "what should ``HBD_NAME_CANDIDATE_ORDER`` be", and it has two halves
+    that must not come from two different reads: which orthography wins, and whether the
+    threshold that decided those wins is in a defensible place.
+
+    **The empty window is a first-class answer.** ``attempts == 0`` with
+    ``has_recorded_attempts`` true means "nothing in THIS window" — the ledger holds
+    verdicts, the window excludes them. ``attempts == 0`` with ``has_recorded_attempts``
+    false means verification has never run here at all. §11.4's ``AsyncBoundary``
+    distinguishes empty-filtered from empty-virgin and cannot do it from a zero.
+    """
+
+    #: Best first, by rate then volume. A strategy with no attempts in the window is
+    #: ABSENT rather than present at zero, exactly as ``strategy_outcomes`` leaves it.
+    strategies: tuple[StrategyAnalysis, ...]
+    #: The same distribution summed across every strategy — what the single histogram on
+    #: the screen draws.
+    buckets: tuple[SimilarityBucket, ...]
+    attempts: int
+    verified: int
+    scored: int
+    near_threshold: int | None
+    #: ``name_match_min_similarity`` as this deployment published it, or ``None``. The
+    #: worker owns the real value; see :mod:`hbd.admin.settings`.
+    threshold: float | None
+    #: How near "near" is, on the wire so the SPA does not restate it.
+    band: float
+    bucket_count: int
+    #: Whether the ledger holds ANY verdict at all, window ignored.
+    has_recorded_attempts: bool
+
+    @property
+    def verification_rate(self) -> float | None:
+        """``None`` when nothing was verified: an empty window has no rate, not a bad one."""
+        if self.attempts <= 0:
+            return None
         return self.verified / self.attempts
 
 

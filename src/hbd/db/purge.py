@@ -67,7 +67,9 @@ not take a lock on the whole ``assets`` table.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
+from pathlib import PurePosixPath
 from typing import Any, Final
 from uuid import UUID
 
@@ -98,6 +100,7 @@ from hbd.db.purge_admin import (
 from hbd.db.retention import DEFAULT_RETENTION_POLICY, RetentionPolicy
 from hbd.entitlements import DEFAULT_ENTITLEMENT_POLICY, EntitlementPolicy
 from hbd.logging import get_logger
+from hbd.storage import archive_key
 
 __all__ = [
     "PurgeReport",
@@ -405,10 +408,28 @@ async def _ids_due(session: AsyncSession, statement: sa.Select[tuple[UUID]]) -> 
 async def _purge_assets(
     session: AsyncSession, *, now: datetime, limit: int
 ) -> tuple[tuple[str, ...], int]:
-    """Delete expired asset rows, returning the storage keys the caller must clean up."""
+    """Delete expired asset rows, returning the storage keys the caller must clean up.
+
+    Rows written since ``repository._replace_assets`` learned to record ``storage_key``
+    carry the key the archive actually used. Rows written before it do not, and deleting
+    them was how archived audio outlived its retention clock: the row was the only record
+    of where the bytes were, and it went away without saying. For those the key is
+    RECONSTRUCTED from the two columns that do survive — ``order_id`` and ``path`` — through
+    the same :func:`hbd.storage.archive_key` the ``put`` used, so the historical archive is
+    reachable too rather than only the archive from here on.
+
+    ``Path(path).name`` is validated before it is used. A stored path is data, not code
+    (admin plan rule 9), and this function's output is handed straight to an object store's
+    delete; a filename carrying a slash or a traversal segment would turn a retention sweep
+    into a delete primitive aimed at whatever the caller's key namespace can address.
+
+    Caveat worth knowing at the reading end: a reconstructed key is a well-founded GUESS
+    that an object exists, not a record that one does. Archival is best effort, so a
+    legacy row may name bytes that were never written.
+    """
     rows = (
         await session.execute(
-            sa.select(AssetRow.id, AssetRow.storage_key)
+            sa.select(AssetRow.id, AssetRow.storage_key, AssetRow.order_id, AssetRow.path)
             .where(_assets_due(now))
             .order_by(AssetRow.expires_at)
             .limit(limit)
@@ -416,10 +437,34 @@ async def _purge_assets(
     ).all()
     if not rows:
         return (), 0
-    asset_ids = [row_id for row_id, _ in rows]
-    keys = tuple(key for _, key in rows if key)
+    asset_ids = [row_id for row_id, _, _, _ in rows]
+    keys = tuple(
+        key
+        for _, stored, order_id, path in rows
+        if (key := stored or _legacy_key(order_id, path)) is not None
+    )
     await session.execute(sa.delete(AssetRow).where(AssetRow.id.in_(asset_ids)))
     return keys, len(asset_ids)
+
+
+#: What a filename written by ``pipeline.assets`` may look like: ``song.mp3``,
+#: ``greeting-1.ogg``, ``lyrics.txt``. Deliberately narrow — this is a read of untrusted
+#: stored data whose result becomes an object-store key.
+_ARCHIVED_FILENAME = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def _legacy_key(order_id: UUID, path: str) -> str | None:
+    """The archive key for a row written before ``storage_key`` was recorded, or ``None``.
+
+    ``None`` — rather than a best-effort key — whenever the filename is not a shape the
+    pipeline produces. An unrecognised name means the reconstruction's premise does not
+    hold, and a purge that reports "no key" is recoverable where one that reports a wrong
+    key is a delete aimed somewhere nobody chose.
+    """
+    filename = PurePosixPath(path).name
+    if not _ARCHIVED_FILENAME.match(filename):
+        return None
+    return archive_key(order_id, filename)
 
 
 async def _purge_brief_notes(session: AsyncSession, *, now: datetime, limit: int) -> int:

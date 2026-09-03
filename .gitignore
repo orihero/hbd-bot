@@ -47,6 +47,15 @@ coverage.xml
 admin-ui/node_modules/
 admin-ui/dist/
 src/hbd/admin/static/
+admin-ui/coverage/
+
+# The browser gate (make ui-e2e). `.manifest.json` is written by the harness at boot and
+# carries that run's seeded ids and its throwaway credentials; the report directories are
+# Playwright's own output.
+admin-ui/e2e/.manifest.json
+admin-ui/test-results/
+admin-ui/playwright-report/
+admin-ui/blob-report/
 
 # Editors / OS
 .idea/

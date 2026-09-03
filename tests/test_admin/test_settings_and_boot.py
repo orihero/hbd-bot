@@ -279,6 +279,41 @@ def test_the_reveal_budgets_accept_their_bounds(field: str, value: int) -> None:
     assert getattr(make_settings(**{field: value}), field) == value
 
 
+def test_the_mirrored_similarity_threshold_defaults_to_unpublished() -> None:
+    """No default, because the worker owns the number and this process cannot read it.
+
+    A default of 0.85 — the bot model's own — would draw a threshold marker on
+    ``/generations/names`` for a deployment running 0.9, on the one chart whose purpose is
+    arguing about where that marker belongs.
+    """
+    assert make_settings().admin_name_match_min_similarity is None
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_a_blank_similarity_threshold_reads_as_unpublished_rather_than_failing_the_boot(
+    value: str,
+) -> None:
+    """``.env.admin.example`` ships the variable blank; that path must boot."""
+    assert (
+        make_settings(admin_name_match_min_similarity=value).admin_name_match_min_similarity is None
+    )
+
+
+@pytest.mark.parametrize("value", [0.0, 0.85, 1.0])
+def test_the_similarity_threshold_accepts_the_range_the_worker_accepts(value: float) -> None:
+    assert (
+        make_settings(admin_name_match_min_similarity=value).admin_name_match_min_similarity
+        == value
+    )
+
+
+@pytest.mark.parametrize("value", [-0.1, 1.5])
+def test_a_similarity_threshold_outside_zero_to_one_is_refused_at_boot(value: float) -> None:
+    """The worker bounds it ``0.0..1.0``; a mirror that accepts 1.5 mirrors nothing."""
+    with pytest.raises(ValueError, match="admin_name_match_min_similarity"):
+        make_settings(admin_name_match_min_similarity=value)
+
+
 def test_the_audit_dsn_is_carried_verbatim_for_the_two_places_that_read_it() -> None:
     """Migration 0006's REVOKE guard and ``/audit/verify``'s report both read this."""
     dsn = "postgresql+asyncpg://hbd_owner:pw@localhost:5432/hbd"

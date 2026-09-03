@@ -34,7 +34,7 @@ from hbd.db.purge import purge_expired
 from hbd.db.repository import SqlKitRepository
 from hbd.db.retention import RetentionClass
 from hbd.entitlements import ChargeOutcome, EntitlementPolicy, InsufficientCreditsError
-from tests.conftest import UZBEK_NAME_CANONICAL
+from tests.conftest import UZBEK_NAME_CANONICAL, recipient_of
 from tests.test_db.conftest import MovableClock, build_kit, new_order
 
 pytestmark = pytest.mark.integration
@@ -104,7 +104,7 @@ async def test_uzbek_orthography_survives_a_postgres_round_trip(
 
     # Assert
     assert is_ok(fetched)
-    display = fetched.value.brief.recipient.display
+    display = recipient_of(fetched.value.brief).display
     assert display == UZBEK_NAME_CANONICAL
     assert "ʻ" in display
 
@@ -121,7 +121,7 @@ async def test_the_candidate_jsonb_column_round_trips_on_postgres(
 
     # Assert
     assert is_ok(fetched)
-    candidates = fetched.value.brief.recipient.candidates
+    candidates = recipient_of(fetched.value.brief).candidates
     assert tuple(c.rank for c in candidates) == (0, 1, 2)
     assert candidates[0].strategy is NameStrategy.STRIPPED
 

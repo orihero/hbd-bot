@@ -45,13 +45,22 @@ from starlette.routing import Route
 
 from hbd.admin.container import AdminContainer
 from hbd.admin.csrf import SESSION_COOKIE_NAME, CsrfDecision, verify_csrf_request
-from hbd.admin.errors import AdminErrorCode, ProblemError, problem
+from hbd.admin.errors import AdminErrorCode, AdminProblem, ProblemError, problem
+from hbd.admin.security.budget import (
+    RevealBudgetDecision,
+    RevealBudgetLimits,
+    RevealBudgetOutcome,
+    charge_reveal_budget,
+)
 from hbd.admin.security.clientip import resolve_client_ip
 from hbd.admin.security.permissions import (
     AccessDecision,
     Permission,
+    StepUpAction,
     StepUpGrant,
     check_role,
+    max_age_for_action,
+    require_step_up,
     step_up_from_session,
 )
 from hbd.admin.security.tokens import sha256_hex
@@ -62,14 +71,18 @@ from hbd.db.base import utc_now
 from hbd.db.enums import AdminRole, AuditAction
 from hbd.db.models.admin_audit import AuditOutcome
 from hbd.db.models.admin_user import AdminUserRow
+from hbd.errors import ErrorCode
 from hbd.logging import get_logger
 
 __all__ = [
+    "ACCESS_ERROR_CODES",
     "API_PREFIX",
     "AUTH_PREFIX",
     "PASSWORD_GATE_EXEMPT_PATHS",
     "CurrentAdmin",
     "RequirePermission",
+    "enforce_reveal_budget",
+    "enforce_step_up",
     "get_container",
     "get_admin_settings",
     "get_db_session",
@@ -78,6 +91,7 @@ __all__ = [
     "has_live_session",
     "require_permission",
     "resolve_request_ip",
+    "reveal_budget_limits",
     "Container",
     "Settings",
     "Db",
@@ -359,7 +373,10 @@ Admin = Annotated[CurrentAdmin, Depends(get_current_admin)]
 # ---------------------------------------------------------------------------
 # The permission guard, as a dependency
 # ---------------------------------------------------------------------------
-_ACCESS_CODES: Final[dict[AccessDecision, AdminErrorCode]] = {
+#: §6.2's decision → code table, public because the router-level guard is no longer its only
+#: reader: :func:`enforce_step_up` maps the same three step-up decisions, and a second copy
+#: of this table is a second answer to "what does a scope mismatch look like on the wire".
+ACCESS_ERROR_CODES: Final[dict[AccessDecision, AdminErrorCode]] = {
     AccessDecision.FORBIDDEN_ROLE: AdminErrorCode.FORBIDDEN,
     AccessDecision.STEP_UP_REQUIRED: AdminErrorCode.STEP_UP_REQUIRED,
     AccessDecision.STEP_UP_SCOPE_MISMATCH: AdminErrorCode.STEP_UP_REQUIRED,
@@ -373,8 +390,10 @@ class RequirePermission:
 
     Applied with ``APIRouter(dependencies=[Depends(require_permission(...))])`` — never per
     handler, because a per-handler guard is a guard somebody forgets on the next route
-    (§12.1 T3). The Slice 1c route-enumeration test reads this attribute off each route's
-    dependencies to assert every route outside the exempt set carries exactly one.
+    (§12.1 T3). The Slice 1c route-enumeration test reads this attribute off each builder's
+    ``APIRouter.dependencies`` to assert every route outside the exempt set carries exactly
+    one. It cannot read it off ``APIRoute.dependencies``: FastAPI copies a handler's own
+    ``dependencies=`` into that list too, so the shape this class forbids would satisfy it.
 
     Subject-scoped step-up is **not** decided here: the subject is a path parameter and only
     the handler knows which one, so a route whose cell demands a step-up asks for it
@@ -404,7 +423,7 @@ class RequirePermission:
                 role=admin.role,
                 outcome=AuditOutcome.DENIED,
                 actor_id=admin.admin_user_id,
-                error_code=str(_ACCESS_CODES[decision]),
+                error_code=str(ACCESS_ERROR_CODES[decision]),
                 ip=admin.client_ip,
             ),
             now=utc_now(),
@@ -420,7 +439,7 @@ class RequirePermission:
             },
         )
         raise problem(
-            _ACCESS_CODES[decision],
+            ACCESS_ERROR_CODES[decision],
             "your role does not allow this",
             permission=str(self.permission),
         )
@@ -429,3 +448,172 @@ class RequirePermission:
 def require_permission(permission: Permission) -> RequirePermission:
     """Declare what a router needs. One call per router, at the router."""
     return RequirePermission(permission=permission)
+
+
+# ---------------------------------------------------------------------------
+# The handler-level guards: subject-scoped step-up, and the reveal budget
+# ---------------------------------------------------------------------------
+# Both live here rather than in :mod:`hbd.admin.security` for one reason: they need
+# :class:`CurrentAdmin` and :class:`AdminContainer`, and ``security`` is imported *by*
+# ``settings``, which the container is built from — so a guard that reached back for either
+# would be a cycle. ``security`` keeps the pure decision (``check_step_up``,
+# ``charge_reveal_budget``); this module is where a decision becomes a status code, exactly
+# as :class:`RequirePermission` already is for the role half.
+#
+# They are called from inside a handler, not attached with ``Depends``. §12.1 T3's
+# router-level rule is about the *permission*, and it is satisfied by
+# :func:`require_permission`; the step-up is about a **subject**, and the subject is a path
+# parameter or a body field that only the handler has read. ``deps.RequirePermission``
+# answers ``STEP_UP_REQUIRED`` for any cell carrying a step-up precisely because it holds no
+# subject — so a route on an ``A+S`` cell layers the two: the router guard decides the role,
+# and one of these decides the scope.
+async def enforce_step_up(
+    admin: CurrentAdmin,
+    container: AdminContainer,
+    *,
+    action: StepUpAction,
+    subject_id: str,
+    now: datetime,
+) -> str:
+    """Require a live step-up grant for ``action`` **on this subject**, or refuse.
+
+    Returns the scope that was satisfied, so the caller can record it. Raises
+    :class:`ProblemError` — ``STEP_UP_REQUIRED`` (403) when there is no grant, when the grant
+    was obtained for a different action or a different subject, or when it has aged past the
+    window; ``INVALID_INPUT`` (422) when the subject id could not have been stored as a scope
+    in the first place, because that is a malformed request rather than a missing credential
+    and answering 403 would send the SPA into a re-authentication loop it cannot win.
+
+    ``action`` is typed :class:`StepUpAction` rather than ``str`` on purpose.
+    ``require_step_up`` takes ``str``, so ``require_step_up("reveal.personal_data", …)``
+    type-checks, builds a perfectly storable scope, and then never matches the grant
+    ``/auth/step-up`` issued — ``StepUpRequest.scope`` is a ``StepUpAction`` and yields
+    ``reveal``. That mismatch is a permanent, silent 403 that only a test driving the real
+    route catches. The enum closes it here.
+
+    ``subject_id`` must be **byte-identical** to the one the SPA sent to ``/auth/step-up``:
+    the scope is compared whole (``check_step_up``), so ``str(uuid)`` — lowercase, unbraced —
+    on one side and an uppercase or braced spelling on the other is a scope mismatch nobody
+    can debug from the 403.
+
+    The refusal is audited in its own committed transaction before this raises, because the
+    request's transaction is about to roll back and §12.6's refusal row is the one a
+    "successes only" log would not have. ``auth_entry`` records it under
+    ``subject_type="admin"``, which is what the ``STEP_UP_SUCCESS`` and ``STEP_UP_FAILURE``
+    rows written by ``/auth/step-up`` already do for the same subject id.
+    """
+    try:
+        guard = require_step_up(str(action), subject_id)
+    except ValueError as exc:
+        raise ProblemError(
+            AdminProblem(
+                code=ErrorCode.INVALID_INPUT,
+                message="that step-up subject is not a storable identifier",
+            )
+        ) from exc
+    decision = guard(
+        admin.step_up,
+        now=now,
+        max_age_s=max_age_for_action(
+            action, grace_s=container.settings.admin_step_up_grace_seconds
+        ),
+    )
+    if decision is AccessDecision.ALLOWED:
+        return guard.scope
+
+    from hbd.admin import audit_sink
+
+    code = ACCESS_ERROR_CODES[decision]
+    await audit_sink.record_refusal(
+        container,
+        audit_sink.auth_entry(
+            AuditAction.PERMISSION_DENIED,
+            username=admin.username,
+            role=admin.role,
+            outcome=AuditOutcome.DENIED,
+            actor_id=admin.admin_user_id,
+            subject_id=subject_id,
+            error_code=str(code),
+            ip=admin.client_ip,
+        ),
+        now=now,
+    )
+    _LOGGER.warning(
+        "admin request refused for want of a scoped step-up",
+        extra={
+            "event": "admin.stepup.refused",
+            "step_up_action": str(action),
+            "reason": str(decision),
+            "admin_username": admin.username,
+        },
+    )
+    raise problem(
+        code,
+        "re-authenticate for this action and this subject",
+        stepUpAction=str(action),
+        subjectId=subject_id,
+    )
+
+
+def reveal_budget_limits(settings: AdminSettings) -> RevealBudgetLimits:
+    """§12.3's two ceilings, as the operator configured them."""
+    return RevealBudgetLimits(
+        max_records_per_hour=settings.admin_reveal_records_per_hour,
+        max_conversations_per_day=settings.admin_reveal_conversations_per_day,
+    )
+
+
+async def enforce_reveal_budget(
+    admin: CurrentAdmin,
+    container: AdminContainer,
+    *,
+    record_count: int,
+    conversation_count: int = 0,
+    now: datetime,
+) -> RevealBudgetDecision:
+    """Charge one reveal against §12.3's budgets, or refuse it.
+
+    ``record_count`` is what the reveal is **authorised to return** — one for a name, a note
+    or a lyric, and the page size for a conversation — and it is charged *before* the read,
+    because a budget charged afterwards has already let the read happen. Pass
+    ``conversation_count=1`` for a page of a transcript so the daily transcript ceiling is
+    charged too; the two budgets are separately exhaustible by design.
+
+    Raises :class:`ProblemError`: ``REVEAL_BUDGET_EXHAUSTED`` (429, with ``Retry-After``
+    counting down to the refusing window's reset) when a ceiling is spent, and
+    ``SERVICE_UNAVAILABLE`` (503) when the counter store cannot answer. The second is not the
+    first: telling an operator their budget is spent for the hour that Redis is down would
+    have them opening an incident against the wrong system, and the whole reason
+    ``RevealBudgetOutcome`` has two refusal members is so this mapping can exist. A
+    ``record_count`` outside ``1..MAX_RECORDS_PER_REVEAL`` is ``INVALID_INPUT`` (422) — the
+    caller is expected to have validated its body, and this is the backstop.
+    """
+    try:
+        decision = await charge_reveal_budget(
+            container.rate_limits,
+            username=admin.username,
+            record_count=record_count,
+            conversation_count=conversation_count,
+            now=now,
+            limits=reveal_budget_limits(container.settings),
+        )
+    except ValueError as exc:
+        raise ProblemError(AdminProblem(code=ErrorCode.INVALID_INPUT, message=str(exc))) from exc
+    if decision.is_allowed:
+        return decision
+    headers = {"Retry-After": str(decision.retry_after_s)}
+    if decision.outcome is RevealBudgetOutcome.BACKEND_UNAVAILABLE:
+        raise problem(
+            AdminErrorCode.SERVICE_UNAVAILABLE,
+            "the reveal budget cannot be checked right now; try again shortly",
+            headers=headers,
+        )
+    raise problem(
+        AdminErrorCode.REVEAL_BUDGET_EXHAUSTED,
+        "this operator's reveal budget for the window is spent",
+        headers=headers,
+        budget=None if decision.scope is None else decision.scope.value,
+        recordsRequested=decision.records_requested,
+        recordsRemaining=decision.records_remaining,
+        conversationsRemaining=decision.conversations_remaining,
+    )

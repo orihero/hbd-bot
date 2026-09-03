@@ -574,6 +574,9 @@ class _BrokenRateLimits:
     async def increment(self, key: str, *, ttl_s: int) -> int:
         raise ConnectionError("the limiter store is unavailable")
 
+    async def increment_by(self, key: str, amount: int, *, ttl_s: int) -> int:
+        raise ConnectionError("the limiter store is unavailable")
+
     async def refund(self, key: str, *, ttl_s: int) -> None:
         raise ConnectionError("the limiter store is unavailable")
 

@@ -79,17 +79,27 @@ def enforce_display_name(text: str, name_display: str) -> str:
     return re.sub(pattern, name_display.replace("\\", "\\\\"), text, flags=re.IGNORECASE)
 
 
-def _clean(text: str, *, language: Language, name_display: str) -> str:
-    """NFC, correct modifier letters, exact display name, no trailing whitespace."""
+def _clean(text: str, *, language: Language, name_display: str | None) -> str:
+    """NFC, correct modifier letters, exact display name, no trailing whitespace.
+
+    ``name_display`` is ``None`` for a nameless lyric, and then the display-name pass is
+    skipped rather than run against an empty pattern — ``enforce_display_name`` builds a
+    regex out of the name, and an empty one matches at every position and would rewrite the
+    whole sheet into nothing.
+    """
     composed = unicodedata.normalize("NFC", text).replace("\r\n", "\n").replace("\r", "\n")
     if language is Language.UZ_LATN:
         composed = canonicalize_uzbek_latin(composed)
+    if name_display is None:
+        return composed.rstrip()
     return enforce_display_name(composed, name_display).rstrip()
 
 
 def render_lyric_sheet(lyrics: LyricDraft) -> str:
     """Render the sheet as clean UTF-8 text. Pure: no I/O, no clock."""
-    name_display = unicodedata.normalize("NFC", lyrics.name_display)
+    name_display = (
+        None if lyrics.name_display is None else unicodedata.normalize("NFC", lyrics.name_display)
+    )
 
     def clean(value: str) -> str:
         return _clean(value, language=lyrics.language, name_display=name_display)

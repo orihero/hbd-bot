@@ -3,10 +3,47 @@
 A Telegram bot for the Uzbekistan market. A user types a recipient's full name, answers
 four short structured questions, and receives a **celebration kit**:
 
-- one AI-generated song (~2 min) that names the recipient,
+- one AI-generated song (~90 s — `HBD_SONG_LENGTH_MS`) that names the recipient,
 - a lyric sheet,
 
 with the recipient's name **pronounced correctly**. That last part is the entire product.
+
+**The words can be the customer's own, and then it is a different wizard.** The first
+question ("What are we celebrating?") offers *My own lyrics* beside the occasions, and
+choosing it switches the intake onto a second, shorter order:
+
+```
+occasion → LYRICS → genre → voice → language → confirm
+```
+
+The words are asked for **second**, before anything else, because that is what the customer
+said they had. Three steps are dropped and each one is dropped for a reason:
+
+- **the note** ("tell me one thing about them — I write it into the words") fed the lyric
+  writer, and nothing writes the words now;
+- **the name** and its confirmation fed the name subsystem — hook section, chunk isolation,
+  acoustic verification — and a customer who wrote their own lyric already put whatever name
+  they wanted where they wanted it. Weaving another one in would sing a word they did not
+  write.
+
+So these orders carry `Brief.recipient = None` all the way to the queue. There is no hook
+section, no name chunk, no STT call and no candidate ladder; the composition plan spends the
+whole song budget on their words, and the sheet drops its signature line. **This is the one
+path where the pronunciation guarantee does not apply**, by the customer's own choice.
+
+It also calls **no vendor at all** before the payment gate: no `MAX_LYRIC_WRITES`, no daily
+lyric budget. Somebody who arrives with a poem already written should not have to buy a
+machine's attempt at one to reach the screen that accepts theirs.
+
+`lyrics_source` on the wizard draft names which order a session is walking, and the occasion
+step is the only place it is ever written — picking a real occasion there hands the writing
+back to the bot, which is the button's un-press. Nothing downstream may move it: a customer
+who types over a lyric the bot wrote is still on the writer's path, name hook and all.
+
+A `NULL` recipient is **not** the same as a purged one. `briefs.identity_purged_at` is
+stamped only by the 90-day sweep, and that column alone is now what `is_identity_purged`
+reads — an order that never collected a name must not report itself to an operator, or to an
+erasure proof, as personal data deleted on schedule.
 
 > **Greetings are switched off.** `HBD_GREETINGS_PER_KIT` defaults to **0**, so a kit is the
 > song and the sheet, and no TTS call is made at all. The spoken-greeting subsystem
@@ -22,7 +59,7 @@ Interface language and output language are chosen independently across Uzbek Lat
 
 ## See it work in two commands, with no keys
 
-Everything below was run on macOS 15 / Python 3.12.12 while writing this file.
+Everything below was run on macOS 26.3 / Python 3.12.13 while writing this file.
 
 ```bash
 make install                    # uv venv .venv + pip install -e ".[dev]"
@@ -30,10 +67,13 @@ make demo                       # one complete kit, offline
 ```
 
 `make demo` runs the **real** pipeline — real orchestrator, real name subsystem, real
-ffmpeg, real SQLite repository, real files — with only the five vendor adapters swapped for
-fakes. No API key is read, no request leaves the machine, nothing is spent. It prints the
-candidate orthographies, the acoustic verification loop re-rolling the name, and the paths
-of the song, the three OGG/Opus voice notes and the lyric sheet it just produced.
+ffmpeg, real SQLite repository, real files — with only the vendor adapters (music, TTS, STT
+and the LLM) swapped for fakes. No API key is read, no request leaves the machine, nothing
+is spent. It prints the candidate orthographies, the acoustic verification loop re-rolling
+the name, the paths of the assets it just wrote, and the lyric sheet in full. Those assets
+are the song and the sheet and nothing else: `HBD_GREETINGS_PER_KIT` is 0, as above, so the
+orchestrator skips the greeting stages entirely. Raise it to 1–5 and that many OGG/Opus
+voice notes appear in the same list.
 
 It needs **ffmpeg on PATH** and nothing else (`brew install ffmpeg`).
 
@@ -55,13 +95,87 @@ no token at all.
 
 ### Production shape
 
+Three long-running processes — the bot, the ARQ worker and the admin API — plus the admin
+console, which is a static bundle the API serves itself. `.env` belongs to the first two;
+the admin API reads **`.env.admin`** and nothing else.
+
 ```bash
-cp .env.example .env && $EDITOR .env    # real keys; HBD_USE_FAKE_PROVIDERS=false
-docker compose up -d                    # postgres 16 + redis 7
-make migrate                            # alembic upgrade head
-make dev                                # terminal 1: the bot
-make worker                             # terminal 2: the ARQ worker
+cp .env.example .env && $EDITOR .env              # real keys; HBD_USE_FAKE_PROVIDERS=false
+cp .env.admin.example .env.admin && $EDITOR .env.admin   # no vendor keys here — see below
+
+docker compose up -d                              # postgres 16 (two roles) + redis 7
+export HBD_DB_MIGRATION_URL="postgresql+asyncpg://hbd:hbd@localhost:5432/hbd"
+export HBD_DATABASE_URL="postgresql+asyncpg://hbd_app:hbd_app@localhost:5432/hbd"
+make migrate                                      # alembic upgrade head, as the owner role
+make ui-build                                     # console → src/hbd/admin/static/ — every deploy
+make admin-bootstrap u=owner                      # the first OWNER; prompts for the password
+
+make dev                                          # terminal 1: the bot
+make worker                                       # terminal 2: the ARQ worker
+make admin                                        # terminal 3: the admin API on 127.0.0.1:8080
 ```
+
+The panel is then at `http://127.0.0.1:8080`, serving the bundle `make ui-build` wrote.
+`make admin` binds loopback deliberately: put TLS in front of it. Binding `0.0.0.0`
+publishes a username/password login to the internet, and nothing in the panel is designed
+for that.
+
+`make admin-bootstrap u=<username>` forwards the one flag the CLI requires, the same way
+`make revision m="…"` does; anything else goes through `args=`, as in
+`args="--reset-owner"` or `args="--password-file ./pw"`. Run it with no `u=` and it prints
+the usage instead of an argparse error. `--password` is accepted only so it can be
+**refused** — a password in `argv` is in `ps` and in the shell history. Use the prompt, or
+`--password-file` on a file only you can read; the CLI refuses one whose mode lets the
+group or anybody else read or replace it.
+
+> **Rebuild the console on every deploy.** `src/hbd/admin/static/` is gitignored — a
+> committed bundle drifts from `admin-ui/` with nothing to notice — so a fresh checkout has
+> no console at all, and a stale one is whatever the last build left behind. It is not only
+> a cosmetic staleness: `admin-ui/index.html` carries a `__HBD_CSP_NONCE__` placeholder that
+> the API swaps for this response's style nonce, and a bundle built before that existed has
+> no placeholder to swap. `render_shell` serves such a shell **unchanged** and logs
+> `WARNING admin.spa.nonce_placeholder_missing` rather than returning 500 — deliberately, so
+> that an operator reaching for the panel mid-incident gets a working panel rather than a
+> dead one. The cost is that the only symptom is that log line, plus modals that no longer
+> lock the background: `style-src 'self' 'nonce-…'` refuses the scroll-lock `<style>` the
+> bundle injects, and the page keeps scrolling behind an open dialog. Grep the API's log for
+> that event, then `make ui-build`.
+
+> **The admin API reads `.env.admin`, not `.env`, and that is the point.** There is no field
+> on `AdminSettings` that could hold `HBD_TELEGRAM_BOT_TOKEN`, `HBD_ELEVENLABS_API_KEY` or
+> either LLM key, so the panel has no code path to a vendor credential. Pointing it at the
+> shared `.env` would hand it all four by accident. In prod, any one of them within reach of
+> the process — exported, *or written into `.env.admin`* — is a boot refusal naming the
+> variable; in dev it is a WARNING, because a shared dev `.env` is normal.
+>
+> Every operational action that needs a credential is an ARQ job the worker performs. The
+> API sends nothing to Telegram and calls no vendor.
+>
+> Three fields have no usable default: `HBD_ADMIN_ENABLED` is `false` until somebody turns
+> the panel on, `HBD_ADMIN_AUDIT_HMAC_KEY` is required and has no default to forget to
+> change (`python -c "import secrets; print(secrets.token_urlsafe(48))"`), and
+> `HBD_ADMIN_PUBLIC_ORIGIN` is required outside dev. `.env.admin.example` documents the rest
+> with the reasoning attached.
+
+> **Two Postgres roles, or the audit log's immutability is theatre.** `hbd` owns the tables
+> and runs migrations; `hbd_app` is what the bot, the worker and the admin API connect as.
+> An owner can `GRANT` back its own revocations, so migration `0007`'s
+> `REVOKE UPDATE, DELETE, TRUNCATE ON admin_audit_log` means nothing at all when the
+> application connects as the owner — there is nobody to revoke it *from*.
+>
+> `docker/initdb/10-two-roles.sql` creates `hbd_app` and its grants. The Postgres entrypoint
+> runs it **only on an empty data volume**, so an already-initialised container needs
+> `docker compose down -v && docker compose up -d` to pick it up. In staging or production,
+> create the two roles by hand with real secrets — the password in that file is a local
+> development password.
+>
+> Two variables switch the control on: `HBD_DB_MIGRATION_URL` (the owner DSN, which
+> `migrations/env.py` uses when set) and `HBD_ADMIN_AUDIT_DSN` in `.env.admin`, whose
+> presence is how a deployment declares the split exists. Leave either unset and everything
+> still runs: migrations fall back to `HBD_DATABASE_URL` with a WARNING, `0007` skips the
+> REVOKE and logs why, and `/audit/verify` reports `chainProtection: "hmac-only"` — which
+> the panel shows verbatim. A control that is not deployed is reported as not deployed,
+> never implied.
 
 > **If 5432 is already taken** (a system Postgres, Postgres.app, another project), the
 > container will fail to bind, and `localhost` resolving to IPv6 first means a foreign
@@ -74,11 +188,31 @@ make worker                             # terminal 2: the ARQ worker
 > ```
 >
 > The Postgres-backed tests skip rather than fail when no *project* database answers, so a
-> green run with 8 skips means "Postgres not wired up", not "nothing is broken".
+> `make test-all` whose only skips are those means "Postgres not wired up", not "something is
+> broken". They are the eighteen tests
+> `.venv/bin/python -m pytest -m integration --collect-only tests/test_db tests/test_admin/test_bootstrap_race.py`
+> lists, and they carry the skip reason with the DSN they tried.
 
+
+### The admin console in development
+
+A fourth terminal, and the only one that is not part of the production shape: Vite's dev
+server, so a change to `admin-ui/` reloads without a rebuild.
+
+```bash
+make ui-install   # npm install in admin-ui/ — the only Node in the tree
+make ui           # terminal 4: the console on :5173, proxying /api to :8080
+```
+
+It needs `make admin` running in another shell, and
+`HBD_ADMIN_PUBLIC_ORIGIN=http://localhost:5173` in `.env.admin`. The dev proxy forwards the
+browser's real `Origin` (`changeOrigin: false`), so the API's origin check is live in
+development too — that is deliberate. A 403 `ORIGIN_REJECTED` at sign-in means that
+variable, not the proxy flag.
 
 `make dev` is `python -m hbd.main`; `make worker` is
-`python -m arq hbd.worker.WorkerSettings`.
+`python -m arq hbd.worker.WorkerSettings`; `make admin` is
+`python -m uvicorn hbd.admin.app:app --host 127.0.0.1 --port 8080`.
 
 ### Checks
 
@@ -88,11 +222,58 @@ make lint        # ruff
 make typecheck   # mypy --strict over src and tests
 make cov         # unit tests with the 80% gate
 make test-all    # adds the integration tests (need ffmpeg; some need Postgres)
+make cov-admin   # the same run, re-reported against src/hbd/admin alone, gated at 85%
+make check       # lint + typecheck + cov — the Python half, and all `make check` is
 ```
 
-Verified on this machine: **2636 unit tests pass**, `ruff check` clean, `mypy` clean over
-259 files, unit coverage **95%**. The integration suite adds 21 real-ffmpeg audio tests, 5
-full-stack wizard-to-delivery tests, the offline demo, and 8 Postgres tests that need
+**`make check` is not the whole gate, and knowing which part it is not is the point.** It
+runs ruff, `mypy --strict` and the coverage run, and nothing that involves Node or a
+browser. Two more sets exist and neither is reachable from it:
+
+```bash
+cd admin-ui && npx tsc --noEmit && npx eslint . --max-warnings 0 && npx vitest run
+make ui-e2e      # the browser gate: Playwright, the built console, the production CSP
+```
+
+`make ui-e2e` stays outside `make check` for one concrete reason: it needs a ~150 MB
+Chromium that `make ui-e2e-install` downloads, and a first `make check` on a new machine
+must not silently start that. The consequence is worth stating plainly rather than
+discovering: **the only check that can see a Content-Security-Policy regression is one
+nobody is obliged to run.** jsdom implements no CSP at all, so a `<style>` element Chrome
+refuses is accepted in silence by every one of the console's Vitest tests. Until this repo
+has CI wired to it, "before a release" means a human running all three sets — `make check`,
+the console's three, and `make ui-e2e` — and that is the whole of the policy.
+
+`make ui-e2e` builds the bundle, then starts `tests/e2e/serve_admin_e2e.py` (the real admin
+app over the same in-memory SQLite and dictionary Redis the Python unit suite uses, on
+`127.0.0.1:8099`) and runs two Playwright tests against the built console:
+
+- **the operator's first session.** Signs in as a bootstrapped OWNER, rotates the forced
+  password, and asserts Live Ops' counts, a centred ⌘K dialog with a working scroll lock, a
+  masked `Gʻulom`, an identity-purged order rendered as `🔒 purged <date>` — and **zero CSP
+  violations across the whole flow**.
+- **font coverage** (§14's `Oʻktam` / `Gʻulom` / `Дилноза` / `sanʼat` bullet). Rasterises
+  every character of those four strings in both token font stacks and compares each bitmap
+  with a codepoint from an unassigned Unicode plane, so a name drawn as `.notdef` boxes
+  fails instead of counting as "rendered". It also asserts the page fetches no font from
+  another origin. See `admin-ui/e2e/fonts.ts` for the method — and for the gap it exposes:
+  §12.1 T7 asks for **self-hosted** Inter and JetBrains Mono, and this build ships neither,
+  so U+02BB/U+02BC and Cyrillic coverage is the operator's machine's rather than the
+  bundle's.
+
+Neither needs Postgres, Redis, network, a vendor key or ffmpeg. Run `make ui-e2e-install`
+once first, to fetch the Chromium build Playwright drives.
+
+Measured on this machine while writing this section, with the commands above: `make lint`
+clean; `make typecheck` clean over **430 files**; `make cov` collects **4788 unit tests**
+(4785 passed, 2 skipped) at **96%** repo-wide, and `make cov-admin` re-reports the same run
+at **99%** on `src/hbd/admin/*`; `npx vitest run` green over **815 tests in 73 files**;
+`make ui-e2e` 2 passed. Those counts move with every commit that adds a test — the commands
+print the current ones, and it is the *clean* that matters, not the number. One unit test —
+`tests/test_runtime/test_entrypoints.py` — wants ffmpeg on PATH despite the convention
+below, and is the only failure on a machine without it. The integration suite adds 49 more:
+22 real-ffmpeg audio tests, 6 full-stack wizard-to-delivery tests, the offline demo, an
+ffmpeg host check, one live-model moderation probe, and 18 Postgres tests that need
 `docker compose up -d`.
 
 ---
@@ -126,6 +307,7 @@ a `Protocol`. Only `hbd.runtime` knows which concrete vendor is behind which pro
 | `hbd.pipeline` | The orchestrator: one `Brief` in, one `Kit` out, including the acoustic verification loop and its bounded re-rolls. |
 | `hbd.bot` | aiogram 3.x wizard, four locales, progress, delivery. |
 | `hbd.payments` | `NoopPaymentProvider`. The only payment code in this build. |
+| `hbd.admin` | The operator panel: a FastAPI JSON API (third process, `make admin`) plus the React/Vite console in `admin-ui/`. Read-only in this build. Holds no vendor credential and sends nothing to Telegram — every action that needs one is an ARQ job. |
 | `hbd.runtime` | **The composition root.** Builds real or fake vendors from config, owns the container, the queue seam and the job that generates *and delivers*. |
 
 ### Entry points
@@ -135,6 +317,10 @@ a `Protocol`. Only `hbd.runtime` knows which concrete vendor is behind which pro
 | `make dev` | `hbd.main` | The bot process. Long polling. |
 | `make worker` | `hbd.worker` | The ARQ worker. Owns a send-only `Bot`. |
 | `make demo` | `hbd.demo` | One kit, offline, printed to the terminal. |
+| `make admin` | `hbd.admin.app` | The admin API on `127.0.0.1:8080`, behind uvicorn. Reads `.env.admin`; serves the console out of `src/hbd/admin/static/`. |
+| `make admin-bootstrap u=<username>` | `hbd.admin.bootstrap` | The first OWNER account, and the way back from losing one (`args="--reset-owner"`). Prompts for the password; never takes one in `argv`. |
+| `make ui-install` / `make ui` / `make ui-build` | `admin-ui/` | Install the console's Node dependencies; run its dev server on `:5173`; build it into the API's static directory. |
+| `make ui-e2e` / `make ui-e2e-install` | `admin-ui/`, `tests/e2e/` | The browser gate — Playwright against the built console and the real API under the production CSP, plus the font-coverage check; and the one-off Chromium download it needs. Not part of `make check`. |
 
 The one flag that changes everything is `HBD_USE_FAKE_PROVIDERS`. It is **all-or-nothing**
 by design — a half-fake run spends money on a result nobody can trust — and it is refused
@@ -216,7 +402,8 @@ Honest list, so nobody rediscovers these under pressure.
   The one exception is `hbd.bot.handlers.lyrics.MAX_LYRIC_WRITES`: the lyric preview bills an
   LLM *before* the payment gate, so a per-session cap on how many lyrics one wizard may ask
   for lives in the draft. It is a spend cap, not a rate limiter, and it does not survive a
-  `/start`.
+  `/start`. Neither it nor the daily budget applies on the bring-your-own-lyrics path, which
+  is not an omission: that path makes no vendor call to cap.
 - **Retention is a policy object, not configuration.** `RetentionPolicy` in
   `db/retention.py` owns the six periods as dataclass defaults, and `purge_expired` uses
   them. The `HBD_RETENTION_*` settings duplicated those numbers and were wired to nothing —
@@ -225,7 +412,7 @@ Honest list, so nobody rediscovers these under pressure.
 - **In fake mode the audio is digital silence**, so the silence-trim pass removes
   everything and loudness normalisation degrades to shipping the raw render — the
   documented degradation path, visible as a warning in `make demo`. The real loudnorm
-  passes are covered by the 21 ffmpeg integration tests.
+  passes are covered by the 22 ffmpeg integration tests.
 - **Inpainting does not fire on this account, and fails SILENTLY.** Settled against the
   live API on 2026-08-28. The stored-song id guess was right: `SONG_ID_HEADERS` captures it
   (`store_for_inpainting: true` returned `song-id`, and the re-roll path has a real handle).
@@ -246,8 +433,12 @@ Honest list, so nobody rediscovers these under pressure.
 
 ## Out of scope for this build
 
-Payment (Stars, Click, Payme, checkout, invoices, ledgers, refunds), the admin panel,
-referral and share pages, retention reminders, voice cloning, B2B.
+Payment (Stars, Click, Payme, checkout, invoices, ledgers, refunds), referral and share
+pages, retention reminders, voice cloning, B2B.
+
+The admin panel used to be on this list and is not any more: `make admin` serves it today.
+It is **read-only** in this build — no reveal, no retry, no purge, no config commit — so
+treat the absent write surface as the scope note, not the panel itself.
 
 ## Reference documents
 

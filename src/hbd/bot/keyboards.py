@@ -50,6 +50,7 @@ __all__ = [
     "name_prompt_keyboard",
     "name_confirm_keyboard",
     "lyrics_keyboard",
+    "own_lyrics_keyboard",
     "lyrics_writing_keyboard",
     "lyrics_failed_keyboard",
     "confirm_keyboard",
@@ -63,6 +64,7 @@ __all__ = [
     "MAX_ROW_BUTTONS",
     "MAX_ROW_LABEL_CHARS",
     "REGENERATE_LABEL_KEY",
+    "OWN_LYRICS_LABEL_KEY",
     "SKIP_LABEL_KEY",
     "KEEP_NOTE_LABEL_KEY",
 ]
@@ -113,10 +115,26 @@ MAX_ROW_LABEL_CHARS: Final[int] = 30
 #:   on the wire, while the catalogue spells the key out;
 #: * ``KEEP_NOTE_LABEL_KEY`` — the note step's Skip keeps an existing note rather than
 #:   erasing it, so when there is one to keep the button says so. Same action, same
-#:   handler, honest promise.
+#:   handler, honest promise;
+#: * ``OWN_LYRICS_LABEL_KEY`` — a nav button drawn among the OCCASION buttons, so it has no
+#:   occasion label to borrow and cannot follow the convention either;
+#: * ``OWN_LYRICS_LABEL_KEY`` — see above; it is drawn among the occasion buttons.
 REGENERATE_LABEL_KEY: Final[str] = "button.regenerate"
+OWN_LYRICS_LABEL_KEY: Final[str] = "button.own_lyrics"
 SKIP_LABEL_KEY: Final[str] = "button.skip"
 KEEP_NOTE_LABEL_KEY: Final[str] = "button.keep_note"
+
+#: The occasion the "I will write the words myself" button is drawn directly ABOVE.
+#:
+#: It goes next to the occasions because that is the first screen with a question on it,
+#: which makes it the last moment the choice is free: every step after it — the genre, the
+#: voice, the note, the name — is answered the same way whoever writes the lyric, and the
+#: note is the one question that stops being worth asking, so offering the choice here
+#: costs the customer nothing and saves them a vendor call they never wanted.
+#:
+#: Above ``CUSTOM`` and not at the end, because ``CUSTOM`` is the list's escape hatch
+#: ("something else") and a button placed under an escape hatch reads as a kind of it.
+OWN_LYRICS_SITS_ABOVE: Final[Occasion] = Occasion.CUSTOM
 
 #: Vocal options offered in the wizard. ``ANY`` is deliberately last: it is the escape
 #: hatch, not the default.
@@ -200,8 +218,21 @@ def language_keyboard(
 
 
 def occasion_keyboard(language: Language) -> InlineKeyboardMarkup:
+    """The occasions, with the bring-your-own-lyrics offer sitting among them.
+
+    That button is the one row here this module composes out of its own label rather than
+    generating from the enum, so — unlike every occasion beside it — it is measured against
+    ``MAX_ROW_LABEL_CHARS`` by ``test_keyboards.py``, which tells the two kinds apart by
+    callback prefix. That is the right budget for it: its label is a phrase this codebase
+    chose and can shorten, not the name of a thing in the world.
+    """
     builder = InlineKeyboardBuilder()
     for value in Occasion:
+        if value is OWN_LYRICS_SITS_ABOVE:
+            builder.button(
+                text=translate(OWN_LYRICS_LABEL_KEY, language),
+                callback_data=NavCB(action=NavAction.OWN_LYRICS),
+            )
         builder.button(text=occasion_label(value, language), callback_data=OccasionCB(value=value))
     builder.adjust(OCCASION_COLUMNS)
     return _with_nav(builder, language, is_back_enabled=True)
@@ -257,17 +288,39 @@ def name_confirm_keyboard(language: Language) -> InlineKeyboardMarkup:
     return _with_nav(builder, language, is_back_enabled=True)
 
 
-def lyrics_keyboard(language: Language) -> InlineKeyboardMarkup:
-    """Approve, regenerate, or ignore both and type your own lyric.
+def lyrics_keyboard(language: Language, *, is_own_lyrics: bool = False) -> InlineKeyboardMarkup:
+    """Approve, ask for a different lyric, or ignore both and type your own.
 
     There is no Skip: past this screen the lyric is decided, and a kit whose words nobody
     ever looked at is exactly the outcome this step exists to prevent. Typing is the third,
     unlabelled option — the step accepts a pasted lyric as a plain message.
+
+    ``is_own_lyrics`` drops the regenerate button, because on that path there is nothing for
+    it to do. Asking the writer for a lyric needs a recipient, and the own-lyrics order never
+    collects one — it has no NAME step — so a button offering to write would be offering
+    something the draft cannot supply. The way out is Back, which on that order returns to
+    the occasion list where the choice was made and where picking any real occasion un-makes
+    it.
     """
     builder = InlineKeyboardBuilder()
     builder.row(_nav_button(NavAction.LYRICS_OK, language))
-    builder.row(_nav_button(NavAction.REGENERATE, language, label_key=REGENERATE_LABEL_KEY))
+    if not is_own_lyrics:
+        builder.row(_nav_button(NavAction.REGENERATE, language, label_key=REGENERATE_LABEL_KEY))
     return _with_nav(builder, language, is_back_enabled=True)
+
+
+def own_lyrics_keyboard(language: Language) -> InlineKeyboardMarkup:
+    """Waiting for the customer's words. Back and Cancel, and nothing else.
+
+    There is deliberately no ``LYRICS_OK``: the draft holds no lyric at this point, so an
+    approve button would approve nothing, and this codebase does not draw buttons that lead
+    nowhere. There is no writer button either, for the reason ``lyrics_keyboard`` gives.
+
+    Back is the escape, and it is a real one — on this order the previous step is the
+    occasion list, which is where the path was chosen and where choosing an occasion instead
+    hands the writing back to the bot.
+    """
+    return _with_nav(InlineKeyboardBuilder(), language, is_back_enabled=True)
 
 
 def lyrics_writing_keyboard(language: Language) -> InlineKeyboardMarkup:

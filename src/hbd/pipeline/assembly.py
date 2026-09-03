@@ -48,8 +48,16 @@ def order_workspace(root: Path, order_id: UUID) -> Path:
 
 
 def validate_brief(brief: Brief) -> Result[None]:
-    """Re-check the brief at the pipeline boundary. The bot is not the only caller."""
+    """Re-check the brief at the pipeline boundary. The bot is not the only caller.
+
+    A brief with NO recipient is valid. That is the bring-your-own path, where the wizard
+    asks for the words and never asks who the song is for, so there is no name to check —
+    as opposed to a name that is present and blank, which is the corruption this guard was
+    written to catch and still catches.
+    """
     recipient = brief.recipient
+    if recipient is None:
+        return ok(None)
     if not recipient.display.strip():
         return err(
             ValidationError(

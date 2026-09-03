@@ -142,6 +142,25 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "wizard.lyrics.type_only": "Please send the lyrics as text — a voice message will not do.",
     "wizard.lyrics.updated": "Got it — I will sing your words exactly as you wrote them.",
+    # -- the bring-your-own path -------------------------------------------
+    # Reached from the occasion list, so it is the first thing said about lyrics at all and
+    # has to state the bounds up front: the two rejections below are the only other place
+    # the customer would learn them, and being told a limit after breaking it is a worse way
+    # to find out. Both numbers come from ``lyrics_entry``, never retyped.
+    "wizard.lyrics.own_prompt": (
+        "✍️ Send me the words you want sung.\n\n"
+        "Type them as a message — leave a blank line between verses and I keep that shape. "
+        "Anything from {minimum} to {limit} characters.\n\n"
+        "They are sung exactly as you write them, so put the name in yourself if you want one."
+    ),
+    # The preview's twin, for words the customer wrote. It must NOT invite them to "send
+    # your own", which is what ``wizard.lyrics.preview`` does — they just did.
+    "wizard.lyrics.own_preview": (
+        "<b>{title}</b>\n"
+        "<blockquote expandable>{lyrics}</blockquote>\n"
+        "Your words, exactly as they will be sung. Nothing is recorded yet — keep them, or "
+        "send a different set as a message."
+    ),
     "wizard.lyrics.too_many": (
         "I have already written {limit} sets of lyrics for this song. "
         "Keep the ones above, or send me your own as a message."
@@ -157,15 +176,28 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "wizard.confirm.summary": (
         "<b>{name}'s song</b>\n"
-        "🎂 {occasion}\n"
-        "🎼 {genre}\n"
-        "🎙️ {vocal_gender}\n"
+        "{occasion}\n"
+        "{genre}\n"
+        "{vocal_gender}\n"
         "🌐 {output_language}\n"
         "✍️ {note}\n\n"
         "The words are set. Next I record it, then check the name by ear.\n\n"
         "Shall I start?"
     ),
     "wizard.confirm.no_note": "—",
+    # The own-lyrics summary. Headlined by the SONG, because this path never asked who it
+    # is for. Five rows where the named one has six: the note step does not exist here, and
+    # rendering "—" for a question nobody was asked would read as an answer.
+    "wizard.confirm.summary_noname": (
+        "<b>{title}</b>\n"
+        "{occasion}\n"
+        "{genre}\n"
+        "{vocal_gender}\n"
+        "🌐 {output_language}\n\n"
+        "Your words are set. Next I record them.\n\n"
+        "Shall I start?"
+    ),
+    "wizard.lyrics.untitled": "Your song",
     "wizard.expired": "That session has closed. We can pick it up from the top.",
     "wizard.cancelled": "Cancelled — nothing was made, and nothing was kept.",
     "wizard.cancel_too_late": (
@@ -191,42 +223,46 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.use_buttons": "Please use the buttons above to answer this one.",
     # -- buttons -----------------------------------------------------------
     "button.back": "⬅️ Back",
-    "button.skip": "Skip",
-    "button.cancel": "Cancel",
+    "button.skip": "⏭️ Skip",
+    "button.cancel": "✖️ Cancel",
     "button.confirm": "🎬 Record it",
     "button.name_ok": "✅ Yes, that is it",
     "button.retype": "✏️ Type it again",
     "button.lyrics_ok": "✅ Use these lyrics",
     "button.regenerate": "🔄 Write different lyrics",
+    "button.own_lyrics": "✍️ My own lyrics",
     "button.start_over": "↩️ Start over",
     "button.make_another": "🎂 Make another",
     "button.report_problem": "⚠️ Something is wrong",
     "button.keep_note": "✅ Keep this note",
     "button.try_again": "🔄 Try again",
     # -- enum labels -------------------------------------------------------
-    "occasion.birthday": "Birthday",
-    "occasion.anniversary": "Anniversary",
-    "occasion.custom": "Something else",
-    "genre.pop": "Pop",
-    "genre.retro_estrada": "Retro estrada",
-    "genre.hip_hop": "Hip-hop",
-    "genre.rock": "Rock",
-    "genre.acoustic_ballad": "Acoustic ballad",
-    "genre.dance_electronic": "Dance / electronic",
-    "genre.uzbek_pop": "Uzbek pop",
-    "genre.uzbek_folk": "Uzbek folk",
-    "genre.shashmaqom": "Shashmaqom",
-    "genre.jazz_lounge": "Jazz lounge",
-    "vocal_gender.female": "Female voice",
-    "vocal_gender.male": "Male voice",
-    "vocal_gender.duet": "Duet",
-    "vocal_gender.any": "Any voice",
+    "occasion.birthday": "🎂 Birthday",
+    "occasion.anniversary": "💍 Anniversary",
+    "occasion.custom": "✨ Something else",
+    "genre.pop": "🎤 Pop",
+    "genre.retro_estrada": "📻 Retro estrada",
+    "genre.hip_hop": "🎧 Hip-hop",
+    "genre.rock": "🤘 Rock",
+    "genre.acoustic_ballad": "🎸 Acoustic ballad",
+    "genre.dance_electronic": "🕺 Dance / electronic",
+    "genre.uzbek_pop": "🌟 Uzbek pop",
+    "genre.uzbek_folk": "🪕 Uzbek folk",
+    "genre.shashmaqom": "🎻 Shashmaqom",
+    "genre.jazz_lounge": "🎷 Jazz lounge",
+    "vocal_gender.female": "👩 Female voice",
+    "vocal_gender.male": "👨 Male voice",
+    "vocal_gender.duet": "👫 Duet",
+    "vocal_gender.any": "🎲 Any voice",
     "language.uz_latn": "Oʻzbekcha (lotin)",
     "language.uz_cyrl": "Ўзбекча (кирилл)",
     "language.ru": "Русский",
     "language.en": "English",
     # -- progress (keys mirror hbd.pipeline.events.STAGE_MESSAGE_KEYS) ------
     "progress.queued": "🎬 {name}'s song is in the studio. You can close Telegram — it lands here.",
+    "progress.queued_noname": (
+        "🎬 Your song is in the studio. You can close Telegram — it lands here."
+    ),
     "progress.validating": "🔎 Checking the details…",
     "progress.moderating": "🛡️ Reviewing the wording…",
     "progress.writing_lyrics": "✍️ Writing the lyrics…",
@@ -260,6 +296,19 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "delivery.done_degraded": (
         "⚠️ {name}'s song is here, but the run did not go cleanly — what is missing is "
+        "written below. I am sorry about that.\n\n"
+        "Order <code>{order_ref}</code>. Send /support with it and we will look at this run."
+    ),
+    "delivery.song_caption_noname": "🎵 <b>{title}</b>\nYour words, sung. Sound on.",
+    "delivery.done_noname": (
+        "🎉 That is your song, yours to send.\n\n"
+        "Forward the audio straight to them — it plays inside the chat, nothing to "
+        "download.\n\n"
+        "Order <code>{order_ref}</code> — keep it if you need to reach us.\n\n"
+        "Another one?"
+    ),
+    "delivery.done_degraded_noname": (
+        "⚠️ Your song is here, but the run did not go cleanly — what is missing is "
         "written below. I am sorry about that.\n\n"
         "Order <code>{order_ref}</code>. Send /support with it and we will look at this run."
     ),

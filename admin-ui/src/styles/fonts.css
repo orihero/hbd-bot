@@ -1,0 +1,156 @@
+/*
+ * The four self-hosted faces, and the fallback chain that decides which one draws a name.
+ *
+ * §12.1 T7 says: "No CDN links for fonts or scripts — self-hosted Inter and JetBrains Mono,
+ * which also guarantees U+02BB/U+02BC and Cyrillic coverage." Half of that shipped. There
+ * was no CDN link — `e2e/font-coverage.spec.ts` asserts that directly, and the CSP
+ * (`default-src 'self'`, no font host) would refuse one anyway. But nothing was ever
+ * self-hosted: no binary, no `@font-face`, and `--font-sans` was a list of family names the
+ * operator's machine might or might not have. The guarantee in the second half of that
+ * sentence was not a guarantee, it was a hope about somebody's laptop, and the browser gate
+ * that was supposed to prove it was measuring the host instead of the bundle.
+ *
+ * This file is that half. Four woff2 binaries live in `../assets/fonts/`, Vite hashes them
+ * into `/assets/`, and every codepoint the console can draw now comes from a file in this
+ * repository.
+ *
+ * THE FACES, AND WHY THESE FOUR
+ *
+ *   Mulish       body, tables, every piece of UI text. The reskin's body face.
+ *   Urbanist     headings and numerals. The reskin's display face.
+ *   Noto Sans Mono   ids, hashes, payloads — and names, which appear in mono columns too.
+ *   HBD Status Symbols   §11.3's status glyphs. Nineteen codepoints, 2.2 kB.
+ *
+ * Two of those are not what §12.1 T7 named, and both substitutions are corrections rather
+ * than preferences. Every claim below was read out of the binaries' cmap tables, not out of
+ * a foundry's description; `tools/build-fonts.py` regenerates them and
+ * `e2e/font-coverage.spec.ts` re-measures them in a browser on every run.
+ *
+ *   JetBrains Mono → Noto Sans Mono. T7 picks JetBrains Mono *because* it "guarantees
+ *   U+02BB/U+02BC and Cyrillic coverage". It does not. JetBrains Mono has no U+02BB at all
+ *   — `Oʻktam` and `Gʻulom` have no turned comma in it — and its Cyrillic stops short of
+ *   Ғ U+0492, Қ U+049A and Ҳ U+04B2, three of the letters an Uzbek name is spelled with in
+ *   Cyrillic. Noto Sans Mono has all of them.
+ *
+ *   Nothing → HBD Status Symbols. Neither Mulish nor Urbanist contains ONE of §11.3's
+ *   status glyphs — not ○, not ◉, not ✓, not the 🔒 a purged record renders. Until now they
+ *   were drawn by whatever symbol font the operator's OS happened to ship, which is fine on
+ *   a Mac and is tofu on a bare container. A status pill whose glyph is a hollow box is a
+ *   status pill that is colour alone.
+ *
+ * THE CYRILLIC SUBSET IS NOT GOOGLE'S. Google Fonts splits Cyrillic into "cyrillic"
+ * (U+0400-045F plus strays) and "cyrillic-ext" (U+0460-052F). Uzbek Cyrillic needs Ғ, Қ and
+ * Ҳ, and all three are in the *ext* half. Shipping the usual "cyrillic" subset would render
+ * Ғулом with its first letter in a different typeface. Each face here carries U+0400-052F
+ * whole, in one file, with no `unicode-range` splitting — so there is no second request to
+ * lose and no character in a name that arrives late.
+ *
+ * THE ONE HOLE, STATED PLAINLY: **Urbanist has no Cyrillic.** Not one codepoint in
+ * U+0400-04FF; the upstream family ships latin and latin-ext and nothing else. It does have
+ * U+02BB and U+02BC, so `Oʻktam` and `Gʻulom` are safe in a heading, but `Дилноза` in a
+ * heading is drawn by the next face in the stack. That face is Mulish, deliberately and by
+ * name: Urbanist's cap height is 0.700 em and Mulish's is 0.705, and both sit at a 0.500 em
+ * x-height, so the substitution changes the letterforms and not the line. This is also why
+ * the heading stack must never be shortened to `Urbanist, sans-serif` — that ends the
+ * product's core datum at whatever the OS feels like.
+ *
+ * `e2e/font-coverage.spec.ts` turns that hole into the gate's negative control: it asserts
+ * Urbanist draws the Latin characters and asserts it does NOT draw the Cyrillic ones. If
+ * the day ever comes that both pass, the check has stopped being able to tell "our font
+ * drew this" from "the host did", and it says so.
+ */
+
+/* ── Mulish · body ──────────────────────────────────────────────────────────────────────
+ * 86 kB. Latin, Latin Extended-A/B/Additional, Spacing Modifier Letters (U+02BB, U+02BC),
+ * combining marks, Cyrillic and Cyrillic Supplement. Variable, wght 200-1000, re-defaulted
+ * to 400 so the binary is Regular anywhere it is opened without a weight.
+ * This is the face `index.html` preloads. */
+@font-face {
+  font-family: "Mulish";
+  src: url("../assets/fonts/mulish-latin-cyrillic-var.woff2") format("woff2");
+  font-weight: 200 1000;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Urbanist · headings and numerals ───────────────────────────────────────────────────
+ * 34 kB. Same Latin coverage, NO Cyrillic — see the header. Variable, wght 100-900. */
+@font-face {
+  font-family: "Urbanist";
+  src: url("../assets/fonts/urbanist-latin-var.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Noto Sans Mono · ids, hashes, payloads ─────────────────────────────────────────────
+ * 81 kB. Full Latin + Cyrillic coverage including U+02BB and Ғ/Қ/Ҳ. Variable; the width
+ * axis is pinned and the weight axis clipped to 400-700, which is every weight the console
+ * sets mono at and which halves the file. */
+@font-face {
+  font-family: "Noto Sans Mono";
+  src: url("../assets/fonts/noto-sans-mono-latin-cyrillic-var.woff2") format("woff2");
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/*
+ * ── HBD Status Symbols · §11.3's glyphs ────────────────────────────────────────────────
+ * 2.2 kB, nineteen codepoints, merged from Noto Sans Symbols 2 (the circles, ✓, ✗, ■, 🔒),
+ * Noto Sans Math (⊘, ↻) and Noto Sans Symbols (⚑) because no single OFL face has all
+ * twelve. Renamed because it is a merge and is therefore none of the three; none of the
+ * three reserves its name, so the rename is permitted rather than required.
+ *
+ * `unicode-range` is here and is not on the text faces, on purpose: it is what stops the
+ * browser consulting a symbol font for ordinary prose, and it means the file is fetched
+ * only by a page that actually draws a status pill.
+ *
+ * `swap` rather than the `block` an icon font would normally take. Block hides the glyph
+ * for up to three seconds if the file is slow, and a status pill with an invisible glyph is
+ * a status pill that is colour alone — the one thing §11.3 says it must never be. Swap
+ * shows the host's glyph, or a box, and then ours.
+ */
+@font-face {
+  font-family: "HBD Status Symbols";
+  src: url("../assets/fonts/hbd-status-symbols.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+21BB, U+2298, U+2691, U+2713, U+2717, U+25A0, U+25B2, U+25BC, U+25C6, U+25C9, U+25CB,
+    U+25CF, U+25D0, U+25D1, U+25D4, U+25D5, U+26A0, U+1F512;
+}
+
+/*
+ * THE STACKS.
+ *
+ * Read each one left to right as a sentence about who draws what. The self-hosted faces
+ * come first so a name is drawn from this repository; "HBD Status Symbols" sits directly
+ * behind them so a status glyph is too; the system families behind those exist only for a
+ * codepoint none of the four covers, and are ordered so that the last resort before
+ * `sans-serif` is a Noto face — the one family line that carries essentially everything.
+ *
+ * These live here rather than in `tokens.css` because the value and the `@font-face` that
+ * makes it mean anything have to change together. A stack naming a family this file does
+ * not declare is a stack that silently measures the operator's machine, which is the exact
+ * defect this file exists to close.
+ */
+:root {
+  --font-sans:
+    "Mulish", "HBD Status Symbols", ui-sans-serif, system-ui, "Segoe UI", "Noto Sans",
+    sans-serif;
+
+  /*
+   * Urbanist first, Mulish immediately behind it. That second entry is load-bearing and is
+   * not a stylistic hedge: it is the only self-hosted face in this stack that can draw
+   * Дилноза. Do not remove it.
+   */
+  --font-heading:
+    "Urbanist", "Mulish", "HBD Status Symbols", ui-sans-serif, system-ui, "Segoe UI",
+    "Noto Sans", sans-serif;
+
+  --font-mono:
+    "Noto Sans Mono", "HBD Status Symbols", ui-monospace, "SF Mono", Menlo, Consolas,
+    monospace;
+}

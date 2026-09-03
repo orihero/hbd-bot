@@ -7,8 +7,8 @@ for a long time in a template that no production call path could reach.
 
 from __future__ import annotations
 
-from hbd.contracts import Language
-from hbd.pipeline.prompts import lyrics_system_prompt
+from hbd.contracts import Brief, Language
+from hbd.pipeline.prompts import lyrics_system_prompt, lyrics_user_prompt
 from hbd.providers.llm.prompt_loader import language_guide
 
 TURNED_COMMA = "ʻ"
@@ -48,3 +48,36 @@ def test_the_shared_rules_survive_the_guide_being_injected() -> None:
     # Assert
     assert "is_name_hook" in prompt
     assert "ALL CAPS" in prompt
+
+
+def test_the_live_lyric_prompt_asks_for_craft_not_only_prohibitions() -> None:
+    """The prompt used to say only what to avoid, and got unobjectionable filler back."""
+    # Arrange / Act
+    prompt = lyrics_system_prompt(Language.UZ_LATN)
+
+    # Assert
+    assert "Rhyme" in prompt
+    assert "repeat its words" in prompt
+    assert "two concrete details" in prompt
+
+
+def test_the_live_lyric_prompt_keeps_the_structural_contract_after_the_craft_merge() -> None:
+    """Craft rules were added around the section contract, not over it."""
+    # Arrange / Act
+    prompt = lyrics_system_prompt(Language.UZ_LATN)
+
+    # Assert
+    assert "4 to 6 sections" in prompt
+    assert "is_name_hook" in prompt
+
+
+def test_the_shape_sentence_the_parser_depends_on_is_untouched(brief: Brief) -> None:
+    """``LyricsPayload`` reads title and sections; the merge must not drift the keys."""
+    # Arrange / Act
+    prompt = lyrics_user_prompt(brief)
+
+    # Assert
+    assert (
+        'Return JSON shaped as {"title": str, "sections": '
+        '[{"label": str, "lines": [str], "is_name_hook": bool}]}.'
+    ) in prompt

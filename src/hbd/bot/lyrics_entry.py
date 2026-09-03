@@ -65,18 +65,24 @@ def parse_typed_lyrics(
     text: str,
     *,
     language: Language,
-    name_display: str,
+    name_display: str | None = None,
     title: str,
 ) -> Result[LyricDraft]:
     """Validate and shape what the user pasted. Never raises.
 
     ``title`` is supplied by the caller — the previous draft's title, or the recipient's
     display name for a first-ever paste. This module does not invent one: a title guessed
-    from the first line of a pasted poem is a guess the customer never asked for.
+    from the first line of a pasted poem is a guess the customer never asked for. An empty
+    string is allowed and resolves to ``build_lyric_draft``'s own default.
 
     ``name_display`` is the canonical spelling; ``build_lyric_draft`` is what guarantees it
     survives into a name-hook section, so a pasted lyric gets the same hook guarantee as a
     generated one.
+
+    ``name_display=None`` builds a NAMELESS lyric, with no hook and nobody named. That is
+    the bring-your-own-lyrics path, where the wizard never asks who the song is for: the
+    customer already put whatever name they wanted into their own words, and weaving another
+    one in on top would sing a word they did not write.
     """
     pasted = text.strip()
     length = len(pasted)

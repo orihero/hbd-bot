@@ -47,9 +47,7 @@ def page_meta(page: Page[object], total: BoundedTotal | None = None) -> PageMeta
     """Build the envelope from a page and, when it was asked for, a bounded count."""
     if total is None:
         return PageMeta(next_cursor=page.next_cursor)
-    return PageMeta(
-        next_cursor=page.next_cursor, total=total.total, is_total_exact=total.is_exact
-    )
+    return PageMeta(next_cursor=page.next_cursor, total=total.total, is_total_exact=total.is_exact)
 
 
 def page_params(

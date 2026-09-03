@@ -1,0 +1,168 @@
+/*
+ * The one stylesheet the shell loads. Order matters: tokens define the variables Tailwind's
+ * theme then reads through `var()`, so they must land before the utilities that use them.
+ *
+ * `fonts.css` declares the four self-hosted `@font-face` rules and owns `--font-sans`,
+ * `--font-heading` and `--font-mono` outright — the stack and the faces that make it mean
+ * anything cannot be edited in two places. It is imported second because a `@font-face`
+ * must be declared before the first rule that asks for the family, and `@layer base` below
+ * is that rule.
+ */
+
+@import "./tokens.css";
+@import "./fonts.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  /*
+   * LIGHT IS HOME. `:root` carries the light palette and `[data-theme="dark"]` overrides it,
+   * so an unattributed document is the light theme — which is what the reskin's design is.
+   * Weight is 400, not the old synthetic 450: Mulish ships real weights and the browser no
+   * longer has to fake one.
+   */
+  body {
+    background-color: var(--surface);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 22px;
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /*
+   * `text-transform` is banned on user content and there is no lint rule that can see CSS,
+   * so it is written down here as well as in eslint.config.js. A name is the datum this
+   * product exists to get right; uppercasing "Gʻulom" is data loss rendered as style —
+   * `text-transform` alters what the operator reads with no trace at all in the data.
+   */
+
+  ::selection {
+    background-color: var(--brand-tint);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+    border-radius: var(--r-4xs);
+  }
+
+  /*
+   * A scrollbar that does not repaint the whole surface a different colour.
+   *
+   * The thumb is a UI component, so WCAG 1.4.11's 3:1 applies to it and 1.4.3's 4.5:1 does
+   * not. `--ink-mark` is the token for exactly that and clears it at 3.52:1 worst-case.
+   * This declaration is also the live proof that `tokenContrast.test.ts`'s file walk really
+   * reads `.css` — ESLint parses TypeScript and cannot see this line, so the waiver for it
+   * lives in that file's `MARK_WAIVERS` and is checked against this source.
+   */
+  * {
+    scrollbar-color: var(--ink-mark) transparent;
+    scrollbar-width: thin;
+  }
+}
+
+@layer components {
+  /*
+   * §11.3: "Every numeric column and metric gets `font-variant-numeric: tabular-nums
+   * slashed-zero`." One class, applied by DataTable's numeric columns, StatTile, the hero
+   * metric and every chart axis — so a digit never changes width as a poll ticks and a 0
+   * is never an O.
+   */
+  .num {
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+
+  /*
+   * Type scale — the Gogo language. Headings and numerals are set in `--font-heading`
+   * (Urbanist, with Mulish immediately behind it because Urbanist has no Cyrillic at all);
+   * everything else is `--font-sans` (Mulish) from `body`.
+   *
+   * `.type-hero` and `.type-metric` are asserted BY CLASS NAME in Vitest and in the
+   * Playwright smoke spec (`statValue()` locates `.type-hero, .type-metric`). They may be
+   * restyled; they may not be renamed without updating both.
+   */
+  .type-hero {
+    font-family: var(--font-heading);
+    font-size: 40px;
+    line-height: 44px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+
+  .type-metric {
+    font-family: var(--font-heading);
+    font-size: 28px;
+    line-height: 34px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+
+  /* Gogo's own h1: 26px/700. Every screen has exactly one. */
+  .type-h1 {
+    font-family: var(--font-heading);
+    font-size: 26px;
+    line-height: 34px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .type-h2 {
+    font-family: var(--font-heading);
+    font-size: 18px;
+    line-height: 26px;
+    font-weight: 600;
+  }
+
+  /* The plain section label this design sets ABOVE a card ("Stats", "Activity") — sentence
+     case, never uppercase micro-caps. */
+  .type-h3 {
+    font-family: var(--font-heading);
+    font-size: 15px;
+    line-height: 22px;
+    font-weight: 600;
+  }
+
+  .type-body {
+    font-size: 14px;
+    line-height: 22px;
+    font-weight: 400;
+  }
+
+  .type-body-sm {
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 400;
+  }
+
+  /*
+   * The ONE place `text-transform: uppercase` is legitimate: a caption is our own chrome
+   * label, never a customer's string. Nothing that renders user content may use it.
+   */
+  .type-caption {
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .type-mono {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 20px;
+    font-variant-numeric: tabular-nums slashed-zero;
+  }
+}

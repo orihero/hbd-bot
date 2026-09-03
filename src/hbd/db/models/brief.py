@@ -135,8 +135,21 @@ class BriefRow(TimestampMixin, Base):
 
     @property
     def is_identity_purged(self) -> bool:
-        """True once the 90-day identity clock has been run by the purge job."""
-        return self.identity_purged_at is not None or self.recipient_name_display is None
+        """True once the 90-day identity clock has been run by the purge job.
+
+        This reads the AUDIT COLUMN alone, and it used to also treat a null display name as
+        proof. That second signal was sound while every brief had a name — an absent one
+        could only mean the sweep had been through — and it stopped being sound the day the
+        bring-your-own-lyrics path shipped, because those orders never had a name to purge.
+        Left as it was, every one of them would have reported itself to the admin console,
+        and to any erasure proof built on this property, as lawfully erased personal data
+        that had in fact never been collected.
+
+        Nothing is lost by narrowing it. ``_purge_brief_identities`` nulls the six identity
+        columns and stamps ``identity_purged_at`` in ONE statement, so the audit column is
+        set for every row the sweep has ever touched.
+        """
+        return self.identity_purged_at is not None
 
     @property
     def is_note_purged(self) -> bool:

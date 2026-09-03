@@ -31,10 +31,8 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
 
-from hbd.admin.app import create_app
 from hbd.admin.container import AdminContainer
 from hbd.admin.deps import RequirePermission
 from hbd.admin.routers.generations import (
@@ -66,44 +64,6 @@ _TEXT_DAYS: Final[int] = 30
 
 def attempt_path(attempt_id: UUID) -> str:
     return f"{GENERATIONS_PATH}/{attempt_id}"
-
-
-# ---------------------------------------------------------------------------
-# The application under test
-# ---------------------------------------------------------------------------
-def api_routes(application: FastAPI) -> list[APIRoute]:
-    """Every ``APIRoute`` the application serves, however it stores its included routers.
-
-    ``app.routes`` is not flat on this FastAPI: ``include_router`` appends one wrapper per
-    router and keeps the router it was built from on ``original_router``. Read tolerantly so
-    this file asserts what the application serves rather than which of the two shapes the
-    installed version happens to use.
-    """
-    found: list[APIRoute] = []
-    for route in application.routes:
-        if isinstance(route, APIRoute):
-            found.append(route)
-            continue
-        included = getattr(route, "original_router", None)
-        if isinstance(included, APIRouter):
-            found.extend(nested for nested in included.routes if isinstance(nested, APIRoute))
-    return found
-
-
-@pytest.fixture
-def admin_app(container: AdminContainer) -> FastAPI:
-    """``create_app`` plus this router, until the wiring step includes it there.
-
-    The guard is not decoration. Once ``create_app`` includes the generations router, an
-    unconditional second ``include_router`` here would register a shadow copy of every route
-    ahead of — or behind — the real one, and this file would then be testing the copy it
-    installed rather than the one the application serves.
-    """
-    application = create_app(container=container)
-    paths = {route.path for route in api_routes(application)}
-    if GENERATIONS_PATH not in paths:
-        application.include_router(build_generations_router())
-    return application
 
 
 # ---------------------------------------------------------------------------

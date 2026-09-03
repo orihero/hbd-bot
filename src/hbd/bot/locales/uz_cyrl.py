@@ -146,6 +146,24 @@ CATALOGUE: Final[dict[str, str]] = {
         "Илтимос, қўшиқ матнини матн кўринишида юборинг — овозли хабар бўлмайди."
     ),
     "wizard.lyrics.updated": "Қабул қилинди — сўзларингизни сиз ёзгандек куйлайман.",
+    # -- «ўз матним» йўли ---------------------------------------------------
+    # Сабаблар рўйхатидан очилади, яъни матн ҳақида айтилган биринчи гап шу — шунинг учун
+    # чегаралар дарров айтилади: акс ҳолда улар ҳақида фақат рад жавобидан билинади,
+    # чегарани бузгандан кейин билиш эса энг ёмон йўл. Иккала сон ``lyrics_entry``дан.
+    "wizard.lyrics.own_prompt": (
+        "✍️ Куйланадиган сўзларни юборинг.\n\n"
+        "Уларни хабар қилиб ёзинг — куплетлар орасида бўш қатор қолдиринг, мен шу "
+        "бўлинишни сақлайман. {minimum} тадан {limit} тагача белги.\n\n"
+        "Қандай ёзсангиз, шундайлигича куйланади — исм керак бўлса, ўзингиз ёзинг."
+    ),
+    # Кўриб чиқиш ойнасининг эгизаги — мижознинг ўзи ёзган сўзлари учун. Бу ерда «ўз
+    # матнингизни юборинг» дейиш мумкин эмас: у буни энди қилди.
+    "wizard.lyrics.own_preview": (
+        "<b>{title}</b>\n"
+        "<blockquote expandable>{lyrics}</blockquote>\n"
+        "Сизнинг сўзларингиз — айнан шундайлигича куйланади. Ҳали ҳеч нарса ёзиб олинмади: "
+        "шуни қолдиринг ёки бошқасини хабар қилиб юборинг."
+    ),
     "wizard.lyrics.too_many": (
         "Бу қўшиқ учун аллақачон {limit} та матн ёздим. "
         "Юқоридагисини қолдиринг ёки ўз матнингизни хабар қилиб юборинг."
@@ -160,15 +178,25 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "wizard.confirm.summary": (
         "<b>{name} учун қўшиқ</b>\n"
-        "🎂 {occasion}\n"
-        "🎼 {genre}\n"
-        "🎙️ {vocal_gender}\n"
+        "{occasion}\n"
+        "{genre}\n"
+        "{vocal_gender}\n"
         "🌐 {output_language}\n"
         "✍️ {note}\n\n"
         "Сўзлар тайёр. Энди ёзиб оламан, сўнг исмни қулоқ билан текшираман.\n\n"
         "Бошлаймизми?"
     ),
     "wizard.confirm.no_note": "—",
+    "wizard.confirm.summary_noname": (
+        "<b>{title}</b>\n"
+        "{occasion}\n"
+        "{genre}\n"
+        "{vocal_gender}\n"
+        "🌐 {output_language}\n\n"
+        "Сўзларингиз тайёр. Энди ёзиб оламан.\n\n"
+        "Бошлаймизми?"
+    ),
+    "wizard.lyrics.untitled": "Сизнинг қўшиғингиз",
     "wizard.expired": "Бу сессия ёпилди. Қайтадан бошлашимиз мумкин.",
     "wizard.cancelled": "Бекор қилинди — ҳеч нарса ясалмади ва ҳеч нарса сақланмади.",
     "wizard.cancel_too_late": (
@@ -193,36 +221,37 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.use_buttons": "Илтимос, бунга юқоридаги тугмалар орқали жавоб беринг.",
     # -- buttons -----------------------------------------------------------
     "button.back": "⬅️ Орқага",
-    "button.skip": "Ўтказиб юбориш",
-    "button.cancel": "Бекор қилиш",
+    "button.skip": "⏭️ Ўтказиб юбориш",
+    "button.cancel": "✖️ Бекор қилиш",
     "button.confirm": "🎬 Ёзиб олинсин",
     "button.name_ok": "✅ Ҳа, шундай",
     "button.retype": "✏️ Қайтадан ёзиш",
     "button.lyrics_ok": "✅ Шу матн қолсин",
     "button.regenerate": "🔄 Бошқа матн ёзилсин",
+    "button.own_lyrics": "✍️ Ўз матним",
     "button.start_over": "↩️ Қайтадан бошлаш",
     "button.make_another": "🎂 Яна биттаси",
     "button.report_problem": "⚠️ Нимадир нотўғри",
     "button.keep_note": "✅ Изоҳ қолсин",
     "button.try_again": "🔄 Қайта уриниш",
     # -- enum labels -------------------------------------------------------
-    "occasion.birthday": "Туғилган кун",
-    "occasion.anniversary": "Юбилей",
-    "occasion.custom": "Бошқа сабаб",
-    "genre.pop": "Поп",
-    "genre.retro_estrada": "Ретро эстрада",
-    "genre.hip_hop": "Хип-хоп",
-    "genre.rock": "Рок",
-    "genre.acoustic_ballad": "Акустик баллада",
-    "genre.dance_electronic": "Рақс / электрон",
-    "genre.uzbek_pop": "Ўзбек эстрадаси",
-    "genre.uzbek_folk": "Ўзбек халқ қўшиғи",
-    "genre.shashmaqom": "Шашмақом",
-    "genre.jazz_lounge": "Жаз-лаунж",
-    "vocal_gender.female": "Аёл овози",
-    "vocal_gender.male": "Эркак овози",
-    "vocal_gender.duet": "Дуэт",
-    "vocal_gender.any": "Ҳар қандай овоз",
+    "occasion.birthday": "🎂 Туғилган кун",
+    "occasion.anniversary": "💍 Юбилей",
+    "occasion.custom": "✨ Бошқа сабаб",
+    "genre.pop": "🎤 Поп",
+    "genre.retro_estrada": "📻 Ретро эстрада",
+    "genre.hip_hop": "🎧 Хип-хоп",
+    "genre.rock": "🤘 Рок",
+    "genre.acoustic_ballad": "🎸 Акустик баллада",
+    "genre.dance_electronic": "🕺 Рақс / электрон",
+    "genre.uzbek_pop": "🌟 Ўзбек эстрадаси",
+    "genre.uzbek_folk": "🪕 Ўзбек халқ қўшиғи",
+    "genre.shashmaqom": "🎻 Шашмақом",
+    "genre.jazz_lounge": "🎷 Жаз-лаунж",
+    "vocal_gender.female": "👩 Аёл овози",
+    "vocal_gender.male": "👨 Эркак овози",
+    "vocal_gender.duet": "👫 Дуэт",
+    "vocal_gender.any": "🎲 Ҳар қандай овоз",
     "language.uz_latn": "Oʻzbekcha (lotin)",
     "language.uz_cyrl": "Ўзбекча (кирилл)",
     "language.ru": "Русский",
@@ -231,6 +260,9 @@ CATALOGUE: Final[dict[str, str]] = {
     "progress.queued": (
         "🎬 {name} учун қўшиқ студияда. Телеграмни ёпсангиз ҳам бўлади — "
         "тайёр бўлгач шу ерга келади."
+    ),
+    "progress.queued_noname": (
+        "🎬 Қўшиғингиз студияда. Telegramни ёпсангиз ҳам бўлади — шу ерга келади."
     ),
     "progress.validating": "🔎 Маълумотларни текшираяпман…",
     "progress.moderating": "🛡️ Матнни кўриб чиқаяпман…",
@@ -269,6 +301,21 @@ CATALOGUE: Final[dict[str, str]] = {
         "етишмаётгани қуйида ёзилган. Бунинг учун узр сўрайман.\n\n"
         "Буюртма <code>{order_ref}</code>. Шу рақам билан /support юборинг, бу "
         "жараённи кўриб чиқаман."
+    ),
+    "delivery.song_caption_noname": (
+        "🎵 <b>{title}</b>\nСизнинг сўзларингиз, куйланди. Овозни ёқинг."
+    ),
+    "delivery.done_noname": (
+        "🎉 Мана қўшиғингиз — юборсангиз бўлади.\n\n"
+        "Аудиони тўғридан-тўғри уларга юборинг: у чат ичида ижро этилади, ҳеч нарса "
+        "юклаб олиш шарт эмас.\n\n"
+        "Буюртма <code>{order_ref}</code> — биз билан боғланиш керак бўлса, сақлаб қўйинг.\n\n"
+        "Яна биттасини қиламизми?"
+    ),
+    "delivery.done_degraded_noname": (
+        "⚠️ Қўшиғингиз келди, лекин жараён силлиқ ўтмади — нима етишмагани қуйида "
+        "ёзилган. Бунинг учун узр.\n\n"
+        "Буюртма <code>{order_ref}</code>. Шу рақам билан /support юборинг, бу жараённи кўрамиз."
     ),
     # -- gaps (appended to the closing message; never a retry instruction) --
     "gap.name_best_effort": (

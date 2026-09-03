@@ -138,6 +138,24 @@ CATALOGUE: Final[dict[str, str]] = {
         "Пожалуйста, пришлите текст песни сообщением — голосовое сообщение не подойдёт."
     ),
     "wizard.lyrics.updated": "Принято — спою ваши слова ровно так, как вы их написали.",
+    # -- путь «свой текст» --------------------------------------------------
+    # Открывается из списка поводов, то есть это вообще первое, что сказано про текст, —
+    # поэтому границы названы сразу: иначе о них узнают только из отказа, а узнавать предел
+    # после того, как его нарушил, — худший способ. Оба числа берутся из ``lyrics_entry``.
+    "wizard.lyrics.own_prompt": (
+        "✍️ Пришлите слова, которые нужно спеть.\n\n"
+        "Наберите их сообщением — оставьте пустую строку между куплетами, и я сохраню это "
+        "деление. От {minimum} до {limit} символов.\n\n"
+        "Спою ровно так, как вы напишете, — имя впишите сами, если оно нужно."
+    ),
+    # Двойник превью — для слов, написанных самим заказчиком. Здесь нельзя предлагать
+    # «пришлите свои»: он только что это и сделал.
+    "wizard.lyrics.own_preview": (
+        "<b>{title}</b>\n"
+        "<blockquote expandable>{lyrics}</blockquote>\n"
+        "Ваши слова — ровно так они и прозвучат. Пока не записано ничего: оставьте их или "
+        "пришлите сообщением другие."
+    ),
     "wizard.lyrics.too_many": (
         "Вариантов текста для этой песни у меня уже {limit}. "
         "Оставьте тот, что выше, или пришлите сообщением свой."
@@ -151,15 +169,25 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "wizard.confirm.summary": (
         "<b>Песня для {name}</b>\n"
-        "🎂 {occasion}\n"
-        "🎼 {genre}\n"
-        "🎙️ {vocal_gender}\n"
+        "{occasion}\n"
+        "{genre}\n"
+        "{vocal_gender}\n"
         "🌐 {output_language}\n"
         "✍️ {note}\n\n"
         "Слова готовы. Дальше я записываю песню, а потом проверяю имя на слух.\n\n"
         "Начинаем?"
     ),
     "wizard.confirm.no_note": "—",
+    "wizard.confirm.summary_noname": (
+        "<b>{title}</b>\n"
+        "{occasion}\n"
+        "{genre}\n"
+        "{vocal_gender}\n"
+        "🌐 {output_language}\n\n"
+        "Ваши слова готовы. Дальше я их записываю.\n\n"
+        "Начинать?"
+    ),
+    "wizard.lyrics.untitled": "Ваша песня",
     "wizard.expired": "Эта сессия закрылась. Можем пройти всё заново, с самого начала.",
     "wizard.cancelled": "Отменено — ничего не сделано и ничего не сохранено.",
     "wizard.cancel_too_late": (
@@ -185,42 +213,44 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.use_buttons": "Пожалуйста, ответьте кнопками выше.",
     # -- buttons -----------------------------------------------------------
     "button.back": "⬅️ Назад",
-    "button.skip": "Пропустить",
-    "button.cancel": "Отмена",
+    "button.skip": "⏭️ Пропустить",
+    "button.cancel": "✖️ Отмена",
     "button.confirm": "🎬 Записывать",
     "button.name_ok": "✅ Да, именно так",
     "button.retype": "✏️ Написать заново",
     "button.lyrics_ok": "✅ Оставить этот текст",
     "button.regenerate": "🔄 Написать другой текст",
+    "button.own_lyrics": "✍️ Свой текст",
     "button.start_over": "↩️ Начать заново",
     "button.make_another": "🎂 Сделать ещё одну",
     "button.report_problem": "⚠️ Что-то не так",
     "button.keep_note": "✅ Оставить заметку",
     "button.try_again": "🔄 Попробовать ещё раз",
     # -- enum labels -------------------------------------------------------
-    "occasion.birthday": "День рождения",
-    "occasion.anniversary": "Юбилей",
-    "occasion.custom": "Другой повод",
-    "genre.pop": "Поп",
-    "genre.retro_estrada": "Ретро-эстрада",
-    "genre.hip_hop": "Хип-хоп",
-    "genre.rock": "Рок",
-    "genre.acoustic_ballad": "Акустическая баллада",
-    "genre.dance_electronic": "Танцевальная / электронная",
-    "genre.uzbek_pop": "Узбекская эстрада",
-    "genre.uzbek_folk": "Узбекская народная",
-    "genre.shashmaqom": "Шашмаком",
-    "genre.jazz_lounge": "Джаз-лаунж",
-    "vocal_gender.female": "Женский голос",
-    "vocal_gender.male": "Мужской голос",
-    "vocal_gender.duet": "Дуэт",
-    "vocal_gender.any": "Любой голос",
+    "occasion.birthday": "🎂 День рождения",
+    "occasion.anniversary": "💍 Юбилей",
+    "occasion.custom": "✨ Другой повод",
+    "genre.pop": "🎤 Поп",
+    "genre.retro_estrada": "📻 Ретро-эстрада",
+    "genre.hip_hop": "🎧 Хип-хоп",
+    "genre.rock": "🤘 Рок",
+    "genre.acoustic_ballad": "🎸 Акустическая баллада",
+    "genre.dance_electronic": "🕺 Танцевальная / электронная",
+    "genre.uzbek_pop": "🌟 Узбекская эстрада",
+    "genre.uzbek_folk": "🪕 Узбекская народная",
+    "genre.shashmaqom": "🎻 Шашмаком",
+    "genre.jazz_lounge": "🎷 Джаз-лаунж",
+    "vocal_gender.female": "👩 Женский голос",
+    "vocal_gender.male": "👨 Мужской голос",
+    "vocal_gender.duet": "👫 Дуэт",
+    "vocal_gender.any": "🎲 Любой голос",
     "language.uz_latn": "Oʻzbekcha (lotin)",
     "language.uz_cyrl": "Ўзбекча (кирилл)",
     "language.ru": "Русский",
     "language.en": "English",
     # -- progress (keys mirror hbd.pipeline.events.STAGE_MESSAGE_KEYS) ------
     "progress.queued": "🎬 Песня для {name} в студии. Telegram можно закрыть — она придёт сюда.",
+    "progress.queued_noname": "🎬 Ваша песня в студии. Telegram можно закрыть — она придёт сюда.",
     "progress.validating": "🔎 Проверяю детали…",
     "progress.moderating": "🛡️ Проверяю формулировки…",
     "progress.writing_lyrics": "✍️ Пишу текст песни…",
@@ -258,6 +288,19 @@ CATALOGUE: Final[dict[str, str]] = {
         "ниже. Мне жаль.\n\n"
         "Заказ <code>{order_ref}</code>. Отправьте /support с этим номером, и я разберу "
         "этот прогон."
+    ),
+    "delivery.song_caption_noname": ("🎵 <b>{title}</b>\nВаши слова, спетые. Включите звук."),
+    "delivery.done_noname": (
+        "🎉 Вот ваша песня — можно отправлять.\n\n"
+        "Перешлите аудио прямо им: оно играет внутри чата, скачивать ничего не "
+        "нужно.\n\n"
+        "Заказ <code>{order_ref}</code> — сохраните, если понадобится к нам обратиться.\n\n"
+        "Ещё одну?"
+    ),
+    "delivery.done_degraded_noname": (
+        "⚠️ Ваша песня здесь, но прогон прошёл не гладко — чего не хватает, написано "
+        "ниже. Извините за это.\n\n"
+        "Заказ <code>{order_ref}</code>. Пришлите /support с ним, и мы посмотрим этот прогон."
     ),
     # -- gaps (appended to the closing message; never a retry instruction) --
     "gap.name_best_effort": (

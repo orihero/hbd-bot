@@ -36,6 +36,7 @@ from hbd.bot.keyboards import (
     name_prompt_keyboard,
     note_keyboard,
     occasion_keyboard,
+    own_lyrics_keyboard,
     post_delivery_keyboard,
     start_over_keyboard,
     vocal_gender_keyboard,
@@ -66,6 +67,8 @@ def every_keyboard(language: Language) -> Iterator[tuple[str, InlineKeyboardMark
     yield "name_prompt", name_prompt_keyboard(language)
     yield "name_confirm", name_confirm_keyboard(language)
     yield "lyrics", lyrics_keyboard(language)
+    yield "lyrics_the_customer_wrote", lyrics_keyboard(language, is_own_lyrics=True)
+    yield "own_lyrics_prompt", own_lyrics_keyboard(language)
     yield "lyrics_writing", lyrics_writing_keyboard(language)
     yield "lyrics_failed", lyrics_failed_keyboard(language)
     yield "confirm", confirm_keyboard(language)

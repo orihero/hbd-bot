@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -268,6 +269,7 @@ def test_brief_identity_values_keeps_display_and_lookup_key_apart() -> None:
 
 
 def test_a_purged_brief_row_cannot_be_mapped_back_to_a_recipient() -> None:
+    """A deletion must never be handed back as an anonymous order. It raises, as before."""
     # Arrange
     row = BriefRow(
         id=uuid4(),
@@ -275,6 +277,47 @@ def test_a_purged_brief_row_cannot_be_mapped_back_to_a_recipient() -> None:
         recipient_name_display=None,
         recipient_name_raw=None,
         recipient_lookup_key=None,
+        identity_purged_at=datetime.now(UTC),
+    )
+
+    # Act / Assert
+    with pytest.raises(PipelineError):
+        to_recipient_name(row)
+
+
+def test_a_brief_row_that_never_held_a_name_maps_to_no_recipient() -> None:
+    """The bring-your-own-lyrics path collects no identity, and that is not an error.
+
+    The same null columns as the test above, and the opposite answer, because the audit
+    column is what separates them: only the purge job stamps it. Returning ``None`` here is
+    what lets a nameless order be read back and rendered at all.
+    """
+    # Arrange
+    row = BriefRow(
+        id=uuid4(),
+        order_id=uuid4(),
+        recipient_name_display=None,
+        recipient_name_raw=None,
+        recipient_lookup_key=None,
+        recipient_script=None,
+        recipient_language=None,
+        identity_purged_at=None,
+    )
+
+    # Act / Assert
+    assert to_recipient_name(row) is None
+
+
+def test_a_half_written_identity_is_refused_rather_than_guessed() -> None:
+    """No write path produces this, so it is corruption and not a state to render."""
+    # Arrange
+    row = BriefRow(
+        id=uuid4(),
+        order_id=uuid4(),
+        recipient_name_display="Gʻulomjon",
+        recipient_name_raw=None,
+        recipient_lookup_key=None,
+        identity_purged_at=None,
     )
 
     # Act / Assert

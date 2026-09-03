@@ -37,6 +37,7 @@ from hbd.contracts import (
     NameVerdict,
     Result,
 )
+from hbd.db.admin.sql import TimeWindow, apply_window
 from hbd.db.base import utc_now
 from hbd.db.enums import GenerationKind
 from hbd.db.guard import run_guarded
@@ -187,14 +188,30 @@ class GenerationAttemptRepository:
             "list_attempts", lambda: self._list_for_order(order_id), order_id=str(order_id)
         )
 
-    async def strategy_stats(self) -> Result[tuple[StrategyStat, ...]]:
-        """Verification rate per candidate strategy, best first.
+    async def strategy_stats(
+        self, *, window: TimeWindow | None = None
+    ) -> Result[tuple[StrategyStat, ...]]:
+        """Verification rate per candidate strategy, best first, over an optional window.
 
         This is the bake-off, run continuously against production traffic. Ordering by
         rate then volume means a strategy with one lucky success does not outrank one with
         four hundred attempts at the same rate.
+
+        **The window is what makes the answer current.** Without one, a strategy retired six
+        months ago still drags on today's ranking, and the question this query exists to
+        answer — what should ``HBD_NAME_CANDIDATE_ORDER`` be *now* — is answered with
+        evidence from a pipeline that no longer exists. ``None`` still means the whole
+        record, because that is the honest default for a caller who did not choose a range.
+
+        The plan spells this ``strategy_stats(since=…)``, an open lower bound. It is a
+        half-open :class:`~hbd.db.admin.sql.TimeWindow` instead — the one way a window is
+        expressed anywhere in this repository (``apply_window``, every ``/metrics/*`` route,
+        every admin read). "Since X" is ``TimeWindow(start=X, end=now)`` and loses nothing;
+        a second spelling would gain a range that cannot express "last March" and two
+        window idioms that disagree about their endpoints, which is how two screens counting
+        the same boundary row twice starts.
         """
-        return await run_guarded("strategy_stats", self._strategy_stats)
+        return await run_guarded("strategy_stats", lambda: self._strategy_stats(window))
 
     # -- implementations ----------------------------------------------------
     async def _record(self, attempt: GenerationAttempt) -> UUID:
@@ -246,23 +263,23 @@ class GenerationAttemptRepository:
             )
             return tuple(_row_to_attempt(row) for row in rows)
 
-    async def _strategy_stats(self) -> tuple[StrategyStat, ...]:
+    async def _strategy_stats(self, window: TimeWindow | None) -> tuple[StrategyStat, ...]:
         verified = sa.func.sum(
             sa.case((GenerationAttemptRow.is_name_verified.is_(True), 1), else_=0)
         )
+        statement = sa.select(
+            GenerationAttemptRow.name_candidate_strategy,
+            sa.func.count().label("attempts"),
+            verified.label("verified"),
+        ).where(
+            GenerationAttemptRow.name_candidate_strategy.is_not(None),
+            GenerationAttemptRow.is_name_verified.is_not(None),
+        )
+        statement = apply_window(statement, GenerationAttemptRow.created_at, window)
         async with self._sessions.begin() as session:
             rows = (
                 await session.execute(
-                    sa.select(
-                        GenerationAttemptRow.name_candidate_strategy,
-                        sa.func.count().label("attempts"),
-                        verified.label("verified"),
-                    )
-                    .where(
-                        GenerationAttemptRow.name_candidate_strategy.is_not(None),
-                        GenerationAttemptRow.is_name_verified.is_not(None),
-                    )
-                    .group_by(GenerationAttemptRow.name_candidate_strategy)
+                    statement.group_by(GenerationAttemptRow.name_candidate_strategy)
                 )
             ).all()
         stats = tuple(

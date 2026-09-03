@@ -727,6 +727,137 @@ async def test_strategy_outcomes_rank_by_rate_then_volume_inside_a_window(
     assert all_time[0].strategy is NameStrategy.CYRILLIC
 
 
+async def test_name_analytics_keeps_the_two_denominators_apart(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """A verdict without a score counts in the bake-off and not in the histogram.
+
+    ``is_name_verified`` and ``match_confidence`` are written together by
+    ``verdict_row_values`` today, but nothing in the schema requires it — so ``scored`` is
+    measured rather than assumed equal to ``attempts``. Reporting one as the other would put
+    a denominator under the histogram that its bars do not add up to.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        await seed_attempt(
+            session,
+            created_at=_DAY_TWO,
+            kind=GenerationKind.NAME_VERIFICATION,
+            name_candidate_strategy=NameStrategy.STRIPPED,
+            name_candidate_rank=0,
+            is_name_verified=True,
+            match_confidence=0.9,
+        )
+        await seed_attempt(
+            session,
+            created_at=_DAY_TWO,
+            kind=GenerationKind.NAME_VERIFICATION,
+            name_candidate_strategy=NameStrategy.STRIPPED,
+            name_candidate_rank=0,
+            is_name_verified=True,
+            match_confidence=None,
+        )
+
+    # Act
+    async with sessions.begin() as session:
+        analytics = await attempt_queries.name_analytics(session)
+
+    # Assert
+    assert (analytics.attempts, analytics.verified, analytics.scored) == (2, 2, 1)
+    assert analytics.strategies[0].scored == 1
+    assert sum(bucket.count for bucket in analytics.buckets) == 1
+
+
+async def test_name_analytics_clamps_a_score_the_verifier_returned_out_of_range(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """``1.0000000002`` is not a reason to lose a sample — the SPA's rule, server-side."""
+    # Arrange
+    async with sessions.begin() as session:
+        for confidence in (-0.5, 1.5):
+            await seed_attempt(
+                session,
+                created_at=_DAY_TWO,
+                kind=GenerationKind.NAME_VERIFICATION,
+                name_candidate_strategy=NameStrategy.STRIPPED,
+                name_candidate_rank=0,
+                is_name_verified=True,
+                match_confidence=confidence,
+            )
+
+    # Act
+    async with sessions.begin() as session:
+        analytics = await attempt_queries.name_analytics(session)
+
+    # Assert — one in the first bar, one in the last, none lost.
+    assert analytics.scored == 2
+    assert analytics.buckets[0].count == 1
+    assert analytics.buckets[-1].count == 1
+
+
+async def test_the_near_threshold_band_is_inclusive_at_both_edges(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The count is "how many would a move of this size reach", so both edges are in."""
+    # Arrange — band of 0.1 around 0.5: 0.4 and 0.6 are in, 0.39 and 0.61 are not.
+    async with sessions.begin() as session:
+        for confidence in (0.39, 0.4, 0.5, 0.6, 0.61):
+            await seed_attempt(
+                session,
+                created_at=_DAY_TWO,
+                kind=GenerationKind.NAME_VERIFICATION,
+                name_candidate_strategy=NameStrategy.STRIPPED,
+                name_candidate_rank=0,
+                is_name_verified=True,
+                match_confidence=confidence,
+            )
+
+    # Act
+    async with sessions.begin() as session:
+        analytics = await attempt_queries.name_analytics(session, threshold=0.5, band=0.1)
+
+    # Assert
+    assert analytics.near_threshold == 3
+    assert analytics.band == 0.1
+
+
+async def test_a_threshold_of_one_does_not_describe_a_band_reaching_past_a_perfect_score(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The band is clamped into ``[0, 1]``; nothing scores 1.05 and the count must not imply it."""
+    # Arrange
+    async with sessions.begin() as session:
+        for confidence in (0.9, 0.96, 1.0):
+            await seed_attempt(
+                session,
+                created_at=_DAY_TWO,
+                kind=GenerationKind.NAME_VERIFICATION,
+                name_candidate_strategy=NameStrategy.STRIPPED,
+                name_candidate_rank=0,
+                is_name_verified=True,
+                match_confidence=confidence,
+            )
+
+    # Act
+    async with sessions.begin() as session:
+        analytics = await attempt_queries.name_analytics(session, threshold=1.0)
+
+    # Assert — 0.96 and 1.0 are within 0.05 of a perfect score; 0.9 is not.
+    assert analytics.near_threshold == 2
+
+
+async def test_name_analytics_refuses_a_histogram_it_could_not_draw(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """A programming error, raised rather than divided by zero halfway through a chart."""
+    # Act / Assert
+    async with sessions.begin() as session:
+        with pytest.raises(ValueError, match="bucket"):
+            await attempt_queries.name_analytics(session, bucket_count=0)
+        with pytest.raises(ValueError, match="band"):
+            await attempt_queries.name_analytics(session, band=-0.1)
+
+
 # ---------------------------------------------------------------------------
 # Users — honest field names
 # ---------------------------------------------------------------------------

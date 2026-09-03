@@ -32,6 +32,7 @@ from hbd.contracts import (
 )
 from hbd.errors import AudioProcessingError, HbdError, StorageError
 from hbd.logging import get_logger
+from hbd.storage import archive_key
 
 __all__ = [
     "song_asset",
@@ -126,7 +127,9 @@ async def song_asset(
     workspace: Path,
     post: AudioPostProcessor,
     settings: Settings,
-    name_candidate: NameCandidate,
+    #: ``None`` for a song with no name in it, which is what a nameless order renders.
+    #: ``asset_name_candidate_values`` already stores that as three NULL columns.
+    name_candidate: NameCandidate | None,
 ) -> Result[GeneratedAsset]:
     """Write, normalise and describe the song. The expensive asset — it always ships."""
     extension = _extension_for(audio.mime)
@@ -187,7 +190,7 @@ async def greeting_asset(
     workspace: Path,
     post: AudioPostProcessor,
     settings: Settings,
-    name_candidate: NameCandidate,
+    name_candidate: NameCandidate | None,
 ) -> Result[GeneratedAsset]:
     """Write, normalise and transcode one greeting to an OGG/Opus voice note.
 
@@ -225,13 +228,20 @@ async def greeting_asset(
 
 
 def render_lyric_sheet(lyrics: LyricDraft) -> str:
-    """Typeset the sheet. This is OUR typography, so the name is the display form."""
+    """Typeset the sheet. This is OUR typography, so the name is the display form.
+
+    The signature line is dropped entirely for a nameless lyric — the bring-your-own path,
+    where the customer wrote the words and was never asked who they are for. An em dash
+    followed by nothing is not a smaller version of a dedication, it is a typo on the last
+    line of the deliverable.
+    """
     blocks = [lyrics.title, ""]
     for section in lyrics.sections:
         blocks.append(f"[{section.label}]")
         blocks.extend(section.lines)
         blocks.append("")
-    blocks.append(f"— {lyrics.name_display}")
+    if lyrics.name_display is not None:
+        blocks.append(f"— {lyrics.name_display}")
     return "\n".join(blocks)
 
 
@@ -251,7 +261,14 @@ def lyric_sheet_asset(lyrics: LyricDraft, *, workspace: Path) -> Result[Generate
 
 
 def storage_key(order_id: object, asset: GeneratedAsset) -> str:
-    return f"orders/{order_id}/{asset.path.name}"
+    """Where this asset's bytes live in the archive.
+
+    Delegates to :func:`hbd.storage.archive_key` rather than spelling the key inline: the
+    row that records the key and the sweep that reconstructs it for older rows have to
+    produce the same string as the ``put`` that wrote the object, and three independent
+    f-strings is how they stop doing that.
+    """
+    return archive_key(order_id, asset.path.name)
 
 
 async def archive_assets(

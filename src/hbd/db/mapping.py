@@ -127,13 +127,38 @@ def approved_lyrics_from_json(raw: object, *, order_id: UUID) -> LyricDraft | No
 # ---------------------------------------------------------------------------
 # Rows -> contracts
 # ---------------------------------------------------------------------------
-def to_recipient_name(row: BriefRow) -> RecipientName:
-    """Rebuild the recipient from a brief row.
+def to_recipient_name(row: BriefRow) -> RecipientName | None:
+    """Rebuild the recipient from a brief row, or ``None`` when there never was one.
 
-    Raises when the 90-day identity clock has already run. That is the correct answer, not
-    a failure to handle: the data was purged on a legal schedule and inventing a
-    placeholder would misrepresent a deletion as a value.
+    Three states share one set of null columns, and telling them apart is this function's
+    whole job:
+
+    * **Purged.** ``identity_purged_at`` is stamped, so the 90-day clock has run. Raises.
+      That is the correct answer and not a failure to handle: the data was deleted on a
+      legal schedule, and returning ``None`` here would let a caller quietly render an
+      erased order as an anonymous one — a deletion misreported as an absence.
+    * **Never collected.** The identity columns are null and the audit column is not. This
+      is a bring-your-own-lyrics order: the wizard asked for the words and never asked who
+      the song was for. Returns ``None``, which ``Brief.recipient`` accepts.
+    * **Corrupt.** Some identity columns are set and others are not, which no write path
+      produces — ``brief_identity_values`` always writes all six together. Raises, because
+      a half-built ``RecipientName`` would carry a display name with no candidates and the
+      composition plan would isolate a chunk it cannot re-roll.
     """
+    if row.is_identity_purged:
+        raise PipelineError(
+            "recipient identity has been purged under the FIL-7 retention schedule",
+            context={"brief_id": str(row.id), "order_id": str(row.order_id)},
+        )
+    columns = (
+        row.recipient_name_display,
+        row.recipient_name_raw,
+        row.recipient_lookup_key,
+        row.recipient_script,
+        row.recipient_language,
+    )
+    if all(column is None for column in columns):
+        return None
     if (
         row.recipient_name_display is None
         or row.recipient_name_raw is None
@@ -142,7 +167,7 @@ def to_recipient_name(row: BriefRow) -> RecipientName:
         or row.recipient_language is None
     ):
         raise PipelineError(
-            "recipient identity has been purged under the FIL-7 retention schedule",
+            "brief holds a partial recipient identity, which no write path produces",
             context={"brief_id": str(row.id), "order_id": str(row.order_id)},
         )
     return RecipientName(
@@ -218,8 +243,31 @@ def to_generated_asset(row: AssetRow) -> GeneratedAsset:
 # ---------------------------------------------------------------------------
 # Contracts -> row values
 # ---------------------------------------------------------------------------
-def brief_identity_values(recipient: RecipientName, *, expires_at: datetime) -> dict[str, Any]:
-    """The identity half of a ``briefs`` row, ready to assign or to bulk-update."""
+def brief_identity_values(
+    recipient: RecipientName | None, *, expires_at: datetime
+) -> dict[str, Any]:
+    """The identity half of a ``briefs`` row, ready to assign or to bulk-update.
+
+    ``recipient=None`` writes the identity columns as NULL while leaving
+    ``identity_purged_at`` NULL too, and that pairing is the whole of how a brief that never
+    had a name is told apart from one whose name has been erased. Only the purge job sets
+    ``identity_purged_at``; see ``BriefRow.is_identity_purged``.
+
+    ``identity_expires_at`` is still written, because the column is NOT NULL and because a
+    row with nothing to purge is cheapest to leave inside the same sweep rather than to
+    special-case out of it — the sweep's own predicate skips it on the name being NULL.
+    """
+    if recipient is None:
+        return {
+            "recipient_name_raw": None,
+            "recipient_name_display": None,
+            "recipient_lookup_key": None,
+            "recipient_script": None,
+            "recipient_language": None,
+            "recipient_candidates": None,
+            "identity_expires_at": expires_at,
+            "identity_purged_at": None,
+        }
     return {
         "recipient_name_raw": recipient.raw,
         "recipient_name_display": recipient.display,

@@ -21,7 +21,7 @@ from hbd.errors import (
 )
 from hbd.pipeline.events import PipelineStage
 from hbd.pipeline.outcome import PipelineOutcome
-from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_order
+from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_order, recipient_of
 from tests.test_pipeline.conftest import Studio, value_of
 
 
@@ -106,8 +106,8 @@ async def test_a_failure_reason_never_carries_the_note_the_name_or_the_models_qu
     assert INCIDENT_NOTE not in reason
     assert INCIDENT_MODEL_REASON not in reason
     assert UZBEK_NAME_CANONICAL not in reason
-    assert order.brief.recipient.raw not in reason
-    assert order.brief.recipient.lookup_key not in reason
+    assert recipient_of(order.brief).raw not in reason
+    assert recipient_of(order.brief).lookup_key not in reason
     for word in INCIDENT_NOTE.replace(",", " ").split():
         assert word.casefold() not in reason.casefold(), f"{word!r} leaked out of the brief"
     for word in ("alcohol", "beer", "drinking"):

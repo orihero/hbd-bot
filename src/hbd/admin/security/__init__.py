@@ -1,9 +1,10 @@
 """Everything the admin panel uses to decide *who* and *whether*, and nothing else.
 
-Five modules, one job each: password hashing that never blocks the event loop, client-IP
+Six modules, one job each: password hashing that never blocks the event loop, client-IP
 derivation that never believes a header from an untrusted peer, login rate limiting that
-runs before argon2 and fails closed, opaque tokens that are stored only as digests, and the
-RBAC matrix with its action-scoped step-up.
+runs before argon2 and fails closed, opaque tokens that are stored only as digests, the RBAC
+matrix with its action-scoped step-up, and the record-counted reveal budget that bounds how
+much personal data one step-up's grace window can be spent on.
 
 Every function here is pure over primitives — parameters, not settings objects, and no
 database or Redis access except through an injected store protocol. That is deliberate:
@@ -13,6 +14,16 @@ a request, a server or a session, and it must be readable end to end in one sitt
 
 from __future__ import annotations
 
+from hbd.admin.security.budget import (
+    DEFAULT_REVEAL_BUDGET,
+    MAX_RECORDS_PER_REVEAL,
+    RevealBudgetDecision,
+    RevealBudgetLimits,
+    RevealBudgetOutcome,
+    RevealBudgetScope,
+    charge_reveal_budget,
+    reveal_budget_key,
+)
 from hbd.admin.security.clientip import (
     IpNetwork,
     is_trusted_peer,
@@ -76,6 +87,15 @@ __all__ = [
     "is_trusted_peer",
     "parse_trusted_proxies",
     "resolve_client_ip",
+    # the reveal budget
+    "DEFAULT_REVEAL_BUDGET",
+    "MAX_RECORDS_PER_REVEAL",
+    "RevealBudgetDecision",
+    "RevealBudgetLimits",
+    "RevealBudgetOutcome",
+    "RevealBudgetScope",
+    "charge_reveal_budget",
+    "reveal_budget_key",
     # rate limiting
     "LoginRateLimits",
     "RateLimitDecision",

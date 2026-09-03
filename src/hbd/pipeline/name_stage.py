@@ -76,7 +76,11 @@ class SongRender(BaseModel):
 
     audio: RenderedAudio
     plan: CompositionPlan
-    candidate: NameCandidate
+    #: The orthography this take was sung under, or ``None`` for a song with no name in it
+    #: — the bring-your-own path, where nothing was verified because there was nothing to
+    #: verify. ``was_checked`` is False for those, as it is for a take the loop could not
+    #: hear, and ``verdicts`` is empty.
+    candidate: NameCandidate | None = None
     verdicts: tuple[NameVerdict, ...] = ()
     is_verified: bool = False
     was_checked: bool = False
@@ -89,9 +93,9 @@ class _Take(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    candidate: NameCandidate
     audio: RenderedAudio
     plan: CompositionPlan
+    candidate: NameCandidate | None = None
     score: float = 0.0
 
 
@@ -157,16 +161,29 @@ class _NameLoop:
 
     @property
     def _max_renders(self) -> int:
+        recipient = self._brief.recipient
+        if recipient is None:
+            return 1
         return max(
             1,
             min(
                 self._settings.name_verification_max_attempts,
-                len(self._brief.recipient.candidates),
+                len(recipient.candidates),
             ),
         )
 
     async def run(self, plan: CompositionPlan) -> Result[SongRender]:
-        candidate = self._brief.recipient.candidates[0]
+        """Render, listen, re-roll — unless there is no name, in which case just render.
+
+        A brief with no recipient comes from the bring-your-own path, where the wizard never
+        asks who the song is for. There is no orthography to sing, no chunk isolated to
+        carry one, and nothing to compare a transcript against — so the loop would spend an
+        STT call scoring a name it does not have. It composes once and ships.
+        """
+        recipient = self._brief.recipient
+        if recipient is None:
+            return await self._render_once(plan)
+        candidate = recipient.candidates[0]
         current = plan
         for attempt in range(self._max_renders):
             rendered = await self._render(current, candidate)
@@ -197,11 +214,35 @@ class _NameLoop:
 
         return ok(await self._give_up())
 
+    async def _render_once(self, plan: CompositionPlan) -> Result[SongRender]:
+        """Compose a song that names nobody. One vendor call, no verification, no re-roll.
+
+        Split out rather than folded into :meth:`run` as an early break, because the loop's
+        every other line is about a name — the candidate ladder, the transcript, the
+        verdicts, the best-miss bookkeeping — and none of it has a meaning here. A failure
+        is returned as-is: on a first render there is no earlier take to fall back to, which
+        is what ``_on_render_failure`` already says when ``_best`` is None.
+        """
+        rendered = await self._render(plan, None)
+        if isinstance(rendered, Err):
+            return rendered
+        take = self._keep(rendered.value, plan, None)
+        _LOGGER.info(
+            "song composed with no name to verify", extra={"order_id": str(self._order_id)}
+        )
+        return ok(self._ship(take, renders=1, was_checked=False))
+
     # -- one attempt --------------------------------------------------------
     async def _render(
-        self, plan: CompositionPlan, candidate: NameCandidate
+        self, plan: CompositionPlan, candidate: NameCandidate | None
     ) -> Result[RenderedAudio]:
-        key = idempotency_key(self._order_id, PipelineStage.COMPOSING_SONG, candidate.rank)
+        # Rank 0 for a nameless render: there is one attempt and no ladder, so the key only
+        # has to be stable across a retry of THIS order, which it is.
+        key = idempotency_key(
+            self._order_id,
+            PipelineStage.COMPOSING_SONG,
+            0 if candidate is None else candidate.rank,
+        )
         chunk_index = plan.name_chunk_index
         source_song_id = self._source_song_id
         timeout_s = self._settings.music_timeout_s
@@ -227,9 +268,13 @@ class _NameLoop:
         return result
 
     async def _hear(self, take: _Take) -> Result[Transcript]:
+        # Only ever reached from the named branch of ``run``, which returns early when the
+        # brief carries no recipient.
+        recipient = self._brief.recipient
+        assert recipient is not None
         keyterms = (
-            self._brief.recipient.display,
-            *(other.text for other in self._brief.recipient.candidates),
+            recipient.display,
+            *(other.text for other in recipient.candidates),
         )
 
         async def call() -> Result[Transcript]:
@@ -247,7 +292,10 @@ class _NameLoop:
         return result
 
     def _judge(self, transcript: Transcript, take: _Take, *, attempt: int) -> NameVerdict:
-        score = best_similarity(transcript.text, self._brief.recipient.display, self._similarity)
+        recipient = self._brief.recipient
+        assert recipient is not None  # named branch only; see ``_hear``
+        assert take.candidate is not None
+        score = best_similarity(transcript.text, recipient.display, self._similarity)
         verdict = NameVerdict(
             candidate=take.candidate,
             transcript=transcript.text,
@@ -267,7 +315,9 @@ class _NameLoop:
         """Swap in the next orthography, or return None when the ladder ends."""
         if attempt + 1 >= self._max_renders:
             return None
-        following = self._brief.recipient.candidate_at(attempt + 1)
+        recipient = self._brief.recipient
+        assert recipient is not None  # named branch only; see ``_hear``
+        following = recipient.candidate_at(attempt + 1)
         if following is None:
             return None
         rerolled = with_name_candidate(plan, previous=candidate, candidate=following)
@@ -281,7 +331,9 @@ class _NameLoop:
         return rerolled.value, following
 
     # -- bookkeeping --------------------------------------------------------
-    def _keep(self, audio: RenderedAudio, plan: CompositionPlan, candidate: NameCandidate) -> _Take:
+    def _keep(
+        self, audio: RenderedAudio, plan: CompositionPlan, candidate: NameCandidate | None
+    ) -> _Take:
         self._cost_usd += audio.cost_usd
         if self._source_song_id is None:
             if audio.remote_id is None:
@@ -333,7 +385,7 @@ class _NameLoop:
                 "is_verified": is_verified,
                 "was_checked": was_checked,
                 "best_score": take.score,
-                "strategy": take.candidate.strategy.value,
+                "strategy": None if take.candidate is None else take.candidate.strategy.value,
                 "did_inpaint": self._source_song_id is not None,
                 "cost_usd": self._cost_usd,
             },
@@ -353,6 +405,7 @@ class _NameLoop:
         best = self._best
         if best is None:  # pragma: no cover - the loop always keeps at least one take
             raise AssertionError("the verification loop ended without a take")
+        assert best.candidate is not None  # only the named branch can give up
         await self._announce(ProgressStatus.DEGRADED, len(self._verdicts), best.candidate)
         _LOGGER.warning(
             "every candidate orthography missed; delivering the closest take",

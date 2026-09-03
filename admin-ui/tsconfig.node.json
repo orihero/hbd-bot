@@ -1,0 +1,22 @@
+{
+  "//": "The node variant: the build tooling that runs OUTSIDE the browser. Kept separate from tsconfig.json so a DOM global cannot leak into a file Node executes, and so `types` here is node-only. `npm run typecheck` checks the app config, which includes these files too; this one exists for editors and for `tsc -p tsconfig.node.json` when only the tooling is in question.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["node"]
+  },
+  "include": ["vite.config.ts", "vitest.config.ts", "tailwind.config.ts"]
+}

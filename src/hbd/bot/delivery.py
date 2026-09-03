@@ -259,8 +259,12 @@ async def _send_song(
     key = "song"
     if out.is_sent(key):
         return ()
-    caption = translate(
-        "delivery.song_caption", language, title=kit.lyrics.title, name=kit.lyrics.name_display
+    # A nameless kit gets the sibling key rather than the word "None" under its song.
+    name = kit.lyrics.name_display
+    caption = (
+        translate("delivery.song_caption", language, title=kit.lyrics.title, name=name)
+        if name is not None
+        else translate("delivery.song_caption_noname", language, title=kit.lyrics.title)
     )
     missing = _missing_file(kit.song)
     if missing is not None:
@@ -388,14 +392,15 @@ async def _send_closing(
     key = "closing"
     if out.is_sent(key):
         return ()
+    name = kit.lyrics.name_display
     lead = "delivery.done_degraded" if gaps else "delivery.done"
+    if name is None:
+        lead = f"{lead}_noname"
+    reference = order_reference(kit.order_id)
     lines = [
-        translate(
-            lead,
-            language,
-            name=kit.lyrics.name_display,
-            order_ref=order_reference(kit.order_id),
-        ),
+        translate(lead, language, order_ref=reference)
+        if name is None
+        else translate(lead, language, name=name, order_ref=reference),
         *_gap_lines(gaps, language),
     ]
     try:

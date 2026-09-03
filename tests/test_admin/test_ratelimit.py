@@ -46,7 +46,10 @@ class _MemoryStore:
         self.ttls: dict[str, int] = {}
 
     async def increment(self, key: str, *, ttl_s: int) -> int:
-        self.counts[key] = self.counts.get(key, 0) + 1
+        return await self.increment_by(key, 1, ttl_s=ttl_s)
+
+    async def increment_by(self, key: str, amount: int, *, ttl_s: int) -> int:
+        self.counts[key] = self.counts.get(key, 0) + amount
         self.ttls[key] = ttl_s
         return self.counts[key]
 
@@ -62,6 +65,10 @@ class _BrokenStore:
         self.calls = 0
 
     async def increment(self, key: str, *, ttl_s: int) -> int:
+        self.calls += 1
+        raise ConnectionError("redis is unreachable")
+
+    async def increment_by(self, key: str, amount: int, *, ttl_s: int) -> int:
         self.calls += 1
         raise ConnectionError("redis is unreachable")
 
@@ -264,6 +271,9 @@ async def test_a_store_that_dies_on_the_second_counter_also_fails_closed(
             if ":usr:" in key:
                 raise TimeoutError("redis timed out")
             return 1
+
+        async def increment_by(self, key: str, amount: int, *, ttl_s: int) -> int:
+            return await self.increment(key, ttl_s=ttl_s)
 
         async def refund(self, key: str, *, ttl_s: int) -> None:
             raise TimeoutError("redis timed out")

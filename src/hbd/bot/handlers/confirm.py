@@ -163,7 +163,14 @@ async def _authorize_and_submit(
     if not await _is_authorized(deps, order, language, callback):
         await show_confirm(callback, state, deps, draft)
         return
-    await _queue(callback, state, deps, draft, order, name=brief.recipient.display)
+    await _queue(
+        callback,
+        state,
+        deps,
+        draft,
+        order,
+        name=None if brief.recipient is None else brief.recipient.display,
+    )
 
 
 async def _queue(
@@ -173,7 +180,7 @@ async def _queue(
     draft: WizardDraft,
     order: Order,
     *,
-    name: str,
+    name: str | None,
 ) -> None:
     """Turn the confirm screen into the first progress frame and hand the order to ARQ.
 
@@ -448,7 +455,7 @@ async def _is_authorized(
 
 
 async def _start_progress(
-    callback: CallbackQuery, language: Language, *, name: str
+    callback: CallbackQuery, language: Language, *, name: str | None
 ) -> tuple[int, int] | None:
     """Turn the confirm screen into the first progress frame. ``None`` if we cannot post."""
     text = queued_text(language, name=name)

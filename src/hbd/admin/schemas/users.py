@@ -218,9 +218,7 @@ def to_wizard_state_view(
             text_fields=[DraftFieldView(key=key, is_present=False) for key in WIZARD_TEXT_FIELDS],
         )
     choices = {
-        key: label
-        for key in WIZARD_CHOICE_FIELDS
-        if (label := _choice(draft.get(key))) is not None
+        key: label for key in WIZARD_CHOICE_FIELDS if (label := _choice(draft.get(key))) is not None
     }
     text_fields = [
         DraftFieldView(

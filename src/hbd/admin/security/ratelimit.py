@@ -214,16 +214,28 @@ DEFAULT_REAUTH_LIMITS: Final[ReauthRateLimits] = ReauthRateLimits()
 
 
 class WindowCounterStore(Protocol):
-    """Bump a key and expire it; give one bump back. That is the whole backend contract.
+    """Bump a key by one or by N, expire it, and give one bump back. The whole contract.
 
     A protocol rather than a concrete Redis client so the limiter's own logic — ordering,
     fail-closed, the WARNING — is tested without a server, and so a future backend is a new
     class rather than an edit here. Implementations MAY raise; the callers below treat any
     exception from :meth:`increment` as "the limiter is not working" and deny.
+
+    :meth:`increment_by` is here rather than in :mod:`hbd.admin.security.budget` because the
+    seam has to be one seam: the reveal budget is counted in **records**, so it must add N
+    units and read the post-charge total in a single round trip, and N calls to
+    :meth:`increment` are N interleavable operations rather than one atomic charge — the
+    race the record unit exists to survive. The delta is signed, which is how a refused
+    reveal releases the charge it made (§12.3); a caller must not use a negative delta to
+    undo anything it did not charge.
     """
 
     async def increment(self, key: str, *, ttl_s: int) -> int:
         """Increment ``key``, set its TTL on creation, and return the new count."""
+        ...
+
+    async def increment_by(self, key: str, amount: int, *, ttl_s: int) -> int:
+        """Add ``amount`` to ``key`` atomically, re-arm the TTL, return the new total."""
         ...
 
     async def refund(self, key: str, *, ttl_s: int) -> None:
@@ -234,7 +246,7 @@ class WindowCounterStore(Protocol):
 class RedisWindowCounterStore:
     """:class:`WindowCounterStore` over Redis, one round trip per counter.
 
-    ``INCR`` then ``EXPIRE`` in a transaction: ``EXPIRE`` is issued unconditionally, which
+    ``INCRBY`` then ``EXPIRE`` in a transaction: ``EXPIRE`` is issued unconditionally, which
     slides the key's lifetime, but the key name already carries the window index, so a
     window can never outlive its own bucket. Doing it this way avoids the classic bug where
     a crash between ``INCR`` and ``EXPIRE`` leaves an immortal counter that locks an account
@@ -253,8 +265,14 @@ class RedisWindowCounterStore:
         self._client = client
 
     async def increment(self, key: str, *, ttl_s: int) -> int:
+        return await self.increment_by(key, 1, ttl_s=ttl_s)
+
+    async def increment_by(self, key: str, amount: int, *, ttl_s: int) -> int:
+        # ``Redis.incr(name, amount)`` issues ``INCRBY``; one command, so the add and the
+        # read of the new total are the same operation and cannot interleave. A negative
+        # amount is the release path and is the same command.
         async with self._client.pipeline(transaction=True) as pipe:
-            pipe.incr(key, 1)
+            pipe.incr(key, amount)
             pipe.expire(key, ttl_s)
             results = await pipe.execute()
         return int(results[0])

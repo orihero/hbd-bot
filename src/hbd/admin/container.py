@@ -32,14 +32,17 @@ from hbd.admin.security.clientip import IpNetwork
 from hbd.admin.security.passwords import build_hasher
 from hbd.admin.security.ratelimit import RedisWindowCounterStore, WindowCounterStore
 from hbd.admin.settings import AdminSettings
+from hbd.contracts import Storage
 from hbd.db.base import Base
 from hbd.db.engine import create_engine, create_session_factory
 from hbd.logging import get_logger
+from hbd.storage import LocalFileStorage
 
 __all__ = [
     "AdminContainer",
     "ADMIN_POOL_SIZE",
     "ADMIN_MAX_OVERFLOW",
+    "ARCHIVE_DIRNAME",
     "build_admin_container",
     "admin_container",
 ]
@@ -49,6 +52,16 @@ _LOGGER: Final = get_logger(__name__)
 #: §4.4's share of the connection budget: five checked out, five of headroom.
 ADMIN_POOL_SIZE: Final[int] = 5
 ADMIN_MAX_OVERFLOW: Final[int] = 5
+
+#: The one subdirectory of the data volume the panel reads. It must be the same name
+#: ``hbd.runtime.container.ARCHIVE_DIRNAME`` gives the worker's ``Storage``, or the panel
+#: streams from a directory nothing writes into and every asset is a 404.
+#:
+#: Restated rather than imported: ``hbd.runtime.container`` builds the provider set and the
+#: ffmpeg post-processor at import, and §4.2's whole point is that this process holds no
+#: vendor adapter. ``tests/test_admin/test_asset_stream.py`` imports both constants and
+#: asserts they are equal, so the duplication is checked rather than trusted.
+ARCHIVE_DIRNAME: Final[str] = "archive"
 
 #: Fake and test runs point at SQLite, which has no migration history to honour, so the
 #: schema is materialised directly — exactly as ``hbd.runtime.container`` does it.
@@ -71,6 +84,13 @@ class AdminContainer:
     hasher: PasswordHasher
     trusted_proxies: tuple[IpNetwork, ...]
     rate_limits: WindowCounterStore
+    #: The archive, as a protocol and nothing more. §12.7: the panel resolves an object key
+    #: through :meth:`hbd.contracts.Storage.open_range` and never touches
+    #: ``LocalFileStorage._resolve`` — which is private, and would not exist at all on the
+    #: S3 backend §15's open question 6 contemplates. Typed as the protocol here so a test
+    #: can hand in a different implementation with ``dataclasses.replace`` and so nothing in
+    #: this package can reach for a concrete class's internals.
+    storage: Storage
 
     async def aclose(self) -> None:
         """Release the pool and the Redis connection, reporting each failure separately.
@@ -129,6 +149,10 @@ async def build_admin_container(settings: AdminSettings) -> AdminContainer:
         ),
         trusted_proxies=settings.trusted_proxies,
         rate_limits=RedisWindowCounterStore(redis),
+        # No ``mkdir``. The volume is mounted ``:ro`` and the directory is the worker's to
+        # create; conjuring it here would succeed on a developer's laptop and hand every
+        # asset request a silent 404 in production.
+        storage=LocalFileStorage(settings.admin_data_root / ARCHIVE_DIRNAME),
     )
 
 

@@ -251,8 +251,11 @@ class _MemoryStore:
         self.counts: dict[str, int] = {}
 
     async def increment(self, key: str, *, ttl_s: int) -> int:
+        return await self.increment_by(key, 1, ttl_s=ttl_s)
+
+    async def increment_by(self, key: str, amount: int, *, ttl_s: int) -> int:
         del ttl_s
-        self.counts[key] = self.counts.get(key, 0) + 1
+        self.counts[key] = self.counts.get(key, 0) + amount
         return self.counts[key]
 
     async def refund(self, key: str, *, ttl_s: int) -> None:

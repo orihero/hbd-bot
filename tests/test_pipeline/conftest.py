@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
 from datetime import datetime, timedelta
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -52,9 +52,11 @@ from hbd.contracts import (
 )
 from hbd.errors import (
     HbdError,
+    NotFoundError,
     PipelineError,
     ProviderUnavailableError,
     StorageError,
+    ValidationError,
 )
 from hbd.pipeline.content import LlmContentWriter
 from hbd.pipeline.events import ProgressEvent
@@ -412,6 +414,11 @@ class FakeAudioPostProcessor:
         return ok(destination)
 
 
+async def _one_chunk(data: bytes) -> AsyncIterator[bytes]:
+    """The whole slice in one yield. Chunking is the real backend's problem, not a fake's."""
+    yield data
+
+
 class FakeStorage:
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
@@ -441,6 +448,20 @@ class FakeStorage:
     async def delete(self, key: str) -> Result[None]:
         self.objects.pop(key, None)
         return ok(None)
+
+    async def size(self, key: str) -> Result[int]:
+        if key not in self.objects:
+            return err(NotFoundError("no such object"))
+        return ok(len(self.objects[key]))
+
+    async def open_range(self, key: str, *, start: int, end: int) -> Result[AsyncIterator[bytes]]:
+        """``end`` inclusive and clamped, exactly like ``LocalFileStorage.open_range``."""
+        if key not in self.objects:
+            return err(NotFoundError("no such object"))
+        data = self.objects[key]
+        if start < 0 or end < start or start >= len(data):
+            return err(ValidationError("byte range is not usable"))
+        return ok(_one_chunk(data[start : min(end, len(data) - 1) + 1]))
 
 
 class FakeKitRepository:

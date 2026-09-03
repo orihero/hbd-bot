@@ -629,10 +629,38 @@ async def test_repicking_the_same_output_language_keeps_a_pasted_lyric(
     assert await state.get_state() == Wizard.lyrics.state
 
 
-async def test_choosing_a_different_output_language_still_rewrites(
+async def test_choosing_a_different_output_language_rewrites_a_lyric_the_bot_wrote(
     dispatcher: Dispatcher, bot: Bot, content: RecordingContentWriter, state: FSMContext
 ) -> None:
-    """A lyric in the wrong language is not the lyric they asked for, pasted or not."""
+    """A machine lyric in the wrong language is not the lyric they asked for."""
+    # Arrange
+    await walk_to_lyrics(dispatcher, bot)
+    await press(dispatcher, bot, NavCB(action=NavAction.BACK).pack())
+    calls_before = content.calls
+
+    # Act
+    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.RU).pack())
+
+    # Assert
+    assert content.calls == calls_before + 1
+    lyrics = (await current_draft(state)).lyrics
+    assert lyrics is not None
+    assert lyrics.language is Language.RU
+
+
+async def test_choosing_a_different_output_language_still_rewrites_a_pasted_lyric(
+    dispatcher: Dispatcher, bot: Bot, content: RecordingContentWriter, state: FSMContext
+) -> None:
+    """On the WRITER's path a changed language rewrites, pasted or not. Unchanged rule.
+
+    Worth stating why it survived the bring-your-own path landing, since that path takes the
+    opposite decision for what looks like the same event. It is not the same event. Here the
+    language question comes BEFORE the lyric: answering it differently is the customer
+    changing an input the lyric is derived from, and re-deriving is what they asked for. On
+    the own-lyrics order the question comes five screens AFTER the words, so the only thing
+    a language choice can still do to them is re-tag what the composer sings them under —
+    see ``test_own_lyrics.py``. Same button, two positions, two honest meanings.
+    """
     # Arrange
     await walk_to_lyrics(dispatcher, bot)
     await send(dispatcher, bot, PASTED)

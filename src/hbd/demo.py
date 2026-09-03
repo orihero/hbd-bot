@@ -123,6 +123,11 @@ def _build_order(settings: Settings) -> Order | HbdError:
 def _report_name(order: Order) -> None:
     recipient = order.brief.recipient
     _say(_RULE)
+    if recipient is None:
+        # The demo builds a named order, so this is here to keep the reporter total rather
+        # than because the offline run can reach it.
+        _say("NAME SUBSYSTEM — skipped: this order names nobody")
+        return
     _say("NAME SUBSYSTEM")
     _say(f"  typed      {DEMO_NAME!r}")
     _say(f"  display    {recipient.display!r}   <- what the customer sees")

@@ -67,13 +67,23 @@ def _frame(ratio: float, headline: str) -> str:
     return f"{_bar(ratio)} {round(max(0.0, min(1.0, ratio)) * _PERCENT)}%\n{headline}"
 
 
-def queued_text(language: Language, *, name: str) -> str:
+#: The queued frame for an order with no recipient. See :func:`queued_text`.
+_QUEUED_NONAME_KEY: Final[str] = "progress.queued_noname"
+
+
+def queued_text(language: Language, *, name: str | None = None) -> str:
     """The first frame, posted the moment the order is accepted.
 
     It names the recipient because this message is the only thing on screen for minutes,
     and a customer who queued a song for someone should be able to see whose it is.
+
+    ``name=None`` is an order that names nobody — the bring-your-own-lyrics path — and gets
+    a sibling key rather than an empty interpolation, which would render as "'s song is in
+    the studio".
     """
-    return f"{_bar(0.0)}\n{translate(_QUEUED_KEY, language, name=name)}"
+    key = _QUEUED_KEY if name is not None else _QUEUED_NONAME_KEY
+    body = translate(key, language) if name is None else translate(key, language, name=name)
+    return f"{_bar(0.0)}\n{body}"
 
 
 def timed_out_text(language: Language, *, ratio: float = 0.0) -> str:

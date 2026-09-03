@@ -49,8 +49,10 @@ from hbd.bot.keyboards import (
     name_prompt_keyboard,
     note_keyboard,
     occasion_keyboard,
+    own_lyrics_keyboard,
     vocal_gender_keyboard,
 )
+from hbd.bot.lyrics_entry import MAX_LYRIC_CHARS, MIN_LYRIC_CHARS
 from hbd.bot.states import WizardStep
 from hbd.contracts import MAX_RECIPIENT_NAME_CHARS, Language
 
@@ -92,7 +94,23 @@ def resolve_step(step: WizardStep, draft: WizardDraft) -> WizardStep:
     LYRICS is checked before CONFIRM because it is now the only route to it: a draft that
     has every answer but no approved lyric belongs on the preview screen, not on a summary
     of a song whose words have not been written yet.
+
+    A lyric-less LYRICS is downgraded ONLY on the writer's path. On the bring-your-own path
+    an empty lyric is not a hole in the draft, it is the question the screen is asking —
+    the step prompts for the customer's words — so downgrading it would bounce them back to
+    a step that comes AFTER it in that order, and the pair would loop.
+
+    Every downgrade below must land on a step that exists in this draft's order, or the FSM
+    is parked in a state whose screen the path never draws and whose buttons are filtered to
+    a different one. That is why the own-lyrics path resolves to LYRICS and never to NAME:
+    it has no NAME.
     """
+    if draft.is_own_lyrics:
+        if step is WizardStep.CONFIRM and not draft.is_complete:
+            # LYRICS is second in this order, so it is the earliest thing that can be
+            # missing and the only one the customer can act on from a stale Confirm.
+            return WizardStep.LYRICS if draft.lyrics is None else WizardStep.OUTPUT_LANGUAGE
+        return step
     if step is WizardStep.NAME_CONFIRM and draft.recipient is None:
         return WizardStep.NAME
     if step is WizardStep.LYRICS and draft.lyrics is None:
@@ -268,6 +286,32 @@ def _elide_for_preview(body: str) -> str:
     return "".join(kept) + _ELLIPSIS
 
 
+def _own_lyrics_prompt_screen(draft: WizardDraft) -> Screen:
+    """Ask the customer for their words. The bring-your-own path's only extra screen.
+
+    Reached with no lyric in the draft, which on this path is the normal state rather than a
+    broken one — see :func:`resolve_step`. Nothing has been spent to get here and nothing is
+    spent leaving: the writer is an offer on the keyboard, not something already paid for.
+
+    Both bounds are stated, because the step's two rejections are the only other place the
+    customer would learn them and being told a limit after breaking it is a worse way to
+    find out. They are ``lyrics_entry``'s own constants rather than numbers retyped here,
+    so the screen and the validator cannot come to disagree.
+
+    It names nobody, and that is not an omission. This is the SECOND screen of the
+    own-lyrics path — the wizard has not asked who the song is for and never will — so there
+    is no name to put here and the sentence is written for that.
+    """
+    language = draft.ui_language
+    text = translate(
+        "wizard.lyrics.own_prompt",
+        language,
+        minimum=MIN_LYRIC_CHARS,
+        limit=MAX_LYRIC_CHARS,
+    )
+    return Screen(text, own_lyrics_keyboard(language), is_text_expected=True)
+
+
 def _lyrics_screen(draft: WizardDraft) -> Screen:
     """Show the words before a single cent is spent, and invite all three answers to them.
 
@@ -278,17 +322,31 @@ def _lyrics_screen(draft: WizardDraft) -> Screen:
     outside them, and expandable is what lets a long lyric be read in place rather than
     pushing the three answers off the screen.
 
+    On the bring-your-own path it wears two other faces. With no lyric yet it is the prompt
+    that asks for one; with the customer's own words in it, it says they are the customer's
+    and offers the writer instead of "a different set" — the preview's copy invites the user
+    to send their own words, which is a strange thing to say to somebody reading exactly
+    that. Same screen, same buttons, same handler, three honest wordings.
+
     ``translate`` HTML-escapes every parameter exactly once, so the template owns the
     markup around ``{lyrics}`` and nothing is escaped at this call site.
     """
     language = draft.ui_language
     lyrics = draft.lyrics
+    is_own = draft.is_own_lyrics
     if lyrics is None:
+        if is_own:
+            return _own_lyrics_prompt_screen(draft)
         return render_step(WizardStep.OUTPUT_LANGUAGE, draft)
     body = _elide_for_preview(lyrics.as_plain_text())
     return Screen(
-        translate("wizard.lyrics.preview", language, title=lyrics.title, lyrics=body),
-        lyrics_keyboard(language),
+        translate(
+            "wizard.lyrics.own_preview" if is_own else "wizard.lyrics.preview",
+            language,
+            title=lyrics.title,
+            lyrics=body,
+        ),
+        lyrics_keyboard(language, is_own_lyrics=is_own),
         is_text_expected=True,
     )
 
@@ -307,14 +365,33 @@ def _confirm_screen(draft: WizardDraft, credits_note: str | None = None) -> Scre
     recipient = draft.recipient
     occasion, genre = draft.occasion, draft.genre
     vocal_gender, output_language = draft.vocal_gender, draft.output_language
+    lyrics = draft.lyrics
     if (
-        recipient is None
-        or occasion is None
+        occasion is None
         or genre is None
         or vocal_gender is None
         or output_language is None
+        or (recipient is None and not draft.is_own_lyrics)
     ):
         return render_step(resolve_step(WizardStep.CONFIRM, draft), draft)
+    if recipient is None:
+        # The own-lyrics summary. It is headlined by the SONG rather than by a person,
+        # because there is no person: the wizard never asked. The note row is gone with the
+        # note step, so this template carries five values where the other carries six —
+        # rendering "—" for a question that was never put would read as an answer.
+        text = translate(
+            "wizard.confirm.summary_noname",
+            language,
+            title=translate("wizard.lyrics.untitled", language) if lyrics is None else lyrics.title,
+            occasion=occasion_label(occasion, language),
+            genre=genre_label(genre, language),
+            vocal_gender=vocal_gender_label(vocal_gender, language),
+            output_language=language_label(output_language, language),
+        )
+        return Screen(
+            text if credits_note is None else f"{text}\n\n{credits_note}",
+            confirm_keyboard(language),
+        )
     text = translate(
         "wizard.confirm.summary",
         language,

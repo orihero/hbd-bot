@@ -128,18 +128,33 @@ def _body_durations(*, budget_ms: int, count: int) -> tuple[int, ...]:
     return tuple(durations)
 
 
-def _max_body_chunks(*, budget_ms: int, available: int) -> int:
+def _max_body_chunks(*, budget_ms: int, available: int, has_name_chunk: bool) -> int:
+    """How many body chunks fit. One slot is held back for the name chunk when there is one.
+
+    ``MAX_CHUNKS_PER_PLAN - 1`` was unconditional, which quietly cost a nameless song one
+    section it had the budget and the plan room to sing.
+    """
     affordable = budget_ms // MIN_CHUNK_DURATION_MS
-    return max(0, min(available, MAX_CHUNKS_PER_PLAN - 1, affordable))
+    ceiling = MAX_CHUNKS_PER_PLAN - 1 if has_name_chunk else MAX_CHUNKS_PER_PLAN
+    return max(0, min(available, ceiling, affordable))
 
 
 def _durations_by_index(
-    lyrics: LyricDraft, *, hook_index: int, settings: Settings
+    lyrics: LyricDraft, *, hook_index: int | None, settings: Settings
 ) -> dict[int, int]:
-    """How long each body section gets, dropping the ones the song has no room for."""
+    """How long each body section gets, dropping the ones the song has no room for.
+
+    ``hook_index`` is ``None`` for a nameless lyric. Then every section is body, and the
+    whole song budget is theirs — nothing is reserved for a name chunk that does not exist.
+    Reserving it anyway would hand the customer a song shorter than the one they paid for,
+    with the missing seconds spent on nothing.
+    """
     body_indices = tuple(index for index in range(len(lyrics.sections)) if index != hook_index)
-    budget_ms = max(0, settings.song_length_ms - settings.name_chunk_duration_ms)
-    count = _max_body_chunks(budget_ms=budget_ms, available=len(body_indices))
+    reserved_ms = settings.name_chunk_duration_ms if hook_index is not None else 0
+    budget_ms = max(0, settings.song_length_ms - reserved_ms)
+    count = _max_body_chunks(
+        budget_ms=budget_ms, available=len(body_indices), has_name_chunk=hook_index is not None
+    )
     durations = _body_durations(budget_ms=budget_ms, count=count)
     return dict(zip(body_indices[:count], durations, strict=True))
 
@@ -168,15 +183,18 @@ def _assemble_chunks(
     lyrics: LyricDraft,
     *,
     brief: Brief,
-    candidate: NameCandidate,
-    hook_index: int,
+    candidate: NameCandidate | None,
+    hook_index: int | None,
     name_ms: int,
     duration_by_index: dict[int, int],
 ) -> tuple[Chunk, ...]:
     styles = _styles_for(brief)
     chunks: list[Chunk] = []
     for index, section in enumerate(lyrics.sections):
-        if index == hook_index:
+        if hook_index is not None and index == hook_index:
+            # Guarded by ``build_composition_plan``: a hook index exists only when the lyric
+            # has a name and a candidate to sing it under, so neither narrowing can fail.
+            assert candidate is not None and lyrics.name_display is not None
             chunks.append(
                 _name_chunk(
                     section,
@@ -206,13 +224,27 @@ def build_composition_plan(
     lyrics: LyricDraft,
     *,
     brief: Brief,
-    candidate: NameCandidate,
+    candidate: NameCandidate | None,
     settings: Settings,
     seed: int | None = None,
 ) -> Result[CompositionPlan]:
-    """Build the plan for one song. Exactly one chunk carries the name."""
+    """Build the plan for one song. Exactly one chunk carries the name — if there is one.
+
+    A NAMELESS lyric — the bring-your-own path, where the wizard never asks who the song is
+    for — produces a plan of body chunks only. There is no name to isolate, so isolating one
+    would reserve seconds and a chunk slot for nothing, and ``should_store_for_inpainting``
+    goes off with it: storing the render costs the vendor's retention and buys a re-roll
+    that can never be asked for.
+
+    The missing-hook ERROR is kept for the case it was written about. A lyric that HAS a
+    name but no hook is a broken lyric — ``lyric_shape`` guarantees the pairing, so reaching
+    here means that guarantee has been violated upstream, and composing anyway would sing
+    the name with no chunk boundary around it and no way to re-render it. The two states are
+    told apart by the name, which is why this reads ``name_display`` rather than the hooks.
+    """
     hooks = lyrics.name_hook_sections
-    if not hooks:
+    is_named = lyrics.name_display is not None and candidate is not None
+    if is_named and not hooks:
         return err(
             ValidationError(
                 "lyric draft has no name-hook section, so the name cannot be isolated",
@@ -220,7 +252,11 @@ def build_composition_plan(
             )
         )
 
-    hook_index = next(index for index, section in enumerate(lyrics.sections) if section is hooks[0])
+    hook_index = (
+        next(index for index, section in enumerate(lyrics.sections) if section is hooks[0])
+        if is_named and hooks
+        else None
+    )
     duration_by_index = _durations_by_index(lyrics, hook_index=hook_index, settings=settings)
     chunks = _assemble_chunks(
         lyrics,
@@ -234,7 +270,7 @@ def build_composition_plan(
         chunks,
         brief=brief,
         seed=seed,
-        should_store=settings.is_name_verification_enabled,
+        should_store=settings.is_name_verification_enabled and hook_index is not None,
     )
 
 

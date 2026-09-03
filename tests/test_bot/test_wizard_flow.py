@@ -30,6 +30,7 @@ from hbd.contracts import (
     OrderState,
     VoiceGender,
 )
+from tests.conftest import recipient_of
 from tests.test_bot.conftest import (
     RecordingContentWriter,
     RecordingSession,
@@ -230,7 +231,7 @@ async def test_confirming_submits_the_order_and_parks_the_session(
     assert len(submitter.submitted) == 1
     order, chat_id, progress_message_id = submitter.submitted[0]
     assert order.state is OrderState.AUTHORIZED
-    assert order.brief.recipient.display == UZBEK_DISPLAY
+    assert recipient_of(order.brief).display == UZBEK_DISPLAY
     assert order.brief.output_language is Language.UZ_LATN
     assert order.brief.ui_language is Language.EN
     assert chat_id and progress_message_id
@@ -248,7 +249,7 @@ async def test_submitted_candidates_are_ranked_and_never_shown_to_the_user(
 
     # Assert
     order, _, _ = submitter.submitted[0]
-    candidates = order.brief.recipient.candidates
+    candidates = recipient_of(order.brief).candidates
     assert tuple(candidate.rank for candidate in candidates) == tuple(range(len(candidates)))
     screen_text = " ".join(call.text or "" for call in session.calls if hasattr(call, "text"))
     submitted_only = [c.text for c in candidates if c.text != UZBEK_DISPLAY]

@@ -168,12 +168,27 @@ def test_constraint_names_are_deterministic() -> None:
 # ---------------------------------------------------------------------------
 # Row helper properties
 # ---------------------------------------------------------------------------
-def test_a_brief_reports_its_identity_as_purged_once_the_name_is_gone() -> None:
+def test_a_brief_reports_its_identity_as_purged_once_the_sweep_has_stamped_it() -> None:
+    """The audit column is the proof, and since the own-lyrics path it is the ONLY proof."""
     # Arrange
-    row = BriefRow(recipient_name_display=None)
+    row = BriefRow(recipient_name_display=None, identity_purged_at=datetime.now(UTC))
 
     # Act / Assert
     assert row.is_identity_purged is True
+
+
+def test_a_brief_that_never_held_a_name_does_not_claim_to_have_been_purged() -> None:
+    """A bring-your-own-lyrics order collects no identity, so there is none to erase.
+
+    This used to report True, because a null display name was taken as proof the 90-day
+    sweep had run. It would now tell an operator — and any erasure proof built on this
+    property — that personal data was deleted on schedule when none was ever held.
+    """
+    # Arrange
+    row = BriefRow(recipient_name_display=None, identity_purged_at=None)
+
+    # Act / Assert
+    assert row.is_identity_purged is False
 
 
 def test_a_brief_with_a_name_and_no_purge_stamp_is_not_purged() -> None:

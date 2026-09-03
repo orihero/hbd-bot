@@ -110,7 +110,11 @@ class LlmModerator:
     async def review(self, brief: Brief) -> Result[None]:
         approved = brief.approved_lyrics
         lyrics_text = approved.as_plain_text() if approved is not None else ""
-        subject = f"{brief.recipient.display} {brief.note} {lyrics_text}"
+        # An order with no recipient — the bring-your-own path — still has a note and a
+        # lyric to review, and those are where hostile text actually arrives. The name
+        # contributes an empty string rather than the word "None".
+        name = "" if brief.recipient is None else brief.recipient.display
+        subject = f"{name} {brief.note} {lyrics_text}"
         hit = _local_hit(subject)
         if hit is not None:
             return err(
@@ -120,7 +124,7 @@ class LlmModerator:
                         "pattern_hit": hit,
                         "hit_in": _hit_source(
                             hit,
-                            name=brief.recipient.display,
+                            name=name,
                             note=brief.note,
                             lyrics=lyrics_text,
                         ),

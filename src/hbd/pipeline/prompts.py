@@ -74,9 +74,40 @@ _LYRIC_SECTION_RULES: Final[str] = (
     "must make sense on its own."
 )
 
+_LYRIC_CRAFT_RULES: Final[str] = (
+    "How to write it — these are the difference between a song and filler:\n"
+    "1. Rhyme the lines within each section, in pairs or alternating. Verse that does not "
+    "rhyme is prose with a backing track.\n"
+    "2. Keep lines close to the same length inside a section so they sit on a repeating "
+    "melody. A line much longer than its neighbours gets rushed or clipped when sung.\n"
+    "3. 2 to 6 lines per section, apart from the hook.\n"
+    "4. If a chorus appears more than once, repeat its words. A song in which every "
+    "section is new text has no chorus.\n"
+    "5. Use at least two concrete details from the sender's note — what this person does, "
+    "what they are known for, what the people around them would recognise. Those details "
+    "are the entire reason this song is not a generic one. If the note is empty, write "
+    "warmly and universally rather than inventing facts about a real person.\n"
+    "6. Avoid the stock phrases every birthday song already carries: candles and cake, "
+    "another year older, may all your wishes come true, a bright road ahead. Reach for "
+    "the specific instead of the ceremonial.\n"
+    "7. Address the recipient in one consistent register from first line to last. Do not "
+    "drift between formal and familiar mid-song.\n"
+    "8. Mention no age, no birth year and no date.\n"
+    "9. Section labels are English and name the part: intro, verse-1, pre-chorus, chorus, "
+    "verse-2, bridge, outro, hook. Every sung line is in the output language.\n"
+    "10. No stage directions, no bracketed cues, no emoji, no markup of any kind. Every "
+    "line is sung exactly as it is written."
+)
+
 
 def _name_line(brief: Brief) -> str:
-    return f'The recipient is named "{brief.recipient.display}".'
+    # Only reached when the writer is being asked for a lyric, which never happens for a
+    # brief with no recipient: those carry the customer's own approved lyric and the
+    # orchestrator short-circuits before any prompt is built.
+    recipient = brief.recipient
+    if recipient is None:
+        return "The song is not addressed to anyone by name."
+    return f'The recipient is named "{recipient.display}".'
 
 
 def _note_line(brief: Brief) -> str:
@@ -93,12 +124,25 @@ def lyrics_system_prompt(language: Language) -> str:
     the rules the product depends on were maintained in a file nothing sent. Injecting it
     here is what puts them in front of the model that actually writes the song; the code
     still canonicalises the result afterwards, because a rule is a request, not a promise.
+
+    ``_LYRIC_CRAFT_RULES`` arrived the same way and for the same reason. Everything this
+    prompt said about *writing* was a prohibition — no caps, no profanity, no brands — and
+    a model told only what to avoid returns unobjectionable filler, which is what customers
+    were getting. The craft rules are folded down from ``prompts/kit_system.txt``, the
+    staff-songwriter brief attached to ``providers.llm.writer.write_kit``: fully written,
+    fully tested, and called by nothing on the order path. Rather than reroute the pipeline
+    to reach it, its lyric half is restated here, where the live call already looks.
+
+    Only the lyric rules cross over. The greeting, respelling and JSON-shape sections of
+    that file describe ``KitPlanPayload``, which this path does not parse — ``LyricsPayload``
+    reads ``title`` and ``sections`` and nothing else, so the shape sentence in
+    ``lyrics_user_prompt`` stays byte-identical.
     """
     return (
         "You are a professional songwriter for a celebration-song service in Uzbekistan. "
         f"You write only in {LANGUAGE_NAMES[language]}.\n\n"
         f"{language_guide(language)}\n\n"
-        f"{_LYRIC_SECTION_RULES}\n\n{_SHARED_RULES}"
+        f"{_LYRIC_SECTION_RULES}\n\n{_LYRIC_CRAFT_RULES}\n\n{_SHARED_RULES}"
     )
 
 
@@ -194,7 +238,7 @@ def moderation_user_prompt(brief: Brief) -> str:
     absent lyric, and prompt drift on the common path buys nothing.
     """
     blocks = [
-        f'Recipient name: "{brief.recipient.display}"',
+        f'Recipient name: "{"" if brief.recipient is None else brief.recipient.display}"',
         f"Occasion: {brief.occasion.value}",
         f'Sender note: "{brief.note.strip()}"',
     ]

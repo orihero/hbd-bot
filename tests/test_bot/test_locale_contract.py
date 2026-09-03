@@ -55,6 +55,23 @@ _SPAN = re.compile(r"<\s*span\b[^>]*>")
 #: The bot package, which is where every catalogue key is rendered from.
 _SOURCE_ROOT: Final[Path] = Path(__file__).resolve().parents[2] / "src" / "hbd"
 
+#: Packages under :data:`_SOURCE_ROOT` that render no catalogue key and are skipped whole.
+#:
+#: The admin panel is a JSON API for operators: it imports nothing from ``hbd.bot.locales``,
+#: calls ``translate`` nowhere, and has no catalogue of its own — its strings are English
+#: constants in an error envelope. It is skipped because :func:`_module_level_key_constants`
+#: is a *heuristic* ("a dotted string assigned to a name ending in KEY"), and that heuristic
+#: reads a column name as an i18n key: ``RevealField.RECIPIENT_LOOKUP_KEY =
+#: "briefs.recipient_lookup_key"`` in ``hbd.admin.schemas.reveal`` is the name of a database
+#: column that ``POST /reveal`` audits, and it is neither rendered to a customer nor
+#: translatable.
+#:
+#: Narrowing the *heuristic* instead was measured and rejected: restricting it to genuinely
+#: module-level assignments — which is what its name says — drops ten real bot keys that are
+#: declared inside a mapping or a class body, including every ``error.*`` one. Skipping a
+#: package that provably renders none is the change that loses nothing.
+_SKIPPED_PACKAGES: Final[frozenset[str]] = frozenset({"admin"})
+
 #: Functions whose FIRST positional argument is an i18n key.
 _KEY_FUNCTIONS: Final[frozenset[str]] = frozenset({"translate"})
 
@@ -180,6 +197,8 @@ def test_every_key_the_code_renders_is_defined_in_every_catalogue() -> None:
     for path in sorted(_SOURCE_ROOT.rglob("*.py")):
         if path.parent.name == "locales":
             continue
+        if not _SKIPPED_PACKAGES.isdisjoint(path.relative_to(_SOURCE_ROOT).parts):
+            continue
         referenced |= _literal_keys_rendered_by(path)
         referenced |= _module_level_key_constants(path)
     referenced = {
@@ -191,6 +210,33 @@ def test_every_key_the_code_renders_is_defined_in_every_catalogue() -> None:
     for language in Language:
         missing = sorted(referenced - set(CATALOGUES[language]))
         assert missing == [], (language, missing)
+
+
+def test_the_skipped_packages_really_do_render_no_catalogue_key() -> None:
+    """Close :data:`_SKIPPED_PACKAGES`, so the exemption cannot grow into a hole.
+
+    An exemption set is worth nothing unless it is checked: the moment a skipped package
+    calls ``translate`` or imports a catalogue, the test above would stop covering it and
+    say nothing. So both halves are asserted here — no ``translate`` call, and no import of
+    the locales module — and the day either becomes false, this fails and the package has to
+    come back into the scan rather than quietly leave it.
+    """
+    # Arrange
+    offenders: dict[str, list[str]] = {}
+
+    # Act
+    for package in sorted(_SKIPPED_PACKAGES):
+        root = _SOURCE_ROOT / package
+        assert root.is_dir(), package
+        for path in sorted(root.rglob("*.py")):
+            reasons = sorted(_literal_keys_rendered_by(path))
+            if "hbd.bot.locales" in path.read_text(encoding="utf-8"):
+                reasons.append("imports hbd.bot.locales")
+            if reasons:
+                offenders[str(path.relative_to(_SOURCE_ROOT))] = reasons
+
+    # Assert
+    assert offenders == {}
 
 
 def _actions_named_inside_register_calls(path: Path) -> set[str]:

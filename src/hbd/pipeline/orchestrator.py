@@ -494,7 +494,13 @@ class KitPipeline:
         # A song-only kit must not touch the speech vendor at all: no catalogue fetch, no
         # script generation. Asking for zero voices and letting the empty tuple flow on
         # would still spend a request and could fail the order on a vendor we do not use.
-        if self._settings.greetings_per_kit <= 0:
+        #
+        # A NAMELESS order is song-only for the same reason and by a different route: a
+        # spoken greeting is a persona saying the recipient's name, so with no recipient
+        # there is nothing for one to say. This is the guard that keeps the whole greeting
+        # subsystem — personas, voice selection, the name respelling handed to TTS — out of
+        # a code path that has no name to give it.
+        if self._settings.greetings_per_kit <= 0 or brief.recipient is None:
             return ok(_Words(lyrics=lyrics, scripts=(), voices=()))
 
         async def call() -> Result[tuple[VoiceDescriptor, ...]]:
@@ -525,6 +531,9 @@ class KitPipeline:
             brief,
             lyrics,
             voices=chosen.value,
+            # Greetings are only written when a name exists to speak: ``_write_scripts``
+            # is already gated on ``greetings_per_kit``, and a nameless order has nobody to
+            # greet, so the stage is skipped for one entirely.
             name_submitted=brief.recipient.candidates[0].text,
             target_duration_s=target_s,
         )
@@ -561,7 +570,11 @@ class KitPipeline:
         plan = build_composition_plan(
             words.lyrics,
             brief=order.brief,
-            candidate=order.brief.recipient.candidates[0],
+            # ``None`` for a nameless order, which is what tells ``build_composition_plan``
+            # to lay the song out with no name chunk in it.
+            candidate=(
+                None if order.brief.recipient is None else order.brief.recipient.candidates[0]
+            ),
             settings=self._settings,
             seed=derive_seed(order.id),
         )
@@ -728,7 +741,7 @@ class KitPipeline:
                 "no candidate orthography was heard back correctly",
                 context={
                     "attempts": len(song.verdicts),
-                    "strategy": song.candidate.strategy.value,
+                    "strategy": None if song.candidate is None else song.candidate.strategy.value,
                 },
             ),
             detail="the name may not be pronounced exactly as intended",

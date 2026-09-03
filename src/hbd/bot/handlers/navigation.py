@@ -1,8 +1,12 @@
 """Back and Cancel — the buttons that decide whether the wizard feels safe to use.
 
-Back is derived from ``WIZARD_ORDER`` and nothing else. There is no per-step back handler
-to forget to write, and no step can end up with a Back button that goes somewhere wrong: it
-goes to the step before it, with every answer already given still in the draft.
+Back is derived from the draft's step order and nothing else. There is no per-step back
+handler to forget to write, and no step can end up with a Back button that goes somewhere
+wrong: it goes to the step before it, with every answer already given still in the draft.
+
+*Which* order is the draft's own answer — there are two, and they fork at the occasion step
+— so the lookup is asked ``is_own_lyrics`` rather than assuming the writer's. See
+``hbd.bot.states``.
 
 None of these three are state-filtered, and that is deliberate: Telegram leaves every
 screen the wizard has ever drawn sitting on the user's message roll, and a Back button that
@@ -98,8 +102,19 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
     if current is None:
         await expire(callback, state)
         return
-    target = previous_step(current) or current
-    _LOG.info("wizard back", extra={"from_step": current.value, "to_step": target.value})
+    # The draft decides which ORDER Back walks. The two diverge from the occasion step
+    # onwards, so a Back that always consulted ``WIZARD_ORDER`` would send an own-lyrics
+    # customer from the words to the voice question — a step they have not reached — and
+    # from the genre to a NOTE screen their path does not contain.
+    target = previous_step(current, is_own_lyrics=draft.is_own_lyrics) or current
+    _LOG.info(
+        "wizard back",
+        extra={
+            "from_step": current.value,
+            "to_step": target.value,
+            "is_own_lyrics": draft.is_own_lyrics,
+        },
+    )
     await show_step(callback, state, draft, target)
 
 

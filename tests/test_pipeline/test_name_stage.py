@@ -32,7 +32,7 @@ from hbd.pipeline.name_stage import (
 )
 from hbd.pipeline.plan_builder import build_composition_plan
 from hbd.pipeline.retry import RetryPolicy
-from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_lyrics
+from tests.conftest import UZBEK_NAME_CANONICAL, candidate_of, make_brief, make_lyrics, recipient_of
 from tests.test_pipeline.conftest import (
     FakeMusicProvider,
     FakeSttProvider,
@@ -58,7 +58,7 @@ def _plan(settings: Settings, brief: Brief) -> CompositionPlan:
         build_composition_plan(
             make_lyrics(),
             brief=brief,
-            candidate=brief.recipient.candidates[0],
+            candidate=recipient_of(brief).candidates[0],
             settings=settings,
             seed=7,
         )
@@ -102,7 +102,7 @@ async def test_accepts_the_first_orthography_when_it_is_heard_correctly(
     # Assert
     assert render.is_verified is True
     assert render.renders == 1
-    assert render.candidate.strategy is NameStrategy.STRIPPED
+    assert candidate_of(render).strategy is NameStrategy.STRIPPED
     assert studio.music.inpaint_calls == []
 
 
@@ -118,7 +118,7 @@ async def test_re_rolls_only_the_name_chunk_with_the_next_orthography(
     # Assert
     assert render.is_verified is True
     assert render.renders == 2
-    assert render.candidate.strategy is NameStrategy.CANONICAL
+    assert candidate_of(render).strategy is NameStrategy.CANONICAL
     assert studio.music.inpaint_calls == [("song-remote-1", 1)]
 
 
@@ -249,7 +249,7 @@ async def test_keeps_the_earlier_take_when_a_re_roll_render_fails(
     # Assert: the first compose succeeded, so we ship it rather than fail the order
     render = value_of(render_result)
     assert render.is_verified is False
-    assert render.candidate.text == STRIPPED
+    assert candidate_of(render).text == STRIPPED
 
 
 async def test_composes_from_scratch_when_the_vendor_did_not_store_the_song(

@@ -145,6 +145,24 @@ CATALOGUE: Final[dict[str, str]] = {
         "Iltimos, qoʻshiq matnini matn koʻrinishida yuboring — ovozli xabar boʻlmaydi."
     ),
     "wizard.lyrics.updated": "Qabul qilindi — soʻzlaringizni siz yozgandek kuylayman.",
+    # -- «oʻz matnim» yoʻli -------------------------------------------------
+    # Sabablar roʻyxatidan ochiladi, yaʼni matn haqida aytilgan birinchi gap shu — shuning
+    # uchun chegaralar darrov aytiladi: aks holda ular haqida faqat rad javobidan bilinadi,
+    # chegarani buzgandan keyin bilish esa eng yomon yoʻl. Ikkala son ``lyrics_entry``dan.
+    "wizard.lyrics.own_prompt": (
+        "✍️ Kuylanadigan soʻzlarni yuboring.\n\n"
+        "Ularni xabar qilib yozing — kupletlar orasida boʻsh qator qoldiring, men shu "
+        "boʻlinishni saqlayman. {minimum} tadan {limit} tagacha belgi.\n\n"
+        "Qanday yozsangiz, shundayligicha kuylanadi — ism kerak boʻlsa, oʻzingiz yozing."
+    ),
+    # Koʻrib chiqish oynasining egizagi — mijozning oʻzi yozgan soʻzlari uchun. Bu yerda
+    # «oʻz matningizni yuboring» deyish mumkin emas: u buni endigina qildi.
+    "wizard.lyrics.own_preview": (
+        "<b>{title}</b>\n"
+        "<blockquote expandable>{lyrics}</blockquote>\n"
+        "Sizning soʻzlaringiz — aynan shundayligicha kuylanadi. Hali hech narsa yozib "
+        "olinmadi: shuni qoldiring yoki boshqasini xabar qilib yuboring."
+    ),
     "wizard.lyrics.too_many": (
         "Bu qoʻshiq uchun allaqachon {limit} ta matn yozdim. "
         "Yuqoridagisini qoldiring yoki oʻz matningizni xabar qilib yuboring."
@@ -159,15 +177,25 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "wizard.confirm.summary": (
         "<b>{name} uchun qoʻshiq</b>\n"
-        "🎂 {occasion}\n"
-        "🎼 {genre}\n"
-        "🎙️ {vocal_gender}\n"
+        "{occasion}\n"
+        "{genre}\n"
+        "{vocal_gender}\n"
         "🌐 {output_language}\n"
         "✍️ {note}\n\n"
         "Soʻzlar tayyor. Endi yozib olaman, soʻng ismni quloq bilan tekshiraman.\n\n"
         "Boshlaymizmi?"
     ),
     "wizard.confirm.no_note": "—",
+    "wizard.confirm.summary_noname": (
+        "<b>{title}</b>\n"
+        "{occasion}\n"
+        "{genre}\n"
+        "{vocal_gender}\n"
+        "🌐 {output_language}\n\n"
+        "Soʻzlaringiz tayyor. Endi yozib olaman.\n\n"
+        "Boshlaymizmi?"
+    ),
+    "wizard.lyrics.untitled": "Sizning qoʻshigʻingiz",
     "wizard.expired": "Bu sessiya yopildi. Qaytadan boshlashimiz mumkin.",
     "wizard.cancelled": "Bekor qilindi — hech narsa yasalmadi va hech narsa saqlanmadi.",
     "wizard.cancel_too_late": (
@@ -192,36 +220,37 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.use_buttons": "Iltimos, bunga yuqoridagi tugmalar orqali javob bering.",
     # -- buttons -----------------------------------------------------------
     "button.back": "⬅️ Orqaga",
-    "button.skip": "Oʻtkazib yuborish",
-    "button.cancel": "Bekor qilish",
+    "button.skip": "⏭️ Oʻtkazib yuborish",
+    "button.cancel": "✖️ Bekor qilish",
     "button.confirm": "🎬 Yozib olinsin",
     "button.name_ok": "✅ Ha, shunday",
     "button.retype": "✏️ Qaytadan yozish",
     "button.lyrics_ok": "✅ Shu matn qolsin",
     "button.regenerate": "🔄 Boshqa matn yozilsin",
+    "button.own_lyrics": "✍️ Oʻz matnim",
     "button.start_over": "↩️ Qaytadan boshlash",
     "button.make_another": "🎂 Yana bittasi",
     "button.report_problem": "⚠️ Nimadir notoʻgʻri",
     "button.keep_note": "✅ Izoh qolsin",
     "button.try_again": "🔄 Qayta urinish",
     # -- enum labels -------------------------------------------------------
-    "occasion.birthday": "Tugʻilgan kun",
-    "occasion.anniversary": "Yubiley",
-    "occasion.custom": "Boshqa sabab",
-    "genre.pop": "Pop",
-    "genre.retro_estrada": "Retro estrada",
-    "genre.hip_hop": "Xip-xop",
-    "genre.rock": "Rok",
-    "genre.acoustic_ballad": "Akustik ballada",
-    "genre.dance_electronic": "Raqs / elektron",
-    "genre.uzbek_pop": "Oʻzbek estradasi",
-    "genre.uzbek_folk": "Oʻzbek xalq qoʻshigʻi",
-    "genre.shashmaqom": "Shashmaqom",
-    "genre.jazz_lounge": "Jaz-launj",
-    "vocal_gender.female": "Ayol ovozi",
-    "vocal_gender.male": "Erkak ovozi",
-    "vocal_gender.duet": "Duet",
-    "vocal_gender.any": "Har qanday ovoz",
+    "occasion.birthday": "🎂 Tugʻilgan kun",
+    "occasion.anniversary": "💍 Yubiley",
+    "occasion.custom": "✨ Boshqa sabab",
+    "genre.pop": "🎤 Pop",
+    "genre.retro_estrada": "📻 Retro estrada",
+    "genre.hip_hop": "🎧 Xip-xop",
+    "genre.rock": "🤘 Rok",
+    "genre.acoustic_ballad": "🎸 Akustik ballada",
+    "genre.dance_electronic": "🕺 Raqs / elektron",
+    "genre.uzbek_pop": "🌟 Oʻzbek estradasi",
+    "genre.uzbek_folk": "🪕 Oʻzbek xalq qoʻshigʻi",
+    "genre.shashmaqom": "🎻 Shashmaqom",
+    "genre.jazz_lounge": "🎷 Jaz-launj",
+    "vocal_gender.female": "👩 Ayol ovozi",
+    "vocal_gender.male": "👨 Erkak ovozi",
+    "vocal_gender.duet": "👫 Duet",
+    "vocal_gender.any": "🎲 Har qanday ovoz",
     "language.uz_latn": "Oʻzbekcha (lotin)",
     "language.uz_cyrl": "Ўзбекча (кирилл)",
     "language.ru": "Русский",
@@ -230,6 +259,9 @@ CATALOGUE: Final[dict[str, str]] = {
     "progress.queued": (
         "🎬 {name} uchun qoʻshiq studiyada. Telegramni yopsangiz ham boʻladi — "
         "tayyor boʻlgach shu yerga keladi."
+    ),
+    "progress.queued_noname": (
+        "🎬 Qoʻshigʻingiz studiyada. Telegramni yopsangiz ham boʻladi — shu yerga keladi."
     ),
     "progress.validating": "🔎 Maʼlumotlarni tekshirayapman…",
     "progress.moderating": "🛡️ Matnni koʻrib chiqayapman…",
@@ -270,6 +302,22 @@ CATALOGUE: Final[dict[str, str]] = {
         "yetishmayotgani quyida yozilgan. Buning uchun uzr soʻrayman.\n\n"
         "Buyurtma <code>{order_ref}</code>. Shu raqam bilan /support yuboring, bu "
         "jarayonni koʻrib chiqaman."
+    ),
+    "delivery.song_caption_noname": (
+        "🎵 <b>{title}</b>\nSizning soʻzlaringiz, kuylandi. Ovozni yoqing."
+    ),
+    "delivery.done_noname": (
+        "🎉 Mana qoʻshigʻingiz — yuborsangiz boʻladi.\n\n"
+        "Audioni toʻgʻridan-toʻgʻri ularga yuboring: u chat ichida ijro etiladi, hech "
+        "narsa yuklab olish shart emas.\n\n"
+        "Buyurtma <code>{order_ref}</code> — biz bilan bogʻlanish kerak boʻlsa, saqlab qoʻying.\n\n"
+        "Yana bittasini qilamizmi?"
+    ),
+    "delivery.done_degraded_noname": (
+        "⚠️ Qoʻshigʻingiz keldi, lekin jarayon silliq oʻtmadi — nima yetishmagani quyida "
+        "yozilgan. Buning uchun uzr.\n\n"
+        "Buyurtma <code>{order_ref}</code>. Shu raqam bilan /support yuboring, "
+        "bu jarayonni koʻramiz."
     ),
     # -- gaps (appended to the closing message; never a retry instruction) --
     "gap.name_best_effort": (

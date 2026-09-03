@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -42,7 +43,9 @@ from hbd.runtime.retention_job import (
 from tests.test_db.conftest import build_kit, new_order
 
 _A_YEAR_AND_A_BIT = 400
-_KEY = "kits/expired/song.mp3"
+#: What ``build_kit`` produces: one song, three greetings, one lyric sheet. Every one of
+#: them now carries a ``storage_key``, so every one of them comes back from the sweep.
+_ASSETS_IN_A_KIT = 5
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -64,12 +67,14 @@ async def _container(tmp_path: Path) -> AppContainer:
 
 async def _expired_kit_with_one_archived_object(
     container: AppContainer, tmp_path: Path
-) -> tuple[Path, datetime]:
+) -> tuple[Path, str, datetime]:
     """One paid, delivered order whose song has a real file in the archive.
 
-    Returns the archive path and an instant past every clock on it. The file is written by
-    hand because nothing writes ``assets.storage_key`` yet (that is a later phase); the
-    point of the test is that the JOB is correct the day it does.
+    Returns the archive path, the key the row recorded, and an instant past every clock on
+    it. The key is no longer faked in by hand: ``repository._replace_assets`` records
+    ``assets.storage_key`` for every asset it writes, so the sweep finds the keys on the
+    rows the way it will in production. Only the SONG gets a real FILE, because the
+    assertion downstream is that a file the sweep names actually disappears.
     """
     order = new_order(state=OrderState.BRIEF_READY)
     await container.repository.create_order(order)
@@ -78,20 +83,18 @@ async def _expired_kit_with_one_archived_object(
     )
     await container.repository.save_kit(build_kit(tmp_path, order.id))
 
-    async with container.require_session_factory().begin() as session:
-        await session.execute(
-            sa.update(AssetRow)
-            # The SONG only: ``variant_index == 0`` alone would also catch the first
-            # greeting and the lyric sheet, and the point of the assertions downstream is
-            # that ONE key is handed over and ONE file disappears.
-            .where(AssetRow.order_id == order.id, AssetRow.kind == AssetKind.SONG)
-            .values(storage_key=_KEY)
+    async with container.require_session_factory()() as session:
+        key = await session.scalar(
+            sa.select(AssetRow.storage_key).where(
+                AssetRow.order_id == order.id, AssetRow.kind == AssetKind.SONG
+            )
         )
+    assert key is not None, "save_kit must record the key the archive wrote the bytes under"
 
-    archived = tmp_path / "var" / ARCHIVE_DIRNAME / _KEY
+    archived = tmp_path / "var" / ARCHIVE_DIRNAME / key
     archived.parent.mkdir(parents=True, exist_ok=True)
     archived.write_bytes(b"an expired birthday song")
-    return archived, datetime.now(UTC) + timedelta(days=_A_YEAR_AND_A_BIT)
+    return archived, key, datetime.now(UTC) + timedelta(days=_A_YEAR_AND_A_BIT)
 
 
 async def _stored_runs(container: AppContainer) -> tuple[PurgeRunRow, ...]:
@@ -117,6 +120,12 @@ class _RefusingStorage:
     async def delete(self, key: str) -> Result[None]:
         self.attempted.append(key)
         return err(StorageError("the bucket refused", context={"key": key}))
+
+    async def size(self, key: str) -> Result[int]:
+        raise NotImplementedError
+
+    async def open_range(self, key: str, *, start: int, end: int) -> Result[AsyncIterator[bytes]]:
+        raise NotImplementedError
 
 
 # ---------------------------------------------------------------------------
@@ -173,7 +182,7 @@ async def test_an_expired_assets_archive_file_is_gone_from_disk_after_one_sweep(
     # Arrange
     container = await _container(tmp_path)
     try:
-        archived, later = await _expired_kit_with_one_archived_object(container, tmp_path)
+        archived, _, later = await _expired_kit_with_one_archived_object(container, tmp_path)
         assert archived.exists(), "the fixture must start from a real file on disk"
 
         # Act
@@ -181,8 +190,8 @@ async def test_an_expired_assets_archive_file_is_gone_from_disk_after_one_sweep(
 
         # Assert — the file is gone, and the counts say so without rounding.
         assert not archived.exists()
-        assert summary["storage_keys_returned"] == 1
-        assert summary["storage_keys_deleted"] == 1
+        assert summary["storage_keys_returned"] == _ASSETS_IN_A_KIT
+        assert summary["storage_keys_deleted"] == _ASSETS_IN_A_KIT
         assert summary["storage_delete_failures"] == 0
     finally:
         await container.aclose()
@@ -192,7 +201,7 @@ async def test_the_run_is_recorded_with_returned_and_deleted_matching(tmp_path: 
     # Arrange
     container = await _container(tmp_path)
     try:
-        _, later = await _expired_kit_with_one_archived_object(container, tmp_path)
+        _, _, later = await _expired_kit_with_one_archived_object(container, tmp_path)
 
         # Act
         await run_retention_sweep({"container": container}, now=later)
@@ -204,7 +213,7 @@ async def test_the_run_is_recorded_with_returned_and_deleted_matching(tmp_path: 
         assert row.trigger is PurgeTrigger.CRON
         assert row.triggered_by_username is None
         assert row.assets_deleted == 5
-        assert row.storage_keys_returned == row.storage_keys_deleted == 1
+        assert row.storage_keys_returned == row.storage_keys_deleted == _ASSETS_IN_A_KIT
         assert row.is_storage_leaking is False
         assert row.error_code is None
         assert row.batch_size == DEFAULT_PURGE_BATCH_SIZE
@@ -239,7 +248,7 @@ async def test_a_storage_delete_that_fails_is_counted_logged_and_left_visible(
     # Arrange
     container = await _container(tmp_path)
     try:
-        _, later = await _expired_kit_with_one_archived_object(container, tmp_path)
+        _, key, later = await _expired_kit_with_one_archived_object(container, tmp_path)
         refusing = _RefusingStorage()
         failing = replace(container, storage=refusing)
 
@@ -248,19 +257,20 @@ async def test_a_storage_delete_that_fails_is_counted_logged_and_left_visible(
             summary = await run_retention_sweep({"container": failing}, now=later)
 
         # Assert — the attempt happened, the failure was counted, and it was said out loud.
-        assert refusing.attempted == [_KEY]
-        assert summary["storage_keys_returned"] == 1
+        assert key in refusing.attempted
+        assert len(refusing.attempted) == _ASSETS_IN_A_KIT
+        assert summary["storage_keys_returned"] == _ASSETS_IN_A_KIT
         assert summary["storage_keys_deleted"] == 0
-        assert summary["storage_delete_failures"] == 1
+        assert summary["storage_delete_failures"] == _ASSETS_IN_A_KIT
         assert any(
             "could not be deleted from storage" in record.message for record in caplog.records
         )
 
         # Assert — and the mismatch survives on the row, not only in the log.
         runs = await _stored_runs(container)
-        assert runs[0].storage_keys_returned == 1
+        assert runs[0].storage_keys_returned == _ASSETS_IN_A_KIT
         assert runs[0].storage_keys_deleted == 0
-        assert runs[0].storage_delete_failures == 1
+        assert runs[0].storage_delete_failures == _ASSETS_IN_A_KIT
         assert runs[0].is_storage_leaking is True
     finally:
         await container.aclose()

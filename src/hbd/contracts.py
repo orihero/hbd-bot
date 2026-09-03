@@ -15,7 +15,7 @@ is what we post to a vendor; nobody ever sees it.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -378,12 +378,23 @@ class LyricSection(_Frozen):
 
 
 class LyricDraft(_Frozen):
-    """A complete lyric. ``name_display`` is what the lyric SHEET shows."""
+    """A complete lyric. ``name_display`` is what the lyric SHEET shows.
+
+    ``name_display`` is ``None`` for a lyric written by the customer on the bring-your-own
+    path, where the wizard never asks who the song is for. Such a lyric has NO name-hook
+    section either — the two go together, and ``pipeline.lyric_shape`` is what keeps them in
+    step. Everything that renders a name therefore has to ask first: the sheet's signature
+    line, the delivery captions, and the composition plan's name chunk.
+
+    It is ``None`` rather than an empty string so that "there is no name" cannot be confused
+    with "the name is blank", which was the bug the ``min_length=1`` bound was there to
+    prevent and which this field must keep preventing for every lyric that does have one.
+    """
 
     title: str = Field(min_length=1, max_length=120)
     language: Language
     sections: tuple[LyricSection, ...] = Field(min_length=1)
-    name_display: str = Field(min_length=1)
+    name_display: str | None = Field(default=None, min_length=1)
 
     @property
     def name_hook_sections(self) -> tuple[LyricSection, ...]:
@@ -401,7 +412,16 @@ class Brief(_Frozen):
     reads top-down: a brief may already carry the lyric it will be sung with.
     """
 
-    recipient: RecipientName
+    #: Who the song is for, or ``None`` when nobody asked. The wizard's bring-your-own
+    #: lyric path does not ask for a name — the customer's own words are the song, and a
+    #: name we invented for them would be SUNG — so the whole name subsystem is skipped for
+    #: those orders: no hook section, no name chunk, no acoustic verification.
+    #:
+    #: A ``None`` here is not the same as an identity that has been PURGED. A purged brief
+    #: cannot be reconstructed at all and ``db.mapping.to_recipient_name`` still raises for
+    #: one; this field being ``None`` means the question was never asked. The two are told
+    #: apart by ``briefs.identity_purged_at``, which only the purge job ever sets.
+    recipient: RecipientName | None = None
     occasion: Occasion
     genre: Genre
     vocal_gender: VoiceGender
@@ -821,6 +841,37 @@ class Storage(Protocol):
     async def signed_url(self, key: str, *, ttl_s: int) -> Result[str]: ...
 
     async def delete(self, key: str) -> Result[None]: ...
+
+    async def size(self, key: str) -> Result[int]:
+        """How many bytes the object holds, so a caller can answer ``Content-Range``.
+
+        Separate from :meth:`open_range` because HTTP needs the total *before* it can
+        decide whether a range is satisfiable at all, and because ``assets.size_bytes``
+        is not that number — it is what the pipeline produced, defaults to ``0`` on
+        every row ever written, and says nothing about what is actually in the archive.
+        A caller that wants "does this object exist" asks this and reads the error.
+        """
+        ...
+
+    async def open_range(self, key: str, *, start: int, end: int) -> Result[AsyncIterator[bytes]]:
+        """A bounded byte range, streamed. Confinement is the implementation's job.
+
+        ``start`` and ``end`` are byte offsets into the object and ``end`` is INCLUSIVE,
+        matching HTTP's ``Range: bytes=start-end`` exactly so no caller has to convert
+        between two conventions and get it wrong by one. An open-ended ``bytes=N-`` is
+        spelled ``start=N, end=size - 1`` using :meth:`size`; that is why ``end`` is not
+        optional. ``end`` past the last byte is clamped rather than refused, because a
+        client asking for more than there is has asked a satisfiable question.
+
+        The iterator is chunked, never whole-object: an ``<audio>`` element issues many
+        range requests and a backend that reads the entire song per request is a memory
+        amplifier pointed at itself.
+
+        Failures are returned, not raised — except a read that fails *after* the first
+        chunk has been yielded, which has no ``Result`` left to return because the
+        response is already in flight.
+        """
+        ...
 
 
 @runtime_checkable

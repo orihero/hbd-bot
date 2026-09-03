@@ -30,10 +30,8 @@ import httpx
 import pytest
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.redis import RedisStorage
-from fastapi import FastAPI
 from redis.asyncio import Redis
 
-from hbd.admin.app import create_app
 from hbd.admin.container import AdminContainer
 from hbd.admin.deps import RequirePermission
 from hbd.admin.routers.users import (
@@ -69,22 +67,6 @@ EVERY_ROLE: Final[tuple[AdminRole, ...]] = (
     AdminRole.ADMIN,
     AdminRole.OWNER,
 )
-
-
-@pytest.fixture
-def admin_app(container: AdminContainer) -> FastAPI:
-    """Override: the users routers are wired into ``create_app`` by a later step.
-
-    Included here only when they are absent, so this file passes both before and after that
-    wiring lands — and never mounts a route twice, which would shadow the guard.
-    """
-    application = create_app(container=container)
-    mounted = {getattr(route, "path", None) for route in application.routes}
-    if USERS_PATH not in mounted:
-        application.include_router(build_users_router())
-    if WIZARD_STATE_PATH not in mounted:
-        application.include_router(build_wizard_state_router())
-    return application
 
 
 async def signed_in(

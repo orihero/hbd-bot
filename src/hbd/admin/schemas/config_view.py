@@ -131,6 +131,13 @@ class ConfigView(ApiModel):
     admin_reveal_records_per_hour: int
     admin_reveal_conversations_per_day: int
 
+    #: The WORKER's ``name_match_min_similarity``, mirrored into this process so
+    #: ``/generations/names`` can mark it. ``null`` means this deployment has not published
+    #: it — §11.2 links the histogram straight here, and an operator following that link
+    #: needs to see either the number the marker was drawn from or the fact that there
+    #: isn't one. Not a secret and not derived: it is a setting like the rest.
+    admin_name_match_min_similarity: float | None
+
     # -- derived: where the DSNs point, never what they authenticate with ---
     database_host: str | None
     database_port: int | None
@@ -170,6 +177,7 @@ def to_config_view(settings: AdminSettings) -> ConfigView:
         admin_trusted_proxy_cidrs=settings.admin_trusted_proxy_cidrs,
         admin_reveal_records_per_hour=settings.admin_reveal_records_per_hour,
         admin_reveal_conversations_per_day=settings.admin_reveal_conversations_per_day,
+        admin_name_match_min_similarity=settings.admin_name_match_min_similarity,
         database_host=database.host,
         database_port=database.port,
         redis_host=redis.host,

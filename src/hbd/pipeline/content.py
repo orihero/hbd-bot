@@ -148,6 +148,19 @@ def _build_scripts(
     )
 
 
+def _required_name(brief: Brief) -> str:
+    """The recipient's display name, for the paths that cannot run without one.
+
+    Greetings are a persona SAYING the recipient's name, so a nameless brief never reaches
+    the script writer — ``orchestrator._write_scripts`` returns early for one. This turns
+    that invariant into a narrowing rather than repeating the reasoning at each call.
+    """
+    recipient = brief.recipient
+    if recipient is None:  # pragma: no cover - guarded by the orchestrator
+        raise AssertionError("greeting scripts were requested for a brief with no recipient")
+    return recipient.display
+
+
 class LlmContentWriter:
     """Concrete ``ContentWriter``. Holds no state beyond its collaborators."""
 
@@ -184,11 +197,17 @@ class LlmContentWriter:
                 )
             )
 
+        # The writer is only ever asked for a lyric when nobody supplied one, and a brief
+        # with no recipient always carries the customer's own — see
+        # ``orchestrator._lyrics_for``. ``None`` here would build a hookless draft and the
+        # next line, which requires a hook, would raise.
+        recipient = brief.recipient
+        assert recipient is not None
         draft = build_lyric_draft(
             sections,
             title=payload.title,
             language=brief.output_language,
-            name_display=brief.recipient.display,
+            name_display=recipient.display,
         )
         # ``build_sections`` flags exactly one hook, so this never comes up empty.
         hook_index = next(
@@ -243,7 +262,7 @@ class LlmContentWriter:
             greetings,
             voices=voices,
             language=brief.output_language,
-            name_display=brief.recipient.display,
+            name_display=_required_name(brief),
             name_submitted=name_submitted,
             target_duration_s=target_duration_s,
         )

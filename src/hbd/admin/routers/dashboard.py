@@ -1,6 +1,6 @@
 """``GET /api/ops/*`` and ``GET /api/metrics/*`` — the first screen an operator opens.
 
-Six reads, no writes, and every one of them answers with something the database counted.
+Seven reads, no writes, and every one of them answers with something the database counted.
 The rules below are what this screen lives or dies by, because a dashboard that rounds a
 number off is worse than one that has no number: it is believed.
 
@@ -39,9 +39,15 @@ through, and no unmasked variant of any response. That is stated so a reader who
 matrix and sees **R** does not go looking for the redaction this router does not do.
 
 **The pulse takes no window.** It is the state of the deployment as a whole; a default window
-baked in here would be a policy an operator could not see or argue with, and the four
+baked in here would be a policy an operator could not see or argue with, and the five
 ``/metrics/*`` routes are where a window is asked for explicitly. ``from`` and ``to`` there
 are given together or not at all — one end of a half-open interval is a range nobody chose.
+
+**An empty window says so, and says which kind of empty it is.** ``/metrics/name-analytics``
+carries ``hasRecordedAttempts`` — measured with the window deliberately ignored — because
+``attempts: 0`` alone cannot tell "nothing in the range you chose" from "verification has
+never run here", and §11.4 renders those as two different screens with two different
+remedies. Zero-filled histogram bars are the same class of lie as a zero-filled day series.
 """
 
 from __future__ import annotations
@@ -51,24 +57,26 @@ from typing import Annotated, Final
 
 from fastapi import APIRouter, Depends, Query
 
-from hbd.admin.deps import API_PREFIX, Db, require_permission
+from hbd.admin.deps import API_PREFIX, Db, Settings, require_permission
 from hbd.admin.errors import AdminProblem, ProblemError, unwrap
 from hbd.admin.schemas.dashboard import (
     CapabilitiesView,
     FailureView,
     LatencyView,
+    NameAnalyticsView,
     OrdersPerDayView,
     PulseView,
     StrategyOutcomeView,
     to_capabilities_view,
     to_failure_view,
     to_latency_view,
+    to_name_analytics_view,
     to_orders_per_day_view,
     to_pulse_view,
     to_strategy_outcome_view,
 )
 from hbd.admin.security.permissions import Permission
-from hbd.db.admin.attempts import strategy_outcomes
+from hbd.db.admin.attempts import name_analytics, strategy_outcomes
 from hbd.db.admin.metrics import (
     delivery_latency,
     delivery_outcome,
@@ -83,6 +91,7 @@ __all__ = [
     "CAPABILITIES_PATH",
     "FAILURES_PATH",
     "LATENCY_PATH",
+    "NAME_ANALYTICS_PATH",
     "NAME_STRATEGIES_PATH",
     "ORDERS_BY_DAY_PATH",
     "PULSE_PATH",
@@ -100,6 +109,7 @@ ORDERS_BY_DAY_PATH: Final[str] = f"{_METRICS_PREFIX}/orders-by-day"
 FAILURES_PATH: Final[str] = f"{_METRICS_PREFIX}/failures"
 LATENCY_PATH: Final[str] = f"{_METRICS_PREFIX}/latency"
 NAME_STRATEGIES_PATH: Final[str] = f"{_METRICS_PREFIX}/name-strategies"
+NAME_ANALYTICS_PATH: Final[str] = f"{_METRICS_PREFIX}/name-analytics"
 
 
 def _invalid(message: str) -> ProblemError:
@@ -186,10 +196,37 @@ def build_dashboard_router() -> APIRouter:
 
     @router.get(NAME_STRATEGIES_PATH)
     async def name_strategies(db: Db, window: Window) -> list[StrategyOutcomeView]:
-        """The candidate-orthography bake-off ``HBD_NAME_CANDIDATE_ORDER`` is reordered from."""
+        """The candidate-orthography bake-off ``HBD_NAME_CANDIDATE_ORDER`` is reordered from.
+
+        Kept beside the fuller ``/metrics/name-analytics`` rather than folded into it: this
+        is the bare series the dashboard's own summary reads, and a caller that wants three
+        numbers should not have to fetch twenty histogram buckets to get them.
+        """
         return [
             to_strategy_outcome_view(outcome)
             for outcome in await strategy_outcomes(db, window=window)
         ]
+
+    @router.get(NAME_ANALYTICS_PATH)
+    async def name_metrics(db: Db, window: Window, settings: Settings) -> NameAnalyticsView:
+        """The whole of ``/generations/names``: bake-off, distribution, and the cliff count.
+
+        One window over one population, because the screen's question — "what should
+        ``HBD_NAME_CANDIDATE_ORDER`` be, and is the threshold that decided these verdicts in
+        the right place" — is answered wrongly the moment its two halves are counted over
+        different ranges. The SPA drew the histogram from one keyset PAGE of
+        ``/api/generations`` and said so on screen ("most recent 200 scored attempts — the
+        window holds more"); this counts every scored attempt in the window, in the database.
+
+        ``threshold`` comes from ``AdminSettings`` and is ``None`` unless the deployment
+        published the worker's ``name_match_min_similarity``. There is no default here: an
+        invented 0.85 would put a marker on the chart that exists to argue about markers.
+        """
+        return to_name_analytics_view(
+            await name_analytics(
+                db, window=window, threshold=settings.admin_name_match_min_similarity
+            ),
+            window=window,
+        )
 
     return router

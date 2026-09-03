@@ -14,6 +14,16 @@ Three answers are offered to a preview, and all three are equal:
 * **paste your own** — the step expects text, so a lyric arriving as a plain message
   replaces the draft rather than being treated as a stray reply.
 
+**The step has a second entrance, and it spends nothing.** A customer who picked "I will
+write the words myself" back at the occasion list arrives here with
+``lyrics_source=OWN``, and the step then PROMPTS instead of writing: no vendor call, no
+write counted, no daily budget charged. Everything below about caps, budgets, waiting
+frames and mid-write races describes the writer's path only, because the other path has
+nothing to race and nothing to bound. The two meet again the moment a lyric exists —
+approve, confirm and submit are one code path for both, and a pasted lyric has always been
+shaped by ``pipeline.lyric_shape.build_lyric_draft`` exactly like a written one, which is
+what lets the worker stay unaware of where the words came from.
+
 Writing is a live vendor call on the customer's screen, so it gets its own "writing…" frame
 and a failure is a normal outcome, not an error page: they are told, and offered the retry
 by name on a ``lyrics_failed_keyboard`` rather than being dropped back on the language
@@ -75,12 +85,18 @@ from hbd.bot.keyboards import (
 )
 from hbd.bot.lyrics_entry import parse_typed_lyrics
 from hbd.bot.screens import Screen
-from hbd.bot.states import Wizard, WizardStep, state_for
+from hbd.bot.states import Wizard, WizardStep, next_step, state_for
 from hbd.contracts import Err, LyricDraft, Result
 from hbd.logging import get_logger
 from hbd.lyric_budget import LyricBudgetVerdict
 
-__all__ = ["build_router", "enter_lyrics_step", "handle_try_again", "MAX_LYRIC_WRITES"]
+__all__ = [
+    "build_router",
+    "enter_lyrics_step",
+    "handle_try_again",
+    "retagged",
+    "MAX_LYRIC_WRITES",
+]
 
 _LOG = get_logger(__name__)
 
@@ -132,6 +148,17 @@ async def enter_lyrics_step(
     Cancel, ``/start`` and expiry all leave ``Wizard.submitting`` and any of the three means
     the same thing here.
     """
+    if draft.is_own_lyrics:
+        # The whole of the bring-your-own path's cost control: there is nothing to control.
+        # No vendor call, so no write to count against MAX_LYRIC_WRITES and nothing to
+        # charge against the daily budget — the three guards below all exist to bound spend
+        # that this branch does not incur. The screen it lands on asks for the words; see
+        # ``screens._own_lyrics_prompt_screen`` and, for why a lyric-less LYRICS survives
+        # ``resolve_step`` here, ``screens.resolve_step``.
+        _LOG.info("the customer is writing this lyric; the writer is not called")
+        await show_step(event, state, retagged(draft), WizardStep.LYRICS)
+        return
+
     language = draft.ui_language
     if draft.lyric_writes >= MAX_LYRIC_WRITES:
         _LOG.warning(
@@ -150,6 +177,13 @@ async def enter_lyrics_step(
         return
 
     brief = brief_result.value
+    recipient = brief.recipient
+    if recipient is None:  # pragma: no cover - the writer's path always has a name
+        # Unreachable: this is the writer's branch, and ``to_brief`` requires a recipient
+        # unless the draft is on the own-lyrics path, which returned above.
+        _LOG.error("the writer was reached with no recipient; refusing to call it")
+        await show_step(event, state, draft, WizardStep.OUTPUT_LANGUAGE)
+        return
     # AFTER the brief is built, so a draft that cannot produce one costs nobody a write, and
     # BEFORE the writing frame and the vendor call, so a refusal spends nothing at all.
     if not await _has_daily_budget(event, state, deps, draft):
@@ -161,7 +195,7 @@ async def enter_lyrics_step(
     await state.set_state(Wizard.submitting)
     # The brief is what proves there is a recipient to name, so the name is taken from it
     # rather than re-narrowed off the draft: ``to_brief`` cannot succeed without one.
-    name = brief.recipient.display
+    name = recipient.display
     await present(
         event,
         Screen(
@@ -174,6 +208,33 @@ async def enter_lyrics_step(
         _LOG.info("the session left the write before it finished; dropping the result")
         return
     await _show_written(event, state, spent, written)
+
+
+def retagged(draft: WizardDraft) -> WizardDraft:
+    """Carry an already-typed lyric over to a newly chosen output language.
+
+    On the writer's path a language change rewrites the lyric, which is right: a lyric the
+    machine wrote in Russian is not the Uzbek one they asked for. For a lyric a PERSON
+    typed it would mean deleting their words in order to ask them to type them again, which
+    is the one thing this path exists to avoid.
+
+    So the words are kept and only the tag on them moves. That tag is what the composer is
+    told to sing in, and it is the only part of a typed lyric the language question was ever
+    deciding — the customer already wrote in whatever language they meant to.
+
+    It matters most on the own-lyrics order, where the words are typed at screen two and the
+    language is not chosen until screen five: every one of those lyrics is built under a
+    provisional tag and needs this on the way to the summary.
+    """
+    lyrics = draft.lyrics
+    language = draft.output_language
+    if lyrics is None or language is None or lyrics.language is language:
+        return draft
+    _LOG.info(
+        "carrying the customer's own lyric to a newly chosen output language",
+        extra={"from_language": str(lyrics.language), "to_language": str(language)},
+    )
+    return draft.updated(lyrics=lyrics.model_copy(update={"language": language}))
 
 
 async def _show_written(
@@ -319,11 +380,30 @@ async def handle_lyrics_ok(callback: CallbackQuery, state: FSMContext, deps: Bot
     if draft is None:
         await expire(callback, state)
         return
+    following = next_step(WizardStep.LYRICS, is_own_lyrics=draft.is_own_lyrics)
+    if following is not WizardStep.CONFIRM and following is not None:
+        # The own-lyrics order puts the words SECOND, so approving them is not the last act
+        # of the wizard there — the genre, the voice and the language are still to come.
+        await show_step(callback, state, draft, following)
+        return
     await show_confirm(callback, state, deps, draft)
 
 
 async def handle_regenerate(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:
-    """Ask for a different lyric. Every other answer in the draft is untouched."""
+    """Ask the writer for a lyric. Every other answer in the draft is untouched.
+
+    One action, drawn under two labels and reached from three screens: "write different
+    lyrics" above a lyric the bot wrote, and "let the bot write it" both above the
+    customer's own words and on the prompt that is waiting for them — see
+    ``keyboards.lyrics_keyboard`` for why the label splits and the handler does not.
+
+    It belongs to the WRITER's path and is only ever drawn there. On an own-lyrics draft
+    ``enter_lyrics_step`` shows the prompt again rather than calling anybody, which is the
+    right answer to a stale button pressed on an old screen: that draft has no recipient, so
+    there is nothing to write a lyric about. Changing the source here to force a write is
+    what must not happen — it would move the draft onto an order whose NAME step it has
+    never seen.
+    """
     await callback.answer()
     draft = await read_draft(state)
     if draft is None:
@@ -371,24 +451,52 @@ async def handle_typed_lyrics(message: Message, state: FSMContext) -> None:
         await show_step(message, state, draft, WizardStep.LYRICS)
         return
     recipient = draft.recipient
-    if recipient is None:
-        # Only reachable if storage lost the name under us; the lyric needs it to build a
-        # name hook, so we ask for the name again rather than sing to nobody.
+    if recipient is None and not draft.is_own_lyrics:
+        # The writer's path lost the name under us; the lyric needs it to build a name hook,
+        # so we ask for it again rather than sing to nobody. On the own-lyrics path a
+        # missing recipient is not a loss — it was never asked for — and the lyric is built
+        # without a hook.
         await show_step(message, state, draft, WizardStep.NAME)
         return
     previous = draft.lyrics
     parsed = parse_typed_lyrics(
         message.text or "",
         language=draft.output_language or draft.ui_language,
-        name_display=recipient.display,
-        title=previous.title if previous is not None else recipient.display,
+        name_display=None if recipient is None else recipient.display,
+        title=_title_for(draft, previous),
     )
     if isinstance(parsed, Err):
         _LOG.info("pasted lyric rejected", extra=parsed.error.to_log_dict())
         await say(message, error_text(parsed.error, draft.ui_language))
         return
     await say(message, translate("wizard.lyrics.updated", draft.ui_language))
+    # ``lyrics_source`` is deliberately NOT touched. It names which wizard ORDER this draft
+    # is walking — which steps exist, what Back does, whether a recipient is required — and
+    # a customer who pastes over a lyric the bot wrote is still on the writer's path: they
+    # answered the note and the name, and their draft has a name hook. Moving them here sent
+    # Back to the occasion step and jumped the language question straight to the summary.
     await show_step(message, state, draft.updated(lyrics=parsed.value), WizardStep.LYRICS)
+
+
+def _title_for(draft: WizardDraft, previous: LyricDraft | None) -> str:
+    """What to call this song. The previous title survives a retype; nothing else is invented.
+
+    On the writer's path a first-ever paste is titled with the recipient's display name,
+    which is what the generated lyric would have been called. With no recipient there is no
+    such default and none is guessed — a title taken from the first line of somebody's poem
+    is a guess they never asked for.
+
+    So a nameless lyric gets a localised placeholder instead of ``build_lyric_draft``'s
+    ``DEFAULT_TITLE``, which is the Uzbek word "Tabrik" and would otherwise have headlined
+    an English customer's summary and captioned their song. They see it on the preview the
+    moment they send their words, so it is a visible placeholder rather than a silent one.
+    """
+    if previous is not None:
+        return previous.title
+    recipient = draft.recipient
+    if recipient is not None:
+        return recipient.display
+    return translate("wizard.lyrics.untitled", draft.ui_language)
 
 
 async def handle_lyrics_not_typed(message: Message, state: FSMContext) -> None:

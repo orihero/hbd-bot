@@ -10,6 +10,7 @@ The draft is frozen. Every step returns a NEW draft via :meth:`WizardDraft.updat
 
 from __future__ import annotations
 
+from enum import StrEnum
 from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -30,7 +31,15 @@ from hbd.contracts import (
 )
 from hbd.errors import ValidationError
 
-__all__ = ["WizardDraft", "load_draft", "DRAFT_KEY", "MAX_NOTE_CHARS", "REQUIRED_ANSWERS"]
+__all__ = [
+    "WizardDraft",
+    "LyricSource",
+    "load_draft",
+    "DRAFT_KEY",
+    "MAX_NOTE_CHARS",
+    "REQUIRED_ANSWERS",
+    "OWN_LYRICS_REQUIRED_ANSWERS",
+]
 
 #: Single FSM-data key holding the whole draft, so no other key can collide with it.
 DRAFT_KEY: Final[str] = "draft"
@@ -50,6 +59,43 @@ REQUIRED_ANSWERS: Final[tuple[str, ...]] = (
     "recipient",
     "output_language",
 )
+
+#: The same list for the bring-your-own-lyrics path, minus the recipient.
+#:
+#: That path never asks who the song is for — the customer wrote the words and put whatever
+#: name they wanted in them — so ``Brief.recipient`` is ``None`` for these orders and the
+#: whole name subsystem is skipped downstream: no hook section, no name chunk, no acoustic
+#: verification. Requiring a recipient here would make every one of those drafts permanently
+#: incomplete, and ``resolve_step`` would bounce the customer back to a NAME step their path
+#: does not contain.
+OWN_LYRICS_REQUIRED_ANSWERS: Final[tuple[str, ...]] = (
+    "occasion",
+    "genre",
+    "vocal_gender",
+    "output_language",
+)
+
+
+class LyricSource(StrEnum):
+    """Who writes the words. Chosen at the occasion step, before any vendor is billed.
+
+    This is the whole of the bring-your-own feature's state, and it lives on the draft
+    rather than in the FSM state name because it has to survive Back: a customer who steps
+    back to change the genre must not silently be handed the machine's lyric on the way
+    forward again.
+
+    ``WRITER`` is the default and must stay the default — a draft written by a build that
+    predates this field deserialises into the behaviour it was created under, which is the
+    same rule ``session_id`` follows below.
+    """
+
+    #: The bot writes the lyric and shows it for approval. One live LLM call per attempt.
+    WRITER = "writer"
+    #: The customer sends their own words. Costs nothing and calls nobody: the lyric step
+    #: prompts instead of writing, so neither ``MAX_LYRIC_WRITES`` nor the per-account daily
+    #: budget is touched. Somebody who arrived with a poem already written should not have
+    #: to buy a machine's attempt at one in order to reach the screen that accepts theirs.
+    OWN = "own"
 
 
 class WizardDraft(BaseModel):
@@ -81,6 +127,9 @@ class WizardDraft(BaseModel):
     #: The lyric the user previewed and approved. ``None`` while it is being written, or
     #: after a regenerate has thrown the previous one away.
     lyrics: LyricDraft | None = None
+    #: Who is writing the words. Set at the occasion step and honoured by the lyric step;
+    #: see :class:`LyricSource` for why it lives here rather than in the FSM state.
+    lyrics_source: LyricSource = LyricSource.WRITER
     #: How many times this session has asked the writer for a lyric. The preview step is
     #: the first place a vendor is billed and it sits BEFORE the payment gate, so without
     #: a number here a stranger who never pays can hold the regenerate button down and
@@ -93,9 +142,24 @@ class WizardDraft(BaseModel):
         return WizardDraft.model_validate({**self.model_dump(), **changes})
 
     @property
+    def required_answers(self) -> tuple[str, ...]:
+        """Which answers this draft's path actually needs. See the two constants above."""
+        return OWN_LYRICS_REQUIRED_ANSWERS if self.is_own_lyrics else REQUIRED_ANSWERS
+
+    @property
     def missing_answers(self) -> tuple[str, ...]:
         """Names of the answers still required before a :class:`Brief` can be built."""
-        return tuple(name for name in REQUIRED_ANSWERS if getattr(self, name) is None)
+        return tuple(name for name in self.required_answers if getattr(self, name) is None)
+
+    @property
+    def is_own_lyrics(self) -> bool:
+        """True when the customer is supplying the words themselves.
+
+        Read by ``screens.resolve_step`` — which must NOT downgrade a lyric-less preview to
+        the language question on this path, because the preview is where the words are
+        asked for — and by ``handlers.lyrics``, which uses it to skip the writer entirely.
+        """
+        return self.lyrics_source is LyricSource.OWN
 
     @property
     def is_complete(self) -> bool:
@@ -107,14 +171,20 @@ class WizardDraft(BaseModel):
         return {DRAFT_KEY: self.model_dump(mode="json")}
 
     def to_brief(self) -> Result[Brief]:
-        """Build the finished brief, or explain exactly what is still missing."""
+        """Build the finished brief, or explain exactly what is still missing.
+
+        The recipient is required on the writer's path and optional on the customer's, which
+        is the one asymmetry here — ``missing_answers`` owns that rule, and this method only
+        has to agree with it. A ``None`` recipient reaching ``Brief`` is not a hole: it is
+        how the pipeline is told this song names nobody.
+        """
         occasion, genre, vocal_gender = self.occasion, self.genre, self.vocal_gender
         recipient, output_language = self.recipient, self.output_language
         if (
             occasion is None
             or genre is None
             or vocal_gender is None
-            or recipient is None
+            or (recipient is None and not self.is_own_lyrics)
             or output_language is None
         ):
             return err(

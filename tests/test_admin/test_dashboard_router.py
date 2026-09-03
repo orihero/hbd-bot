@@ -12,12 +12,16 @@ invent, because every one of them is a number an operator would act on:
   true the instant one row carries a real cost — measured, never declared;
 * a failure code no class in ``hbd.errors`` claims answers ``isRetryable: null``, which is
   a third answer and not a quiet ``false``;
-* a day with no orders is missing from the series rather than present as a zero.
+* a day with no orders is missing from the series rather than present as a zero;
+* a name-analytics window with nothing in it reports ``hasRecordedAttempts`` so the SPA can
+  tell "nothing in the range you chose" from "verification has never run here", and reports
+  ``threshold: null`` rather than the bot's default when the deployment has not published
+  the number the histogram's marker would be drawn from.
 
 There is no masking test in the usual sense here because there is nothing on this surface to
 mask — so the privacy assertion is the stronger one: a known plaintext seeded into the
 recipient name, the candidate text, the transcript and an attempt's error MESSAGE appears in
-none of the six response bodies, at any of the four roles.
+none of the seven response bodies, at any of the four roles.
 """
 
 from __future__ import annotations
@@ -29,17 +33,16 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hbd.admin.app import create_app
 from hbd.admin.container import AdminContainer
 from hbd.admin.deps import RequirePermission, require_permission
 from hbd.admin.routers.dashboard import (
     CAPABILITIES_PATH,
     FAILURES_PATH,
     LATENCY_PATH,
+    NAME_ANALYTICS_PATH,
     NAME_STRATEGIES_PATH,
     ORDERS_BY_DAY_PATH,
     PULSE_PATH,
@@ -52,7 +55,16 @@ from hbd.db.models.brief import BriefRow
 from hbd.db.models.generation_attempt import GenerationAttemptRow
 from hbd.db.models.order import OrderRow
 from hbd.db.models.user import UserRow
-from tests.test_admin.conftest import ORIGIN, PASSWORD, create_account, sign_in
+from tests.test_admin.conftest import (
+    PASSWORD,
+    FakeRedis,
+    MemoryRateLimits,
+    create_account,
+    make_settings,
+    open_client,
+    open_container,
+    sign_in,
+)
 
 #: Fixed instants: every number here is derived from timestamps, so a wall clock would make
 #: the day buckets and the latency sample race the test run.
@@ -77,34 +89,13 @@ ALL_PATHS: Final[tuple[str, ...]] = (
     FAILURES_PATH,
     LATENCY_PATH,
     NAME_STRATEGIES_PATH,
+    NAME_ANALYTICS_PATH,
 )
 
-
-# ---------------------------------------------------------------------------
-# The application under test
-# ---------------------------------------------------------------------------
-@pytest.fixture
-def dashboard_app(container: AdminContainer) -> FastAPI:
-    """``create_app`` plus this router, mounted only if the app factory has not already.
-
-    ``src/hbd/admin/app.py`` is wired in a later step and is not this file's to edit, so the
-    router is included here — guarded on the path, so the day ``create_app`` mounts it the
-    suite does not end up with two copies of every route.
-    """
-    application = create_app(container=container)
-    mounted = {route.path for route in application.routes if isinstance(route, APIRoute)}
-    if PULSE_PATH not in mounted:
-        application.include_router(build_dashboard_router())
-    return application
-
-
-@pytest.fixture
-async def client(dashboard_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
-    """Shadows the package fixture so every request in this file reaches the router."""
-    async with dashboard_app.router.lifespan_context(dashboard_app):
-        transport = httpx.ASGITransport(app=dashboard_app)
-        async with httpx.AsyncClient(transport=transport, base_url=ORIGIN) as http:
-            yield http
+#: ``name_match_min_similarity`` as a deployment might publish it. Not the bot's default:
+#: a test that used 0.85 would pass against a handler that ignored the setting and hardcoded
+#: the same number, which is precisely the failure the setting exists to prevent.
+THRESHOLD: Final[float] = 0.7
 
 
 async def signed_in(
@@ -219,7 +210,7 @@ async def seed_attempt(
         name_candidate_strategy=kw.pop("name_candidate_strategy", None),
         name_candidate_rank=kw.pop("name_candidate_rank", None),
         is_name_verified=kw.pop("is_name_verified", None),
-        match_confidence=None,
+        match_confidence=kw.pop("match_confidence", None),
         name_candidate_text=kw.pop("name_candidate_text", None),
         stt_transcript=kw.pop("stt_transcript", None),
         error_code=kw.pop("error_code", None),
@@ -704,6 +695,268 @@ async def test_name_strategies_report_the_verification_rate_over_verified_rows_o
     assert strategies == [
         {"strategy": "stripped", "attempts": 2, "verified": 1, "verificationRate": 0.5}
     ]
+
+
+# ---------------------------------------------------------------------------
+# Name analytics: the bake-off, the distribution and the cliff, from one window
+# ---------------------------------------------------------------------------
+@pytest.fixture
+async def thresholded_container(
+    fake_redis: FakeRedis, rate_limits: MemoryRateLimits
+) -> AsyncIterator[AdminContainer]:
+    """A deployment that has published the worker's ``name_match_min_similarity``."""
+    settings = make_settings(admin_name_match_min_similarity=THRESHOLD)
+    async with open_container(settings, fake_redis, rate_limits) as built:
+        yield built
+
+
+@pytest.fixture
+async def thresholded_client(
+    thresholded_container: AdminContainer,
+) -> AsyncIterator[httpx.AsyncClient]:
+    async with open_client(thresholded_container) as http:
+        yield http
+
+
+async def seed_verdict(
+    session: AsyncSession,
+    *,
+    strategy: NameStrategy,
+    is_verified: bool,
+    confidence: float | None,
+    created_at: datetime = DAY_ONE,
+) -> None:
+    """One acoustic verdict, the shape ``verdict_row_values`` writes."""
+    await seed_attempt(
+        session,
+        created_at=created_at,
+        kind=GenerationKind.NAME_VERIFICATION,
+        name_candidate_strategy=strategy,
+        name_candidate_rank=0,
+        is_name_verified=is_verified,
+        match_confidence=confidence,
+    )
+
+
+async def test_name_analytics_answers_both_halves_of_the_question_from_one_window(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """The bars and the histogram must be counted over the same rows or they argue.
+
+    Hand-computed: inside the window, STRIPPED is 2/3 and CANONICAL is 1/1, and the four
+    scored rows land in four different buckets. The CYRILLIC verdict a day later and the row
+    where verification never ran are both outside the population and must move no number.
+    """
+    # Arrange
+    async with container.session_factory.begin() as session:
+        await seed_verdict(
+            session, strategy=NameStrategy.STRIPPED, is_verified=True, confidence=0.92
+        )
+        await seed_verdict(
+            session, strategy=NameStrategy.STRIPPED, is_verified=True, confidence=0.88
+        )
+        await seed_verdict(
+            session, strategy=NameStrategy.STRIPPED, is_verified=False, confidence=0.40
+        )
+        await seed_verdict(
+            session, strategy=NameStrategy.CANONICAL, is_verified=True, confidence=0.55
+        )
+        await seed_verdict(
+            session,
+            strategy=NameStrategy.CYRILLIC,
+            is_verified=True,
+            confidence=0.99,
+            created_at=DAY_THREE,
+        )
+        # Verification disabled: a verdict that was never reached is not a failure.
+        await seed_attempt(
+            session, name_candidate_strategy=NameStrategy.PHONETIC, is_name_verified=None
+        )
+    await signed_in(container, client)
+
+    # Act
+    body = (
+        await client.get(
+            NAME_ANALYTICS_PATH,
+            params={"from": DAY_ONE.isoformat(), "to": (DAY_ONE + timedelta(days=1)).isoformat()},
+        )
+    ).json()
+
+    # Assert — ranked by rate, volume breaking the tie, exactly as the bare series is.
+    assert [(row["strategy"], row["attempts"], row["verified"]) for row in body["strategies"]] == [
+        ("canonical", 1, 1),
+        ("stripped", 3, 2),
+    ]
+    assert body["strategies"][1]["verificationRate"] == pytest.approx(2 / 3)
+    assert (body["attempts"], body["verified"], body["scored"]) == (4, 3, 4)
+    assert body["verificationRate"] == pytest.approx(0.75)
+    # The window is echoed, so the empty state can name the range it found nothing in.
+    assert body["window"]["from"].startswith("2026-03-20")
+    # Four scored rows in four buckets: 0.40 → 8, 0.55 → 11, 0.88 → 17, 0.92 → 18.
+    occupied = {
+        index: bucket["count"]
+        for index, bucket in enumerate(body["buckets"])
+        if bucket["count"] > 0
+    }
+    assert occupied == {8: 1, 11: 1, 17: 1, 18: 1}
+    assert sum(bucket["count"] for bucket in body["buckets"]) == body["scored"]
+
+
+async def test_the_per_strategy_distribution_sums_to_the_overall_one(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """The histogram beside the bars is the same data grouped, never a second read."""
+    # Arrange
+    async with container.session_factory.begin() as session:
+        await seed_verdict(
+            session, strategy=NameStrategy.STRIPPED, is_verified=True, confidence=0.92
+        )
+        await seed_verdict(
+            session, strategy=NameStrategy.CANONICAL, is_verified=False, confidence=0.12
+        )
+    await signed_in(container, client)
+
+    # Act
+    body = (await client.get(NAME_ANALYTICS_PATH)).json()
+
+    # Assert
+    per_strategy = [0] * body["bucketCount"]
+    for row in body["strategies"]:
+        assert len(row["buckets"]) == body["bucketCount"]
+        assert sum(bucket["count"] for bucket in row["buckets"]) == row["scored"]
+        for index, bucket in enumerate(row["buckets"]):
+            per_strategy[index] += bucket["count"]
+    assert per_strategy == [bucket["count"] for bucket in body["buckets"]]
+
+
+async def test_the_buckets_span_zero_to_one_and_the_top_one_is_closed(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """A verifier that answers exactly ``1.0`` must not fall off the end of the chart."""
+    # Arrange
+    async with container.session_factory.begin() as session:
+        for confidence in (0.0, 0.999, 1.0):
+            await seed_verdict(
+                session, strategy=NameStrategy.STRIPPED, is_verified=True, confidence=confidence
+            )
+    await signed_in(container, client)
+
+    # Act
+    body = (await client.get(NAME_ANALYTICS_PATH)).json()
+
+    # Assert — 20 bars of 0.05, the first opening at 0.0 and the last closing at 1.0.
+    buckets = body["buckets"]
+    assert len(buckets) == 20
+    assert (buckets[0]["from"], buckets[0]["to"]) == (0.0, 0.05)
+    assert (buckets[-1]["from"], buckets[-1]["to"]) == pytest.approx((0.95, 1.0))
+    assert buckets[0]["count"] == 1
+    assert buckets[-1]["count"] == 2
+
+
+async def test_the_threshold_marker_counts_the_attempts_a_move_would_flip(
+    thresholded_container: AdminContainer, thresholded_client: httpx.AsyncClient
+) -> None:
+    """The whole point of the screen: how many decisions sit on the cliff edge.
+
+    With the threshold at 0.7 the band is ``[0.65, 0.75]``, inclusive at both edges, so the
+    two attempts just outside it are what proves the band is a band and not a half-open
+    guess.
+    """
+    # Arrange
+    async with thresholded_container.session_factory.begin() as session:
+        for confidence in (0.65, 0.70, 0.75, 0.64, 0.76):
+            await seed_verdict(
+                session,
+                strategy=NameStrategy.STRIPPED,
+                is_verified=confidence >= THRESHOLD,
+                confidence=confidence,
+            )
+    await signed_in(thresholded_container, thresholded_client)
+
+    # Act
+    body = (await thresholded_client.get(NAME_ANALYTICS_PATH)).json()
+
+    # Assert
+    assert body["threshold"] == pytest.approx(THRESHOLD)
+    assert body["thresholdBand"] == pytest.approx(0.05)
+    assert body["nearThreshold"] == 3
+    assert body["scored"] == 5
+    assert [row["nearThreshold"] for row in body["strategies"]] == [3]
+
+
+async def test_a_deployment_that_has_not_published_the_threshold_says_so_rather_than_guessing(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """``null``, not 0.85 and not 0. The one chart whose job is arguing about the marker."""
+    # Arrange
+    async with container.session_factory.begin() as session:
+        await seed_verdict(
+            session, strategy=NameStrategy.STRIPPED, is_verified=True, confidence=0.9
+        )
+    await signed_in(container, client)
+
+    # Act
+    body = (await client.get(NAME_ANALYTICS_PATH)).json()
+
+    # Assert — a 0 here would read as "nothing sits near the cliff", which is a measurement.
+    assert body["threshold"] is None
+    assert body["nearThreshold"] is None
+    assert body["strategies"][0]["nearThreshold"] is None
+    assert body["scored"] == 1
+
+
+async def test_an_empty_window_is_distinguishable_from_a_verifier_that_never_ran(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """§11.4's empty-virgin and empty-filtered, decided from the response rather than a zero."""
+    # Arrange
+    await signed_in(container, client)
+
+    # Act — nothing recorded at all.
+    virgin = (await client.get(NAME_ANALYTICS_PATH)).json()
+
+    # Assert — every count zero, and the flag that says the zeros mean "never".
+    assert virgin["attempts"] == 0
+    assert virgin["hasRecordedAttempts"] is False
+    assert virgin["strategies"] == []
+    # A rate over no attempts is null, not 0.0 — an empty window has no rate, not a bad one.
+    assert virgin["verificationRate"] is None
+    assert sum(bucket["count"] for bucket in virgin["buckets"]) == 0
+
+    # Arrange — one verdict, and a window that excludes it.
+    async with container.session_factory.begin() as session:
+        await seed_verdict(
+            session, strategy=NameStrategy.STRIPPED, is_verified=True, confidence=0.9
+        )
+
+    # Act
+    filtered = (
+        await client.get(
+            NAME_ANALYTICS_PATH,
+            params={
+                "from": DAY_THREE.isoformat(),
+                "to": (DAY_THREE + timedelta(days=1)).isoformat(),
+            },
+        )
+    ).json()
+
+    # Assert — the same zeros, and the flag now says the remedy is to widen the window.
+    assert filtered["attempts"] == 0
+    assert filtered["hasRecordedAttempts"] is True
+
+
+async def test_name_analytics_refuses_half_a_window_like_every_other_metric(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    # Arrange
+    await signed_in(container, client)
+
+    # Act
+    response = await client.get(NAME_ANALYTICS_PATH, params={"from": DAY_ONE.isoformat()})
+
+    # Assert
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_INPUT"
 
 
 # ---------------------------------------------------------------------------

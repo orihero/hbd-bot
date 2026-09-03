@@ -46,6 +46,7 @@ from hbd.contracts import (
     VoiceGender,
 )
 from hbd.logging import configure_logging
+from hbd.pipeline.name_stage import SongRender
 
 # A fixed instant so any snapshot involving timestamps is stable.
 FIXED_NOW = datetime(2026, 3, 21, 9, 0, 0, tzinfo=UTC)
@@ -302,3 +303,27 @@ def kit(tmp_path: Path, lyrics: LyricDraft) -> Kit:
 def audio_bytes() -> bytes:
     """Deterministic non-empty bytes for anything that just needs a payload."""
     return b"RIFF----WAVEfmt fake-audio-payload"
+
+
+def recipient_of(brief: Brief) -> RecipientName:
+    """The recipient of a brief this test built WITH one.
+
+    ``Brief.recipient`` is optional since the bring-your-own-lyrics path landed — those
+    orders name nobody — so every read of it has to narrow. In a test the narrowing is also
+    an assertion worth making: it says "this fixture is a named one" and fails loudly rather
+    than as an attribute error if that ever stops being true.
+    """
+    recipient = brief.recipient
+    assert recipient is not None, "this test builds a brief with a recipient"
+    return recipient
+
+
+def candidate_of(render: SongRender) -> NameCandidate:
+    """The orthography a take was sung under, for a test that rendered a NAMED song.
+
+    ``SongRender.candidate`` is ``None`` only for a song with no name in it, which the name
+    stage produces without ever entering the verification loop.
+    """
+    candidate = render.candidate
+    assert candidate is not None, "this test renders a song with a name in it"
+    return candidate

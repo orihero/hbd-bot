@@ -53,6 +53,7 @@ from hbd.db.models.generation_attempt import GenerationAttemptRow
 from hbd.db.models.order import FAILED_REASON_LENGTH, OrderRow
 from hbd.db.models.user import UserRow
 from hbd.db.retention import DEFAULT_RETENTION_POLICY, RetentionClass, RetentionPolicy
+from hbd.storage import archive_key
 
 __all__ = ["SqlKitRepository", "MAX_ORDER_HISTORY"]
 
@@ -356,7 +357,28 @@ async def _replace_assets(
     klass: RetentionClass,
     now: datetime,
 ) -> None:
-    """Delete this order's assets and write the kit's, so a retry cannot duplicate them."""
+    """Delete this order's assets and write the kit's, so a retry cannot duplicate them.
+
+    **``storage_key`` is written here, and that closes the archive-orphan bug.** Two legs
+    write the same asset: ``pipeline.assets.archive_assets`` puts the bytes into object
+    storage under ``orders/{order_id}/{filename}``, and this function writes the row. Until
+    now only the first leg knew the key — the row recorded ``path`` (a workspace path on a
+    container that is long gone) and left ``storage_key`` NULL. So the retention sweep,
+    which deletes the row and hands the caller back the keys to delete, had no key to hand
+    back: it deleted the only record of where the bytes were and the bytes stayed in the
+    archive, past every retention clock in the system, unreachable and unsweepable. The
+    panel reported that honestly as ``KEYS_UNRECORDED`` and could do nothing about it.
+
+    Writing the key on the row fixes it for every row written from here on. It must be the
+    same string the ``put`` used, which is why it comes from :func:`hbd.storage.archive_key`
+    rather than from a second f-string that agrees with the first one until someone renames
+    something. Rows written *before* this fix are handled in ``db.purge._purge_assets``,
+    which reconstructs the same key from ``order_id`` and ``path``.
+
+    The key is recorded whether or not the archival ``put`` actually succeeded — archival is
+    best effort and ``persist_kit`` reports a gap and carries on. A key for bytes that were
+    never written costs one no-op delete on the sweep; a missing key costs the bytes forever.
+    """
     await session.execute(sa.delete(AssetRow).where(AssetRow.order_id == kit.order_id))
     for asset, variant_index in _numbered(kit):
         session.add(
@@ -366,6 +388,7 @@ async def _replace_assets(
                 kind=asset.kind,
                 variant_index=variant_index,
                 path=str(asset.path),
+                storage_key=archive_key(kit.order_id, asset.path.name),
                 mime=asset.mime,
                 duration_s=asset.duration_s,
                 sha256=asset.sha256,

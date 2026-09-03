@@ -30,11 +30,9 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from fastapi import FastAPI
 
-from hbd.admin.app import create_app
 from hbd.admin.container import AdminContainer
-from hbd.admin.routers.assets import ASSETS_PATH, build_assets_router
+from hbd.admin.routers.assets import ASSETS_PATH
 from hbd.admin.security.permissions import RBAC_MATRIX, Permission
 from hbd.contracts import AssetKind, Language, NameStrategy, OrderState
 from hbd.db.admin.assets import MAX_EXPIRING_WITHIN_DAYS
@@ -65,24 +63,6 @@ _TELEGRAM_ID: Final[int] = 99_000_222
 
 def asset_path(asset_id: UUID) -> str:
     return f"{ASSETS_PATH}/{asset_id}"
-
-
-# ---------------------------------------------------------------------------
-# The application: the router is mounted here rather than read off ``app.py``
-# ---------------------------------------------------------------------------
-@pytest.fixture
-def admin_app(container: AdminContainer) -> FastAPI:
-    """The real application plus this router, mounted only if the app factory has not.
-
-    ``app.py`` is wired in a later step of this slice. Including the router conditionally
-    means this file passes both before and after that lands, and never mounts ``/api/assets``
-    twice — a duplicate route would answer from the first copy and quietly hide a wiring
-    regression in the second.
-    """
-    application = create_app(container=container)
-    if not any(getattr(route, "path", None) == ASSETS_PATH for route in application.routes):
-        application.include_router(build_assets_router())
-    return application
 
 
 # ---------------------------------------------------------------------------

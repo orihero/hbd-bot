@@ -25,11 +25,9 @@ from typing import Final
 
 import httpx
 import pytest
-from fastapi import FastAPI
 
-from hbd.admin.app import create_app
 from hbd.admin.container import AdminContainer
-from hbd.admin.routers.config import CONFIG_PATH, build_config_router
+from hbd.admin.routers.config import CONFIG_PATH
 from hbd.admin.schemas.config_view import endpoint_of, to_config_view
 from hbd.admin.settings import AdminSettings
 from hbd.db.enums import AdminRole
@@ -40,6 +38,7 @@ from tests.test_admin.conftest import (
     MemoryRateLimits,
     create_account,
     make_settings,
+    open_client,
     open_container,
     sign_in,
 )
@@ -97,21 +96,6 @@ async def container(
         yield dataclasses.replace(
             built, settings=built.settings.model_copy(update={"database_url": DATABASE_DSN})
         )
-
-
-@pytest.fixture
-def admin_app(container: AdminContainer) -> FastAPI:
-    """The application with the config router mounted, exactly as ``create_app`` will.
-
-    ``app.py`` does not include it yet — the wiring is a later step of the slice — so it is
-    included here with **no** ``prefix``, because the router declares full paths. The path
-    check keeps this correct rather than double-registering once ``create_app`` grows the
-    same line.
-    """
-    application = create_app(container=container)
-    if not any(getattr(route, "path", None) == CONFIG_PATH for route in application.routes):
-        application.include_router(build_config_router())
-    return application
 
 
 async def signed_in(
@@ -282,6 +266,34 @@ async def test_the_non_secret_settings_are_reported_verbatim(
     assert body["adminTrustedProxyCidrs"] == []
     assert body["adminRevealRecordsPerHour"] == settings.admin_reveal_records_per_hour
     assert body["adminRevealConversationsPerDay"] == settings.admin_reveal_conversations_per_day
+    # Unset in this deployment, and reported as unset. §11.2 links the similarity histogram
+    # straight here, so an operator arriving from that link sees either the number the
+    # marker was drawn from or the fact that this panel has not been told one.
+    assert body["adminNameMatchMinSimilarity"] is None
+
+
+async def test_the_mirrored_similarity_threshold_is_published_when_the_deployment_sets_it(
+    fake_redis: FakeRedis, rate_limits: MemoryRateLimits
+) -> None:
+    """The value the histogram's marker is drawn from, visible where it can be compared.
+
+    It is the one setting on this page the admin process does not own — the worker's
+    ``name_match_min_similarity``, mirrored — so publishing it is what makes a drifted
+    mirror findable instead of silently drawing the marker in the wrong place.
+    """
+    # Arrange
+    settings = make_settings(admin_name_match_min_similarity=0.72)
+    async with (
+        open_container(settings, fake_redis, rate_limits) as container,
+        open_client(container) as client,
+    ):
+        await signed_in(container, client, role=AdminRole.VIEWER)
+
+        # Act
+        body = (await client.get(CONFIG_PATH)).json()
+
+    # Assert
+    assert body["adminNameMatchMinSimilarity"] == 0.72
 
 
 async def test_the_reported_configuration_is_the_one_the_process_is_bound_to(

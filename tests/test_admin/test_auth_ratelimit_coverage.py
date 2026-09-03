@@ -101,10 +101,13 @@ class CountingRateLimits:
         self.is_down = False
 
     async def increment(self, key: str, *, ttl_s: int) -> int:
+        return await self.increment_by(key, 1, ttl_s=ttl_s)
+
+    async def increment_by(self, key: str, amount: int, *, ttl_s: int) -> int:
         del ttl_s
         if self.is_down:
             raise ConnectionError("the limiter store is unavailable")
-        self.counts[key] = self.counts.get(key, 0) + 1
+        self.counts[key] = self.counts.get(key, 0) + amount
         return self.counts[key]
 
     async def refund(self, key: str, *, ttl_s: int) -> None:
@@ -371,7 +374,10 @@ class _MemoryStore:
         self.ttls: dict[str, int] = {}
 
     async def increment(self, key: str, *, ttl_s: int) -> int:
-        self.counts[key] = self.counts.get(key, 0) + 1
+        return await self.increment_by(key, 1, ttl_s=ttl_s)
+
+    async def increment_by(self, key: str, amount: int, *, ttl_s: int) -> int:
+        self.counts[key] = self.counts.get(key, 0) + amount
         self.ttls[key] = ttl_s
         return self.counts[key]
 
@@ -382,6 +388,9 @@ class _MemoryStore:
 
 class _BrokenStore:
     async def increment(self, key: str, *, ttl_s: int) -> int:
+        raise ConnectionError("redis is unreachable")
+
+    async def increment_by(self, key: str, amount: int, *, ttl_s: int) -> int:
         raise ConnectionError("redis is unreachable")
 
     async def refund(self, key: str, *, ttl_s: int) -> None:

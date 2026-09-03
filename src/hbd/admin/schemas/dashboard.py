@@ -36,17 +36,23 @@ test rather than left for a reader to infer.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
+
+from pydantic import Field
 
 from hbd.admin.schemas.common import ApiModel
 from hbd.admin.serializers.retryability import is_retryable_code
 from hbd.contracts import NameStrategy
+from hbd.db.admin.sql import TimeWindow
 from hbd.db.admin.views import (
     DeliveryOutcome,
     FailureCount,
     LatencySummary,
+    NameAnalytics,
     OrdersPerDay,
     ReadCapabilities,
+    SimilarityBucket,
+    StrategyAnalysis,
     StrategyOutcome,
 )
 
@@ -55,16 +61,24 @@ __all__ = [
     "DeliveryView",
     "FailureView",
     "LatencyView",
+    "NameAnalyticsView",
     "OrdersPerDayView",
     "PulseView",
+    "SimilarityBucketView",
+    "StrategyAnalysisView",
     "StrategyOutcomeView",
+    "WindowView",
     "to_capabilities_view",
     "to_delivery_view",
     "to_failure_view",
     "to_latency_view",
+    "to_name_analytics_view",
     "to_orders_per_day_view",
     "to_pulse_view",
+    "to_similarity_bucket_view",
+    "to_strategy_analysis_view",
     "to_strategy_outcome_view",
+    "to_window_view",
 ]
 
 
@@ -133,6 +147,88 @@ class StrategyOutcomeView(ApiModel):
     attempts: int
     verified: int
     verification_rate: float
+
+
+class SimilarityBucketView(ApiModel):
+    """One bar of the match-confidence histogram.
+
+    ``from``/``to`` rather than ``lower``/``upper`` because ``from`` is the name the chart
+    has always used and a rename on the wire is a rename in every consumer. ``from`` is a
+    Python keyword, so the field is ``from_`` with an explicit alias — the one place in this
+    package where the generated camelCase name is overridden, and it is overridden towards
+    the SPA rather than away from it.
+    """
+
+    from_: float = Field(alias="from")
+    to: float
+    count: int
+
+
+class StrategyAnalysisView(ApiModel):
+    """One orthography's row: the bake-off bar, its distribution, and its cliff count.
+
+    A strict superset of :class:`StrategyOutcomeView`, deliberately — the bake-off chart
+    consumes exactly those four fields and must keep working against this response without
+    a prop change.
+    """
+
+    strategy: NameStrategy
+    attempts: int
+    verified: int
+    verification_rate: float
+    #: Rows carrying a similarity score. Not ``attempts``: a verdict can be recorded with no
+    #: score, and the histogram's denominator is its own number.
+    scored: int
+    #: ``null`` when this deployment publishes no threshold — never ``0``, which would read
+    #: as "nothing sits near the cliff".
+    near_threshold: int | None
+    buckets: list[SimilarityBucketView]
+
+
+class WindowView(ApiModel):
+    """The half-open ``[from, to)`` the numbers were counted over. ``null`` for all time."""
+
+    from_: datetime = Field(alias="from")
+    to: datetime
+
+
+class NameAnalyticsView(ApiModel):
+    """``GET /api/metrics/name-analytics`` — the whole ``/generations/names`` screen.
+
+    **``hasRecordedAttempts`` is what makes an empty window readable.** With ``attempts: 0``
+    it is the difference between "nothing in the range you chose" (§11.4 empty-FILTERED,
+    which has a remedy — widen the window) and "verification has never run here"
+    (empty-VIRGIN, which does not). A zero cannot say which, and a chart of twenty empty
+    bars saying neither is the failure this field exists to prevent.
+
+    **``threshold`` and ``nearThreshold`` are ``null`` together.** The worker owns
+    ``name_match_min_similarity``; this process knows it only if the deployment published it
+    to the panel. Unpublished means no marker and no cliff count, rather than a default
+    nobody configured drawn on the one chart whose job is to argue about where that marker
+    belongs.
+
+    **Nothing here is personal data** — strategies, counts, bucket edges and the verifier's
+    own scores. No name, no candidate text, no transcript, at any role.
+    """
+
+    #: Echoed so the empty state can name the range it found nothing in.
+    window: WindowView | None
+    threshold: float | None
+    #: How near "near" is. On the wire so the SPA labels the marker from the server's number.
+    threshold_band: float
+    bucket_count: int
+    attempts: int
+    verified: int
+    #: ``null`` when nothing was verified in the window: no denominator, no rate.
+    verification_rate: float | None
+    scored: int
+    near_threshold: int | None
+    has_recorded_attempts: bool
+    #: Best first, by rate then volume. A strategy with no attempts in the window is absent
+    #: rather than present at zero — the chart renders "no attempts" from the gap.
+    strategies: list[StrategyAnalysisView]
+    #: The distribution summed over every strategy. Always ``bucketCount`` entries.
+    buckets: list[SimilarityBucketView]
 
 
 class CapabilitiesView(ApiModel):
@@ -221,6 +317,48 @@ def to_strategy_outcome_view(outcome: StrategyOutcome) -> StrategyOutcomeView:
         attempts=outcome.attempts,
         verified=outcome.verified,
         verification_rate=outcome.verification_rate,
+    )
+
+
+def to_similarity_bucket_view(bucket: SimilarityBucket) -> SimilarityBucketView:
+    return SimilarityBucketView(from_=bucket.lower, to=bucket.upper, count=bucket.count)
+
+
+def to_strategy_analysis_view(analysis: StrategyAnalysis) -> StrategyAnalysisView:
+    """The rate comes off the view model, exactly as ``to_strategy_outcome_view`` takes it."""
+    return StrategyAnalysisView(
+        strategy=analysis.strategy,
+        attempts=analysis.attempts,
+        verified=analysis.verified,
+        verification_rate=analysis.verification_rate,
+        scored=analysis.scored,
+        near_threshold=analysis.near_threshold,
+        buckets=[to_similarity_bucket_view(bucket) for bucket in analysis.buckets],
+    )
+
+
+def to_window_view(window: TimeWindow | None) -> WindowView | None:
+    """Echo the window the caller asked for, or ``None`` for the whole record."""
+    return None if window is None else WindowView(from_=window.start, to=window.end)
+
+
+def to_name_analytics_view(
+    analytics: NameAnalytics, *, window: TimeWindow | None
+) -> NameAnalyticsView:
+    """Project the analysis. The window is echoed from the request, not re-derived."""
+    return NameAnalyticsView(
+        window=to_window_view(window),
+        threshold=analytics.threshold,
+        threshold_band=analytics.band,
+        bucket_count=analytics.bucket_count,
+        attempts=analytics.attempts,
+        verified=analytics.verified,
+        verification_rate=analytics.verification_rate,
+        scored=analytics.scored,
+        near_threshold=analytics.near_threshold,
+        has_recorded_attempts=analytics.has_recorded_attempts,
+        strategies=[to_strategy_analysis_view(item) for item in analytics.strategies],
+        buckets=[to_similarity_bucket_view(bucket) for bucket in analytics.buckets],
     )
 
 

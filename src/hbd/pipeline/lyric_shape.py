@@ -93,14 +93,29 @@ def hook_index(sections: tuple[tuple[str, tuple[str, ...], bool], ...], name: st
 
 
 def build_sections(
-    sections: tuple[tuple[str, tuple[str, ...], bool], ...], *, name: str, hook_index: int
+    sections: tuple[tuple[str, tuple[str, ...], bool], ...],
+    *,
+    name: str | None,
+    hook_index: int | None,
 ) -> tuple[LyricSection, ...]:
-    """Materialise domain sections, guaranteeing the hook actually carries the name."""
+    """Materialise domain sections, guaranteeing the hook actually carries the name.
+
+    ``name`` and ``hook_index`` are both ``None`` for a nameless lyric — the bring-your-own
+    path, where the wizard never asks who the song is for. Then NO section is flagged, and
+    that absence is the signal the composition plan reads to build a song with no name
+    chunk in it. The two arguments move together on purpose: a hook that carries no name is
+    exactly the state ``build_composition_plan`` refuses, because it would isolate a chunk
+    for a re-render that has nothing to re-render.
+    """
     built: list[LyricSection] = []
     for index, (label, lines, _) in enumerate(sections):
-        is_hook = index == hook_index
+        is_hook = hook_index is not None and index == hook_index
         final_lines = lines
-        if is_hook and not any(name.casefold() in line.casefold() for line in lines):
+        if (
+            is_hook
+            and name is not None
+            and not any(name.casefold() in line.casefold() for line in lines)
+        ):
             final_lines = (name, *lines)[:MAX_LINES_PER_SECTION]
         built.append(LyricSection(label=label, lines=final_lines, is_name_hook=is_hook))
     return tuple(built)
@@ -111,7 +126,7 @@ def build_lyric_draft(
     *,
     title: str,
     language: Language,
-    name_display: str,
+    name_display: str | None = None,
 ) -> LyricDraft:
     """Assemble a draft from already-cleaned ``(label, lines, is_name_hook)`` triples.
 
@@ -125,12 +140,18 @@ def build_lyric_draft(
 
     The title is stripped before it is clamped: a whitespace-only title must collapse to
     ``DEFAULT_TITLE``, not ship three spaces as the name of the song.
+
+    ``name_display=None`` builds a NAMELESS lyric: no hook is chosen and no name is woven
+    in. That is the bring-your-own path, where the wizard asks for the words and never asks
+    who they are for, so there is no name to guarantee — and inventing one would put a word
+    the customer never typed into a song that gets sung. Every other caller passes a name
+    and gets the hook guarantee exactly as before.
     """
     canonical = tuple(
         (label, tuple(canonical_text(line, language) for line in lines), is_hook)
         for label, lines, is_hook in sections
     )
-    hook = hook_index(canonical, name_display)
+    hook = None if name_display is None else hook_index(canonical, name_display)
     return LyricDraft(
         title=(canonical_text(title, language).strip()[:MAX_TITLE_CHARS] or DEFAULT_TITLE),
         language=language,

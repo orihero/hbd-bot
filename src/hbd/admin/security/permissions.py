@@ -106,7 +106,9 @@ class Permission(StrEnum):
     MODERATION_QUEUE_READ = "moderation.queue.read"
     CONFIG_READ = "config.read"
     RETENTION_READ = "retention.read"
+    REVEAL_PERSONAL_DATA_READ = "reveal.personal_data.read"
     REVEAL_PERSONAL_DATA = "reveal.personal_data"
+    REVEAL_MEDIA_READ = "reveal.media.read"
     REVEAL_MEDIA = "reveal.media"
     ORDER_RETRY = "order.retry"
     ORDER_FORCE_DELIVER = "order.force_deliver"
@@ -121,6 +123,7 @@ class Permission(StrEnum):
     CONFIG_WRITE = "config.write"
     ORDER_EVIDENCE_EXPORT = "order.evidence_export"
     AUDIT_EXPORT = "audit.export"
+    ADMIN_READ = "admin.read"
     ADMIN_MANAGE = "admin.manage"
 
 
@@ -214,7 +217,9 @@ def _row(
     return MappingProxyType({role: cell for role, cell in cells.items() if cell is not None})
 
 
-#: §12.2, verbatim. VIEWER · SUPPORT · ADMIN (the plan's OPERATOR) · OWNER.
+#: §12.2, verbatim but for one ruled-on split. VIEWER · SUPPORT · ADMIN (the plan's
+#: OPERATOR) · OWNER. The exception is the pair of ``ADMIN_*`` rows at the bottom, which
+#: follow §6.8 line 949 rather than §12.2's collapsed row; the reason is written out there.
 RBAC_MATRIX: Final[Mapping[Permission, Mapping[AdminRole, Grant]]] = MappingProxyType(
     {
         Permission.SESSION_SELF: _row(viewer=_W, support=_W, admin=_W, owner=_W),
@@ -225,7 +230,58 @@ RBAC_MATRIX: Final[Mapping[Permission, Mapping[AdminRole, Grant]]] = MappingProx
         Permission.MODERATION_QUEUE_READ: _row(viewer=_M, support=_M, admin=_M, owner=_M),
         Permission.CONFIG_READ: _row(viewer=_M, support=_M, admin=_M, owner=_M),
         Permission.RETENTION_READ: _row(viewer=_M, support=_M, admin=_M, owner=_M),
+        # ── The THIRD place this table splits a §12.2 row, for the same reason as the two ──
+        # ── below it. Read the ADMIN_READ / ADMIN_MANAGE note at the bottom first. ────────
+        #
+        # §12.2 rows 4, 6, 7 and 9 all reduce to one endpoint — "Every ``A`` cell routes
+        # through the same ``POST /reveal`` endpoint" (§12.2 line 1886) — and §6.8 line 928
+        # gives that endpoint as ``S +S, audited, budgeted``. One ``A+S`` cell on the router
+        # makes it unreachable by everybody, for :func:`check_role`'s reason: the router
+        # guard holds no subject and therefore no grant, so it answers STEP_UP_REQUIRED to a
+        # SUPPORT operator holding a live, correctly-scoped ``reveal:<order>`` grant, for
+        # ever. And unlike the roster there is no §6.8 sibling row to fall back on, because
+        # /reveal has exactly one.
+        #
+        # Guarding the router with RECORDS_READ instead — the shape ``test_budget.py``'s
+        # probe route uses — is not available either: RECORDS_READ is ``M`` for all four
+        # roles, and §12.2 gives VIEWER no reveal cell at all.
+        #
+        # So the row is split: REVEAL_PERSONAL_DATA_READ is the ROLE half — who may reach
+        # ``POST /reveal`` at all, SUPPORT and above and pointedly not VIEWER — carrying no
+        # step-up, so the router guard decides it and lets the request through.
+        # REVEAL_PERSONAL_DATA keeps the ``A+S`` cell and is what the HANDLER enforces on
+        # the subject in the body, through
+        # ``deps.enforce_step_up(StepUpAction.REVEAL, subject_id=…)``. Both halves run on
+        # every request; neither is decorative and neither is sufficient alone.
+        #
+        # ``_M`` and not ``_R``: passing this guard unmasks nothing by itself. The plaintext
+        # only crosses after the step-up, the budget charge and the audit row, and that is
+        # the ``_AS`` cell on the next line.
+        Permission.REVEAL_PERSONAL_DATA_READ: _row(support=_M, admin=_M, owner=_M),
         Permission.REVEAL_PERSONAL_DATA: _row(support=_AS, admin=_AS, owner=_AS),
+        # ── The second place this table splits a §12.2 row, for the SAME reason as the ──
+        # ── ADMIN_READ / ADMIN_MANAGE pair below. See the long note there first. ────────
+        #
+        # §12.2 row 10 is ``Stream audio or read lyric text | — | A+S | A+S | A+S``, and
+        # §6.8 lines 924-925 give both endpoints as ``S +S, audited``. Read literally as one
+        # cell it makes GET /api/assets/{id}/stream unreachable by everybody: the router
+        # guard is :func:`check_role`, which holds no subject and therefore no grant, so it
+        # answers STEP_UP_REQUIRED to an ``A+S`` cell for ever — an operator who has just
+        # completed a correctly-scoped ``reveal:<asset>`` step-up still gets 403, and it
+        # looks right, because STEP_UP_REQUIRED is exactly what the matrix predicts.
+        #
+        # So the row is split the way §12.2 itself split the roster: REVEAL_MEDIA_READ is
+        # the ROLE half — who may reach the media routes at all, which is SUPPORT and above
+        # and pointedly not VIEWER — and it carries no step-up, so the router guard decides
+        # it and lets the request through. REVEAL_MEDIA keeps the ``A+S`` cell and is what
+        # the HANDLER enforces on the subject it has read, through
+        # ``deps.enforce_step_up(StepUpAction.REVEAL, subject_id=str(asset_id))``. Both
+        # halves therefore run on every request: neither is decorative and neither is
+        # sufficient alone.
+        #
+        # ``_M`` and not ``_R``: passing this guard unmasks nothing by itself. The bytes
+        # only move after the step-up, and that is the ``_AS`` cell below.
+        Permission.REVEAL_MEDIA_READ: _row(support=_M, admin=_M, owner=_M),
         Permission.REVEAL_MEDIA: _row(support=_AS, admin=_AS, owner=_AS),
         Permission.ORDER_RETRY: _row(admin=_W, owner=_W),
         Permission.ORDER_FORCE_DELIVER: _row(admin=_WS, owner=_WS),
@@ -240,6 +296,28 @@ RBAC_MATRIX: Final[Mapping[Permission, Mapping[AdminRole, Grant]]] = MappingProx
         Permission.CONFIG_WRITE: _row(owner=_WSF),
         Permission.ORDER_EVIDENCE_EXPORT: _row(owner=_WS),
         Permission.AUDIT_EXPORT: _row(owner=_WS),
+        # ── The one place this table deliberately does NOT follow §12.2. ──────────────
+        # §6.8 line 949 is the endpoint-level table and it is the authority here:
+        #     | GET | /admins | List | W |
+        # — owner, write-class, and pointedly with NO ``+S``, while the four writes beneath
+        # it (POST /admins, PATCH /admins/{id}, POST /admins/{id}/reset-password,
+        # DELETE /admins/{id}/sessions) each carry ``W +S`` explicitly. §12.2 collapsed all
+        # five into one row — ``| Admin account CRUD, revoke others' sessions | — | — | — |
+        # W+S |`` — and that collapsed row was NOT followed, by a ruling on the
+        # contradiction, because the endpoint table is the more specific statement. §12.2 now
+        # carries the same split (lines 1883-1884), so the two sections agree again.
+        #
+        # The split is not cosmetic. :func:`check_role` is the router-level guard and it
+        # takes only (permission, role): it holds no grant and reads no session, so a single
+        # ``_WS`` cell answers ``STEP_UP_REQUIRED`` to an OWNER unconditionally and forever —
+        # a granted, unexpired, correctly-scoped ``admin.manage`` step-up still yields 403.
+        # Reading §12.2's collapsed row literally therefore made the roster unreachable by
+        # every role, which is not what either section asks for.
+        #
+        # So: ADMIN_READ is the roster read (owner, ``W``, no step-up) and ADMIN_MANAGE stays
+        # the ``W+S`` cell guarding the four account writes when they arrive in Phase 2.
+        # Do not merge them back.
+        Permission.ADMIN_READ: _row(owner=_W),
         Permission.ADMIN_MANAGE: _row(owner=_WS),
     }
 )

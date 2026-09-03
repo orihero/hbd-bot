@@ -22,12 +22,14 @@ from hbd.db.models import AssetRow, BriefRow, OrderRow, UserRow
 from hbd.db.models.order import FAILED_REASON_LENGTH
 from hbd.db.repository import MAX_ORDER_HISTORY, SqlKitRepository
 from hbd.errors import ErrorCode
+from hbd.pipeline.assets import storage_key
 from tests.conftest import (
     UZBEK_NAME_CANONICAL,
     UZBEK_NAME_TYPED,
     make_brief,
     make_lyrics,
     make_name,
+    recipient_of,
 )
 from tests.test_db.conftest import MovableClock, build_kit, make_verdict, new_order
 
@@ -76,7 +78,7 @@ async def test_create_order_preserves_the_typed_and_display_name_separately(
 
     # Assert
     assert is_ok(fetched)
-    recipient = fetched.value.brief.recipient
+    recipient = recipient_of(fetched.value.brief)
     assert recipient.raw == UZBEK_NAME_TYPED
     assert recipient.display == UZBEK_NAME_CANONICAL
     assert recipient.raw != recipient.display
@@ -94,7 +96,7 @@ async def test_create_order_stores_ranked_candidates_in_order(
 
     # Assert — rank order is the whole point of the candidate list.
     assert is_ok(fetched)
-    candidates = fetched.value.brief.recipient.candidates
+    candidates = recipient_of(fetched.value.brief).candidates
     assert tuple(candidate.rank for candidate in candidates) == (0, 1, 2)
     assert candidates[0].strategy is NameStrategy.STRIPPED
 
@@ -480,6 +482,63 @@ async def test_saving_the_same_kit_twice_does_not_duplicate_assets(
             sa.select(sa.func.count()).select_from(AssetRow).where(AssetRow.order_id == order.id)
         )
     assert asset_count == 5  # one song, three greetings, one lyric sheet
+
+
+async def test_save_kit_records_the_archive_key_every_asset_was_stored_under(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """The archive-orphan bug: the bytes were archived and nothing recorded where.
+
+    ``storage_key`` was NULL on every row ever written, so the retention sweep deleted the
+    only record of the pairing and handed the caller nothing to delete. The audio then
+    outlived every retention clock in the system, unreachable and unsweepable.
+    """
+    # Arrange
+    order = new_order()
+    await repository.create_order(order)
+    kit = build_kit(tmp_path, order.id)
+
+    # Act
+    await repository.save_kit(kit)
+
+    # Assert — every asset, and the SAME string ``archive_assets`` puts the bytes under.
+    async with sessions() as session:
+        stored = set(
+            (
+                await session.scalars(
+                    sa.select(AssetRow.storage_key).where(AssetRow.order_id == order.id)
+                )
+            ).all()
+        )
+    assert None not in stored
+    assert stored == {storage_key(order.id, asset) for asset in kit.all_assets}
+
+
+async def test_a_re_render_rewrites_the_archive_key_rather_than_leaving_the_old_one(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    tmp_path: Path,
+) -> None:
+    """``_replace_assets`` deletes and re-inserts, so the key has to be written every time."""
+    # Arrange
+    order = new_order()
+    await repository.create_order(order)
+    kit = build_kit(tmp_path, order.id)
+    await repository.save_kit(kit)
+
+    # Act — ARQ retries jobs; this is the second delivery of the same order.
+    await repository.save_kit(kit)
+
+    # Assert
+    async with sessions() as session:
+        unrecorded = await session.scalar(
+            sa.select(sa.func.count())
+            .select_from(AssetRow)
+            .where(AssetRow.order_id == order.id, AssetRow.storage_key.is_(None))
+        )
+    assert unrecorded == 0
 
 
 async def test_save_kit_persists_name_verdicts_for_later_tuning(

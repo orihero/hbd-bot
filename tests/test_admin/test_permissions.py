@@ -5,7 +5,9 @@ Two halves, and both are needed:
 * :data:`_PLAN_MATRIX` is the plan's table typed out cell by cell, in the plan's own
   notation. Comparing it to :data:`RBAC_MATRIX` is how an accidental grant — a copy-paste
   that hands SUPPORT a write, a new permission quietly added to OWNER's row and everyone
-  else's — is caught by a diff instead of by an incident.
+  else's — is caught by a diff instead of by an incident. Its one departure from §12.2 is
+  the ``ADMIN_READ`` / ``ADMIN_MANAGE`` pair, transcribed from §6.8 line 949 by a ruling on
+  the two sections' contradiction; the row carries the reasoning.
 * everything below that is parameterised **over the module's matrix**, so a permission
   added next quarter is automatically subject to the same rules about step-up scoping
   without anyone remembering to extend a test.
@@ -73,7 +75,26 @@ _PLAN_MATRIX: Final[Mapping[Permission, tuple[str | None, str | None, str | None
     Permission.MODERATION_QUEUE_READ: (_M, _M, _M, _M),
     Permission.CONFIG_READ: (_M, _M, _M, _M),
     Permission.RETENTION_READ: (_M, _M, _M, _M),
+    # The same split, one row earlier, and for a sharper reason than the media pair below:
+    # §12.2 line 1886 collapses every ``A`` cell onto ONE endpoint (``POST /reveal``), and
+    # §6.8 line 928 gives that endpoint a single ``S +S`` row — so unlike the roster there is
+    # no second endpoint-table line to fall back on. REVEAL_PERSONAL_DATA_READ is the role
+    # half the router declares (``M``: passing it unmasks nothing by itself, since the
+    # plaintext crosses only after the step-up, the budget charge and the audit row), and
+    # REVEAL_PERSONAL_DATA keeps §12.2's ``A+S``, enforced by the handler on the subject in
+    # the body. RECORDS_READ was not available for the role half: it is ``M`` for all four
+    # roles, and §12.2 gives VIEWER no reveal cell at all.
+    Permission.REVEAL_PERSONAL_DATA_READ: (None, _M, _M, _M),
     Permission.REVEAL_PERSONAL_DATA: (None, _AS, _AS, _AS),
+    # NOT transcribed from §12.2 as it stands, and the deviation is the same one the
+    # ADMIN_READ / ADMIN_MANAGE pair below records. §12.2 row 10 —
+    # ``Stream audio or read lyric text | — | A+S | A+S | A+S`` — read literally as one cell
+    # makes both endpoints unreachable by every role: the router guard is ``check_role``,
+    # which holds no subject and so no grant, and answers STEP_UP_REQUIRED to an ``A+S`` cell
+    # unconditionally. So the row is split. REVEAL_MEDIA_READ is the role half the router
+    # declares (``M``: passing it unmasks nothing by itself), and REVEAL_MEDIA keeps §12.2's
+    # ``A+S``, enforced by the handler on the subject it has read.
+    Permission.REVEAL_MEDIA_READ: (None, _M, _M, _M),
     Permission.REVEAL_MEDIA: (None, _AS, _AS, _AS),
     Permission.ORDER_RETRY: (None, None, _W, _W),
     Permission.ORDER_FORCE_DELIVER: (None, None, _WS, _WS),
@@ -88,6 +109,14 @@ _PLAN_MATRIX: Final[Mapping[Permission, tuple[str | None, str | None, str | None
     Permission.CONFIG_WRITE: (None, None, None, _WSF),
     Permission.ORDER_EVIDENCE_EXPORT: (None, None, None, _WS),
     Permission.AUDIT_EXPORT: (None, None, None, _WS),
+    # The one pair of rows NOT transcribed from §12.2 as it stood. It read
+    # ``| Admin account CRUD, revoke others' sessions | — | — | — | W+S |`` — one row for
+    # five endpoints. §6.8 line 949 splits them: ``| GET | /admins | List | W |`` for the
+    # roster read, and an explicit ``W +S`` on each of POST /admins, PATCH /admins/{id},
+    # POST /admins/{id}/reset-password and DELETE /admins/{id}/sessions. The endpoint table
+    # is the more specific statement and it was ruled the authority, so the read is
+    # transcribed from §6.8 as a bare owner ``W`` and the writes keep §12.2's ``W+S``.
+    Permission.ADMIN_READ: (None, None, None, _W),
     Permission.ADMIN_MANAGE: (None, None, None, _WS),
 }
 

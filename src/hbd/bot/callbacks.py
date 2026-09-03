@@ -34,6 +34,12 @@ class NavAction(StrEnum):
     NAME_OK = "name_ok"
     RETYPE = "retype"
     LYRICS_OK = "lyrics_ok"
+    #: "I will write the words myself", offered in the occasion list. It is a NAV button
+    #: sitting among the occasion buttons rather than a fourth :class:`Occasion`, because it
+    #: is not an answer to "what are we celebrating?" — it answers who writes the lyric, and
+    #: an enum member would have had to be given a label, a prompt and a place in every
+    #: brief the pipeline reasons about in order to say something the occasion is not about.
+    OWN_LYRICS = "own_lyrics"
     #: Ask for a different lyric. Abbreviated because the value is packed into the 64-byte
     #: callback payload; its BUTTON LABEL lives under ``button.regenerate``, so
     #: ``lyrics_keyboard`` draws this one explicitly instead of via the ``button.{value}``

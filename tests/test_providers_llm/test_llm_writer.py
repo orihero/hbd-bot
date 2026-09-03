@@ -14,7 +14,7 @@ from hbd.errors import ErrorCode, ProviderTimeoutError
 from hbd.providers.llm.schemas import KitDraft, KitPlanPayload, PersonaBrief
 from hbd.providers.llm.task_settings import LlmTaskSettings
 from hbd.providers.llm.writer import build_kit_request, map_kit_payload, write_kit
-from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_name
+from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_name, recipient_of
 from tests.test_providers_llm.conftest import (
     StubLlmProvider,
     kit_payload_dict,
@@ -174,12 +174,12 @@ def test_each_script_submits_the_top_ranked_candidate_not_the_display_form(
     personas: tuple[PersonaBrief, ...], task_settings: LlmTaskSettings
 ) -> None:
     brief = make_brief()
-    expected = brief.recipient.candidates[0].text
+    expected = recipient_of(brief).candidates[0].text
 
     result = map_kit_payload(payload(), brief, personas, task_settings, provider_name=PROVIDER)
 
     assert isinstance(result, Ok)
-    assert expected != brief.recipient.display
+    assert expected != recipient_of(brief).display
     assert all(script.name_submitted == expected for script in result.value.scripts)
 
 

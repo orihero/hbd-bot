@@ -35,6 +35,7 @@ first request that depends on it:
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Annotated, Any, Final, Literal, Self
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -174,8 +175,53 @@ class AdminSettings(BaseSettings):
 
     # -- reveal budgets: a ceiling on how much personal data one operator can --
     # -- pull in one shift, independent of the per-action step-up (§12.1) ------
+    #: Counted in **records, not requests** (§12.3), which is the correction the plan's
+    #: review forced: one reveal returning fifty chat bodies charges fifty. A
+    #: request-counted ceiling of 200 would be 200 whole transcripts an hour, all inside
+    #: policy — bulk export through the reveal endpoint. Read by
+    #: :func:`hbd.admin.deps.reveal_budget_limits`; the window is a fixed clock hour, not a
+    #: sliding one, so the number is spendable twice across the boundary by design (the
+    #: control is a detection signal as much as a limit).
     admin_reveal_records_per_hour: int = Field(default=200, ge=10, le=2_000)
+    #: The second, independent ceiling: transcript pages per **UTC day**. Charged only by a
+    #: conversation reveal, on its own key namespace, so exhausting the day's transcripts
+    #: never costs an operator the ability to unmask a single name — and spending the hour
+    #: on names never costs them a transcript.
     admin_reveal_conversations_per_day: int = Field(default=20, ge=1, le=200)
+
+    # -- the name-verification threshold, MIRRORED and not owned -------------
+    #: ``name_match_min_similarity`` as the WORKER is running it, republished here so
+    #: ``/generations/names`` can mark it on the similarity histogram and count how many
+    #: attempts sit within 0.05 of it.
+    #:
+    #: It is deliberately ``None`` by default and deliberately not derived from
+    #: ``hbd.config.Settings``. This process does not read ``.env`` (see the module
+    #: docstring — that separation is what keeps a vendor key out of reach), so it cannot
+    #: know what the worker was actually started with; and importing the bot model's field
+    #: DEFAULT would publish ``0.85`` on a deployment that runs ``0.9``, drawing a
+    #: threshold line nobody configured on the one chart whose entire purpose is arguing
+    #: about where that line belongs. Unset therefore means "this deployment has not
+    #: published its threshold": the endpoint answers ``threshold: null`` with
+    #: ``nearThreshold: null``, and the histogram renders honestly with no marker.
+    #:
+    #: The cost of the mirror is drift — an operator who moves the worker's threshold and
+    #: not this one gets a marker in the wrong place. That is why it is published on
+    #: ``GET /api/config`` beside every other value the panel is running under, where the
+    #: two can be compared, rather than hidden inside the metrics response alone.
+    admin_name_match_min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    # -- the read-only data volume ------------------------------------------
+    #: The same directory ``hbd.runtime.container.build_container`` is given as its
+    #: ``data_root``, mounted here **read-only** (§12.1 T4). The panel reaches exactly one
+    #: subdirectory of it — ``<root>/archive``, where the pipeline puts a finished kit's
+    #: bytes — and reaches it only through the ``Storage`` protocol, never as a path.
+    #:
+    #: A setting rather than a constant because the two processes are deployed separately
+    #: and a panel pointed at the wrong volume must be a configuration mistake somebody can
+    #: fix, not a rebuild. Nothing is created here: the admin process has no write
+    #: permission on this tree, and a directory it conjured would be one the worker never
+    #: writes into — a silent "no such object" for every asset in the fleet.
+    admin_data_root: Path = Field(default=Path("var"))
 
     # -- probes -------------------------------------------------------------
     #: Lets a fleet monitor read ``/readyz``'s detailed body without an operator session.
@@ -184,6 +230,21 @@ class AdminSettings(BaseSettings):
 
     # -- validators ---------------------------------------------------------
     _normalize_cidrs = field_validator("admin_trusted_proxy_cidrs", mode="before")(_split_csv)
+
+    @field_validator("admin_name_match_min_similarity", mode="before")
+    @classmethod
+    def _blank_threshold_means_unpublished(cls, value: Any) -> Any:
+        """``HBD_ADMIN_NAME_MATCH_MIN_SIMILARITY=`` is "not published", not a broken float.
+
+        Every other optional value in this file is a ``str`` whose empty form is falsy, so
+        an empty variable is simply off. This one is a number, and pydantic would refuse an
+        empty string — turning a documented "leave it blank" into a boot failure. The
+        example file ships the variable blank, so this is the path an untouched deployment
+        actually takes.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator("admin_trusted_proxy_cidrs")
     @classmethod

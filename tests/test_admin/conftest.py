@@ -25,7 +25,8 @@ from typing import Any, Final, cast
 
 import httpx
 import pytest
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI
+from fastapi.routing import APIRoute
 from redis.asyncio import Redis
 
 from hbd.admin.app import create_app
@@ -112,7 +113,11 @@ class MemoryRateLimits:
         self.hashes_before_trip = 0
 
     async def increment(self, key: str, *, ttl_s: int) -> int:
-        self.counts[key] = self.counts.get(key, 0) + 1
+        return await self.increment_by(key, 1, ttl_s=ttl_s)
+
+    async def increment_by(self, key: str, amount: int, *, ttl_s: int) -> int:
+        del ttl_s
+        self.counts[key] = self.counts.get(key, 0) + amount
         return self.counts[key]
 
     async def refund(self, key: str, *, ttl_s: int) -> None:
@@ -220,6 +225,27 @@ async def create_account(
             must_change_password=must_change_password,
             now=NOW,
         )
+
+
+def api_routes(application: FastAPI) -> list[APIRoute]:
+    """Every ``APIRoute`` the application serves, however it stores its included routers.
+
+    ``app.routes`` is **not** flat on this FastAPI: ``include_router`` appends one wrapper
+    per router and keeps the router it was built from on ``original_router``. A test that
+    reads ``getattr(route, "path", None)`` off ``application.routes`` therefore sees ``None``
+    for every included router and silently concludes nothing is mounted. Read tolerantly, so
+    a caller asserts what the application serves rather than which of the two shapes the
+    installed version happens to use.
+    """
+    found: list[APIRoute] = []
+    for route in application.routes:
+        if isinstance(route, APIRoute):
+            found.append(route)
+            continue
+        included = getattr(route, "original_router", None)
+        if isinstance(included, APIRouter):
+            found.extend(nested for nested in included.routes if isinstance(nested, APIRoute))
+    return found
 
 
 @pytest.fixture

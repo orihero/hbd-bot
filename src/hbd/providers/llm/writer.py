@@ -28,6 +28,7 @@ from hbd.contracts import (
     LyricDraft,
     LyricSection,
     NameStrategy,
+    RecipientName,
     Result,
     SpokenScript,
     err,
@@ -72,13 +73,26 @@ _EMPTY_NOTE: Final[str] = "(the buyer left no note)"
 _STRATEGY_FALLBACK: Final[NameStrategy] = NameStrategy.PHONETIC
 
 
+def _name(brief: Brief) -> RecipientName:
+    """The recipient, for a writer that cannot be asked to write without one.
+
+    ``write_kit`` produces a lyric, greeting scripts AND name respellings in one call, so
+    every one of its outputs is about a person. A brief with no recipient carries the
+    customer's own lyric and needs none of them, and the orchestrator never routes one here.
+    """
+    recipient = brief.recipient
+    if recipient is None:  # pragma: no cover - guarded by the orchestrator
+        raise AssertionError("the kit writer was asked to write for a brief with no recipient")
+    return recipient
+
+
 def build_kit_request(
     brief: Brief, personas: Sequence[PersonaBrief], settings: LlmTaskSettings
 ) -> LlmRequest:
     """Render both prompts for this brief. Pure — no I/O, no provider."""
     name_line_seconds = settings.name_chunk_duration_ms / _MS_PER_SECOND
     shared = {
-        "recipient_display": brief.recipient.display,
+        "recipient_display": _name(brief).display,
         "greeting_count": str(len(personas)),
         "name_line_seconds": f"{name_line_seconds:.0f}",
         "output_language": brief.output_language.value,
@@ -169,7 +183,7 @@ def map_kit_payload(
             title=clip(payload.title, _MAX_TITLE_CHARS),
             language=brief.output_language,
             sections=_map_sections(payload, name_line),
-            name_display=brief.recipient.display,
+            name_display=_name(brief).display,
         )
         scripts = _map_scripts(payload, brief, personas, settings)
     except (PydanticValidationError, ValueError) as exc:
@@ -215,7 +229,7 @@ def _map_scripts(
     The persona id is always OURS — the echoed one only decides which script goes where.
     """
     ordered = _align_to_personas(payload.spoken_scripts, personas)
-    name_submitted = brief.recipient.candidates[0].text
+    name_submitted = _name(brief).candidates[0].text
     return tuple(
         SpokenScript(
             persona_id=persona.persona_id,

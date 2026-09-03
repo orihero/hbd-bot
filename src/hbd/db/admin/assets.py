@@ -3,10 +3,13 @@
 Two things this module deliberately does not do.
 
 **It does not read the filesystem.** §6.7 asks ``/assets/{id}`` for ``isFilePresent``, and
-answering that means stat-ing the mounted volume — which is the ``Storage`` seam of §12.7,
-which Phase 2 opens along with the range-capable stream. Until that seam exists this layer
-reports what the *row* knows and nothing else, because a presence flag derived from a
-column would be a claim about a file nobody looked at. What the row does know is
+answering that means stat-ing the mounted volume once per row. The ``Storage`` seam of §12.7
+now exists — ``hbd.admin.services.assets`` streams through it — but this layer still does not
+use it, and that is a decision rather than a leftover: a list page that stats one file per
+row puts the volume behind every page load, and the flag is only honest for as long as it
+takes to render. This layer reports what the *row* knows and nothing else, because a presence
+flag derived from a column would be a claim about a file nobody looked at. What the row does
+know is
 :attr:`~hbd.db.admin.views.AssetView.storage_key`, and its absence is the operationally
 load-bearing fact: the retention sweep cannot delete archived bytes it has no key for
 (``purge.py:194`` filters ``if key``), so an asset with no key is one whose file outlives
