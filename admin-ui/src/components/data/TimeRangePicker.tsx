@@ -21,14 +21,18 @@
  * applies to input as much as to output, and this is the one control in the console where
  * an operator types a time rather than reading one.
  *
- * **A preset emits BOTH bounds.** `from` and `to` are one window to this API: every windowed
- * router refuses exactly one of them with a 422 ("from and to are one window — give both
- * bounds or neither"), and `windowParams` in the API layer answers that by dropping a half
- * window on the floor. So a preset that emitted `{from, to: undefined}` produced an
- * UNFILTERED screen that claimed to be filtered — the worst of the three outcomes, because
- * nothing goes red. The picker closes the range at the moment of the click instead. Three
- * feature directories had each written the same `completeWindow` workaround around this;
- * the fix belongs here, once.
+ * **A preset emits BOTH bounds.** The original reason was a refusal: every windowed router
+ * 422'd on exactly one bound, and `windowParams` answered that by dropping a half window on
+ * the floor, so `{from, to: undefined}` produced an UNFILTERED screen that claimed to be
+ * filtered — the worst of the three outcomes, because nothing goes red. Both halves of that
+ * are gone: `resolve_window` accepts a lone bound and `windowParams` now puts it on the wire.
+ *
+ * The picker still closes the range at the moment of the click, for the reason that was
+ * always the stronger one. A preset is a ROLLING window, and the URL is this console's
+ * filter store — writing "since 7 days ago" into it means a pasted link resolves to a
+ * different set of rows for every person who opens it, and means a keyset walk widens
+ * between page one and page two. Two fixed instants do not move. Three feature directories
+ * had each written the same `completeWindow` workaround; the fix belongs here, once.
  *
  * ## Which preset is lit
  *

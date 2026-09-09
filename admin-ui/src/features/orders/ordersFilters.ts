@@ -5,15 +5,27 @@
  * failed orders I'm looking at' into Slack". There is no second copy of this state anywhere
  * in the feature; the address bar is the store, and `buildFilterChips` renders it back.
  *
- * ## The window is a PAIR
+ * ## The window is completed into a PAIR, and no longer because it has to be
  *
- * `from` and `to` are one window on every list endpoint: `orders.py`'s `_window` refuses
- * half of one with a 422 ("from and to are one window — give both bounds or neither").
- * `TimeRangePicker` emits `{from, to: undefined}` for its presets, which would be that 422
- * on every preset click, so `completeWindow` fills the missing end before the value is
- * written to the URL, and `toOrdersQuery` drops a half window rather than sending it. The
- * completed pair is also what makes a pasted link reproducible: "last 24 hours" a week from
- * now is a different set of orders, a fixed window is not.
+ * This used to be a refusal: `orders.py`'s `_window` 422'd on half a window ("from and to
+ * are one window — give both bounds or neither"), so `completeWindow` existed to keep every
+ * preset click off that error. `hbd/admin/window.py::resolve_window` no longer raises it —
+ * a lone `from` is closed at the instant the request was served and a lone `to` leaves the
+ * start genuinely absent — so half a window is now a question this API answers.
+ *
+ * `completeWindow` stays anyway, for the reason that outlived the 422: a pasted link has to
+ * be REPRODUCIBLE. "Last 24 hours" resolved a week from now is a different set of orders; a
+ * pair of fixed instants in the URL is the same set forever. Pinning the end at the click is
+ * also what keeps a keyset walk honest — a `to` meaning "now" would widen the filter between
+ * page one and page two.
+ *
+ * `toStateCountsQuery` still drops a half window rather than sending it, which is now a
+ * SECOND copy of a rule the API layer has abandoned (see `windowParams` in `api/endpoints.ts`).
+ * It is unreachable from the picker, which completes every range before it is written; it is
+ * reachable from a hand-edited or pasted `?from=`-only URL, where it produces the failure
+ * that helper was changed to stop — a filter chip naming a window over an unfiltered page.
+ * Left as-is here only because changing it is a behaviour change to this screen rather than
+ * a doc fix; it wants the same treatment `windowParams` got.
  *
  * ## `cursor` is here and is not a filter
  *
@@ -29,8 +41,7 @@ import {
   MAX_PAGE_LIMIT,
   MIN_PAGE_LIMIT,
   ORDER_STATE_VALUES,
-  type OrderStateCount,
-  type OrderView,
+  type OrderStateCountsQuery,
   type OrdersQuery,
 } from "@/api";
 import type { FilterFieldDescriptor, TimeRange } from "@/components/data";
@@ -118,13 +129,19 @@ function instantOf(ms: number): string {
 }
 
 /**
- * The filter state as the API's query.
+ * The filter state as `/api/orders/state-counts`' query: every filter, no paging.
  *
- * `withTotal` is on: this screen exists to describe the SHAPE of a filtered set, and "1–50
- * of 10,000+ orders" is part of that shape. It costs a second count query, which is why it
- * is off by default everywhere else.
+ * This is the WHOLE of the filter dependency the two orders queries share, which is why it
+ * is the base `toOrdersQuery` is built from rather than a second hand-maintained copy of the
+ * same six fields. The bar and the table cannot drift onto different filters unless someone
+ * deletes the spread below.
+ *
+ * `OrderStateCountsQuery` is `OrdersQuery` minus `PageQuery`, and the omission is what keeps
+ * the aggregate's query key stable while an operator turns pages: the route ignores `limit`,
+ * `cursor` and `withTotal`, so sending them would refetch an unbounded `GROUP BY` for a
+ * parameter that changed nothing about its answer.
  */
-export function toOrdersQuery(filter: OrdersFilter): OrdersQuery {
+export function toStateCountsQuery(filter: OrdersFilter): OrderStateCountsQuery {
   const isWindow = filter.from !== undefined && filter.to !== undefined;
   return {
     state: filter.state,
@@ -134,31 +151,22 @@ export function toOrdersQuery(filter: OrdersFilter): OrdersQuery {
     correlationId: filter.correlationId,
     from: isWindow ? filter.from : undefined,
     to: isWindow ? filter.to : undefined,
-    limit: filter.limit ?? DEFAULT_PAGE_LIMIT,
-    cursor: filter.cursor,
-    withTotal: true,
   };
 }
 
 /**
- * The state distribution of the rows currently on screen.
+ * The filter state as the API's query.
  *
- * There is no endpoint that returns per-state counts for an arbitrary filter —
- * `ordersByState` exists on `UserDetailView` and nowhere else — so the bar describes THIS
- * PAGE, which is also exactly the question §11.2 asks ("what is the shape of what I just
- * filtered to?"). The screen labels it as the page's shape so it cannot be read as the
- * whole result set.
- *
- * States with no rows are omitted rather than zero-filled: `StateDistributionBar` skips a
- * zero-count state, and a zero-width sliver in the legend is noise.
+ * `withTotal` is on: this screen exists to describe the SHAPE of a filtered set, and "1–50
+ * of 10,000+ orders" is part of that shape. It costs a second count query, which is why it
+ * is off by default everywhere else. It is also CAPPED at `TOTAL_COUNT_CAP` — the exact
+ * total the distribution bar is labelled from comes from the aggregate, not from here.
  */
-export function countByState(orders: readonly OrderView[]): readonly OrderStateCount[] {
-  const counts = new Map<OrderView["state"], number>();
-  for (const order of orders) {
-    counts.set(order.state, (counts.get(order.state) ?? 0) + 1);
-  }
-  return ORDER_STATE_VALUES.filter((state) => counts.has(state)).map((state) => ({
-    state,
-    count: counts.get(state) ?? 0,
-  }));
+export function toOrdersQuery(filter: OrdersFilter): OrdersQuery {
+  return {
+    ...toStateCountsQuery(filter),
+    limit: filter.limit ?? DEFAULT_PAGE_LIMIT,
+    cursor: filter.cursor,
+    withTotal: true,
+  };
 }

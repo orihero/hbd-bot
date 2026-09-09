@@ -48,6 +48,9 @@ import {
   auditOutcomeSchema,
   auditReasonCodeSchema,
   chainProtectionSchema,
+  costSourceSchema,
+  creditEntryKindSchema,
+  creditReasonSchema,
   draftFieldKeySchema,
   generationKindSchema,
   genreSchema,
@@ -56,6 +59,8 @@ import {
   logLevelSchema,
   nameStrategySchema,
   occasionSchema,
+  orderLedgerStatusSchema,
+  orderPaymentRailSchema,
   orderStateSchema,
   pipelineStageSchema,
   purgeTriggerSchema,
@@ -69,6 +74,8 @@ import {
   storageReconciliationSchema,
   timelineEventKindSchema,
   timelineSourceSchema,
+  vendorOperationSchema,
+  vendorSchema,
   voiceGenderSchema,
 } from "./enums";
 
@@ -174,11 +181,57 @@ export const orderViewSchema = z.object({
   outputLanguage: languageSchema.nullable(),
   assetCount: z.number().int(),
   hasAssets: z.boolean(),
+
+  /* -- financials, derived from `credit_ledger` ---------------------------- */
+
+  /**
+   * Credits standing against this order **right now** — `-SUM(delta)` over its ledger rows,
+   * the same net position the authorisation gate reads. A refunded order is `0`, not `1`,
+   * and that is not history being rounded off: net 0 is precisely what makes it chargeable
+   * again on its next attempt. Label it "credits charged", NEVER "credits spent".
+   */
+  creditCost: z.number().int(),
+  ledgerStatus: orderLedgerStatusSchema,
+  paymentRail: orderPaymentRailSchema,
+  /**
+   * Rows in `generation_attempts` for this order. **Two caveats a UI must render rather than
+   * swallow.** It counts ATTEMPTS, so one clean render is `1` and not `0` — it is not
+   * "retries beyond the first". And today every row it can count is a name-verification
+   * verdict: no vendor-render attempt writer exists in `src/`, so a delivered order whose
+   * three songs the vendor rendered reports `0` here unless verification also ran. Label it
+   * "attempts recorded", never "render retries", and say what a `0` can mean.
+   */
+  retryCount: z.number().int(),
 });
 export type OrderView = z.infer<typeof orderViewSchema>;
 
 export const ordersPageSchema = pageSchema(orderViewSchema);
 export type OrdersPage = z.infer<typeof ordersPageSchema>;
+
+/** One segment of the Orders hub's distribution bar. */
+export const orderStateTotalViewSchema = z.object({
+  state: orderStateSchema,
+  count: z.number().int(),
+});
+export type OrderStateTotalView = z.infer<typeof orderStateTotalViewSchema>;
+
+/**
+ * `GET /api/orders/state-counts` — per-state totals for the caller's WHOLE filter set.
+ *
+ * Every `OrderState` is present, in enum declaration order, with a count that may be `0`.
+ * That is the opposite of `UserDetailView.ordersByState`, which omits states nobody reached,
+ * and they are two schemas on purpose: a stacked bar whose segments appear and disappear as
+ * data arrives is a bar that cannot be read.
+ *
+ * `total` is the sum of the segments and is **exact** — not `TOTAL_COUNT_CAP`-bounded the way
+ * the list's `meta.total` is. The two therefore disagree above ten thousand rows, and they
+ * should: label the bar from `total` here, never from the list's capped meta.
+ */
+export const orderStateCountsSchema = z.object({
+  counts: z.array(orderStateTotalViewSchema),
+  total: z.number().int(),
+});
+export type OrderStateCountsView = z.infer<typeof orderStateCountsSchema>;
 
 /** `occasion`, `genre`, `vocalGender` are NOT nullable here, unlike on `OrderView`. */
 export const briefWireViewSchema = z.object({
@@ -383,11 +436,21 @@ export type OrderDetailView = z.infer<typeof orderDetailViewSchema>;
 /* -------------------------------------------------------------------------- */
 
 /**
- * There is deliberately NO `lastSeenAt`. §11.2: the column heading reads **"last order"**
- * until Phase 3 gives `lastSeenAt` a real writer. Use `LAST_ORDER_COLUMN_LABEL`.
+ * There is deliberately NO `lastSeenAt`, and the column heading reads **"last order"** for a
+ * reason that will keep being true: this schema carries no `lastSeenAt` field at all. The
+ * older reason — "until Phase 3 gives `lastSeenAt` a real writer" — is dead;
+ * `db/credits.py::touch` writes `users.last_seen_at` on every inbound update already. What is
+ * missing is the wire field, not the writer, so labelling the column "last seen" would name a
+ * value this object cannot supply. Use `LAST_ORDER_COLUMN_LABEL`.
  *
  * `id` is the `users.id` PK and is NOT the route key. `/api/users/**` is keyed on
- * `telegramUserId`, the integer.
+ * `telegramUserId`, the integer. `id` IS what a `subjectType: "user"` reveal is keyed on,
+ * because `revealRequestSchema.subjectId` is a UUID.
+ *
+ * The nine profile fields below arrive together or not at all. Every one is `.nullable()` and
+ * therefore a REQUIRED property: a server that has not shipped them yet raises `SCHEMA_DRIFT`
+ * rather than quietly rendering a page with no phone, no name and no photo, which is why this
+ * bundle deploys strictly after the API.
  */
 export const userViewSchema = z.object({
   id: uuidSchema,
@@ -395,12 +458,87 @@ export const userViewSchema = z.object({
   telegramUserIdMasked: z.string(),
   uiLanguage: languageSchema,
   isBlocked: z.boolean(),
-  /** When the FIRST order was created — there is no signup event to date an account from. */
+  /**
+   * Whether a `user_profiles` row exists at all.
+   *
+   * There is deliberately no purge stamp beside it. `/forget` DELETEs the row outright, so
+   * absence IS the erasure record — and it is the same absence as an account that has never
+   * answered the language question. The panel must not claim to tell those apart; see
+   * `features/users/profile.ts`, which is the one place that distinction is worded.
+   */
+  isProfilePresent: z.boolean(),
+  /** `"@G•••"` — masked at the response boundary, `@` re-prefixed. Never the raw handle. */
+  telegramUsernameMasked: z.string().nullable(),
+  firstNameMasked: z.string().nullable(),
+  lastNameMasked: z.string().nullable(),
+  /**
+   * `"•••••42"` — the last two digits and nothing else.
+   *
+   * There is NO clear country prefix, on purpose: a fixed `+998` head would publish two
+   * subscriber digits of `+79161234567` while hiding its country code, which is the mask
+   * leaking what it claims to protect. A non-E.164 value is never echoed — it masks whole.
+   * The plaintext is on this wire at NO role, OWNER included; `POST /api/reveal` with
+   * `user_profiles.phone_e164` is the one path, and it costs a step-up and an audit row.
+   */
+  phoneMasked: z.string().nullable(),
+  phoneSharedAt: timestampSchema.nullable(),
+  /** `true` when a photo was captured. Drives a FACT, not the `<img>` — see `avatarUrl`. */
+  hasAvatar: z.boolean(),
+  /**
+   * `"/api/users/770000123/avatar"`, or `null` when there is nothing to fetch.
+   *
+   * The URL and the presence decision are ONE value so they cannot disagree: a client-built
+   * path plus a separate boolean can point an `<img>` at a 404. Same-origin, so the `__Host-`
+   * session cookie travels with the subresource and no token appears in a URL — the same
+   * property `pathAssetStream` documents for `<audio src>`. `img-src 'self'` permits it.
+   */
+  avatarUrl: z.string().nullable(),
+  /** When the bytes were last fetched from Telegram. `null` with `hasAvatar: false`. */
+  avatarFetchedAt: timestampSchema.nullable(),
+  /**
+   * When the `users` row was created.
+   *
+   * That is now FIRST CONTACT, not the first order: `users_sql.ensure_user` writes a row when
+   * somebody answers the language question, and `db/credits.py::touch` upserts one on every
+   * inbound update. Rows that predate onboarding were still born at their first order, so this
+   * column means two things depending on the row's age — say so wherever it is labelled.
+   */
   accountCreatedAt: timestampSchema,
   firstOrderAt: timestampSchema.nullable(),
   lastOrderAt: timestampSchema.nullable(),
   orderCount: z.number().int(),
   paidOrderCount: z.number().int(),
+
+  /* -- credits, LEFT-JOINED from `credit_accounts` ------------------------- */
+
+  /**
+   * `credit_accounts.balance`, or `null` when this account has no row there.
+   *
+   * **`null` is a THIRD value and must never render as "0".** The column is `NOT NULL` in the
+   * schema, so a null here has exactly one cause: no row. That happens for a customer nobody
+   * has ever charged or granted — the row is opened by the first movement, so everybody who
+   * has talked to the bot and not confirmed an order is in this state, and they are still
+   * owed a full rolling allowance the moment they do — and for a customer whose `/forget`
+   * deleted it. "0 credits" says the opposite of both: it says this account has spent
+   * everything it had.
+   *
+   * There is deliberately no `isCreditAccountPresent` beside these three, and the asymmetry
+   * with `isProfilePresent` is not an oversight: every profile column is independently
+   * nullable so none of them can carry presence, whereas the balance can carry it alone.
+   */
+  creditBalance: z.number().int().nullable(),
+  /**
+   * Every credit ever added, allowances included — the number that answers "has this account
+   * already been comped?" without reading the ledger. `null` for the one reason
+   * `creditBalance` is.
+   */
+  lifetimeCreditsGranted: z.number().int().nullable(),
+  /**
+   * The last rolling-allowance window this account was minted for, as a period INDEX (not a
+   * timestamp). `null` for TWO reasons — no account row, or an account that has never had an
+   * allowance — and `creditBalance` is what tells them apart.
+   */
+  allowancePeriod: z.number().int().nullable(),
 });
 export type UserView = z.infer<typeof userViewSchema>;
 
@@ -419,8 +557,204 @@ export const userDetailViewSchema = z.object({
   ordersByState: z.array(orderStateCountSchema),
   deliveredOrderCount: z.number().int(),
   failedOrderCount: z.number().int(),
+  /**
+   * What the BOT would tell this customer they have right now — the stored balance plus a
+   * rolling allowance that is due and not yet minted, from the same read the bot's own gate
+   * calls.
+   *
+   * It sits BESIDE `user.creditBalance` rather than instead of it, because the two settle
+   * different arguments: the stored column is what the ledger can prove, and this is what the
+   * customer was shown on the Confirm screen. Render the pair, or an operator cannot answer
+   * "they say they have three songs and your panel says zero".
+   *
+   * An `int` and NOT `int | null`: it is computed for every account, row or no row, and "no
+   * row" is exactly what a brand-new customer with their whole allowance ahead of them looks
+   * like. So a `creditBalance` of `null` beside a `creditsProjected` of 3 is the normal
+   * reading, not a contradiction.
+   */
+  creditsProjected: z.number().int(),
+  /**
+   * Debits this account has not settled yet, inside the settlement grace window. A render
+   * whose worker died holds a credit that neither the balance nor the ledger's totals show as
+   * spent, and this is the only number on the screen that explains why the customer is being
+   * refused.
+   */
+  inFlightRenderCount: z.number().int(),
 });
 export type UserDetailView = z.infer<typeof userDetailViewSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* User actions — block / unblock (`hbd.admin.schemas.actions`)                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `POST /api/users/{telegram_user_id}/block` and `/unblock` — ONE body, TWO routes.
+ *
+ * Which state is being set is carried by the PATH and never by a boolean in the body: a
+ * single `POST /block {"isBlocked": false}` would be an unblock that audits as a block, and
+ * the audit row is the only durable record of which one happened.
+ *
+ * `reasonCode` has no default and no optional arm — an action without a reason is a 422 — for
+ * the same §12.4 reason `revealRequestSchema` states. `reasonText` is control-stripped and
+ * capped server-side and lives on the audit log's 90-day reason clock; whitespace-only text is
+ * no text.
+ */
+export const userBlockRequestSchema = z.object({
+  reasonCode: auditReasonCodeSchema,
+  reasonRef: z.string().regex(REASON_REF_PATTERN).max(MAX_REASON_REF_CHARS).optional(),
+  reasonText: z.string().max(MAX_REASON_TEXT_CHARS).optional(),
+});
+export type UserBlockRequest = z.infer<typeof userBlockRequestSchema>;
+
+/**
+ * What the account looks like after the action, and when it was recorded.
+ *
+ * It echoes `isBlocked` rather than answering 204, because the two routes are idempotent by
+ * design: an operator who pressed Block on an already-blocked account has to see that the
+ * state is what they wanted, and pressing it twice is information — it still writes an audit
+ * row.
+ *
+ * `changedAt` is the instant the ACTION was recorded, not "when this account was first
+ * blocked". The `users` row carries no such column.
+ */
+export const userBlockResultViewSchema = z.object({
+  telegramUserId: z.number().int(),
+  telegramUserIdMasked: z.string(),
+  isBlocked: z.boolean(),
+  changedAt: timestampSchema,
+});
+export type UserBlockResultView = z.infer<typeof userBlockResultViewSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Credits — the entitlement ledger (`hbd.admin.schemas.credits`)              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The most credits ONE call may add. A credit is one render and one render is real vendor
+ * spend, so this is a blast radius rather than a validation nicety: the number it exists to
+ * refuse is the `1000` that was meant to be `10`. `credits` is `ge=1` server-side too.
+ */
+export const MIN_GRANT_CREDITS = 1;
+export const MAX_GRANT_CREDITS = 100;
+
+/**
+ * One `credit_accounts` row: what the ledger can prove this account holds.
+ *
+ * **Nothing on this wire is masked and nothing here is reveal-gated**, which is a property of
+ * the table rather than a relaxation: `credit_accounts` and `credit_ledger` hold a Telegram
+ * id, two closed enums, integers and machine-built keys — no free text — so there is nothing
+ * for `POST /reveal` to gate. The Telegram id still travels beside its own mask, so a screen
+ * that renders masked ids everywhere else does not have to special-case this one.
+ *
+ * `balance` is the stored column and NOT the number the customer sees; that is
+ * `UserDetailView.creditsProjected`, and the pair is what settles a support argument.
+ */
+export const creditAccountViewSchema = z.object({
+  telegramUserId: z.number().int(),
+  telegramUserIdMasked: z.string(),
+  balance: z.number().int(),
+  /** Monotone, never decremented — allowances included. */
+  lifetimeGranted: z.number().int(),
+  /** A period INDEX, `null` until the first allowance lands. */
+  allowancePeriod: z.number().int().nullable(),
+});
+export type CreditAccountView = z.infer<typeof creditAccountViewSchema>;
+
+/**
+ * One movement. Append-only: no row on this wire was ever updated after it was written.
+ *
+ * `delta` is SIGNED and is constrained at the database to agree with `kind` — positive for a
+ * grant or refund, negative for a debit, exactly `0` for a consume. A consume settles a debit
+ * without moving anything, so a table that colours by sign must give it a third treatment
+ * rather than drawing it as a zero-value grant.
+ *
+ * `actor` is published verbatim, `admin:{username}` included, and that is the column's whole
+ * purpose: "was this account comped, and by whom?" is the question this screen is open for.
+ * Do not mask it — an answer of `admin:•••` sends the operator to the audit log for every
+ * grant. It is `null` for movements the pipeline wrote.
+ */
+export const creditLedgerEntryViewSchema = z.object({
+  id: uuidSchema,
+  kind: creditEntryKindSchema,
+  reason: creditReasonSchema,
+  delta: z.number().int(),
+  orderId: uuidSchema.nullable(),
+  /** Which charge attempt for that order, bumped by each refund — what makes a refunded
+   *  order chargeable again rather than free. */
+  generation: z.number().int(),
+  idempotencyKey: z.string(),
+  actor: z.string().nullable(),
+  createdAt: timestampSchema,
+});
+export type CreditLedgerEntryView = z.infer<typeof creditLedgerEntryViewSchema>;
+
+/**
+ * `GET /api/users/{telegram_user_id}/credits`.
+ *
+ * **`account === null` is not an empty ledger and must not render as one.** It means
+ * `credit_accounts` holds no row, which happens for two populations an operator must be able
+ * to tell apart from "spent everything": a customer who has never been charged or granted
+ * anything, and a customer whose `/forget` deleted the row. In the second case `items` may
+ * still be non-empty — erasure keeps the rows and nulls their Telegram id — and in the first
+ * it is empty. Render "never metered", never a zeroed account object.
+ *
+ * The route DOES 404, but only for an id neither `credit_accounts` nor `users` has heard of.
+ */
+export const creditLedgerPageSchema = z.object({
+  account: creditAccountViewSchema.nullable(),
+  items: z.array(creditLedgerEntryViewSchema),
+  meta: pageMetaSchema,
+});
+export type CreditLedgerPage = z.infer<typeof creditLedgerPageSchema>;
+
+/**
+ * `POST /api/users/{telegram_user_id}/credits/grant` — how many, why, and optionally under
+ * which key.
+ *
+ * The Telegram id is **not** in the body. It is the path parameter the step-up scope was
+ * built from, and a second copy here would be a second answer to "who is being credited".
+ *
+ * `requestId` is the idempotency key's variable half, and it must be minted **per press of
+ * the button**: the server keys `grant:admin:{telegramUserId}:{requestId}`, so the same
+ * `requestId` sent twice for one account tops it up once and answers `isReplay: true`. Omit it
+ * and the server mints one, which makes two presses two grants — the honest reading of two
+ * presses. Anything coarser than one press (a ticket id, a resubmitted form) silently issues
+ * nothing the second time.
+ */
+export const creditGrantRequestSchema = z.object({
+  credits: z.number().int().min(MIN_GRANT_CREDITS).max(MAX_GRANT_CREDITS),
+  requestId: uuidSchema.optional(),
+  reasonCode: auditReasonCodeSchema,
+  reasonRef: z.string().regex(REASON_REF_PATTERN).max(MAX_REASON_REF_CHARS).optional(),
+  reasonText: z.string().max(MAX_REASON_TEXT_CHARS).optional(),
+});
+export type CreditGrantRequest = z.infer<typeof creditGrantRequestSchema>;
+
+/**
+ * What the grant did, and what the account looks like now.
+ *
+ * `isReplay` is the field that makes a retry safe to interpret: `true` means this exact
+ * `requestId` had already been granted and **nothing moved**, so a client that retried a
+ * timed-out request can tell "it worked the first time" from "it worked just now" without
+ * guessing from the balance. Surface it — a success toast that says the same thing either way
+ * is how an operator grants twice.
+ *
+ * `grantedCredits` is what THIS call asked for; on a replay the ledger row is authoritative
+ * and the ledger page beside it shows it. `account` is read back inside the same transaction
+ * after the write, so it is a reading rather than the request's arithmetic.
+ *
+ * There is **no 404** on this route: a grant opens the account it credits, which is precisely
+ * the customer a goodwill comp is usually for.
+ */
+export const creditGrantResultViewSchema = z.object({
+  telegramUserId: z.number().int(),
+  telegramUserIdMasked: z.string(),
+  grantedCredits: z.number().int(),
+  isReplay: z.boolean(),
+  idempotencyKey: z.string(),
+  account: creditAccountViewSchema,
+});
+export type CreditGrantResultView = z.infer<typeof creditGrantResultViewSchema>;
 
 /* -------------------------------------------------------------------------- */
 /* Wizard state — Redis, not the database                                      */
@@ -499,6 +833,8 @@ export const sweepCountsSchema = z.object({
   auditRowsDeleted: z.number().int(),
   adminSessionsDeleted: z.number().int(),
   purgeRunsDeleted: z.number().int(),
+  /** The `vendor_usage` telemetry table's own 400-day cutoff — not a customer-data clock. */
+  vendorUsageDeleted: z.number().int(),
 });
 export type SweepCounts = z.infer<typeof sweepCountsSchema>;
 
@@ -601,6 +937,32 @@ export const capabilitiesViewSchema = z.object({
   isChatCapture: z.boolean(),
   isPaymentLedger: z.boolean(),
   isStateTransitionLog: z.boolean(),
+  /**
+   * EIGHT keys since `vendor_usage` shipped, and the last two are a PAIR that answers two
+   * different questions an operator would otherwise conflate.
+   *
+   * `isVendorUsage` is "does a `vendor_usage` row exist at all" — a writer probe, window
+   * ignored. False means no worker in this deployment records vendor calls: tokens, calls
+   * and spend are UNMEASURED, and every figure on `/vendors` would be an absence dressed as
+   * a zero.
+   *
+   * `isVendorCost` is "does a row with a non-null `cost_usd` exist". It can be false while
+   * `isVendorUsage` is true, and out of the box WHICH legs are priced is uneven rather than
+   * uniformly absent: `hbd/config.py` ships `music_usd_per_minute` at `0.15`, so a music
+   * render is priced from that placeholder rate and reports `costSource: "estimated"`, while
+   * `elevenlabs_usd_per_character` and all four token rates ship at `0.0`, so speech,
+   * transcription and every LLM call are recorded UNPRICED until an operator sets a rate. A
+   * deployment that has recorded calls but not yet rendered music therefore reads
+   * `isVendorCost: false` with plenty on the board. "Instrumented but nothing priced" and
+   * "not instrumented" have different remedies — set a rate, versus deploy a writer — so
+   * they are different flags.
+   *
+   * Both are measured by row probes rather than declared from settings, for the reason the
+   * whole block exists: a configuration that claims a capability the data does not have is
+   * how a zero becomes a number somebody believes.
+   */
+  isVendorUsage: z.boolean(),
+  isVendorCost: z.boolean(),
 });
 export type CapabilitiesView = z.infer<typeof capabilitiesViewSchema>;
 
@@ -652,9 +1014,22 @@ export const similarityBucketViewSchema = z.object({
 });
 export type SimilarityBucketView = z.infer<typeof similarityBucketViewSchema>;
 
-/** The window the counts were taken over, echoed so an empty result can name it. */
+/**
+ * The window the counts were taken over, echoed so an empty result can name it.
+ *
+ * **`from` is nullable and `to` is not**, and the asymmetry is the server's whole contract
+ * for a one-sided range (`hbd.admin.schemas.dashboard.WindowView`). `?to=Y` with no lower
+ * bound counted everything ever recorded up to `Y`, and there is no instant to echo for the
+ * start — an epoch would be a timestamp the operator never chose, rendered as though they
+ * had. `?from=X` always has an upper bound to echo, because `resolve_window` resolved it to
+ * the moment the request was served.
+ *
+ * The SPA spelled `from` non-nullable until `/vendors` shipped; that was drift, not a
+ * narrower contract, and a genuinely open-ended window would have raised SCHEMA_DRIFT on
+ * `/generations/names` rather than rendering the em dash `formatTimestamp(null)` gives.
+ */
 export const windowViewSchema = z.object({
-  from: timestampSchema,
+  from: timestampSchema.nullable(),
   to: timestampSchema,
 });
 export type WindowView = z.infer<typeof windowViewSchema>;
@@ -722,6 +1097,137 @@ export type NameAnalyticsView = z.infer<typeof nameAnalyticsViewSchema>;
 export const ordersPerDaySeriesSchema = z.array(ordersPerDayViewSchema);
 export const failureSeriesSchema = z.array(failureViewSchema);
 export const strategyOutcomeSeriesSchema = z.array(strategyOutcomeViewSchema);
+
+/* -------------------------------------------------------------------------- */
+/* Vendor usage — `/vendors`                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One (vendor, operation, modelId) group of `vendor_usage`.
+ *
+ * **Every quantity here is `number | null` and the null arm is a THIRD state.** Each one is
+ * a SQL `SUM()` over a NULLABLE column with no default, so a group in which nobody measured
+ * that unit comes back `null` rather than `0` — and the distinction is the reason the table
+ * exists. `promptTokens: null` on a music group means a music call has no tokens; `0` would
+ * mean the vendor was asked to complete nothing. `billedCharacters: null` on a chat group
+ * means the same for characters. Neither may render as a digit.
+ *
+ * `costUsd` and `costSource` travel TOGETHER (the database enforces it with
+ * `ck_vendor_usage_cost_carries_its_source`), and `costUsd: null` means **not priced here**,
+ * never "free": the call was made, and this deployment has no rate for the leg it used.
+ *
+ * `costedCalls` is what keeps a partial total from reading as a complete one. `costUsd` sums
+ * only the rows that carry a cost, so a group of 100 calls of which 12 were priced reports
+ * the 12 calls' money and says so. Rendering the sum without the count would tell an
+ * operator that 100 calls cost that much.
+ *
+ * `successRate` is `null` when `calls === 0`, on the same rule as everywhere else in this
+ * API: no denominator, no rate.
+ */
+export const vendorUsageRollupViewSchema = z.object({
+  vendor: vendorSchema,
+  operation: vendorOperationSchema,
+  /** The vendor's OWN model id (`music_v2`, `google/gemma-4-31b-it:free`) — not our enum.
+   *  Render it verbatim; `humaniseEnum` would mangle a name we do not own. */
+  modelId: z.string().nullable(),
+  calls: z.number().int(),
+  successes: z.number().int(),
+  failures: z.number().int(),
+  successRate: z.number().nullable(),
+  promptTokens: z.number().int().nullable(),
+  completionTokens: z.number().int().nullable(),
+  totalTokens: z.number().int().nullable(),
+  billedCharacters: z.number().int().nullable(),
+  audioMs: z.number().int().nullable(),
+  costUsd: z.number().nullable(),
+  /** `"mixed"` when the group priced its legs more than one way; `null` when none of them
+   *  carried a cost at all. */
+  costSource: costSourceSchema.nullable(),
+  costedCalls: z.number().int(),
+  avgLatencyMs: z.number().int().nullable(),
+  maxLatencyMs: z.number().int().nullable(),
+});
+export type VendorUsageRollupView = z.infer<typeof vendorUsageRollupViewSchema>;
+
+/**
+ * The same sums over the whole window, in one row.
+ *
+ * Not derivable from `rows` in the browser, and deliberately not derived there: summing a
+ * column of nulls in JavaScript yields `0` unless every call site remembers not to, which is
+ * precisely the mistake this response shape refuses to make possible.
+ */
+export const vendorUsageTotalsViewSchema = z.object({
+  calls: z.number().int(),
+  successes: z.number().int(),
+  failures: z.number().int(),
+  successRate: z.number().nullable(),
+  costUsd: z.number().nullable(),
+  costedCalls: z.number().int(),
+  totalTokens: z.number().int().nullable(),
+  billedCharacters: z.number().int().nullable(),
+  audioMs: z.number().int().nullable(),
+  avgLatencyMs: z.number().int().nullable(),
+});
+export type VendorUsageTotalsView = z.infer<typeof vendorUsageTotalsViewSchema>;
+
+/**
+ * `GET /api/metrics/vendor-usage` — what each vendor was asked to do, and what it cost.
+ *
+ * THREE booleans, because "no numbers on this screen" has three different causes and only
+ * one of them has a remedy the operator can reach for:
+ *
+ *  - `isInstrumented: false` — no `vendor_usage` row exists anywhere. Window IGNORED, by
+ *    design: widening the range cannot conjure a writer. Empty-VIRGIN.
+ *  - `isInstrumented && !hasRowsInWindow` — rows exist, none in the range chosen.
+ *    Empty-FILTERED, whose remedy is the time picker.
+ *  - `isCostPriced: false` — calls are recorded and not one of them carried a cost, so every
+ *    money cell is `null`. The volume figures are real and the money column says "not
+ *    priced". Window IGNORED for the same reason as the first. This is NOT the same claim as
+ *    "no rate is configured": the music leg ships priced from a placeholder rate (see
+ *    `capabilitiesViewSchema.isVendorCost`), so a deployment reads false here until a call
+ *    actually uses a leg it has a rate for.
+ *
+ * A single zero could stand for any of the three, which is why none of them is a zero.
+ */
+export const vendorUsageResponseSchema = z.object({
+  window: windowViewSchema.nullable(),
+  isInstrumented: z.boolean(),
+  isCostPriced: z.boolean(),
+  hasRowsInWindow: z.boolean(),
+  totals: vendorUsageTotalsViewSchema,
+  /** One entry per (vendor, operation, modelId), calls DESC then vendor/operation/modelId
+   *  ASC. Ordered server-side and never re-sorted here: a client-side sort over a grouped
+   *  aggregate would silently disagree with the endpoint's own tie-breaks. */
+  rows: z.array(vendorUsageRollupViewSchema),
+});
+export type VendorUsageResponse = z.infer<typeof vendorUsageResponseSchema>;
+
+/** One (day, vendor) pair. A pair with no calls is ABSENT from the array, never zero-filled
+ *  — the chart draws the gap rather than a measured nothing. */
+export const vendorUsagePerDayViewSchema = z.object({
+  day: isoDateSchema,
+  vendor: vendorSchema,
+  calls: z.number().int(),
+  /** `null` when nothing that day was priced. Not `0`. */
+  costUsd: z.number().nullable(),
+  costedCalls: z.number().int(),
+});
+export type VendorUsagePerDayView = z.infer<typeof vendorUsagePerDayViewSchema>;
+
+/** One (vendor, errorCode) group over FAILED calls only. `share` is that code's share of
+ *  that vendor's failures in the window, so the shares sum to 1 per vendor and not overall.
+ *  `errorCode: null` groups failures whose writer recorded no code — still a group. */
+export const vendorErrorViewSchema = z.object({
+  vendor: vendorSchema,
+  errorCode: z.string().nullable(),
+  count: z.number().int(),
+  share: z.number(),
+});
+export type VendorErrorView = z.infer<typeof vendorErrorViewSchema>;
+
+/** Bare JSON arrays, like every other metrics series. */
+export const vendorUsagePerDaySeriesSchema = z.array(vendorUsagePerDayViewSchema);
+export const vendorErrorSeriesSchema = z.array(vendorErrorViewSchema);
 
 /* -------------------------------------------------------------------------- */
 /* Audit                                                                       */
@@ -920,7 +1426,7 @@ export type LoginRequest = z.infer<typeof loginRequestSchema>;
 /** `currentPassword` is required even on the forced-rotation path. */
 export const passwordChangeRequestSchema = z.object({
   currentPassword: z.string().min(1).max(256),
-  newPassword: z.string().min(12).max(256),
+  newPassword: z.string().min(8).max(256),
 });
 export type PasswordChangeRequest = z.infer<typeof passwordChangeRequestSchema>;
 

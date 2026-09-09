@@ -12,28 +12,41 @@ the pipeline into the provider layer to satisfy a demo.
 A model it cannot recognise gets a typed ``Err``, never an exception and never a silently
 empty object — a fake that quietly returns nothing teaches the pipeline the wrong lesson
 about what a bad payload looks like.
+
+It also RECORDS its calls, which sounds odd for something that spends nothing and is the
+point: a demo run that wrote no ``vendor_usage`` rows at all would be indistinguishable
+from a production deployment nobody instrumented, and "vendor usage is not recorded here"
+is a sentence the panel must only ever say when it is true. So a fake call is measured
+like any other, stamped ``is_fake`` and ``Vendor.FAKE``, and visibly excluded from spend
+rather than invisible. It carries no cost and no HTTP status, because there was no vendor
+and no request — inventing either would be the fabricated number this system refuses.
 """
 
 from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Any, Final
 
 from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 
 from hbd.contracts import (
+    Err,
     HealthState,
     Language,
     LlmRequest,
     ProviderHealth,
     Result,
+    Vendor,
+    VendorOperation,
     err,
     ok,
 )
-from hbd.errors import LlmParseError
+from hbd.errors import HbdError, LlmParseError
 from hbd.logging import get_logger
+from hbd.usage import LOGGING_USAGE_SINK, UsageSink, VendorUsage
 
 __all__ = ["FakeLlmProvider", "FAKE_LLM_NAME"]
 
@@ -118,6 +131,13 @@ _GREETINGS: Final[dict[Language, str]] = {
 _FALLBACK_NAME: Final[str] = "Doʻstim"
 _HOOK_LABEL: Final[str] = "hook"
 
+_MS_PER_S: Final[float] = 1_000.0
+
+
+def _elapsed_ms(started: float) -> int:
+    """Whole milliseconds since ``started``. The unit ``vendor_usage.latency_ms`` stores."""
+    return int((perf_counter() - started) * _MS_PER_S)
+
 
 def _language_of(prompt: str) -> Language:
     for marker, language in _LANGUAGE_MARKERS:
@@ -198,9 +218,38 @@ class FakeLlmProvider:
 
     name: str = FAKE_LLM_NAME
 
+    def __init__(self, *, usage: UsageSink = LOGGING_USAGE_SINK) -> None:
+        self._usage = usage
+
     async def generate_json[M: BaseModel](
         self, request: LlmRequest, response_model: type[M], *, timeout_s: float
     ) -> Result[M]:
+        started = perf_counter()
+        result = self._answer(request, response_model)
+        await self._record(
+            operation=VendorOperation.CHAT_COMPLETION,
+            error=result.error if isinstance(result, Err) else None,
+            latency_ms=_elapsed_ms(started),
+        )
+        return result
+
+    async def health(self) -> Result[ProviderHealth]:
+        started = perf_counter()
+        await self._record(
+            operation=VendorOperation.HEALTH, error=None, latency_ms=_elapsed_ms(started)
+        )
+        return ok(
+            ProviderHealth(
+                name=self.name,
+                state=HealthState.HEALTHY,
+                as_of=datetime.now(tz=UTC),
+                detail="fake provider; no vendor contacted",
+            )
+        )
+
+    # -- internals ----------------------------------------------------------
+    def _answer[M: BaseModel](self, request: LlmRequest, response_model: type[M]) -> Result[M]:
+        """The template lookup and validation. Unchanged behaviour, lifted out to measure."""
         prompt = f"{request.system_prompt}\n{request.user_prompt}"
         fields = frozenset(response_model.model_fields)
         payload = _answer_for(fields, prompt)
@@ -228,12 +277,23 @@ class FakeLlmProvider:
                 )
             )
 
-    async def health(self) -> Result[ProviderHealth]:
-        return ok(
-            ProviderHealth(
-                name=self.name,
-                state=HealthState.HEALTHY,
-                as_of=datetime.now(tz=UTC),
-                detail="fake provider; no vendor contacted",
+    async def _record(
+        self, *, operation: VendorOperation, error: HbdError | None, latency_ms: int
+    ) -> None:
+        """One row per call, flagged fake. Every quantity absent, because there was none.
+
+        ``model_id`` and ``http_status`` stay ``None`` on purpose: no vendor model
+        answered and no request was sent, so there is nothing measured to put in either.
+        ``latency_ms`` is the exception — it is a real measurement of real local work.
+        """
+        await self._usage.record(
+            VendorUsage(
+                vendor=Vendor.FAKE,
+                operation=operation,
+                provider=self.name,
+                is_success=error is None,
+                is_fake=True,
+                error_code=error.error_code.value if error is not None else None,
+                latency_ms=latency_ms,
             )
         )

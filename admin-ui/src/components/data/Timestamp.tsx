@@ -61,11 +61,16 @@ export function Timestamp({
 
   const absolute = formatTimestamp(at, effectiveMode, { seconds });
   const relativeText = formatRelative(at);
+  const fullUtc = formatTimestamp(at, "utc", { seconds: true });
+  const fullLocal = formatTimestamp(at, "local", { seconds: true });
+  const tooltip = relative
+    ? `${fullUtc} (${fullLocal}) · ${relativeText}`
+    : `${absolute} · ${relativeText} (UTC: ${fullUtc}, Local: ${fullLocal})`;
 
   return (
     <time
       dateTime={parsed.toISOString()}
-      title={relative ? absolute : `${absolute} · ${relativeText}`}
+      title={tooltip}
       data-timezone-mode={effectiveMode}
       className={cn("num whitespace-nowrap", className)}
     >

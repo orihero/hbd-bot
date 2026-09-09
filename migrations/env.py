@@ -7,9 +7,16 @@ Three decisions worth knowing:
   deployed. This is §4.5's two-role split, and without it the audit log's ``REVOKE`` in
   migration ``0007`` has nothing to revoke *from*: run as the application role, that role
   owns every table it created, and revoking a privilege from a table's owner is undone by
-  that owner with one ``GRANT``. The variable is read from the environment rather than added
-  to ``Settings`` on purpose — the bot and the worker must never hold the owner credential,
-  and a field on the shared settings object is an invitation to.
+  that owner with one ``GRANT``. The variable is kept off ``Settings`` on purpose — the bot
+  and the worker must never hold the owner credential, and a field on the shared settings
+  object is an invitation to.
+
+  It is read from the process environment first and from the dotenv file
+  ``hbd.config.env_file()`` selects second. The file half is not a convenience: the variable
+  was ``os.environ``-only, so the ``HBD_DB_MIGRATION_URL=`` line every ``.env.example``
+  documents did nothing unless it was also exported by hand, and `make migrate ENV=prod`
+  would have silently migrated a production database as the wrong role — or as the *dev*
+  role, whichever the shell happened to be carrying.
 * **The application DSN comes from ``hbd.config``, never from ``alembic.ini``.** One place
   configures a database, and a tracked file can never grow a password. A missing
   ``HBD_DATABASE_URL`` fails here with the same ``ConfigError`` the application would raise,
@@ -43,10 +50,11 @@ from typing import Any, Final, Literal
 
 from alembic import context
 from alembic.autogenerate.api import AutogenContext
+from dotenv import dotenv_values
 from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from hbd.config import load_settings
+from hbd.config import env_file, load_settings
 from hbd.db.base import UtcDateTime
 from hbd.db.models import Base
 
@@ -85,6 +93,27 @@ _SINGLE_ROLE_WARNING: Final[str] = (
 )
 
 
+def _owner_url() -> str:
+    """``HBD_DB_MIGRATION_URL`` from the process environment, else from the dotenv file.
+
+    Same precedence pydantic-settings gives every other variable, so the owner DSN and the
+    application DSN are configured the same way and ``ENV=prod make migrate`` reads both
+    from ``.env.prod``. Returns ``""`` when it is set nowhere.
+
+    An unreadable file is not fatal here: the caller's fallback already reports a one-role
+    deployment, and refusing to migrate because a dotenv file has the wrong mode would fail
+    a deployment that has the DSN exported and needs no file at all.
+    """
+    exported = os.environ.get(MIGRATION_URL_VAR, "").strip()
+    if exported:
+        return exported
+    try:
+        parsed = dotenv_values(env_file())
+    except OSError:
+        return ""
+    return (parsed.get(MIGRATION_URL_VAR) or "").strip()
+
+
 def _database_url() -> str:
     """The one place a migration learns where the database is, and as whom.
 
@@ -93,7 +122,7 @@ def _database_url() -> str:
     existing dev setup has one role, and a migration runner that started failing on them
     would be a worse outcome than a one-role deployment that says so out loud.
     """
-    owner = os.environ.get(MIGRATION_URL_VAR, "").strip()
+    owner = _owner_url()
     if owner:
         return owner
     _LOGGER.warning(_SINGLE_ROLE_WARNING, MIGRATION_URL_VAR)

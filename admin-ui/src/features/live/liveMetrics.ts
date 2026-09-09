@@ -53,7 +53,15 @@ export const ROLLING_WINDOW_MS = 24 * 60 * 60 * 1_000;
 export const WINDOW_QUANTUM_MS = 60_000;
 
 export interface RollingWindow {
-  /** RFC 3339 with a `Z`. Both ends, always — a half-open window is a 422 (§6.1). */
+  /**
+   * RFC 3339 with a `Z` (§6.1 — a naive instant IS a 422; that part has not changed).
+   *
+   * Both ends, always. `/metrics/orders-by-day` would accept a lone `from` now and close it
+   * at the instant it served the request — which is precisely what this screen cannot have:
+   * that end would move on every poll tick, so the server would answer a slightly different
+   * window each time under a query key that says the window is the same. The quantised `to`
+   * above is what makes the key and the answer describe one window.
+   */
   readonly from: string;
   readonly to: string;
 }

@@ -79,6 +79,57 @@ async def test_sends_system_and_user_messages_and_a_bearer_token() -> None:
     assert seen["url"] == "https://luna.example/v1/chat/completions"
 
 
+async def test_the_reasoning_switch_is_absent_unless_it_was_asked_for() -> None:
+    """A gateway extension, so the default body has to stay plain OpenAI.
+
+    OpenAI itself 400s on an unknown top-level key, and this adapter is the one that serves
+    a self-hosted gateway as readily as OpenRouter. Sending the switch "just in case" would
+    trade a truncation bug on one host for a hard rejection on another.
+    """
+    # Arrange
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json=openai_response('{"name": "Alyona"}'))
+
+    # Act
+    await provider(handler).generate_json(REQUEST, Sample, timeout_s=5.0)
+
+    # Assert
+    assert "reasoning" not in captured
+
+
+async def test_the_reasoning_switch_is_sent_when_the_deployment_turns_it_off() -> None:
+    """Measured, not guessed: nemotron-3-super spent 1,931 of a 2,048-token cap thinking.
+
+    The object then arrived cut off mid-string with ``finish_reason: "length"`` and every
+    lyric call in the wizard died in the parser. Raising the cap does not fix it — at 8,192
+    the trace grew to 6,814 and the JSON was still unterminated. With this field the same
+    model answered in 506 tokens and the object parsed.
+    """
+    # Arrange
+    captured: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(200, json=openai_response('{"name": "Alyona"}'))
+
+    subject = OpenAiCompatLlmProvider(
+        api_key="test-key",
+        base_url="https://luna.example",
+        model_id="gpt-5.6-luna",
+        client=mock_client(handler),
+        is_reasoning_disabled=True,
+    )
+
+    # Act
+    await subject.generate_json(REQUEST, Sample, timeout_s=5.0)
+
+    # Assert
+    assert captured["reasoning"] == {"enabled": False}
+
+
 # ---------------------------------------------------------------------------
 # Reading the response
 # ---------------------------------------------------------------------------

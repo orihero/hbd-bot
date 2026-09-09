@@ -5,7 +5,9 @@ Deliberately **narrower** than ``hbd.runtime.container.build_container``. There 
 because they would go unused, but because the absence is the control: a process with no HTTP
 client and no credential has no SSRF surface and no vendor spend to reach
 (ADMIN_PANEL_PLAN §4.2, §12.1 T5, T12). Every action that needs one of those is an ARQ
-enqueue performed by the worker.
+enqueue performed by the worker — and :attr:`AdminContainer.queue` is how this process asks
+for one. It is the single exception to "nothing else", it costs no credential (enqueueing is
+a Redis write), and :mod:`hbd.admin.queue` documents why it holds its own pool.
 
 It shares ``create_engine``/``create_session_factory`` with the runtime container so the
 pool shape and the ``expire_on_commit=False`` rule cannot drift between the two, and it asks
@@ -25,9 +27,11 @@ from dataclasses import dataclass
 from typing import Final
 
 from argon2 import PasswordHasher
-from redis.asyncio import Redis
+from arq import ArqRedis
+from redis.asyncio import ConnectionPool, Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
+from hbd.admin.queue import AdminQueue, ArqAdminQueue
 from hbd.admin.security.clientip import IpNetwork
 from hbd.admin.security.passwords import build_hasher
 from hbd.admin.security.ratelimit import RedisWindowCounterStore, WindowCounterStore
@@ -84,6 +88,13 @@ class AdminContainer:
     hasher: PasswordHasher
     trusted_proxies: tuple[IpNetwork, ...]
     rate_limits: WindowCounterStore
+    #: The only thing this process can ask the worker to do, and the only reason it holds a
+    #: second Redis handle. Typed as the protocol, like ``storage`` and for the same reason:
+    #: a test injects :class:`~hbd.admin.queue.NullAdminQueue` with ``dataclasses.replace``,
+    #: and nothing in this package can reach past the three enqueues onto an ARQ internal.
+    #: It is a *queue* and not a client — the panel composes and enqueues, the worker owns
+    #: the ``Bot`` and sends (D10).
+    queue: AdminQueue
     #: The archive, as a protocol and nothing more. §12.7: the panel resolves an object key
     #: through :meth:`hbd.contracts.Storage.open_range` and never touches
     #: ``LocalFileStorage._resolve`` — which is private, and would not exist at all on the
@@ -97,7 +108,17 @@ class AdminContainer:
 
         One resource failing to close must not hide the other: a leaked Redis connection
         after a database error is how a restart loop turns into a connection exhaustion.
+        There are now two Redis handles — the panel's client and the queue's own pool (see
+        :mod:`hbd.admin.queue` for why they cannot be one) — so there are three attempts,
+        each reported on its own.
         """
+        try:
+            await self.queue.aclose()
+        except Exception as exc:
+            _LOGGER.warning(
+                "admin queue handle did not close cleanly",
+                extra={"event": "admin.container.queue_close_failed", "detail": repr(exc)},
+            )
         try:
             # ``aclose`` since redis-py 5.0.1; ``close`` is deprecated. The pinned
             # ``types-redis`` 4.6 stubs predate the rename and shadow redis-py's own inline
@@ -149,6 +170,13 @@ async def build_admin_container(settings: AdminSettings) -> AdminContainer:
         ),
         trusted_proxies=settings.trusted_proxies,
         rate_limits=RedisWindowCounterStore(redis),
+        # A SECOND pool, not ``ArqRedis(connection_pool=redis.connection_pool)``. The client
+        # above is ``decode_responses=True`` because sessions and CSRF tokens are text; arq's
+        # payloads are pickled bytes and decoding them as UTF-8 corrupts them at the first
+        # non-trivial read. Built lazily for the reason the line above it is: ``create_pool``
+        # pings on the way up, and ``/healthz`` must answer — and the bootstrap CLI must
+        # run — on a host where Redis is not up yet.
+        queue=ArqAdminQueue(ArqRedis(ConnectionPool.from_url(settings.redis_url))),
         # No ``mkdir``. The volume is mounted ``:ro`` and the directory is the worker's to
         # create; conjuring it here would succeed on a developer's laptop and hand every
         # asset request a silent 404 in production.

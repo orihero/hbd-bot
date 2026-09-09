@@ -164,16 +164,30 @@ class SettlementOutcome(StrEnum):
 
 
 class CreditBalance(BaseModel):
-    """One account's entitlement, as every gate and the ``/balance`` command see it."""
+    """One account's entitlement, as every gate and the ``/balance`` command see it.
+
+    ``credits`` is a PROJECTION, not a column. It is the stored balance plus everything a
+    writer would mint on the customer's behalf the instant they tried to spend: a rolling
+    allowance that is due, and a live plan's songs that have not been minted yet. Both are
+    included for exactly one reason — the bot-side gate is read-only, so a projection is the
+    only way it can agree with what ``hbd.db.credits.charge`` will do a second later. Without
+    it the Confirm screen would paywall a customer in the same message that had just thanked
+    them for paying, because the plan row exists and the credit row does not yet.
+
+    The two plan fields are trailing and defaulted, and they have to stay that way: about
+    thirty construction sites across ``src`` and ``tests`` build this model by keyword, and a
+    field inserted anywhere else, or without a default, breaks every one of them at once.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     telegram_user_id: int
-    #: Spendable credits, INCLUDING an allowance that is due but not yet minted — a
-    #: read-only gate must not refuse a customer the writer would have granted a moment
-    #: later. Deliberately **not** bounded with ``ge=0``: the database constraint is what
-    #: keeps a real balance non-negative, and a reader that raised on a drifted row would
-    #: turn a reporting problem into an outage exactly when an operator needs to see it.
+    #: Spendable credits, INCLUDING an allowance that is due but not yet minted, and a live
+    #: plan's unminted songs — a read-only gate must not refuse a customer the writer would
+    #: have granted a moment later. Deliberately **not** bounded with ``ge=0``: the database
+    #: constraint is what keeps a real balance non-negative, and a reader that raised on a
+    #: drifted row would turn a reporting problem into an outage exactly when an operator
+    #: needs to see it.
     credits: int
     #: Debits for OTHER orders that are neither consumed nor refunded, within the
     #: settlement grace. Derived from the ledger rather than from ``orders.state``, which
@@ -181,6 +195,15 @@ class CreditBalance(BaseModel):
     #: retryable failures too, so an order sitting in ARQ backoff would be invisible.
     in_flight: int = Field(ge=0)
     is_blocked: bool
+    #: How many of a running plan's songs are still mintable. Already counted inside
+    #: ``credits`` above — carried separately because the screens need to SAY it ("4 songs
+    #: left on your plan, until 2026-10-06"), and deriving it back out of a fungible total is
+    #: impossible once a paid top-up is mixed in.
+    plan_songs_left: int = Field(default=0, ge=0)
+    #: When the running plan stops minting, or ``None`` when no plan is running. Populated
+    #: even for a SPENT plan, which is the only way a caller can tell "no plan" from "a plan
+    #: with nothing left" — the first is offered a plan, the second is offered a top-up.
+    plan_ends_at: datetime | None = None
 
 
 class BalanceDrift(BaseModel):
@@ -264,7 +287,23 @@ def resolve_entitlement_policy(settings: object | None = None) -> EntitlementPol
     importing ``hbd.config`` would give it an edge it has spent its whole docstring
     avoiding. ``getattr`` with a type check is the whole cost.
 
-    The grace is the only field that moves, and it moves in one of two ways: an operator's
+    TWO fields move. The grace is the older one; the allowance is the second, and it moves
+    because the free half of this product is the LYRIC, not the song. ``Settings`` ships
+    ``free_allowance_credits`` at 0 — every recording is sold — while the dataclass default
+    and :data:`DEFAULT_ENTITLEMENT_POLICY` stay at 3. That asymmetry is deliberate and is the
+    reason the value is read here rather than changed there: the default policy is what every
+    caller with no settings object in hand gets (the data layer's own tests, the sweep's
+    fallback, and the admin panel, which constructs ``EntitlementPolicy(settlement_grace_s=…)``
+    directly and must keep the shipped default), so only a deployment that actually has
+    ``Settings`` is repriced.
+
+    An allowance of 0 is a valid policy, not a degenerate one:
+    :meth:`EntitlementPolicy.__post_init__` refuses only NEGATIVE allowances, and 0 makes
+    ``hbd.db.credits._mint_due_allowance`` return ``False`` immediately without touching the
+    ledger — which is exactly "every song is sold", expressed as an absence of writes rather
+    than as a branch anybody has to remember to add.
+
+    The grace moves in one of two ways: an operator's
     ``HBD_SETTLEMENT_GRACE_S`` wins outright, and otherwise it is DERIVED from this
     deployment's queue ladder rather than left at the shipped default. That derivation is
     the point — an operator who raises ``HBD_QUEUE_JOB_TIMEOUT_S`` to an hour has quietly
@@ -281,18 +320,35 @@ def resolve_entitlement_policy(settings: object | None = None) -> EntitlementPol
     if settings is None:
         return DEFAULT_ENTITLEMENT_POLICY
     is_enforced = _flag(settings, "credits_enforced")
+    # ``None`` means the settings object did not offer a usable value, which is the only
+    # case in which the dataclass default of 3 survives a real deployment. Spelled as
+    # separate keyword arguments per return site rather than a dict, because ``**kwargs``
+    # into a dataclass is exactly where mypy stops checking these names.
+    allowance = _non_negative_int(settings, "free_allowance_credits")
     override = _positive_int(settings, "settlement_grace_s")
     if override is not None:
-        return EntitlementPolicy(settlement_grace_s=override, is_balance_enforced=is_enforced)
+        if allowance is None:
+            return EntitlementPolicy(settlement_grace_s=override, is_balance_enforced=is_enforced)
+        return EntitlementPolicy(
+            allowance_credits=allowance,
+            settlement_grace_s=override,
+            is_balance_enforced=is_enforced,
+        )
     timeout = _positive_number(settings, "queue_job_timeout_s")
     backoff = _positive_number(settings, "provider_backoff_base_s")
     tries = _positive_int(settings, "queue_max_tries")
     if timeout is None or backoff is None or tries is None:
-        return EntitlementPolicy(is_balance_enforced=is_enforced)
+        if allowance is None:
+            return EntitlementPolicy(is_balance_enforced=is_enforced)
+        return EntitlementPolicy(allowance_credits=allowance, is_balance_enforced=is_enforced)
+    grace = derive_settlement_grace_s(
+        job_timeout_s=timeout, max_tries=tries, backoff_base_s=backoff
+    )
+    if allowance is None:
+        return EntitlementPolicy(settlement_grace_s=grace, is_balance_enforced=is_enforced)
     return EntitlementPolicy(
-        settlement_grace_s=derive_settlement_grace_s(
-            job_timeout_s=timeout, max_tries=tries, backoff_base_s=backoff
-        ),
+        allowance_credits=allowance,
+        settlement_grace_s=grace,
         is_balance_enforced=is_enforced,
     )
 
@@ -320,6 +376,25 @@ def _positive_int(settings: object, name: str) -> int | None:
     """``getattr`` narrowed to a usable int. ``bool`` is excluded — it is an ``int`` here."""
     value = getattr(settings, name, None)
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        return None
+    return value
+
+
+def _non_negative_int(settings: object, name: str) -> int | None:
+    """:func:`_positive_int`, except that 0 is a real answer rather than an absence.
+
+    A separate function and not a ``minimum=`` parameter on the one above, because the two
+    read differently at the call site and the difference is the whole point: a grace of 0 is
+    a misconfiguration to be ignored, while an ALLOWANCE of 0 is the shipped product — every
+    song is sold. Folding them together makes it one keyword argument away from a deployment
+    that quietly hands out three free songs because someone passed the wrong bound.
+
+    ``bool`` is still excluded for the same reason: ``False`` is an ``int`` of 0 in Python,
+    and ``HBD_FREE_ALLOWANCE_CREDITS=false`` would otherwise read as a deliberate 0 rather
+    than as the typo it is.
+    """
+    value = getattr(settings, name, None)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         return None
     return value
 
@@ -413,18 +488,32 @@ class EntitlementStore(Protocol):
         ...
 
     async def set_blocked(self, telegram_user_id: int, *, is_blocked: bool) -> Result[None]:
-        """Bar or unbar an account. Upserts, because most people the bot has spoken to have
-        no ``users`` row at all — ``repository._ensure_user`` only runs when an order is
-        created, so a rowcount-checked ``UPDATE`` would silently fail to block exactly the
-        accounts most worth blocking.
+        """Bar or unbar an account. Upserts, because the row may not exist yet.
+
+        Three writers create a ``users`` row: ``db.users_sql.ensure_user`` called from
+        ``repository._create_order``, the same function called from
+        ``SqlUserProfiles.record_language`` when a customer first chooses a language, and
+        ``db.credits.touch`` on inbound traffic. None of them has run for an account that has
+        not spoken since the onboarding deploy — and that is the account an operator reaches
+        for this method to bar, so a rowcount-checked ``UPDATE`` would silently fail on
+        exactly the population it exists to serve.
         """
         ...
 
-    async def touch(self, telegram_user_id: int, *, ui_language: Language) -> Result[None]:
-        """Record that this account is alive and which language it is reading.
+    async def touch(self, telegram_user_id: int, *, ui_language: Language | None) -> Result[None]:
+        """Record that this account is alive and, when told, which language it is reading.
 
-        The first writer in the system that refreshes ``ui_language`` on an existing row,
-        and the reason a person who never confirmed an order still has a row to block.
+        The INCIDENTAL writer of ``users.ui_language``, not the deliberate one: the
+        deliberate one is ``db.users_sql.ensure_user(is_language_authoritative=True)``, called
+        from ``SqlUserProfiles.record_language`` when a customer actually chooses. This one
+        refreshes the column only when the update it is serving genuinely told us a language.
+
+        ``None`` means it did not, and the column is then left alone. Passing a RESOLVED
+        fallback instead — which is what the caller used to do — wrote ``UZ_LATN`` over a real
+        choice within sixty seconds of every ``state.clear()``, because the draft the language
+        was resolved from had just been wiped.
+
+        Still the reason a person who never confirmed an order has a row to block.
         """
         ...
 

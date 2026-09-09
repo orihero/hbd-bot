@@ -45,10 +45,14 @@
       under `/assets/` alone and answers every other path with this shell.
 
       The `data-theme` attribute is stamped onto <html> by usePrefsStore before first paint
-      (see src/main.tsx). LIGHT is the default palette: `:root` in tokens.css carries it and
-      `[data-theme="dark"]` overrides it, so a document with no attribute at all — this file,
-      for the instant before initTheme() runs — is already the palette the console is
-      designed in, and there is no flash of the wrong one.
+      (see src/main.tsx). LIGHT is the default palette: `:root` in tokens.css carries it in
+      full and `[data-theme="dark"]` is a COMPLETE override of all 65 colour declarations
+      rather than a diff, so a document with no attribute at all — this file, for the instant
+      before initTheme() runs — is already the palette the console is designed in, and there
+      is no flash of the wrong one.
+
+      There is no inline boot <script> to paper over a flash and there must not be one:
+      `script-src` is 'self' with no nonce of its own (see above), and it stays that way.
     -->
   </head>
   <body>

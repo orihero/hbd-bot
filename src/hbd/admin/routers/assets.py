@@ -78,6 +78,7 @@ from hbd.admin.services.assets import (
     object_key,
     parse_range,
 )
+from hbd.admin.window import resolve_window
 from hbd.contracts import AssetKind
 from hbd.db.admin.assets import (
     MAX_EXPIRING_WITHIN_DAYS,
@@ -86,7 +87,7 @@ from hbd.db.admin.assets import (
     get_asset,
     list_assets,
 )
-from hbd.db.admin.sql import TimeWindow, time_window
+from hbd.db.admin.sql import TimeWindow
 from hbd.db.base import utc_now
 from hbd.db.enums import AuditAction
 from hbd.db.retention import RetentionClass
@@ -113,11 +114,6 @@ ASSET_STREAM_PATH: Final[str] = f"{ASSET_PATH}/stream"
 ASSET_TEXT_PATH: Final[str] = f"{ASSET_PATH}/text"
 
 
-def _invalid(message: str) -> ProblemError:
-    """422 in the pipeline taxonomy — the code the rest of the system already uses for this."""
-    return ProblemError(AdminProblem(code=ErrorCode.INVALID_INPUT, message=message))
-
-
 def _not_found(asset_id: UUID) -> ProblemError:
     """404 comes from ``ErrorCode``: ``AdminErrorCode`` has no member for it, by design."""
     return ProblemError(
@@ -125,28 +121,18 @@ def _not_found(asset_id: UUID) -> ProblemError:
     )
 
 
-def _aware(name: str, value: datetime | None) -> datetime | None:
-    """Refuse a naive instant (§6.1): the column is ``timestamptz`` and would raise anyway."""
-    if value is not None and value.tzinfo is None:
-        raise _invalid(f"{name} must carry a UTC offset, e.g. 2026-08-30T12:00:00Z")
-    return value
-
-
 def _window(since: datetime | None, until: datetime | None) -> TimeWindow | None:
-    """``from``/``to`` as a pair: both bounds, or neither.
+    """``from``/``to`` as a half-open interval, either end open.
 
-    Half a window is not a window. Filling the missing bound would mean inventing a value the
-    operator never typed, and the two candidates are both wrong in a way that is invisible on
-    the page: an implicit ``to=now`` drops the rows written while the request was in flight,
-    and an implicit ``from=epoch`` turns "the last hour" into "everything" for whoever
-    mistyped the parameter name.
+    ``to`` is the bound this route's callers omit: "what has been created since the sweep ran"
+    is the question, and it has no upper end an operator would type. It is answered with the
+    request's own ``now``, taken from this module's ``utc_now`` so the shifted-clock fixture
+    reaches it like it reaches every other clock on this surface
+    (``tests/test_admin/test_asset_stream.py:205``). Everything else — awareness, ordering,
+    the open lower bound for a bare ``?to=`` — is
+    :func:`~hbd.admin.window.resolve_window`'s, which four other routers had also copied.
     """
-    start, end = _aware("from", since), _aware("to", until)
-    if start is None and end is None:
-        return None
-    if start is None or end is None:
-        raise _invalid("from and to are a pair — supply both bounds of the window, or neither")
-    return unwrap(time_window(start, end))
+    return resolve_window(since, until, now=utc_now())
 
 
 def build_filters(

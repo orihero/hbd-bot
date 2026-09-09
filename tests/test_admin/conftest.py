@@ -1,8 +1,11 @@
-"""Fixtures for the admin API: in-memory SQLite, a fake Redis, and an ASGI client.
+"""Fixtures for the admin API: in-memory SQLite, a fake Redis, a null queue, an ASGI client.
 
 **No server of any kind.** The database is the same in-memory SQLite the ``test_db`` suite
-uses, Redis is a dictionary, and the HTTP client speaks to the application through
-``httpx.ASGITransport`` — the app object, in this process, with no socket. That is what lets
+uses, Redis is a dictionary, the ARQ queue is a list of the calls that were not made
+(:class:`hbd.admin.queue.NullAdminQueue` — there is no worker in this process to answer one,
+and a route that enqueues must still be assertable), and the HTTP client speaks to the
+application through ``httpx.ASGITransport`` — the app object, in this process, with no
+socket. That is what lets
 an authentication test assert on a Redis key and a database row in the same three lines.
 
 The argon2 parameters are dropped to the model's floors. A real verify is ~50 ms by design,
@@ -32,6 +35,7 @@ from redis.asyncio import Redis
 from hbd.admin.app import create_app
 from hbd.admin.container import AdminContainer, build_admin_container
 from hbd.admin.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
+from hbd.admin.queue import AdminQueue, NullAdminQueue
 from hbd.admin.security.passwords import hash_password
 from hbd.admin.security.ratelimit import WindowCounterStore
 from hbd.admin.settings import AdminSettings
@@ -166,22 +170,46 @@ def rate_limits() -> MemoryRateLimits:
     return MemoryRateLimits()
 
 
+@pytest.fixture
+def queue() -> NullAdminQueue:
+    """The queue every admin test gets: it records the enqueue and performs none.
+
+    A recording null rather than a stub that returns a job id and forgets, because what a
+    broadcast route must be held to is *what* it asked the worker for — the campaign id and
+    the frozen instant — and a counter cannot tell a right id from a wrong one.
+    """
+    return NullAdminQueue()
+
+
 @asynccontextmanager
 async def open_container(
-    settings: AdminSettings, fake_redis: FakeRedis, rate_limits: WindowCounterStore
+    settings: AdminSettings,
+    fake_redis: FakeRedis,
+    rate_limits: WindowCounterStore,
+    queue: AdminQueue | None = None,
 ) -> AsyncIterator[AdminContainer]:
-    """A real container over in-memory SQLite, with the two network resources faked.
+    """A real container over in-memory SQLite, with the three network resources faked.
 
     Built by ``build_admin_container`` and then narrowed with ``dataclasses.replace`` rather
     than assembled by hand: the engine, the pool arguments and the schema shortcut are then
-    exactly the ones production uses, and only the two things a test cannot have are swapped.
+    exactly the ones production uses, and only the things a test cannot have are swapped.
+
+    ``queue`` defaults to a fresh :class:`~hbd.admin.queue.NullAdminQueue` so that the dozen
+    callers that predate the seam keep working and none of them can reach the real ARQ pool
+    ``build_admin_container`` put on the container. That pool is lazy — it opens no socket —
+    and it is closed here rather than leaked, which is the whole of why the container built
+    for a test is still the container production builds.
     """
     built = await build_admin_container(settings)
     try:
         yield dataclasses.replace(
-            built, redis=cast("Redis[str]", fake_redis), rate_limits=rate_limits
+            built,
+            redis=cast("Redis[str]", fake_redis),
+            rate_limits=rate_limits,
+            queue=queue if queue is not None else NullAdminQueue(),
         )
     finally:
+        await built.queue.aclose()
         await built.engine.dispose()
 
 
@@ -201,9 +229,12 @@ async def open_client(container: AdminContainer) -> AsyncIterator[httpx.AsyncCli
 
 @pytest.fixture
 async def container(
-    admin_settings: AdminSettings, fake_redis: FakeRedis, rate_limits: MemoryRateLimits
+    admin_settings: AdminSettings,
+    fake_redis: FakeRedis,
+    rate_limits: MemoryRateLimits,
+    queue: NullAdminQueue,
 ) -> AsyncIterator[AdminContainer]:
-    async with open_container(admin_settings, fake_redis, rate_limits) as built:
+    async with open_container(admin_settings, fake_redis, rate_limits, queue) as built:
         yield built
 
 

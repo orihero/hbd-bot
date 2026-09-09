@@ -527,20 +527,29 @@ async def test_a_naive_datetime_is_refused_rather_than_bound_to_a_timestamptz(
     assert response.json()["error"]["code"] == "INVALID_INPUT"
 
 
-@pytest.mark.parametrize("half", ["from", "to"])
-async def test_half_a_window_is_refused_rather_than_completed_with_an_invented_bound(
-    container: AdminContainer, client: httpx.AsyncClient, half: str
+@pytest.mark.parametrize(
+    ("half", "expected"),
+    [("from", "recent"), ("to", "old")],
+    ids=["from-runs-to-now", "to-is-open-below"],
+)
+async def test_one_sided_windows_are_answered_rather_than_refused(
+    container: AdminContainer, client: httpx.AsyncClient, half: str, expected: str
 ) -> None:
-    # Arrange — ``now`` as the missing bound is re-evaluated per request, so a keyset walk
-    # would widen its own filter between pages.
+    # Arrange — ``NOW`` is a fixed past instant, so the ``from`` case is bounded above by a
+    # server-supplied "now" strictly later than both rows and the ``to`` case has no lower
+    # bound at all. One row each side of the boundary tells the two apart.
+    rows = {
+        "old": await seed_attempt(container, created_at=NOW - timedelta(days=30)),
+        "recent": await seed_attempt(container, created_at=NOW),
+    }
     await signed_in(container, client)
 
     # Act
-    response = await client.get(GENERATIONS_PATH, params={half: NOW.isoformat()})
+    boundary = (NOW - timedelta(days=1)).isoformat()
+    body = (await client.get(GENERATIONS_PATH, params={half: boundary})).json()
 
     # Assert
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "INVALID_INPUT"
+    assert [row["id"] for row in body["items"]] == [str(rows[expected].id)]
 
 
 async def test_a_window_that_ends_before_it_starts_is_refused(

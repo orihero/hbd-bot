@@ -49,7 +49,7 @@ import {
   type CapabilitiesView,
   type FailureView,
 } from "@/api";
-import { StatTile } from "@/components/data";
+import { StatTile, Timestamp } from "@/components/data";
 import { AttentionList, ErrorCodeBadge, LiveFeed } from "@/components/domain";
 import { PageHeader } from "@/components/layout";
 import { AsyncBoundary, Skeleton, SkeletonText } from "@/components/util";
@@ -87,6 +87,15 @@ const CAPABILITY_ROWS: readonly {
   { key: "isChatCapture", label: "chat capture", offLabel: SOURCE_UNAVAILABLE_LABEL },
   { key: "isPaymentLedger", label: "payment ledger", offLabel: SOURCE_UNAVAILABLE_LABEL },
   { key: "isStateTransitionLog", label: "state transition log", offLabel: SOURCE_UNAVAILABLE_LABEL },
+  /*
+   * The two `vendor_usage` probes, and they are a PAIR because they are two different
+   * absences with two different remedies. "not instrumented" means no worker writes a row —
+   * deploy one. "no rate configured" means the rows are there and the money is not — set
+   * `HBD_LLM_USD_PER_MILLION_*` or `HBD_ELEVENLABS_USD_PER_CHARACTER`. Collapsing them into
+   * one row would send an operator looking for a missing writer that is already running.
+   */
+  { key: "isVendorUsage", label: "vendor usage", offLabel: NOT_INSTRUMENTED_LABEL },
+  { key: "isVendorCost", label: "vendor cost rates", offLabel: "no rate configured" },
 ];
 
 /** The hero card's width, fixed so the header does not reflow as the figure changes. */
@@ -153,9 +162,9 @@ export function LiveScreen(): ReactElement {
           caption={
             <>
               {"24 h window "}
-              <span className="num">{liveWindow.from}</span>
+              <Timestamp at={liveWindow.from} />
               {" → "}
-              <span className="num">{liveWindow.to}</span>
+              <Timestamp at={liveWindow.to} />
             </>
           }
         >

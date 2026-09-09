@@ -46,11 +46,11 @@ pytestmark = pytest.mark.integration
 _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 #: The owner role — the one migrations run as.
 _OWNER_URL: Final[str] = os.environ.get(
-    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd"
+    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
 )
 #: The application role, created by ``docker/initdb/10-two-roles.sql``.
 _APP_URL: Final[str] = os.environ.get(
-    "HBD_TEST_POSTGRES_APP_URL", "postgresql+asyncpg://hbd_app:hbd_app@localhost:5432/hbd"
+    "HBD_TEST_POSTGRES_APP_URL", "postgresql+asyncpg://hbd_app:hbd_app@localhost:5432/hbd_test"
 )
 _APP_ROLE: Final[str] = "hbd_app"
 _NOW: Final[datetime] = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)

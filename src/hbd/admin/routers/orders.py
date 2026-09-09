@@ -20,6 +20,12 @@ masking decision this namespace does not have. Plaintext is reachable only throu
 what the route-enumeration test asserts (§12.1 T8). Retry and force-deliver are Phase 2+ and
 are POSTs when they arrive.
 
+**``/orders/state-counts`` is a sibling of the list and not a field on it.** The argument is
+in :func:`order_state_counts` and it is about when the aggregate runs rather than about REST
+aesthetics: paging must not re-count the dataset. It shares the list's filter dependency
+verbatim so the two cannot describe different populations, and it is a literal path segment
+declared before ``/orders/{order_id}`` so route matching reaches it.
+
 **The three sub-collections do not 404 on an unknown order id**, deliberately.
 ``/orders/{id}/attempts`` is ``/attempts?orderId={id}`` with the scope moved into the path;
 an empty page is the right answer to a filter that matched nothing, exactly as it is on the
@@ -38,26 +44,35 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 
 from hbd.admin.deps import API_PREFIX, Db, require_permission
-from hbd.admin.errors import AdminProblem, ProblemError, unwrap
+from hbd.admin.errors import AdminProblem, ProblemError
 from hbd.admin.schemas.orders import (
     AssetsPage,
     AttemptsPage,
     OrderDetailView,
     OrdersPage,
+    OrderStateCountsView,
     TimelineView,
     to_asset_view,
     to_attempt_view,
     to_order_detail_view,
+    to_order_state_counts_view,
     to_order_view,
     to_timeline_view,
 )
 from hbd.admin.schemas.page import Paging, page_meta
 from hbd.admin.security.permissions import Permission
+from hbd.admin.window import resolve_window
 from hbd.contracts import OrderState
 from hbd.db.admin.assets import AssetFilters, count_assets, list_assets
 from hbd.db.admin.attempts import AttemptFilters, count_attempts, list_attempts
-from hbd.db.admin.orders import OrderFilters, count_orders, get_order_detail, list_orders
-from hbd.db.admin.sql import TimeWindow, time_window
+from hbd.db.admin.orders import (
+    OrderFilters,
+    count_orders,
+    count_orders_by_state,
+    get_order_detail,
+    list_orders,
+)
+from hbd.db.admin.sql import MAX_SEARCH_CHARS, TimeWindow
 from hbd.db.base import utc_now
 from hbd.db.enums import GenerationKind
 from hbd.db.models.order import CORRELATION_ID_LENGTH
@@ -65,6 +80,7 @@ from hbd.errors import ErrorCode
 
 __all__ = [
     "ORDERS_PATH",
+    "ORDER_STATE_COUNTS_PATH",
     "ORDER_PATH",
     "ORDER_ASSETS_PATH",
     "ORDER_ATTEMPTS_PATH",
@@ -74,6 +90,11 @@ __all__ = [
 ]
 
 ORDERS_PATH: Final[str] = f"{API_PREFIX}/orders"
+#: A literal segment under ``/orders``, and it must be **declared before** ``ORDER_PATH``
+#: below or Starlette will never reach it: routes match in registration order, and while
+#: ``state-counts`` is not a ``UUID`` and would fail ``/orders/{order_id}``'s coercion, the
+#: caller would get a 422 about a malformed path parameter rather than their counts.
+ORDER_STATE_COUNTS_PATH: Final[str] = f"{ORDERS_PATH}/state-counts"
 #: One identifier name per namespace. Every ``/orders/**`` route below takes ``{order_id}``
 #: typed ``UUID``, so a malformed id is a 422 from FastAPI rather than a query that runs.
 ORDER_PATH: Final[str] = f"{ORDERS_PATH}/{{order_id}}"
@@ -82,37 +103,27 @@ ORDER_ASSETS_PATH: Final[str] = f"{ORDER_PATH}/assets"
 ORDER_TIMELINE_PATH: Final[str] = f"{ORDER_PATH}/timeline"
 
 
-def _invalid(message: str) -> ProblemError:
-    """422 in the pipeline taxonomy — the code the rest of the system already uses for this."""
-    return ProblemError(AdminProblem(code=ErrorCode.INVALID_INPUT, message=message))
-
-
 def _not_found() -> ProblemError:
     """404, without echoing what was asked for. An id is not a hint worth confirming."""
     return ProblemError(AdminProblem(code=ErrorCode.NOT_FOUND, message="no order with that id"))
 
 
-def _aware(name: str, value: datetime | None) -> datetime | None:
-    """Refuse a naive instant (§6.1): the column is ``timestamptz`` and would raise anyway."""
-    if value is not None and value.tzinfo is None:
-        raise _invalid(f"{name} must carry a UTC offset, e.g. 2026-08-30T12:00:00Z")
-    return value
-
-
 def _window(since: datetime | None, until: datetime | None) -> TimeWindow | None:
     """``from``/``to`` as one half-open interval, or nothing at all.
 
-    Half a window is refused rather than completed with a sentinel instant: ``TimeWindow`` is
-    closed on both ends by construction, and substituting ``datetime.min`` for a missing bound
-    would put a fabricated timestamp into a ``WHERE`` clause and make an operator's typo look
-    like a deliberate query.
+    Three lines rather than a shared FastAPI dependency, because of the ``utc_now()`` in it:
+    the clock is resolved from *this module's* globals, which is this package's uniform seam
+    for moving time in a test. Uniform, and today exercised in exactly one router —
+    ``monkeypatch.setattr(assets_router, "utc_now", ...)`` in
+    ``tests/test_admin/test_asset_stream.py:205`` is the only such patch in the suite, and it
+    reaches ``assets`` alone. So this adapter is kept for consistency of the seam rather than
+    because deleting it would fail a test today; that is the honest reason, and a docstring
+    promising a red test somebody could not find was worth less than none.
+    :func:`~hbd.admin.window.resolve_window` owns every judgement — awareness, which bound is
+    missing, and delegating "``to`` before ``from``" to ``time_window`` — and used to be
+    copied verbatim into five routers.
     """
-    start, end = _aware("from", since), _aware("to", until)
-    if start is None and end is None:
-        return None
-    if start is None or end is None:
-        raise _invalid("from and to are one window — give both bounds or neither")
-    return unwrap(time_window(start, end))
+    return resolve_window(since, until, now=utc_now())
 
 
 def build_query(
@@ -125,12 +136,23 @@ def build_query(
     has_assets: Annotated[bool | None, Query(alias="hasAssets")] = None,
     since: Annotated[datetime | None, Query(alias="from")] = None,
     until: Annotated[datetime | None, Query(alias="to")] = None,
+    search: Annotated[str | None, Query(alias="q", max_length=MAX_SEARCH_CHARS)] = None,
 ) -> OrderFilters:
     """§6.5's filter set, as a dependency so the handler stays a straight line.
 
     Repeated ``state`` parameters are OR within the field and AND across fields (§6.1), and
     ``state`` is typed as the enum so an unknown value is a 422 from FastAPI rather than a
     filter that quietly matches nothing.
+
+    ``q`` declares ``max_length`` even though :func:`~hbd.db.admin.sql.search_clause`
+    truncates: the query layer's cap is a backstop for callers that did not arrive over HTTP,
+    and one that fires silently *widens* the pattern. Declaring it here means an operator who
+    pastes a wall of text gets a 422 naming ``q`` instead of a page of rows they did not ask
+    for — the same shape ``provider`` and ``errorCode`` take on ``/generations``.
+
+    ``correlationId`` and ``q`` are both still here and both still mean what they meant.
+    ``q`` does not subsume the exact filter: one answers "this id", the other "something with
+    this in it", and collapsing them would change what every existing caller's page contains.
     """
     return OrderFilters(
         states=tuple(state or ()),
@@ -139,6 +161,7 @@ def build_query(
         correlation_id=correlation_id,
         window=_window(since, until),
         has_assets=has_assets,
+        search=search,
     )
 
 
@@ -163,6 +186,33 @@ def build_orders_router() -> APIRouter:
         return OrdersPage(
             items=[to_order_view(item) for item in page.items], meta=page_meta(page, total)
         )
+
+    @router.get(ORDER_STATE_COUNTS_PATH)
+    async def order_state_counts(db: Db, filters: Filters) -> OrderStateCountsView:
+        """Per-state totals for the CURRENT FILTER SET — the distribution bar's real numbers.
+
+        **A sibling route rather than a field on the list's ``meta``, and the reason is the
+        cost.** The counts are one ``GROUP BY`` over every row the filters match, which
+        cannot be keyset-bounded the way a page is; on ``meta`` that aggregate would run
+        again on every ``?cursor=`` an operator turns to, so scrolling a filtered list to row
+        four hundred would pay for the same eight numbers eight times. Behind a
+        ``?withStateCounts=true`` flag it would be no better in practice — a client sets a
+        flag once and then sends it on every request, which is exactly how ``withTotal``
+        already behaves in this SPA. As its own URL the aggregate is fetched when the filter
+        set changes and at no other moment, it is separately cacheable, and the bar can paint
+        before or after the page it labels without either request blocking the other.
+
+        **It takes the identical filter dependency**, so it answers for exactly the rows
+        ``GET /api/orders`` with the same query string would return — window, ``isPaid``,
+        ``q`` and all. That includes ``?state=`` itself: filtering to ``FAILED`` makes every
+        other segment ``0``, which is correct rather than useless, and it is what lets the
+        SPA choose which distribution it wants by choosing which parameters it sends. A
+        server that silently dropped one filter to make a prettier bar would be describing a
+        set the operator is not looking at.
+
+        No ``?withTotal=``: the total is the sum of the segments and is already exact.
+        """
+        return to_order_state_counts_view(await count_orders_by_state(db, filters=filters))
 
     @router.get(ORDER_PATH)
     async def order_detail(db: Db, order_id: UUID) -> OrderDetailView:

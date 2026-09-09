@@ -76,8 +76,8 @@ export function failedStage(plan: StagePlanView): StageStatusView | null {
  *
  * The muted colour is `--ink-muted`, not the policed `--ink-rule`, because
  * `<PipelineTimeline>` paints the stage's outcome LABEL with whatever this returns.
- * `--ink-muted` clears 1.4.3's 4.5:1 on every surface in both palettes (4.70:1 at its worst
- * in light, 4.74:1 in dark); `--ink-rule` is 2.23:1 at its ceiling and clears no bar at all.
+ * `--ink-muted` clears 1.4.3's 4.5:1 on every ground of every cell (4.88:1 at its worst in
+ * light, 4.73:1 in dark); `--ink-rule` is 2.94:1 at its ceiling and clears no bar at all.
  * See `tokenContrast.test.ts`, which measures every `--ink-rule` in `src/` as text unless a
  * waiver there says why it is not.
  */

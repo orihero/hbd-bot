@@ -66,7 +66,21 @@ class OrderRow(TimestampMixin, Base):
     #: not from where the order happens to sit now. This is the ONLY input that decides
     #: whether an asset gets the 12-month paid clock or the 30-day free one (FIL-7).
     is_paid: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, default=False)
-    delivered_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    #: When the kit reached the customer. Written in exactly ONE place —
+    #: ``repository.set_state``, only under ``state is OrderState.DELIVERED`` — and never
+    #: cleared, so this column IS the delivery event: a ``state = 'delivered'`` predicate
+    #: beside a ``delivered_at`` range predicate cannot exclude a row the range already
+    #: included, and costs a heap fetch. It records the LAST delivery instant, so an
+    #: idempotent re-delivery moves the order between throughput buckets.
+    #:
+    #: Indexed as of revision 0021, which overturns migration 0009's recorded refusal by
+    #: name: that refusal was correct for the only query that then existed (a ``NOT NULL``
+    #: test inside a ``created_at`` window, already served by ``ix_orders_created_at``) and
+    #: is void now that the throughput series, the delivered-song count, the delivered-cohort
+    #: latency percentiles and the cost-per-song join all put a half-open RANGE predicate on
+    #: this column — which is what a b-tree serves and a ``NOT NULL`` test is not. NULL
+    #: remains a state ("not delivered"), never a duration of zero.
+    delivered_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True, index=True)
     failed_reason: Mapped[str | None] = mapped_column(
         sa.String(FAILED_REASON_LENGTH), nullable=True
     )

@@ -124,3 +124,41 @@ def test_two_different_adapters_expose_distinct_stable_names(settings: Settings)
 
     assert fallback is not None
     assert primary.name != fallback.name
+
+
+def test_the_reasoning_switch_reaches_both_openai_compatible_providers(
+    settings: Settings,
+) -> None:
+    """One setting, and the fallback is the half a per-provider flag would have missed.
+
+    The failover exists to answer when the primary cannot, so a deployment that needs the
+    switch needs it on the model it fails over TO — otherwise the fallback inherits exactly
+    the truncation the primary was configured out of, and only under load.
+    """
+    # Arrange
+    configured = settings.model_copy(
+        update={
+            "llm_disable_reasoning": True,
+            "llm_fallback_api_key": "fallback-key",
+            "llm_fallback_provider": "openai",
+        }
+    )
+
+    # Act
+    primary = build_llm_provider(configured)
+    fallback = build_fallback_llm_provider(configured)
+
+    # Assert
+    assert isinstance(primary, OpenAiCompatLlmProvider)
+    assert isinstance(fallback, OpenAiCompatLlmProvider)
+    assert primary._is_reasoning_disabled is True
+    assert fallback._is_reasoning_disabled is True
+
+
+def test_the_reasoning_switch_is_off_by_default(settings: Settings) -> None:
+    # Arrange / Act
+    provider = build_llm_provider(settings)
+
+    # Assert
+    assert isinstance(provider, OpenAiCompatLlmProvider)
+    assert provider._is_reasoning_disabled is False

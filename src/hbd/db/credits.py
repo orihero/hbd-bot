@@ -50,7 +50,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from datetime import datetime
-from typing import Final
+from typing import Any, Final
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -80,6 +80,7 @@ from hbd.db.credit_sql import (
 from hbd.db.enums import CreditEntryKind, CreditReason
 from hbd.db.guard import run_guarded
 from hbd.db.models.user import UserRow
+from hbd.db.plan_sql import claim_plan_song, live_plan
 from hbd.entitlements import (
     DEFAULT_ENTITLEMENT_POLICY,
     ChargeOutcome,
@@ -111,6 +112,8 @@ __all__ = [
     "DEFAULT_COST",
     "SWEEP_ACTOR",
     "UNENFORCED_ACTOR",
+    "UNENFORCED_KEY_PREFIX",
+    "unenforced_key_prefix",
 ]
 
 _log = get_logger(__name__)
@@ -127,6 +130,39 @@ DEFAULT_COST: Final[int] = 1
 #: having run out. Not an operator and not the pipeline: a configuration flag did this, and
 #: the audit trail should say so in one word.
 UNENFORCED_ACTOR: Final[str] = "unenforced"
+
+#: The first segment of that grant's idempotency key, which is the ONLY thing tying it to the
+#: render it paid for. :func:`_cover_the_shortfall` withholds the ``order_id`` COLUMN on
+#: purpose — ``net_position`` sums that column, and a grant hanging off the order would net it
+#: to zero and make every dark render look unpaid — so the key is where the link had to go.
+#: Named rather than spelled inline because the admin read layer matches on it
+#: (``db/admin/orders.py``: ``_unenforced_orders``), and a key shape that changed silently would
+#: turn every comped order back into an ordinary one on an operator's screen with no test
+#: anywhere going red.
+UNENFORCED_KEY_PREFIX: Final[str] = "unenforced"
+
+
+def unenforced_key_prefix(order_id: UUID) -> str:
+    """The ``unenforced:{order}:`` prefix every generation of one order's top-up shares.
+
+    A function rather than a second f-string in the reader, so the writer below and the
+    admin query that has to recognise its rows are built from one expression. The trailing
+    colon is part of the prefix: without it ``unenforced:{a}`` would also prefix-match an
+    order id that merely starts with ``a``, and UUID v4s share no prefixes only by luck.
+    """
+    return f"{UNENFORCED_KEY_PREFIX}:{order_id}:"
+
+
+#: The language a ``users`` row is born with when the update that created it told us
+#: nothing. It MUST equal ``UserRow.ui_language``'s column default (``models/user.py:37-39``),
+#: which is ``nullable=False`` — an INSERT that omitted the column, or sent ``None`` into it,
+#: would violate the constraint, ``run_guarded`` would return ``Err``, and NO ``users`` row
+#: would ever be created for a pre-onboarding account: the block gate would silently stop
+#: covering exactly the population ``tests/test_bot/test_gate_middleware.py:138-158`` exists
+#: to cover. One spelling for both writers in this module — :func:`set_blocked` supplies it on
+#: the insert and withholds it from the update, and :func:`touch` does the same whenever the
+#: update it is serving said nothing about a language.
+_DEFAULT_UI_LANGUAGE: Final[Language] = Language.UZ_LATN
 
 
 async def _mint_due_allowance(
@@ -177,6 +213,60 @@ async def _mint_due_allowance(
     return True
 
 
+async def _mint_plan_song(
+    session: AsyncSession, *, telegram_user_id: int, now: datetime, actor: str
+) -> bool:
+    """Take ONE song out of a live plan and turn it into a credit. ``True`` when minted.
+
+    Modelled line for line on :func:`_mint_due_allowance`, because it is the same idea
+    applied to a different meter: a source of songs the customer has NOT yet been given as
+    credits mints exactly one, inside the charge's own transaction, guarded so that two
+    racing charges cannot both take it.
+
+    The guard is different in shape and the difference is the point. The allowance is keyed
+    on a deterministic window index, so the unique index on ``credit_ledger.idempotency_key``
+    is the whole concurrency story. A plan has no window: it has a counter, so
+    :func:`hbd.db.plan_sql.claim_plan_song` does an optimistic
+    ``UPDATE … WHERE songs_used = :seen`` and the LOSER simply mints nothing. Losing that
+    race is an ordinary outcome, not an error — the loser's charge falls through to whatever
+    balance the account already had, exactly as it would have without a plan.
+
+    The grant's key, ``grant:plan:{plan_id}:{songs_used}``, is built from the counter value
+    this call CLAIMED, so it names one specific song of one specific plan. A replay of the
+    same claim writes one grant; a thirteenth song has no claim to name and so has no key.
+
+    **Nothing here expires and nothing is ever clawed back.** When ``plan_ends_at`` passes,
+    :func:`hbd.db.plan_sql.live_plan` stops returning the row and the remaining songs are
+    simply never minted — no sweep, no compensating DEBIT, and no need to tell plan money
+    apart from a paid top-up on a balance that has no lots. That is the whole reason the
+    minting is lazy; :mod:`hbd.db.plan_sql` argues it at length.
+    """
+    plan = await live_plan(session, telegram_user_id=telegram_user_id, now=now)
+    if plan is None:
+        return False
+    # Snapshot the counter BEFORE the claim, and build the key from the snapshot. The claim
+    # is an ORM-enabled Core UPDATE, so SQLAlchemy synchronises the identity map and
+    # ``plan.songs_used`` reads back as the NEW value the moment it succeeds — a key built
+    # from the attribute afterwards would name the song after the one this call took, and the
+    # very first grant of every plan would be keyed ``:1``.
+    claimed = plan.songs_used
+    if not await claim_plan_song(session, plan_id=plan.id, songs_used=claimed):
+        return False
+    if not await write_entry(
+        session,
+        telegram_user_id=telegram_user_id,
+        kind=CreditEntryKind.GRANT,
+        reason=CreditReason.PLAN_SONG,
+        delta=1,
+        idempotency_key=f"grant:plan:{plan.id}:{claimed}",
+        actor=actor,
+        now=now,
+    ):
+        return False
+    await add_credits(session, telegram_user_id=telegram_user_id, credits=1, lifetime=1, now=now)
+    return True
+
+
 async def charge(
     session: AsyncSession,
     *,
@@ -203,6 +293,19 @@ async def charge(
     in-flight cap counts unsettled DEBIT rows — a dark mode that skipped this function
     wrote none, so the cap and the block gate silently did nothing in the configuration that
     ships. See ``EntitlementPolicy.is_balance_enforced``.
+
+    **The plan pays first.** :func:`_mint_plan_song` runs whenever a live plan has a song
+    left, REGARDLESS of what the balance already holds, because a plan song is the only kind
+    that can be lost to the calendar and a bought top-up never expires. Spending the
+    non-expiring credit first would be spending the customer's money while their plan quietly
+    ran out. The consequence, stated so nobody has to derive it: a REFUND after a failed
+    render returns a normal, non-expiring credit and deliberately does NOT decrement
+    ``songs_used``, so a customer whose song failed keeps the value on a clock that cannot
+    run out.
+
+    ``state`` is read BEFORE the mint, so a refusal built from it — ``_insufficient_credits``
+    — may report a balance one lower than the row now holds. Cosmetic only: the number in a
+    refusal is explanatory context, and ``debit_balance`` reads the real row.
     """
     if cost < 1:
         raise ValidationError(
@@ -222,6 +325,11 @@ async def charge(
     if await net_position(session, order_id) < 0:
         return ChargeOutcome.ALREADY_PAID, await _snapshot(session, state, now=now, policy=policy)
     _refuse_a_stacked_account(state, policy=policy)
+    # AFTER the ALREADY_PAID short-circuit above, and after the in-flight refusal: a retry of
+    # an order that is already paid for returns before it gets here, so no replay of a
+    # delivered render can ever consume a second song out of the plan. Before the debit,
+    # because the credit it mints is what that debit is about to spend.
+    await _mint_plan_song(session, telegram_user_id=telegram_user_id, now=now, actor=actor)
     generation = await generation_for(session, order_id)
     if not await _write_debit(
         session,
@@ -365,7 +473,7 @@ async def _cover_the_shortfall(
         kind=CreditEntryKind.GRANT,
         reason=CreditReason.UNENFORCED_RENDER,
         delta=cost,
-        idempotency_key=f"unenforced:{order_id}:{generation}",
+        idempotency_key=f"{unenforced_key_prefix(order_id)}{generation}",
         actor=UNENFORCED_ACTOR,
         now=now,
     )
@@ -447,11 +555,17 @@ async def set_blocked(
 ) -> None:
     """Bar or unbar an account, creating its ``users`` row if there is none.
 
-    An UPSERT rather than an ``UPDATE`` with a rowcount check, because ``users`` rows are
-    written only by ``repository._ensure_user`` when an order is created — so the accounts
-    most worth blocking (someone abusing the wizard without ever confirming) are precisely
-    the ones an ``UPDATE`` would silently miss. ``ui_language`` is only supplied for the
-    insert; blocking someone must never change the language they read.
+    An UPSERT rather than an ``UPDATE`` with a rowcount check. The reason has narrowed but
+    not gone away. There are now THREE writers of a ``users`` row —
+    ``users_sql.ensure_user`` from ``repository._create_order``, the same function from
+    ``SqlUserProfiles.record_language`` at first contact, and :func:`touch` on every inbound
+    update — so a person who has spoken to the bot since the onboarding deploy does have a
+    row. An account that has not spoken since then still does not, and that is exactly the
+    account an operator reaches for this function to bar: a rowcount-checked ``UPDATE``
+    would silently fail on precisely the population it exists to serve.
+
+    ``ui_language`` is supplied for the insert only, from :data:`_DEFAULT_UI_LANGUAGE`;
+    blocking someone must never change the language they read.
     """
     await session.execute(
         upsert_statement(
@@ -460,7 +574,7 @@ async def set_blocked(
             {
                 "id": uuid4(),
                 "telegram_user_id": telegram_user_id,
-                "ui_language": Language.UZ_LATN,
+                "ui_language": _DEFAULT_UI_LANGUAGE,
                 "is_blocked": is_blocked,
                 "last_seen_at": now,
                 "created_at": now,
@@ -473,14 +587,37 @@ async def set_blocked(
 
 
 async def touch(
-    session: AsyncSession, *, telegram_user_id: int, ui_language: Language, now: datetime
+    session: AsyncSession,
+    *,
+    telegram_user_id: int,
+    ui_language: Language | None,
+    now: datetime,
 ) -> None:
-    """Record that this account is alive and which language it is reading.
+    """Record that this account is alive and, when the update told us, which language it reads.
+
+    ``ui_language`` is ``Language | None`` because ``gate._decide`` used to pass
+    ``resolve_language(state)``, which answers with the FALLBACK language whenever there is
+    no draft — so within sixty seconds of any ``state.clear()`` the drain stamped ``UZ_LATN``
+    over the customer's real choice, and the settings screen appeared to forget itself for no
+    reason a reader of either file could see. ``None`` now means "this update said nothing
+    about the language", and the column is then left exactly as it was.
+
+    **The key is omitted from BOTH halves of the UPSERT, not just from ``set_``.**
+    ``UserRow.ui_language`` is ``nullable=False`` (``models/user.py:37-39``), so conditioning
+    only the ``ON CONFLICT`` clause would send ``None`` into the INSERT; the constraint fires,
+    ``run_guarded`` turns it into an ``Err``, and no ``users`` row is ever created for an
+    account that has not onboarded yet — which silently disables the block gate for precisely
+    the people an operator most wants to block. On the insert the column therefore takes
+    :data:`_DEFAULT_UI_LANGUAGE`, exactly as :func:`set_blocked` above supplies it for the
+    insert and withholds it from the update.
 
     ``is_blocked`` is deliberately absent from the update clause: a touch arrives on every
     inbound update, and one that reset the flag would unblock an abuser the moment they
     sent their next message.
     """
+    set_: dict[str, Any] = {"last_seen_at": now, "updated_at": now}
+    if ui_language is not None:
+        set_["ui_language"] = ui_language
     await session.execute(
         upsert_statement(
             session,
@@ -488,14 +625,14 @@ async def touch(
             {
                 "id": uuid4(),
                 "telegram_user_id": telegram_user_id,
-                "ui_language": ui_language,
+                "ui_language": (ui_language if ui_language is not None else _DEFAULT_UI_LANGUAGE),
                 "is_blocked": False,
                 "last_seen_at": now,
                 "created_at": now,
                 "updated_at": now,
             },
             index_elements=["telegram_user_id"],
-            set_={"ui_language": ui_language, "last_seen_at": now, "updated_at": now},
+            set_=set_,
         )
     )
 
@@ -577,7 +714,7 @@ class SqlCreditLedger:
             is_blocked=is_blocked,
         )
 
-    async def touch(self, telegram_user_id: int, *, ui_language: Language) -> Result[None]:
+    async def touch(self, telegram_user_id: int, *, ui_language: Language | None) -> Result[None]:
         return await run_guarded(
             "credits.touch",
             lambda: self._touch(telegram_user_id, ui_language),
@@ -657,7 +794,7 @@ class SqlCreditLedger:
                 now=self._clock(),
             )
 
-    async def _touch(self, telegram_user_id: int, ui_language: Language) -> None:
+    async def _touch(self, telegram_user_id: int, ui_language: Language | None) -> None:
         async with self._sessions.begin() as session:
             await touch(
                 session,
@@ -669,9 +806,12 @@ class SqlCreditLedger:
     async def _forget(self, telegram_user_id: int) -> None:
         """One transaction, so the ledger cannot end up anonymous with the balance intact.
 
-        Logged at INFO with both counts because this is a data-subject request: when
+        Logged at INFO with EVERY count because this is a data-subject request: when
         someone asks later whether their erasure ran, the answer has to be in the log of
-        the process that ran it and not inferred from the absence of a row.
+        the process that ran it and not inferred from the absence of a row. A counter that
+        :class:`hbd.db.credit_erasure.CreditErasure` reports and this line drops would make
+        the record of the request quietly incomplete, so a new receipt table adds a field
+        here as well as there.
         """
         async with self._sessions.begin() as session:
             erased = await forget_account(session, telegram_user_id=telegram_user_id)
@@ -681,5 +821,14 @@ class SqlCreditLedger:
                 "telegram_user_id": telegram_user_id,
                 "accounts_deleted": erased.accounts_deleted,
                 "entries_anonymised": erased.entries_anonymised,
+                "plans_anonymised": erased.plans_anonymised,
+                "topups_anonymised": erased.topups_anonymised,
+                # The three below were reported by ``CreditErasure`` and dropped here, which
+                # is precisely the incompleteness the docstring above forbids: an erasure
+                # that anonymised nine hundred delivery rows logged four zeroes and said
+                # nothing about them.
+                "membership_events_anonymised": erased.membership_events_anonymised,
+                "intents_anonymised": erased.intents_anonymised,
+                "recipients_anonymised": erased.recipients_anonymised,
             },
         )

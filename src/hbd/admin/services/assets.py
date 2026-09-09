@@ -223,8 +223,21 @@ def lyric_text(media: AssetMedia) -> str | None:
 
     Read from ``assets.payload``, never from the filesystem: the column already holds the
     lyric, so the text route needs no object key, no byte range and no traversal surface at
-    all. The sheet is re-typeset with the pipeline's own renderer so the panel shows the file
-    that was delivered rather than a second, differently-formatted rendering of it.
+    all. The sheet is re-typeset with the pipeline's own renderer, so the panel shows the
+    file the renderer would produce today rather than a second, differently-formatted
+    rendering of its own.
+
+    **Today's renderer, which is not always the delivered file — the limitation is precise
+    and it is a version skew, not a formatting choice.** This paragraph used to promise "the
+    file that was delivered". :func:`hbd.pipeline.assets.render_lyric_sheet` now wraps the
+    sheet in a ``SHEET_RULE`` watermark line top and bottom, so for every order archived
+    BEFORE that shipped the bytes in object storage carry no rules while this reveal shows
+    two, and an operator comparing the reveal against a customer's forwarded ``lyrics.txt``
+    sees a difference the old wording said could not exist. Harmless — nothing here is
+    compared byte-for-byte and the lyric itself is identical — but re-rendering means the
+    panel tracks the renderer, and any future change to the sheet's shape will re-open the
+    same gap for everything already archived. The alternative, reading the delivered object,
+    is what the ``payload`` column exists to avoid.
 
     A payload that no longer validates is ``None`` — the caller answers 404. It is logged at
     ERROR because a stored shape that stopped matching its model is a data incident, but it

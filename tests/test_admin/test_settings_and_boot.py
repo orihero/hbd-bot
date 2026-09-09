@@ -31,7 +31,7 @@ import pytest
 
 from hbd.admin.app import FORBIDDEN_ENV_VARS, create_app
 from hbd.admin.container import AdminContainer
-from hbd.admin.csrf import CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
+from hbd.admin.csrf import ANY_ORIGIN, CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
 from hbd.admin.settings import AdminEnvironment, AdminSettings, build_admin_settings
 from hbd.config import (
     ENV_PREFIX,
@@ -45,8 +45,14 @@ from tests.test_admin.conftest import HMAC_KEY, create_account, make_settings, s
 
 #: A field whose name *ends* in one of these words holds a credential. Anchored so
 #: ``llm_max_output_tokens`` — a count, not a token — is not swept in.
+#:
+#: A bare trailing ``key`` counts, and it was widened to on the day
+#: ``openrouter_management_key`` arrived: the pattern read ``api_key`` only, so the most
+#: dangerous credential in the settings — one that can create and revoke API keys — was not
+#: secret-SHAPED by the very test whose job is to notice a credential nobody listed. A
+#: future ``sort_key`` would now be swept in, and that is the safe direction to be wrong in.
 _SECRET_SHAPED: Final[re.Pattern[str]] = re.compile(
-    r"(?:^|_)(?:api_key|apikey|token|secret|password|credential)$"
+    r"(?:^|_)(?:key|api_key|apikey|token|secret|password|credential)$"
 )
 
 _HOST_PREFIX: Final[str] = "__Host-"
@@ -98,6 +104,59 @@ async def test_prod_refuses_to_start_with_the_llm_fallback_key_in_the_environmen
     application = create_app(make_settings(environment="prod"))
 
     # Act / Assert — the message names the variable and never carries its value.
+    with pytest.raises(ConfigError) as caught:
+        async with application.router.lifespan_context(application):
+            pass  # pragma: no cover - the lifespan must not reach here
+    assert variable in caught.value.operator_message
+    assert "a-value-that-must-not-be-here" not in caught.value.operator_message
+
+
+def test_the_admin_forbidden_variables_include_the_payme_merchant_key() -> None:
+    """The admin host must not be able to reach the Payme cashbox key either.
+
+    This assertion is the mechanism behind a design claim: the Payme merchant endpoint is a
+    fourth process, and it stays one because a prod admin host holding the key refuses to
+    boot. Note the key is NOT a field on ``Settings`` and must never be added to
+    ``VENDOR_SECRET_FIELDS`` - the shape test above asserts set equality between that tuple
+    and the secret-shaped fields, so a name with no field behind it would fail it. It reaches
+    the forbidden list through ``FOREIGN_SECRET_ENV_VARS`` instead.
+    """
+    assert f"{ENV_PREFIX}PAYME_MERCHANT_KEY" in FORBIDDEN_ENV_VARS
+
+
+async def test_prod_refuses_to_start_with_the_payme_merchant_key_in_the_environment(
+    container: AdminContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange
+    variable = f"{ENV_PREFIX}PAYME_MERCHANT_KEY"
+    monkeypatch.setenv(variable, "a-value-that-must-not-be-here")
+    application = create_app(make_settings(environment="prod"))
+
+    # Act / Assert - the message names the variable and never carries its value.
+    with pytest.raises(ConfigError) as caught:
+        async with application.router.lifespan_context(application):
+            pass  # pragma: no cover - the lifespan must not reach here
+    assert variable in caught.value.operator_message
+    assert "a-value-that-must-not-be-here" not in caught.value.operator_message
+
+
+async def test_prod_refuses_to_start_with_the_payme_merchant_key_in_the_admin_env_file(
+    container: AdminContainer, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A key written into ``.env.admin`` is exactly as present on this host as an exported one.
+
+    Both halves of "within reach" are tested because both are real: a deploy that exports the
+    cashbox key, and an operator who pastes it into the panel's own config file while moving
+    the endpoint onto the panel - which is the mistake this refusal exists to stop.
+    """
+    # Arrange - nothing in os.environ; the key exists only in the file
+    variable = f"{ENV_PREFIX}PAYME_MERCHANT_KEY"
+    env_file = tmp_path / ".env.admin"
+    env_file.write_text(f"{variable}=a-value-that-must-not-be-here\n", encoding="utf-8")
+    monkeypatch.setattr("hbd.admin.app.ADMIN_ENV_FILE", str(env_file))
+    application = create_app(make_settings(environment="prod"))
+
+    # Act / Assert
     with pytest.raises(ConfigError) as caught:
         async with application.router.lifespan_context(application):
             pass  # pragma: no cover - the lifespan must not reach here
@@ -238,6 +297,84 @@ def test_dev_keeps_the_loopback_default() -> None:
 
 
 # ---------------------------------------------------------------------------
+# The dev loopback aliases: localhost and 127.0.0.1 are one machine, three spellings
+# ---------------------------------------------------------------------------
+_DEV_ALIASES: Final[set[str]] = {
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://[::1]:8080",
+}
+
+
+def test_dev_accepts_every_loopback_spelling_of_the_configured_origin() -> None:
+    assert build_admin_settings(_admin_values()).accepted_origins == _DEV_ALIASES
+
+
+def test_the_dev_aliases_keep_the_configured_port() -> None:
+    """:5173 and :8080 are two servers; only the configured one is the panel."""
+    settings = build_admin_settings(_admin_values(admin_public_origin="http://localhost:5173"))
+
+    assert settings.accepted_origins == {
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://[::1]:5173",
+    }
+    assert "http://localhost:8080" not in settings.accepted_origins
+
+
+@pytest.mark.parametrize("environment", ["staging", "prod"])
+def test_outside_dev_the_accepted_origin_is_exactly_the_configured_one(environment: str) -> None:
+    settings = build_admin_settings(
+        _admin_values(environment=environment, admin_public_origin="http://localhost:8080")
+    )
+
+    assert settings.accepted_origins == {"http://localhost:8080"}
+
+
+def test_a_named_host_never_widens_even_in_dev() -> None:
+    """A real hostname has no loopback aliases to pick up."""
+    settings = build_admin_settings(_admin_values(admin_public_origin="https://admin.example.com"))
+
+    assert settings.accepted_origins == {"https://admin.example.com"}
+
+
+# ---------------------------------------------------------------------------
+# The `*` escape hatch: every origin, in dev and nowhere else
+# ---------------------------------------------------------------------------
+def test_the_wildcard_accepts_every_origin_in_dev() -> None:
+    """`*` passes through as itself; ``verify_origin`` is what reads it as "anything"."""
+    settings = build_admin_settings(_admin_values(admin_public_origin=ANY_ORIGIN))
+
+    assert settings.accepted_origins == {ANY_ORIGIN}
+
+
+@pytest.mark.parametrize("environment", ["staging", "prod"])
+def test_the_wildcard_is_a_boot_refusal_outside_dev(environment: str) -> None:
+    """The pre-session CSRF layer cannot be switched off where there are real operators.
+
+    Named as its own refusal rather than left to the bare-origin validator: an operator who
+    typed ``*`` on purpose needs to read WHY it is refused, not "must start with http://".
+    """
+    with pytest.raises(ConfigError) as caught:
+        build_admin_settings(_admin_values(environment=environment, admin_public_origin=ANY_ORIGIN))
+
+    assert f"{ENV_PREFIX}ADMIN_PUBLIC_ORIGIN" in caught.value.operator_message
+
+
+def test_a_wildcard_that_reached_prod_refuses_every_origin_rather_than_widening() -> None:
+    """The second guard on the property fails CLOSED.
+
+    Every validated path already refuses this, so reaching it needs ``model_construct`` —
+    the documented way past pydantic's validators, and the shape a future caller assembling
+    settings by hand would take. The empty set stops the panel; a plausible-looking default
+    would quietly leave it open.
+    """
+    settings = AdminSettings.model_construct(environment="prod", admin_public_origin=ANY_ORIGIN)
+
+    assert settings.accepted_origins == frozenset()
+
+
+# ---------------------------------------------------------------------------
 # Issue 9: the five specified fields exist, with the specified bounds
 # ---------------------------------------------------------------------------
 def test_the_specified_defaults() -> None:
@@ -312,6 +449,67 @@ def test_a_similarity_threshold_outside_zero_to_one_is_refused_at_boot(value: fl
     """The worker bounds it ``0.0..1.0``; a mirror that accepts 1.5 mirrors nothing."""
     with pytest.raises(ValueError, match="admin_name_match_min_similarity"):
         make_settings(admin_name_match_min_similarity=value)
+
+
+def test_the_mirrored_settlement_grace_defaults_to_unpublished() -> None:
+    """The second mirror, and the same argument: the worker owns the number.
+
+    It is either ``HBD_SETTLEMENT_GRACE_S`` or derived from the worker's queue ladder, and
+    this process reads neither. Unset means the panel counts in-flight renders against
+    ``DEFAULT_ENTITLEMENT_POLICY`` and says so on ``GET /api/config``, rather than asserting
+    a parity with the customer's gate that it cannot know it has.
+    """
+    assert make_settings().admin_settlement_grace_s is None
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_a_blank_settlement_grace_reads_as_unpublished_rather_than_failing_the_boot(
+    value: str,
+) -> None:
+    """``.env.admin.example`` ships this variable blank too; both mirrors share the validator."""
+    assert make_settings(admin_settlement_grace_s=value).admin_settlement_grace_s is None
+
+
+@pytest.mark.parametrize("value", [0, 86_401])
+def test_a_settlement_grace_outside_the_workers_range_is_refused_at_boot(value: int) -> None:
+    """``EntitlementPolicy`` refuses a grace below 1s; a mirror that accepts 0 mirrors nothing."""
+    with pytest.raises(ValueError, match="admin_settlement_grace_s"):
+        make_settings(admin_settlement_grace_s=value)
+
+
+def test_the_mirrored_free_allowance_defaults_to_the_number_the_bot_ships() -> None:
+    """The third mirror, and the one whose default had to be a NUMBER rather than "unset".
+
+    ``Settings.free_allowance_credits`` ships 0 — the recording is sold, the lyric is not —
+    and this value is a term in ``creditsProjected``'s arithmetic, so there is no honest
+    "unpublished" rendering of it. The default therefore has to agree with the bot rather
+    than decline to answer, and the day it did not is the bug: the route built its policy
+    without an allowance, took ``EntitlementPolicy``'s dataclass default of 3, and added
+    three songs to every account in the fleet forever, because a 0 allowance never stamps an
+    allowance period and so never stops being due.
+    """
+    assert make_settings().admin_free_allowance_credits == 0
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_a_blank_free_allowance_reads_as_the_shipped_default_rather_than_failing_the_boot(
+    value: str,
+) -> None:
+    """The example file says "leave the mirrors blank" twice, and an operator will do it here.
+
+    This one cannot join the other two on ``_blank_mirror_means_unpublished``: that validator
+    answers ``None``, which this field may not hold. Blank means the shipped 0 instead — the
+    same deployment an operator who never touches the variable gets — rather than a pydantic
+    ``int_parsing`` error naming a variable they were told to empty.
+    """
+    assert make_settings(admin_free_allowance_credits=value).admin_free_allowance_credits == 0
+
+
+@pytest.mark.parametrize("value", [-1, 101])
+def test_a_free_allowance_outside_the_workers_range_is_refused_at_boot(value: int) -> None:
+    """``Settings.free_allowance_credits`` is bounded ``0..100``; a mirror must not be wider."""
+    with pytest.raises(ValueError, match="admin_free_allowance_credits"):
+        make_settings(admin_free_allowance_credits=value)
 
 
 def test_the_audit_dsn_is_carried_verbatim_for_the_two_places_that_read_it() -> None:

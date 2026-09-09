@@ -27,6 +27,11 @@ __all__ = [
 ]
 
 #: Placeholder list price per rendered minute, in USD. Reconcile against the dashboard.
+#: It is deliberately non-zero, which makes music the one leg that is priced before anybody
+#: configures anything: a fresh deployment's first render carries a real dollar figure,
+#: honestly labelled ``CostSource.ESTIMATED`` and rendered beside its provenance. An
+#: operator who would rather say nothing than say a placeholder sets
+#: ``HBD_MUSIC_USD_PER_MINUTE=0``, and the ledger then records the render with no cost.
 DEFAULT_MUSIC_USD_PER_MINUTE: Final[float] = 0.15
 
 MS_PER_MINUTE: Final[int] = 60_000

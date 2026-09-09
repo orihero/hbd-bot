@@ -6,6 +6,44 @@ by an older build, or hand-edited, fails validation and is reported as an expire
 rather than crashing a handler.
 
 The draft is frozen. Every step returns a NEW draft via :meth:`WizardDraft.updated`.
+
+FSM data holds NINE keys, and they are listed here because this is where "what may live in
+that dict" is documented and because the list has been wrong in a comment before — it went
+wrong three times while the checkout was landing, at five, then six, then eight, which is the
+whole argument for keeping the list in one place and counting it out loud:
+
+* :data:`DRAFT_KEY` — the whole draft, one key so nothing can collide with it;
+* ``ORDER_ID_KEY`` and ``PROGRESS_MESSAGE_ID_KEY`` (both ``handlers.submitting``) — the
+  in-flight order and the message its progress is being edited into;
+* ``PURCHASE_SEQ_KEY``, ``PURCHASE_SETTLED_UPDATES_KEY``, ``PURCHASE_SETTLED_AT_KEY`` and
+  ``PURCHASE_SETTLED_PRODUCT_KEY`` (all four ``handlers.checkout``) — how many purchases this
+  scope has already fulfilled and therefore which idempotency key the next one mints; the
+  ``update_id`` of the last few that settled; and when the last one settled together with
+  WHICH button settled it. Four keys and not one because they defend three different failures
+  — a retry, a redelivery, a bounced thumb — and that module's docstring is where the argument
+  for each lives. The last two are one marker in two keys and are always written together:
+  a timestamp found without a product beside it is read as "assume this press is a double
+  tap", so splitting the write would refuse the other button for five seconds;
+* :data:`UI_LANGUAGE_KEY` and :data:`ONBOARDED_KEY` — the two caches below, and the only
+  two that survive ``handlers.common.clear_keeping_identity``.
+
+That last distinction is the point of putting the two caches here. ``state.clear()`` wipes
+the dict, and it is called at the end of every run and at every refusal; clearing a
+customer's language and their onboarded flag along with a cancelled draft would re-ask a
+question they have already answered, in a language we were told not to speak.
+
+The four checkout keys are on the OTHER side of that line and must stay there:
+``clear_keeping_identity`` keeps exactly ``UI_LANGUAGE_KEY`` and ``ONBOARDED_KEY``, so all
+four are dropped with the draft and the next run starts the counter at zero again. That is
+correct rather than merely tolerable, because the key the counter feeds is
+``{product}:{tg}:{scope}:{seq}`` and the same clear is what makes ``reset_to_welcome`` mint
+a fresh ``session_id`` — a restarted counter can only collide with an old purchase if the
+scope it is qualified by came back too, which it cannot. (The scope is that ``session_id``
+only inside the wizard; a purchase made from ``/balance`` has no draft and is qualified by
+the message the button was drawn on instead — see ``handlers.checkout._idempotency_key``.
+Neither scope survives a clear either.) Adding these to the kept set would buy nothing the
+scope does not already buy, and would leave a settled-purchase memory on the dict belonging
+to a run that is over.
 """
 
 from __future__ import annotations
@@ -36,6 +74,8 @@ __all__ = [
     "LyricSource",
     "load_draft",
     "DRAFT_KEY",
+    "UI_LANGUAGE_KEY",
+    "ONBOARDED_KEY",
     "MAX_NOTE_CHARS",
     "REQUIRED_ANSWERS",
     "OWN_LYRICS_REQUIRED_ANSWERS",
@@ -43,6 +83,25 @@ __all__ = [
 
 #: Single FSM-data key holding the whole draft, so no other key can collide with it.
 DRAFT_KEY: Final[str] = "draft"
+
+#: The interface language, cached in FSM data. The ``users`` row is the truth; this is a
+#: copy, and it is here because the truth is not always reachable in time. A draft is
+#: minted when a wizard RUN starts, so before that there is nowhere on the draft to keep
+#: the language — and the first thing a returning customer can meet is not a wizard screen
+#: but a refusal: the inbound gate's block notice, the error guard's apology, the
+#: onboarding screens themselves. Every one of those has to pick a language before any
+#: draft exists, and a cache is the difference between asking the store on every update
+#: inside aiogram's FSM isolation lock and not.
+UI_LANGUAGE_KEY: Final[str] = "ui_language"
+
+#: Whether onboarding is finished, cached in FSM data, so the not-onboarded filter is not a
+#: database round trip on every inbound update inside aiogram's FSM isolation lock.
+#:
+#: A cache ONLY, and the asymmetry matters: ``None`` means "ask the store", never "not
+#: onboarded". Reading a missing key as a negative would put a customer who finished
+#: onboarding months ago — and whose Redis data has since expired — back on the phone-number
+#: screen, which is the one question this product promises to ask exactly once.
+ONBOARDED_KEY: Final[str] = "onboarded"
 
 #: Mirrors ``Brief.note``'s bound. ``test_draft.py`` asserts the two stay in step.
 MAX_NOTE_CHARS: Final[int] = 600

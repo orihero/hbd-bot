@@ -16,6 +16,7 @@ from hbd.bot.i18n import (
     translate,
     vocal_gender_label,
 )
+from hbd.bot.keyboards import MENU_BUTTON_KEYS
 from hbd.bot.locales import CATALOGUES, REFERENCE_LANGUAGE
 from hbd.contracts import Genre, Language, Occasion, VoiceGender
 from hbd.errors import (
@@ -208,3 +209,84 @@ def test_parse_language_reads_a_code_or_falls_back(code: str | None, expected: L
 def test_parse_language_falls_back_on_nonsense() -> None:
     # Arrange / Act / Assert
     assert parse_language("martian") is Language.UZ_LATN
+
+
+def test_the_menu_button_keys_are_all_defined() -> None:
+    """Belt and braces over the four keys pinned under the composer of every customer.
+
+    ``test_locale_contract``'s key scan collects a dotted string assigned to a name ending in
+    ``KEY``, and ``keyboards.py`` declares ``MENU_GENERATE_LABEL_KEY`` and its three siblings
+    precisely so the scan can see them — ``menu.`` is not one of its computed prefixes
+    either, so nothing else would. That arrangement is one refactor deep: collapse the four
+    constants back into bare literals inside the ``MENU_BUTTON_KEYS`` tuple, which reads like
+    a tidy-up, and all four become invisible to the scan in the same commit.
+
+    The consequence is worse for these keys than for any other. ``MENU_LABELS`` is computed
+    from the same tuple, so a typo would ship as a persistent reply button reading
+    ``menu.generat`` — and it would still ROUTE, because the router filters on the set built
+    from the same broken key. A wrong label that works is a wrong label nobody reports.
+
+    So this asserts the tuple's contents directly against every catalogue, which survives the
+    refactor the scan does not.
+    """
+    # Arrange / Act / Assert
+    assert MENU_BUTTON_KEYS, "the menu draws no buttons; the assertion below tests nothing"
+    for key in MENU_BUTTON_KEYS:
+        for language in Language:
+            assert key in CATALOGUES[language], (language, key)
+
+
+def test_the_error_family_carries_no_onboarding_key() -> None:
+    """The contact prompt is ``onboarding.``-keyed, and it must never become ``error.``-keyed.
+
+    ``error.`` is owned by ``hbd.errors``: every key under it is reachable from
+    ``runtime.jobs._tell_the_customer_why``, which renders whatever the failed order's error
+    names with NO parameters and no idea what the message is about. Spelling the prompt
+    ``error.contact_required`` — which is the obvious name, and is why this test exists —
+    would put "Before we make a song I need your number" into the pipeline's vocabulary, so a
+    paid song that died in the vendor could answer a customer with a request for a phone
+    number they had already given.
+
+    It is also the reason the prompt can carry no placeholder: the ``error.`` family is
+    forbidden them by ``test_no_error_message_carries_a_placeholder`` above, and being outside
+    that family is what leaves the onboarding copy free to change later.
+    """
+    # Arrange / Act / Assert
+    for language in Language:
+        catalogue = CATALOGUES[language]
+        assert "error.contact_required" not in catalogue, language
+        assert "onboarding.contact.required" in catalogue, language
+
+
+def test_the_privacy_notice_takes_exactly_the_four_kwargs_the_handler_passes() -> None:
+    """A fifth placeholder here ships as literal braces in the one message that must not lie.
+
+    ``handlers.commands.handle_privacy`` renders this key with exactly four keyword
+    arguments, read off the retention policy. ``translate`` degrades a missing parameter
+    rather than raising — deliberately, so a template typo cannot take the bot down — which
+    means a catalogue that grows a ``{contact_profile_days}`` does not fail anywhere: it
+    sends a data-protection notice with ``{contact_profile_days}`` printed in it, to the
+    customer who cared enough to ask what is kept about them.
+
+    Frozen at four rather than merely "the same in all four catalogues", because
+    ``test_catalogue_uses_the_same_placeholders_as_the_reference`` already covers agreement
+    and would stay green if somebody added the fifth to the English reference and dutifully
+    translated it. The number is a fact about the CALL SITE, so it is asserted as one.
+
+    There is no fifth to add: the phone number, the username, the name and the photo have no
+    date on them at all. They are kept while the account exists and ``/forget`` erases them,
+    which is what the notice's copy says in words instead of in a placeholder.
+    """
+    # Arrange
+    expected = frozenset(
+        {
+            "recipient_identity_days",
+            "brief_text_days",
+            "paid_audio_days",
+            "abandoned_draft_days",
+        }
+    )
+
+    # Act / Assert
+    for language in Language:
+        assert placeholders(CATALOGUES[language]["privacy.text"]) == expected, language

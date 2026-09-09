@@ -827,6 +827,7 @@ async def test_no_mounted_route_answers_with_a_text_plain_body(panel: Panel) -> 
         "telegram_user_id": TELEGRAM_ID,
         "asset_id": asset.id,
         "attempt_id": uuid4(),
+        "broadcast_id": uuid4(),
     }
 
     # Act / Assert

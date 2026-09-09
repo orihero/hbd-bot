@@ -636,19 +636,33 @@ async def test_a_naive_instant_is_refused_rather_than_guessed_at(
     assert response.json()["error"]["code"] == "INVALID_INPUT"
 
 
-@pytest.mark.parametrize("parameter", ["from", "to"])
-async def test_one_end_of_a_window_is_refused_because_the_other_would_be_a_guess(
-    container: AdminContainer, client: httpx.AsyncClient, parameter: str
+@pytest.mark.parametrize(
+    ("parameter", "expected_days"),
+    [("from", ["2026-03-22"]), ("to", ["2026-03-20"])],
+    ids=["from-runs-to-now", "to-is-open-below"],
+)
+async def test_one_end_of_a_window_is_enough_now_that_the_other_is_not_a_guess(
+    container: AdminContainer,
+    client: httpx.AsyncClient,
+    parameter: str,
+    expected_days: list[str],
 ) -> None:
-    # Arrange
+    # Arrange — one order on day one and one on day three; the boundary sits between them, so
+    # "from the boundary" and "up to the boundary" select different halves. Both fixed days
+    # are in the past, so the ``now`` the server supplies for the open ``from`` is later than
+    # every row and cannot be what excludes day one.
+    async with container.session_factory.begin() as session:
+        user = await seed_user(session)
+        await seed_delivered_order(session, user=user, created_at=DAY_ONE)
+        await seed_delivered_order(session, user=user, created_at=DAY_THREE)
     await signed_in(container, client)
 
     # Act
-    response = await client.get(LATENCY_PATH, params={parameter: DAY_ONE.isoformat()})
+    boundary = datetime(2026, 3, 21, 9, 0, tzinfo=UTC).isoformat()
+    body = (await client.get(ORDERS_BY_DAY_PATH, params={parameter: boundary})).json()
 
     # Assert
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "INVALID_INPUT"
+    assert [row["day"] for row in body] == expected_days
 
 
 async def test_a_window_that_ends_before_it_starts_is_refused(
@@ -945,18 +959,34 @@ async def test_an_empty_window_is_distinguishable_from_a_verifier_that_never_ran
     assert filtered["hasRecordedAttempts"] is True
 
 
-async def test_name_analytics_refuses_half_a_window_like_every_other_metric(
+async def test_name_analytics_echoes_the_end_the_server_supplied_for_an_open_from(
     container: AdminContainer, client: httpx.AsyncClient
 ) -> None:
-    # Arrange
+    # Arrange — the echo is the whole reason a one-sided window is safe to allow here: the
+    # response states the range it counted over even though the request did not.
     await signed_in(container, client)
 
     # Act
-    response = await client.get(NAME_ANALYTICS_PATH, params={"from": DAY_ONE.isoformat()})
+    body = (await client.get(NAME_ANALYTICS_PATH, params={"from": DAY_ONE.isoformat()})).json()
 
     # Assert
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "INVALID_INPUT"
+    assert body["window"]["from"].startswith("2026-03-20")
+    assert datetime.fromisoformat(body["window"]["to"]) > DAY_THREE
+
+
+async def test_name_analytics_reports_a_null_from_for_a_window_open_below(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    # Arrange — there is no instant to echo for "everything ever recorded up to Y", and an
+    # epoch would be rendered by the panel as a bound the operator chose.
+    await signed_in(container, client)
+
+    # Act
+    body = (await client.get(NAME_ANALYTICS_PATH, params={"to": DAY_THREE.isoformat()})).json()
+
+    # Assert
+    assert body["window"]["from"] is None
+    assert datetime.fromisoformat(body["window"]["to"]) == DAY_THREE
 
 
 # ---------------------------------------------------------------------------
@@ -1023,4 +1053,21 @@ async def test_the_pulse_carries_the_same_capability_block_as_its_own_route(
         "isChatCapture",
         "isPaymentLedger",
         "isStateTransitionLog",
+        # The vendor pair. Two flags and not one, because "no worker here writes vendor
+        # rows" and "rows are written and no rate is configured" have different remedies —
+        # and both are ROW probes, so a deployment that merely ran the migration reads as
+        # not instrumented rather than as instrumented with nothing to show.
+        "isVendorUsage",
+        "isVendorCost",
+        # The five the dashboard instrumentation added, all ROW probes for the same reason
+        # the vendor pair is: every one of their migrations ships with the panel, so a
+        # schema probe would report every deployment as instrumented on the day it lands.
+        # Five and not one "revenue" flag because the absences have five different
+        # remedies — and ``isTopupRevenue`` false is the interesting one, since it is true
+        # of every deployment's whole history up to the revision that created the table.
+        "isPlanRevenue",
+        "isTopupRevenue",
+        "isChurnInstrumented",
+        "isVendorBalance",
+        "isActivityHistory",
     }

@@ -71,7 +71,7 @@ export function StageMiniBar({ plan, className }: StageMiniBarProps): ReactEleme
             // and `<PipelineTimeline>` says the same thing at full size. Nothing here is
             // carried by the outline alone. The point of the swap is that the exemption is
             // now a fallback for one ground instead of the whole justification, and that at
-            // 8px wide `--ink-rule`'s 1.75:1 was genuinely invisible.
+            // 8px wide `--ink-rule`'s 1.81:1 was genuinely invisible.
             boxShadow: entry.isPlanned ? undefined : "inset 0 0 0 1px var(--edge)",
           }}
         />

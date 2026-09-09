@@ -16,6 +16,17 @@ Changing a period changes what NEW rows are stamped with; rows already written k
 horizon they were stamped with. That is the intended behaviour — a shortened policy must
 not retroactively destroy data a user was promised, and a lengthened one must not quietly
 resurrect a deletion schedule the privacy notice already stated.
+
+**One table holding personal data is deliberately not represented here: ``user_profiles``.**
+The customer's phone number, username, name and profile photo are kept while the account
+exists and are erased by ``/forget`` alone — there is no dormancy period, so there is no
+field for one here and nothing stamps an ``expires_at`` on that table. That is a product
+decision, not an oversight; the argument is in :mod:`hbd.db.models.user_profile`'s
+docstring, and it is held honest by ``tests/test_db/test_privacy_constraints.py``, which
+lists the table in ``tables_erased_on_request`` and asserts it carries no clock column.
+Do not add a period for it here without first moving that table out of that set: a field
+in this policy that no write site stamps is a promise the purge job never keeps, and it
+would read to the next auditor as a retention schedule that silently does nothing.
 """
 
 from __future__ import annotations

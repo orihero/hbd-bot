@@ -186,9 +186,18 @@ class StrategyAnalysisView(ApiModel):
 
 
 class WindowView(ApiModel):
-    """The half-open ``[from, to)`` the numbers were counted over. ``null`` for all time."""
+    """The half-open ``[from, to)`` the numbers were counted over. ``null`` for all time.
 
-    from_: datetime = Field(alias="from")
+    **``from`` is nullable and ``to`` is not**, and the asymmetry is the whole contract of a
+    one-sided range. ``?to=Y`` with no lower bound counts everything ever recorded up to ``Y``
+    and there is no instant to echo for the start — an epoch would be a timestamp the operator
+    never chose and the panel would render it as if they had. ``?from=X`` with no upper bound
+    always has one to echo, because the server resolved it to the moment it served the request
+    (:func:`hbd.admin.window.resolve_window`), and echoing it is what keeps the chart
+    reproducible: the response says what it counted over even when the request did not.
+    """
+
+    from_: datetime | None = Field(alias="from")
     to: datetime
 
 
@@ -245,6 +254,37 @@ class CapabilitiesView(ApiModel):
     is_chat_capture: bool
     is_payment_ledger: bool
     is_state_transition_log: bool
+    #: A ``vendor_usage`` row exists. Probed against ROWS and not against
+    #: ``Base.metadata``: that table's migration ships with the panel, so a schema probe
+    #: would call every deployment instrumented on the day it lands — including one whose
+    #: worker is an older build writing nothing.
+    is_vendor_usage: bool
+    #: A ``vendor_usage`` row carries a cost. Two flags rather than one because the
+    #: absences differ: nothing recorded means instrument the worker, recorded-and-unpriced
+    #: means configure a rate — and the panel prints "not priced", never ``$0.00``.
+    is_vendor_cost: bool
+    #: A ``plan_purchases`` row exists. False means no plan has ever been sold here, so an
+    #: empty plan book is "nothing sold" rather than "the read is broken".
+    is_plan_revenue: bool
+    #: A ``topup_purchases`` row exists. False is the INTERESTING answer: it is true of every
+    #: deployment's whole history up to the revision that created the table, and it is what
+    #: the SPA renders as "sold before amounts were recorded" — with ``unpricedTopups``
+    #: beside it — rather than as an empty revenue chart.
+    is_topup_revenue: bool
+    #: A ``bot_membership_events`` row exists. False means the membership handler has not yet
+    #: observed a transition, so a churn count of zero would be "nothing observed" and not
+    #: "nobody left"; the audience response sends ``churn: null`` in that state.
+    is_churn_instrumented: bool
+    #: A ``vendor_balances`` row exists. False means the ARQ poller has never run here (or is
+    #: switched off), which is a different screen from "we asked and the vendor refused" —
+    #: that second state is a row whose ``isLastPollOk`` is false and whose last known
+    #: balance is still on it, aged.
+    is_vendor_balance: bool
+    #: A ``user_activity_snapshots`` row exists. Separate from the live DAU/WAU/MAU gauge,
+    #: which answers from day one: the HISTORICAL series exists only from the first night the
+    #: snapshot job ran, and a panel that could not tell the two apart would draw an empty
+    #: trend line for a deployment whose activity today is perfectly well known.
+    is_activity_history: bool
 
 
 class PulseView(ApiModel):
@@ -370,6 +410,13 @@ def to_capabilities_view(capabilities: ReadCapabilities) -> CapabilitiesView:
         is_chat_capture=capabilities.is_chat_capture,
         is_payment_ledger=capabilities.is_payment_ledger,
         is_state_transition_log=capabilities.is_state_transition_log,
+        is_vendor_usage=capabilities.is_vendor_usage,
+        is_vendor_cost=capabilities.is_vendor_cost,
+        is_plan_revenue=capabilities.is_plan_revenue,
+        is_topup_revenue=capabilities.is_topup_revenue,
+        is_churn_instrumented=capabilities.is_churn_instrumented,
+        is_vendor_balance=capabilities.is_vendor_balance,
+        is_activity_history=capabilities.is_activity_history,
     )
 
 

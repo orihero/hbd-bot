@@ -15,7 +15,7 @@
  *
  *  - `currentPassword` is **required even on the forced path**. A bootstrapped account still
  *    proves it holds the temporary password before replacing it.
- *  - The new password's floor is `MIN_PASSWORD_CHARS` (12) and it is checked here before the
+ *  - The new password's floor is `MIN_PASSWORD_CHARS` (8) and it is checked here before the
  *    round trip, because the server's 422 for it is a validation error and the operator can
  *    see the rule without spending an argon2 verify.
  *  - A wrong current password is a 403 carrying `"that is not your current password"`, and a

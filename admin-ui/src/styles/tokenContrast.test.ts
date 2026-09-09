@@ -1,17 +1,35 @@
 /**
- * WCAG contrast, on BOTH palettes — §14's Slice 1d acceptance names it as a gate, not a
- * nicety. Rewritten for the Gogo palette (plan §11.3 as amended 2026-09-03), which is
- * LIGHT-FIRST and names its tokens by role.
+ * WCAG contrast, in every cell — §14's Slice 1d acceptance names it as a gate, not a nicety.
+ * The palette is PlanIQ (plan §2.1–2.2) on the Gogo language's structure (§11.3 as amended
+ * 2026-09-03): LIGHT-FIRST, and naming its tokens by role.
+ *
+ * "Cell", not "palette", is a habit worth keeping from the two months this file spent
+ * measuring four of them. Colour briefly varied on TWO orthogonal attributes, a `data-palette`
+ * registry crossed with `data-theme`, so `gogo` and `planiq` could ship side by side and be
+ * compared on real data. The console then committed to `planiq` and the palette axis was
+ * removed. Two cells remain — `light` and `dark` — and they are still DERIVED from the
+ * stylesheet rather than hand-listed, which is why the axis cost nothing to add and nothing to
+ * take away.
  *
  * `vitest.config.ts` sets `css: false`, so no rendering test in this suite can ever see a
  * real colour — jsdom gets class strings and inline `var()` text and nothing else. A green
  * suite therefore proves nothing at all about legibility unless some file reads the
- * stylesheet as text and does the arithmetic. This is that file. It does four things, and
- * each of the last three is what makes the one before it honest:
+ * stylesheet as text and does the arithmetic. This is that file. It does five things; each of
+ * items 2–4 is what makes the one before it honest, and item 5 is what keeps every block in
+ * the file complete and measured:
+ *
+ * Three things it no longer does ITSELF, and where they went. The arithmetic is
+ * `contrastMath.mts`, the ROLES/GROUNDS vocabulary is `contrastRoles.mts`, and the block
+ * grammar plus the palette registry is `paletteBlocks.mts`. Nothing moved for tidiness:
+ * `tools/annotate-tokens.mts` WRITES the ratios and the ground names this file reads back, so
+ * a second implementation of any of the three would let the generator emit a comment the gate
+ * rejects — or, worse, one it accepts because both halves are wrong the same way. What stayed
+ * here is everything that ASSERTS: the describes, the bars, the waivers, the source scan. A
+ * tool may import the contract; it still cannot loosen it.
  *
  *  1. **A ROLES table.** Every colour token in `tokens.css` is declared with the bar it has
  *     to clear and the complete set of grounds it may legally sit on, and is measured
- *     against every one of them on both palettes. The grounds are computed, including
+ *     against every one of them in every cell. The grounds are computed, including
  *     translucent tints composited over their real backing surface, because a chip's
  *     contrast depends on what is behind it.
  *  2. **A completeness check.** Every token in `tokens.css` that resolves to a colour must
@@ -35,6 +53,15 @@
  *     reads `.css` as well as `.ts`/`.tsx`: ESLint's copy of this rule parses TypeScript and
  *     cannot see `scrollbar-color: var(--ink-mark)` in `index.css`, so the measuring half
  *     covers what the fast half cannot.
+ *  5. **The block invariants.** The cells above are read out of the stylesheet rather than
+ *     hardcoded, and two invariants keep that honest: every theme block declares exactly the
+ *     same key set (so no cell inherits a value the cascade would otherwise have arbitrated by
+ *     source order), and no block outside `:root` declares a `var()` alias (so a theme can
+ *     change what green IS but never what it MEANS). Both arrived with the two-palette axis
+ *     and both outlived it: the console now ships ONE palette, and the third invariant that
+ *     axis needed — a registry equal to `PaletteChoice` in both directions — went with it.
+ *     What replaces it is the assertion that the axis stays gone, because a `[data-palette]`
+ *     block nothing enumerates is a cell nobody has ever measured a ratio in.
  *
  * Four thresholds, per WCAG 2.1:
  *
@@ -52,20 +79,27 @@
  * ## The four facts the components are written around
  *
  *  1. **`--ink` and `--ink-muted` are the only two tokens that may paint a character.** Both
- *     clear 4.5:1 on all five surfaces of both palettes AND on all nine tints composited over
+ *     clear 4.5:1 on all five surfaces of every cell AND on all nine tints composited over
  *     the card and over the page ground — which is where a status pill puts its word.
- *  2. **`--ink-mark` is a MARK colour and can never be text.** Its best ground in one palette
- *     is readable, but a surface-agnostic component does not know which ground it landed on,
- *     so the bar is worst-case: 3.52:1 globally, above 1.4.11's 3:1 and below 1.4.3's 4.5:1
- *     everywhere it matters.
- *  3. **`--ink-rule` clears no bar at all**, in either palette, on any ground: 2.71:1 at its
- *     ceiling. It may paint a rule, a hairline or a dead control and nothing else.
+ *  2. **`--ink-mark` is a MARK colour and can never be text.** Its best ground in one cell
+ *     is readable — 4.49:1 on a white card — but a surface-agnostic component does not know
+ *     which ground it landed on, so the bar is worst-case: 3.56:1 across both cells, above
+ *     1.4.11's 3:1 and below 1.4.3's 4.5:1 everywhere it matters.
+ *  3. **`--ink-rule` clears no bar at all**, in either cell, on any ground: 2.94:1 at the most
+ *     generous ceiling either of them gives it. It may paint a rule, a hairline or a dead
+ *     control and nothing else.
  *  4. **Cards have no border in this design, so "the border is not the boundary" is not a
- *     hypothesis about `--hairline` — it is the premise.** `--hairline` is 1.45:1 at best.
- *     What separates a card from the ground is `--surface-card` against `--surface` plus
- *     `--shadow-card`, and the assertion at the bottom of this file is that those two
- *     surfaces really are different colours in both palettes. The one border that carries
- *     meaning, a floating popover's ring, is `--edge`, and it is measured at 3:1.
+ *     hypothesis about `--hairline` — it is the premise.** `--hairline` is 1.46:1 at best,
+ *     taken across every cell. What separates a card from the ground is `--surface-card`
+ *     against `--surface` plus `--shadow-card`, and the assertion at the bottom of this file
+ *     is that those two surfaces really are different colours in every cell — 1.08:1 in
+ *     light and 1.10:1 in dark, both recomputed when the palette axis was removed rather than
+ *     carried over. (The 1.04:1 that used to stand here was `gogo/light`'s, and it left with
+ *     `gogo`. An earlier version of this header stated a figure measured on two cells as
+ *     though it covered four — this file's own defect class committed in its own header, and
+ *     the reason every number here is recomputed on any change of scope.) The one border that
+ *     carries meaning, a floating popover's
+ *     ring, is `--edge`, and it is measured at 3:1.
  */
 
 import { readdirSync, readFileSync } from "node:fs";
@@ -73,358 +107,58 @@ import { resolve, sep } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+
+import {
+  colorOf,
+  isColour,
+  type Palette,
+  ratioOn,
+  relativeLuminance,
+  rgbDistance,
+} from "./contrastMath.mts";
+import {
+  type Bar,
+  FAMILIES,
+  GROUNDS,
+  ORDER_STATES,
+  PIPELINE_STATUSES,
+  rankedGrounds,
+  ROLES,
+  SURFACES,
+  THRESHOLD,
+  tiedExtremeGrounds,
+} from "./contrastRoles.mts";
+import { annotationsIn, block, isPaletteValue, readStylesheet } from "./paletteBlocks.mts";
+
 // Resolved from the Vitest root (`admin-ui/`), not from `import.meta.url`: under the jsdom
 // environment `import.meta.url` is an `http://` URL and `fileURLToPath` rejects it.
 const SRC_DIR = resolve(process.cwd(), "src");
 const TOKENS_CSS = readFileSync(resolve(SRC_DIR, "styles/tokens.css"), "utf8");
 
-type Palette = Readonly<Record<string, string>>;
-
-/** Pull one selector's declarations out of the stylesheet. */
-function blockBody(selector: string): string {
-  const start = TOKENS_CSS.indexOf(`${selector} {`);
-  if (start < 0) throw new Error(`no ${selector} block in tokens.css`);
-  const end = TOKENS_CSS.indexOf("\n}", start);
-  return TOKENS_CSS.slice(start, end);
-}
-
-function block(selector: string): Palette {
-  const out: Record<string, string> = {};
-  for (const match of blockBody(selector).matchAll(/(--[\w-]+):\s*([^;]+);/gu)) {
-    const [, name, value] = match;
-    if (name !== undefined && value !== undefined) out[name] = value.trim();
-  }
-  return out;
-}
-
-/*
- * LIGHT IS HOME. `:root` is the light palette and `[data-theme="dark"]` overrides only what
- * changes — the reverse of the previous design, whose header said "dark is home". Getting
- * these two lines the wrong way round does not fail anything: it silently measures the right
- * numbers against the wrong grounds and stays green, which is why they are called out here.
- */
-const LIGHT = block(":root");
-const DARK: Palette = { ...LIGHT, ...block('[data-theme="dark"]') };
-const PALETTES = [
-  ["light", LIGHT],
-  ["dark", DARK],
-] as const;
-
-/** Every ground a surface-agnostic component can be dropped onto. */
-const SURFACES = [
-  "--surface",
-  "--surface-card",
-  "--surface-sunken",
-  "--surface-control",
-  "--surface-control-hover",
-] as const;
-
-/** The nine semantic hue families, each with a `--x` / `--x-fill` / `--x-tint` trio. */
-const FAMILIES = [
-  "brand",
-  "accent",
-  "success",
-  "caution",
-  "warning",
-  "error",
-  "info",
-  "neutral",
-  "slate",
-] as const;
-
-const ORDER_STATES = [
-  "draft",
-  "brief-ready",
-  "lyrics-ready",
-  "authorized",
-  "generating",
-  "delivered",
-  "failed",
-  "cancelled",
-  "held",
-] as const;
-
-const PIPELINE_STATUSES = [
-  "started",
-  "retrying",
-  "succeeded",
-  "degraded",
-  "failed",
-  "skipped",
-] as const;
-
-interface Rgba {
-  readonly r: number;
-  readonly g: number;
-  readonly b: number;
-  readonly a: number;
-}
-
-/** Resolve a token through any `var()` chain and parse it as `#rgb`/`#rrggbb`/`#rrggbbaa`. */
-function colorOf(palette: Palette, token: string): Rgba {
-  let value = palette[token];
-  for (let hop = 0; hop < 8 && value !== undefined; hop += 1) {
-    const indirection = /^var\((--[\w-]+)\)$/u.exec(value);
-    if (indirection === null) break;
-    const next = indirection[1];
-    if (next === undefined) break;
-    value = palette[next];
-  }
-  if (value === undefined || !value.startsWith("#")) {
-    throw new Error(`token ${token} did not resolve to a hex colour (got ${String(value)})`);
-  }
-  const hex = value.slice(1);
-  const pair = (index: number): number => Number.parseInt(hex.slice(index, index + 2), 16);
-  if (hex.length === 6) return { r: pair(0), g: pair(2), b: pair(4), a: 1 };
-  if (hex.length === 8) return { r: pair(0), g: pair(2), b: pair(4), a: pair(6) / 255 };
-  throw new Error(`token ${token} has an unsupported hex length: ${value}`);
-}
-
-/** True when a token resolves to a colour at all — the rest are radii, motion and layout. */
-function isColour(palette: Palette, token: string): boolean {
-  try {
-    colorOf(palette, token);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Source-over compositing, so a `-tint` chip is measured against what is really behind it. */
-function over(top: Rgba, bottom: Rgba): Rgba {
-  return {
-    r: top.r * top.a + bottom.r * (1 - top.a),
-    g: top.g * top.a + bottom.g * (1 - top.a),
-    b: top.b * top.a + bottom.b * (1 - top.a),
-    a: 1,
-  };
-}
-
-function relativeLuminance({ r, g, b }: Rgba): number {
-  const channel = (raw: number): number => {
-    const c = raw / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-}
-
-/** Straight-line distance in sRGB — "are these two visibly different colours at all". */
-function rgbDistance(a: Rgba, b: Rgba): number {
-  return Math.hypot(a.r - b.r, a.g - b.g, a.b - b.b);
-}
-
-function contrast(foreground: Rgba, background: Rgba): number {
-  const a = relativeLuminance(foreground);
-  const b = relativeLuminance(background);
-  const [hi, lo] = a > b ? [a, b] : [b, a];
-  return (hi + 0.05) / (lo + 0.05);
-}
-
 /**
- * A ground expression is either a token (`--surface-card`) or a tint composited over a base
- * (`--brand-tint over --surface-card`). The second form is the one that matters: the tints
- * are 8-digit hexes and their real contrast depends entirely on what is behind them.
+ * The whole stylesheet, resolved into its cells: `:root`'s two halves, the key set every theme
+ * block owes, and one `Cell` per theme. The parsing and the annotation grammar live in
+ * `paletteBlocks.mts` because `tools/annotate-tokens.mts` writes into the same file this
+ * reads, and a generator that parsed it its own way could measure a ratio in one cell and
+ * write the comment into another.
  */
-function ground(palette: Palette, expression: string): Rgba {
-  const composed = /^(--[\w-]+) over (--[\w-]+)$/u.exec(expression);
-  if (composed !== null) {
-    const [, layer, base] = composed;
-    if (layer === undefined || base === undefined) throw new Error(`bad ground ${expression}`);
-    return over(colorOf(palette, layer), colorOf(palette, base));
-  }
-  return colorOf(palette, expression);
+const SHEET = readStylesheet(TOKENS_CSS);
+const { root: ROOT, cells: CELLS, blocks: PALETTE_BLOCKS, paletteKeys: PALETTE_KEYS } = SHEET;
+
+/** The cells in the shape `describe.each` wants. */
+const PALETTES = CELLS.map((cell) => [cell.label, cell.tokens] as const);
+
+function cellFor(theme: string): Palette {
+  const found = CELLS.find((cell) => cell.theme === theme);
+  if (found === undefined) throw new Error(`no ${theme} cell in the stylesheet`);
+  return found.tokens;
 }
 
-/** Contrast of a token against a ground expression, with alpha composited both sides. */
-function ratioOn(palette: Palette, token: string, expression: string): number {
-  const behind = ground(palette, expression);
-  return contrast(over(colorOf(palette, token), behind), behind);
-}
+const LIGHT = cellFor("light");
+const DARK = cellFor("dark");
 
-/**
- * `text` → 4.5:1 (1.4.3). `large-text` → 3:1 (1.4.3, ≥24px or ≥18.66px bold). `graphic` →
- * 3:1 (1.4.11). `exempt` → no floor: 1.4.3 exempts an inactive control and 1.4.11 exempts
- * decoration, so what an exempt role asserts is a CEILING and, at a site, its EVIDENCE.
- */
-type Bar = "text" | "large-text" | "graphic" | "exempt";
 
-const THRESHOLD = {
-  text: 4.5,
-  "large-text": 3,
-  graphic: 3,
-  exempt: 0,
-} as const satisfies Record<Bar, number>;
-
-/* ------------------------------------------------------------------------------------- *
- * The ROLES table: every colour token, the bar it must clear, and every ground it may
- * legally sit on.
- * ------------------------------------------------------------------------------------- */
-
-interface Role {
-  /** The floor this token must clear on every one of its grounds, in both palettes. */
-  readonly bar: Bar;
-  /** Every ground expression this token may be painted on. */
-  readonly grounds: readonly string[];
-  /**
-   * An upper bound, asserted per palette. Only for `exempt` tokens: a token documented as
-   * "never text" that quietly became readable would invite exactly the misuse the role
-   * exists to prevent.
-   */
-  readonly ceiling?: number;
-  /** What this token is for, in one line — quoted in failure messages. */
-  readonly what: string;
-}
-
-/*
- * A tint over EVERY surface it can actually be dropped onto — all five, not the two this
- * list used to carry.
- *
- * The two-ground version was a real measurement hole, and three separate reskin passes
- * walked into it independently. A `-tint` is translucent, so the ratio a chip really
- * achieves depends on what is behind it, and a tinted chip is not confined to the page and
- * the card: `DataTable` hovers a row to `--surface-control-hover`, `AttentionList` hovers
- * to `--surface-control`, and `CodeBlock`/`JsonViewer`/`CommandPalette` are `--surface-
- * sunken` wells. Every one of those grounds is darker than the card in the light palette,
- * so every one of them LOWERS the ratio of a hue painted on its own tint — and none of the
- * three was measured. The suite stayed green while `--error` on `--error-tint` on a hovered
- * table row sat at 3.90:1, below the 4.5:1 text bar, in shipped components.
- *
- * Widening this list is what lets the suite see that class of failure at all. It is
- * deliberately the FULL surface set rather than a curated one: a curated list is how the
- * hole got here, and "which surfaces may a chip land on" is not a question a token author
- * can answer for every component that will ever exist.
- */
-const tintGrounds = (family: string): readonly string[] =>
-  SURFACES.map((surface) => `--${family}-tint over ${surface}`);
-
-/** Every tint of every family — the full ground set for the ink tokens. */
-const ALL_TINT_GROUNDS: readonly string[] = FAMILIES.flatMap((family) => tintGrounds(family));
-
-/** A `--x` / `--x-fill` / `--x-tint` trio, wherever it appears (families, states, statuses). */
-function trio(token: string, what: string): Record<string, Role> {
-  return {
-    [`--${token}`]: {
-      bar: "text",
-      grounds: [...SURFACES, ...tintGrounds(token)],
-      what: `${what} — text-safe member: a word may be painted with it`,
-    },
-    [`--${token}-fill`]: {
-      bar: "graphic",
-      grounds: SURFACES,
-      what: `${what} — graphic member: dots, strokes, bars, never a character`,
-    },
-  };
-}
-
-const ROLES: Readonly<Record<string, Role>> = {
-  "--ink": {
-    bar: "text",
-    grounds: [...SURFACES, ...ALL_TINT_GROUNDS],
-    what: "all prose and headings, and the word inside every tinted chip",
-  },
-  "--ink-muted": {
-    bar: "text",
-    grounds: [...SURFACES, ...ALL_TINT_GROUNDS],
-    what: "the one muted TEXT colour — descriptions, axis ticks, breadcrumbs",
-  },
-  "--ink-mark": {
-    bar: "graphic",
-    grounds: [...SURFACES, ...ALL_TINT_GROUNDS],
-    what: "marks and glyphs only — POLICED, never a character",
-  },
-  "--ink-rule": {
-    bar: "exempt",
-    ceiling: 3,
-    grounds: [...SURFACES, ...ALL_TINT_GROUNDS],
-    what: "rules and inactive controls only — POLICED, clears no bar anywhere",
-  },
-  "--ink-on-brand": {
-    bar: "text",
-    grounds: ["--brand-solid"],
-    what: "the label on a primary button",
-  },
-  "--brand-solid": {
-    bar: "text",
-    grounds: ["--ink-on-brand"],
-    what: "Gogo's --primary verbatim, as the primary-button fill",
-  },
-  "--edge": {
-    bar: "graphic",
-    grounds: ["--surface", "--surface-card"],
-    what: "the one border that carries meaning: a floating popover's boundary ring",
-  },
-  "--focus-ring": {
-    bar: "graphic",
-    grounds: SURFACES,
-    what: "the :focus-visible outline, which is a UI-component boundary",
-  },
-  "--hairline": {
-    bar: "exempt",
-    ceiling: 3,
-    grounds: SURFACES,
-    what: "a decorative rule between dense rows — never the boundary of a control",
-  },
-  "--hairline-strong": {
-    bar: "exempt",
-    ceiling: 3,
-    grounds: SURFACES,
-    what: "a firmer decorative rule — still never the only thing identifying a control",
-  },
-  ...Object.assign(
-    {},
-    ...FAMILIES.map((family) => trio(family, `the ${family} family`)),
-    ...ORDER_STATES.map((state) => trio(`st-${state}`, `order state ${state}`)),
-    ...PIPELINE_STATUSES.map((status) => trio(`pg-${status}`, `pipeline status ${status}`)),
-    trio("retryable", "the ↻ retryable error class"),
-    trio("terminal", "the ■ terminal error class"),
-  ),
-  ...Object.fromEntries(
-    [1, 2, 3, 4, 5, 6, 7, 8].map((slot) => [
-      `--c-${String(slot)}`,
-      {
-        bar: "graphic",
-        grounds: SURFACES,
-        what: `categorical chart series ${String(slot)} — graphic only, never text`,
-      } satisfies Role,
-    ]),
-  ),
-};
-
-/**
- * Colour tokens that are GROUNDS or ramp stops rather than foregrounds, each with the reason
- * it carries no bar of its own. Everything in `tokens.css` that resolves to a colour must be
- * in here or in `ROLES`; the completeness test below is what makes that true.
- */
-const GROUNDS: Readonly<Record<string, string>> = {
-  "--surface": "the page ground; measured as the BACKGROUND of every text token",
-  "--surface-card": "every card, panel, rail and dialog",
-  "--surface-sunken": "an inset well: code blocks, JSON viewers, the palette list",
-  "--surface-control": "the ground a control carries instead of a border",
-  "--surface-control-hover": "hover for a control and for a table row",
-  "--surface-nav": "alias of --surface-card, so the rail names itself",
-  "--surface-topbar": "alias of --surface-card, so the top bar names itself",
-  ...Object.fromEntries(
-    [
-      ...FAMILIES,
-      ...ORDER_STATES.map((state) => `st-${state}`),
-      ...PIPELINE_STATUSES.map((status) => `pg-${status}`),
-      "retryable",
-      "terminal",
-    ].map((token) => [
-      `--${token}-tint`,
-      "a chip/pill ground; measured under --ink, --ink-muted and its own family's text member",
-    ]),
-  ),
-  "--seq-from": "sequential ramp stop — a FILL, always beside a legend or a value label",
-  "--seq-to": "sequential ramp stop — a FILL, always beside a legend or a value label",
-  "--div-low": "diverging ramp stop; aliases --error-fill, which is measured",
-  "--div-mid": "diverging ramp stop; aliases --neutral-fill, which is measured",
-  "--div-high": "diverging ramp stop; aliases --success-fill, which is measured",
-  "--skeleton-base": "the shimmer's base stop; aliases --surface-control",
-  "--skeleton-sheen": "the shimmer's moving highlight — decoration, carries nothing",
-};
-
-describe.each(PALETTES)("%s palette — every token clears the bar its role sets", (_name, palette) => {
+describe.each(PALETTES)("%s — every token clears the bar its role sets", (_name, palette) => {
   for (const [token, role] of Object.entries(ROLES)) {
     it(`${token} clears ${String(THRESHOLD[role.bar])}:1 on all ${String(role.grounds.length)} of its grounds`, () => {
       for (const expression of role.grounds) {
@@ -484,46 +218,340 @@ describe("the ROLES table covers every colour in tokens.css", () => {
 });
 
 /* ------------------------------------------------------------------------------------- *
+ * What each GROUNDS entry is allowed to be — keyed on ROLE, not on the `--surface` prefix.
+ *
+ * Being in GROUNDS is how a colour token satisfies the completeness gate without declaring
+ * a bar, and until now the price of that was one sentence a human wrote. That is the whole
+ * of the "a sixth surface, green forever" evasion: a new ground satisfies completeness,
+ * appears in no role's ground set, and is therefore never a surface any ink is measured on —
+ * with every assertion in this file green while a component paints text on it.
+ *
+ * The prefix form (`^--surface` must be in `SURFACES`) was proposed and rejected in the plan
+ * because it would not have covered `--scrim`, which PQ3 adds, and `--scrim` is precisely
+ * the shape of the hole. Keying on the kind each entry DECLARES covers both: a new surface
+ * has to say `kind: "surface"`, which puts it in `SURFACES`, which puts it into every
+ * surface-agnostic role's ground set; and a translucent ground has to say what it sits over,
+ * because a translucent token's real colour is not its own hex.
+ * ------------------------------------------------------------------------------------- */
+
+describe("every GROUNDS entry is held to the property that makes it safe to carry no bar", () => {
+  const byKind = (kind: string): readonly string[] =>
+    Object.entries(GROUNDS)
+      .filter(([, ground]) => ground.kind === kind)
+      .map(([token]) => token)
+      .sort();
+
+  it('the "surface" entries are exactly SURFACES, in both directions', () => {
+    // The teeth. A sixth surface cannot be declared as a ground and then quietly not be one:
+    // calling it a surface here forces it into SURFACES, and SURFACES is what every
+    // surface-agnostic role's ground set is built from. Calling it something else instead is
+    // what the three assertions below then have to be lied to about.
+    expect(byKind("surface")).toEqual([...SURFACES].sort());
+  });
+
+  it.each(PALETTES)('%s: every "surface-alias" really IS a surface, colour for colour', (_name, palette) => {
+    // `--surface-nav`, `--surface-topbar` and `--skeleton-base` carry no bar because they are
+    // byte-identical to a surface that does. The instant one drifts a shade it stops being an
+    // alias and starts being a ground in its own right that nothing is measured on — which is
+    // the sixth surface again, arriving through the door marked "alias".
+    const same = (a: string, b: string): boolean => {
+      const x = colorOf(palette, a);
+      const y = colorOf(palette, b);
+      return x.r === y.r && x.g === y.g && x.b === y.b && x.a === y.a;
+    };
+    for (const token of byKind("surface-alias")) {
+      expect(
+        SURFACES.filter((surface) => same(token, surface)),
+        `${token} is declared an alias of a surface but matches none of them. It is a ` +
+          `SIXTH surface now: either add it to SURFACES so every ink is measured on it, or ` +
+          `point it back at the surface it claims to name.`,
+      ).not.toEqual([]);
+    }
+  });
+
+  it('every "chip-tint" is a measurement ground over all five surfaces', () => {
+    // A tint's whole safety argument is "the inks are measured ON it". `ALL_TINT_GROUNDS`
+    // makes that true by construction for the nine families; this is what says the same of
+    // the state and status tints, and what would fail if a tint were ever added to GROUNDS
+    // without being added to a role's ground set.
+    const measured = new Set(Object.values(ROLES).flatMap((role) => role.grounds));
+    const unmeasured = byKind("chip-tint").filter((token) =>
+      SURFACES.some((surface) => !measured.has(`${token} over ${surface}`)),
+    );
+    expect(
+      unmeasured,
+      `a chip ground nothing is measured on is a chip whose word's contrast nobody knows. ` +
+        `Add it to the ink roles' grounds (see tintGrounds/ALL_TINT_GROUNDS).`,
+    ).toEqual([]);
+  });
+
+  it.each(PALETTES)('%s: every "ramp-alias" resolves to a token that HAS a role', (_name, palette) => {
+    // `--div-low` carries no bar because it is `--error-fill`, which carries one. That is
+    // only true while the two really are the same colour in the cell being measured.
+    for (const token of byKind("ramp-alias")) {
+      const stop = colorOf(palette, token);
+      const twins = Object.keys(ROLES).filter((role) => {
+        const other = colorOf(palette, role);
+        return (
+          stop.r === other.r && stop.g === other.g && stop.b === other.b && stop.a === other.a
+        );
+      });
+      expect(
+        twins,
+        `${token} is documented as measured through the token it aliases, but in this cell ` +
+          `it matches no token that has a role. It is an unmeasured colour.`,
+      ).not.toEqual([]);
+    }
+  });
+
+  it.each(PALETTES)("%s: a translucent ground states what it sits over, and an opaque one does not", (_name, palette) => {
+    // The half of PQ1's bullet that is checkable today, and the trap set for `--scrim`. A
+    // translucent ground's contrast is a property of the composite, so an entry with alpha
+    // and no stated backing is a claim nobody can recompute; and an `over` note on an opaque
+    // token is a note that reads as evidence while being decoration.
+    //
+    // NOT landed here, and named so it is not mistaken for done: the second half of the same
+    // bullet, "…and at least one measured line beside it". The only translucent ground on
+    // this tree is `--skeleton-sheen`, which carries nothing and has nothing to measure, so
+    // there is no subject to shape that assertion against. `--scrim` is that subject, and
+    // landing it belongs to the tranche that adds it.
+    for (const [token, ground] of Object.entries(GROUNDS)) {
+      const translucent = colorOf(palette, token).a < 1;
+      const named = ground.over ?? [];
+      if (translucent) {
+        expect(
+          named,
+          `${token} is translucent here, so its real colour is whatever is behind it. State ` +
+            `the surfaces it is composited over in its GROUNDS entry.`,
+        ).not.toEqual([]);
+        expect(named.filter((surface) => !(SURFACES as readonly string[]).includes(surface))).toEqual(
+          [],
+        );
+      } else {
+        expect(
+          named,
+          `${token} is opaque here but claims to sit "over" something. An opaque ground is ` +
+            `its own colour; the note would be evidence for a composite that never happens.`,
+        ).toEqual([]);
+      }
+    }
+  });
+});
+
+/* ------------------------------------------------------------------------------------- *
+ * The palette axis. Colour is swappable; meaning is not. These assertions are the only
+ * thing standing between "an operator can pick a palette" and "a palette can ship
+ * unmeasured", and none of them is expressible until the axis exists — which is why they
+ * are landed here, at a registry of ONE, where they can be watched failing on real drift
+ * before anything depends on them.
+ * ------------------------------------------------------------------------------------- */
+
+/**
+ * `tokens.css` with every comment removed — the CODE of the stylesheet.
+ *
+ * The prose in this file names selectors it does not declare: the header explains why the
+ * `data-palette` axis was removed, and says `[data-palette="planiq"]` while doing so. Any
+ * assertion that asks "which selectors does this file DECLARE" has to read the code and not
+ * the documentation, or the answer is whatever the header happens to mention — and here that
+ * would turn the very sentence recording the removal into a failure.
+ */
+const TOKENS_CSS_CODE = TOKENS_CSS.replace(/\/\*[\s\S]*?\*\//gu, "");
+
+describe("the block invariants hold — a theme changes what green IS, never what it MEANS", () => {
+  it("every block opens with a single canonical selector on its own line", () => {
+    // `blockBody()` addresses a block by the exact text of its opening line, so the file has
+    // to write that text exactly one way. This is not house style: `[data-theme="dark"] {` is
+    // a SUBSTRING of `[data-palette="planiq"][data-theme="dark"] {`, so a grouped selector, a
+    // stray second space or an indent is enough to make one palette measure another palette's
+    // hexes. `blockBody` throws on the cases it can see (zero matches, two matches); this is
+    // what sees the ones it cannot — an EXTRA top-level block nobody enumerated, and the
+    // ORDER the blocks sit in.
+    //
+    // Order is asserted for a cascade reason, not a tidiness one. §2.0.3's completeness
+    // argument turns on `[data-palette="x"][data-theme="dark"]` being (0,2,0) where the two
+    // single-attribute blocks are both (0,1,0) and arbitrated by source order alone. Freezing
+    // the order freezes the arbitration, and the `@media` tail is pinned with it so a fifth
+    // block cannot be appended below the registry unnoticed.
+    //
+    // The captured group deliberately keeps the trailing space, so `:root  {` fails on the
+    // double space a `trimEnd()` would have swallowed.
+    const openings = [...TOKENS_CSS.matchAll(/^(\S[^{\n]*)\{/gmu)].map((match) => match[1] ?? "");
+    expect(openings).toEqual([
+      ...CELLS.map((cell) => `${cell.selector} `),
+      "@media (prefers-reduced-motion: reduce) ",
+    ]);
+  });
+
+  it("the three halves of :root are the ones §2.0.1 measured", () => {
+    // `isPaletteValue` is the seam the whole cross product hangs off: it decides what a
+    // palette block owns and what it may never touch. A classifier that quietly stopped
+    // matching would make key-set parity VACUOUS — an empty required key set is satisfied by
+    // an empty block — so its output is pinned to the counts measured off the live file.
+    // These numbers move only when a token is deliberately added, and moving one without its
+    // sibling (a hex with no alias, an alias with no hex) is drift this file exists to catch.
+    // §2.0.1 measured 52/64/158 on the pre-PQ2a file; PQ2a added `--brand-solid-edge` (a hex,
+    // so every block owes it) and `--ink-on-error` (an alias, so `:root` owns it alone), and
+    // these three counts were hand-edited in the same change rather than after it — an
+    // assertion that has to be relaxed to let a commit land is an assertion nobody trusts.
+    const values = Object.values(ROOT);
+    expect(values.filter(isPaletteValue)).toHaveLength(65); // 53 hexes + 12 shadow strings
+    expect(values.filter((value) => value.startsWith("var("))).toHaveLength(65); // the aliases
+    expect(values).toHaveLength(160); // …and 30 radius/motion/layout tokens, which is the rest
+    // A `var(--x, #fff)` fallback would be an alias that also states a colour: it would drop
+    // out of PALETTE_KEYS while reading to a human as a palette value. The grammar has none.
+    expect(values.filter((value) => /^var\([^)]*,/u.test(value))).toEqual([]);
+  });
+
+  it.each(PALETTE_BLOCKS.map((cell) => [cell.label, cell] as const))(
+    "%s declares every palette name :root does, and no others",
+    (_label, cell) => {
+      // A palette block is COMPLETE or it is a cascade accident. `[data-palette="x"]` and
+      // `[data-theme="dark"]` are both (0,1,0), so when both match, SOURCE ORDER decides which
+      // value wins — not intent. A block written as a diff against `:root` therefore leaks its
+      // own light surfaces into another palette's dark cell, chosen by nothing but the order
+      // the blocks happen to sit in the file, and every measurement above stays green while it
+      // does. Completeness dissolves it: the combined selector is (0,2,0) and wins outright, so
+      // there is nothing left for the cascade to arbitrate.
+      //
+      // This assertion FAILED on the tree it was written against, which is the only reason it
+      // is trusted: `[data-theme="dark"]` carried 62 of the then-64 names, missing --brand-solid and
+      // --ink-on-brand, both of which were being measured through `:root` by inheritance. Both
+      // were added to the dark block at their existing :root values — the same two hexes, so
+      // zero visual change and zero ratio change — and the assertion went green on real drift
+      // rather than on a fixture.
+      const declared = Object.keys(block(TOKENS_CSS, cell.selector)).sort();
+      expect(
+        declared.filter((token) => !PALETTE_KEYS.includes(token)),
+        `${cell.label} declares a name :root does not. An alias or a non-colour token has ` +
+          `escaped into a palette block, where every OTHER palette is blind to it.`,
+      ).toEqual([]);
+      expect(
+        PALETTE_KEYS.filter((token) => !declared.includes(token)),
+        `${cell.label} is not complete in all ${String(PALETTE_KEYS.length)}. An inherited ` +
+          `value is a value chosen by source order, not by design — add the declaration to ` +
+          `this block rather than relying on :root to supply it.`,
+      ).toEqual([]);
+    },
+  );
+
+  it.each(PALETTE_BLOCKS.map((cell) => [cell.label, cell] as const))(
+    "%s declares no var() alias",
+    (_label, cell) => {
+      // §2.0.2, made mechanical. `--st-held: var(--brand)`, `--focus-ring: var(--brand-fill)`
+      // and their 63 siblings say what a colour MEANS, and meaning is the half an operator
+      // learns. A palette that could re-point `--st-held` at a different family would be a
+      // palette that changes what the screen SAYS, and that is not a theme, it is a fork.
+      //
+      // Not subsumed by parity, and parity does not subsume this. Parity catches `--st-held`
+      // in a palette block because the NAME is not in PALETTE_KEYS. It does not catch
+      // `--brand: var(--accent)`, whose name is. Two invariants, two failure modes.
+      const aliases = Object.entries(block(TOKENS_CSS, cell.selector))
+        .filter(([, value]) => value.startsWith("var("))
+        .map(([token, value]) => `${token}: ${value};`)
+        .sort();
+      expect(
+        aliases,
+        `${cell.label} declares an alias. Aliases live in :root and nowhere else, so that the ` +
+          `operational vocabulary is identical in every palette.`,
+      ).toEqual([]);
+    },
+  );
+
+  it("the data-palette axis is gone, and stays gone", () => {
+    // The console shipped `gogo` and `planiq` side by side on a `data-palette` attribute and
+    // then committed to `planiq` outright, which deleted the registry that enumerated them.
+    // This is what the registry-closure assertion turned into, and it guards the same defect
+    // from the other side: with nothing enumerating palettes any more, a `[data-palette=…]`
+    // block added to this file would be measured by NOTHING. Every assertion here runs on the
+    // cells `readStylesheet` returns, and those are now the two themes and only the two
+    // themes, so such a block would render in a browser and never be measured once.
+    //
+    // Asserted on the CODE, so the header may go on explaining why the axis was removed.
+    expect(TOKENS_CSS_CODE).not.toContain("data-palette");
+  });
+
+  it("no block hides behind an indent", () => {
+    // The canonical-form assertion above is anchored at column 0, which is what makes it able
+    // to say anything about ORDER — and is also the one thing it cannot see past. `  [data-
+    // palette="acme"] { … }` is valid CSS, applies in the browser at the same (0,1,0) the
+    // enumerated blocks carry, and is invisible to every `^`-anchored scan in this file: no
+    // cell measures it, `blockRange` is never asked for it, and nothing goes red. That is the
+    // "a palette that ships UNMEASURED" failure with a leading space in front of it.
+    //
+    // So the closure is asserted on the code with the indent allowed and then required to be
+    // absent: every `{` in the stylesheet opens either one of the four enumerated cells, the
+    // reduced-motion `@media`, or the `:root` INSIDE that media block — which is the file's
+    // one legitimate indented opening and is named here so it stays the only one.
+    const openings = [...TOKENS_CSS_CODE.matchAll(/^[^\S\n]*([^{\n]*)\{/gmu)].map((match) =>
+      (match[1] ?? "").trim(),
+    );
+    expect(openings.sort()).toEqual(
+      [
+        ...CELLS.map((cell) => cell.selector),
+        "@media (prefers-reduced-motion: reduce)",
+        ":root",
+      ].sort(),
+    );
+  });
+
+  it("no component reaches for a palette attribute either", () => {
+    // The stylesheet is only half of it. `document.documentElement.setAttribute("data-palette",
+    // …)` in a store or an effect would put an attribute on <html> that matches no rule in
+    // tokens.css: nothing changes on screen, nothing goes red, and the control that writes it
+    // looks broken to the operator and fine to the suite. Removing the axis means removing
+    // both ends of it.
+    // The CODE of each file, for the same reason `TOKENS_CSS_CODE` exists: several of these
+    // files carry a header explaining why the axis was removed, and an assertion that could
+    // not tell a rule from a sentence would turn the record of the removal into a failure.
+    const offenders = sourceFiles().filter((rel) =>
+      readFileSync(resolve(SRC_DIR, rel), "utf8")
+        .replace(/\/\*[\s\S]*?\*\//gu, "")
+        .replace(/^\s*\/\/.*$/gmu, "")
+        .includes("data-palette"),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("every hex in a declaration is lowercase", () => {
+    // `ANNOTATION` is `#[\da-f]{6,8}` with NO `i` flag, and so is the must-annotate filter. So
+    // `--brand: #BD32AF;` would be (a) not required to carry an annotation and (b) unparsable
+    // as one if it did — while `colorOf` still reads it and it still clears its role's bar.
+    // The token drops out of half the contract with nothing red anywhere, which is the highest
+    // probability way a reskin breaks this gate green: a hex pasted out of a design tool.
+    //
+    // Scoped to DECLARATION VALUES rather than to the whole file, deliberately. `tokens.css`
+    // quotes uppercase hexes in its prose on purpose — PlanIQ's kit writes `#75FC96` and the
+    // header says so when it explains what became of it — so a whole-file assertion would be
+    // red on documentation that is doing its job.
+    const shouting: string[] = [];
+    for (const cell of CELLS) {
+      for (const [token, value] of Object.entries(block(TOKENS_CSS, cell.selector))) {
+        if (/#[\da-fA-F]*[A-F]/u.test(value)) shouting.push(`${cell.label} ${token}: ${value};`);
+      }
+    }
+    expect(
+      shouting.sort(),
+      `A hex has to be lowercase to be seen by this file at all: the annotation grammar and ` +
+        `the must-annotate scan are both case-SENSITIVE, so an uppercase value silently ` +
+        `leaves the comment cross-check while still passing its role's bar.`,
+    ).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------------------------- *
  * The comment cross-check: every ratio tokens.css claims, recomputed, on the ground it
  * names — and that ground has to be the worst one the token's role allows.
  * ------------------------------------------------------------------------------------- */
 
 /**
- * The annotation grammar tokens.css commits to, stated once:
- *
- *     --token: #hex;  /· N.NN:1 on <ground> — role ·/
- *     --token: #hex;  /· N.NN:1 at best on <ground> — role ·/
- *
- * `on` claims the token's WORST ground; `at best on` claims its BEST, and is what an
- * `exempt` token uses because its whole claim is a ceiling.
+ * Each cell cross-checked against the annotations written in ITS OWN block — `annotationsIn()`
+ * reads the raw block text, so a value carried by a cell but declared in another block has no
+ * annotation here to be checked against, which is one more reason every block is complete.
  */
-const ANNOTATION =
-  /(--[\w-]+):\s*(#[\da-f]{6,8});\s*\/\* (\d+\.\d\d):1 (at best )?on (--[\w-]+(?: over --[\w-]+)?) —/gu;
-
-interface Annotation {
-  readonly token: string;
-  readonly claimed: number;
-  readonly best: boolean;
-  readonly namedGround: string;
-}
-
-function annotations(selector: string): readonly Annotation[] {
-  return [...blockBody(selector).matchAll(ANNOTATION)].map((match) => {
-    const [, token, , claimed, best, namedGround] = match;
-    if (token === undefined || claimed === undefined || namedGround === undefined) {
-      throw new Error(`unparsable annotation: ${match[0]}`);
-    }
-    return { token, claimed: Number(claimed), best: best !== undefined, namedGround };
-  });
-}
-
-const ANNOTATED = [
-  ["light", ":root", LIGHT],
-  ["dark", '[data-theme="dark"]', DARK],
-] as const;
+const ANNOTATED = CELLS.map((cell) => [cell.label, cell.selector, cell.tokens] as const);
 
 describe.each(ANNOTATED)("%s: tokens.css states ratios it can prove", (_name, selector, palette) => {
-  const found = annotations(selector);
+  const found = annotationsIn(TOKENS_CSS, selector);
 
   it("finds annotations at all", () => {
     // A regex that silently matches nothing is a green test that checks nothing. Both blocks
@@ -549,24 +577,49 @@ describe.each(ANNOTATED)("%s: tokens.css states ratios it can prove", (_name, se
       // …and the ground it names must be the extreme one, so a comment cannot pick a
       // flattering surface. --fg-2's "4.6:1 — floor for real text" was true of no surface at
       // all; the failure mode this closes is the version that is true of exactly one.
-      const ranked = role.grounds
-        .map((expression) => [expression, ratioOn(palette, annotation.token, expression)] as const)
-        .sort((a, b) => a[1] - b[1]);
+      //
+      // TIE-AWARE, and it has to be: 16 of the 72 annotations on this tree sit on an exact
+      // tie — 12 in dark, 4 in light, recounted when the palette axis was removed. A `-tint`
+      // is opaque, so `--x-tint over <any surface>` composites to a byte-identical colour and
+      // all five tint grounds return the same ratio to 1e-9. A
+      // strict `toBe(ranked[0][0])` accepted exactly one of those five, chosen by nothing but
+      // V8's stable sort plus the order `SURFACES` and `FAMILIES` happen to be written in, and
+      // `tools/annotate-tokens.mts` deliberately KEEPS any tied ground rather than churning a
+      // true comment into a different true comment. The two had therefore forked: repointing
+      // one tied annotation makes `tokens:check` exit 0 and this assertion fail with "names X
+      // but its worst ground is Y at the same ratio", which reads as a test bug and is how an
+      // assertion gets relaxed. `tiedExtremeGrounds` is the same strictness stated correctly —
+      // it accepts a ground only when it MEASURES the extreme, not when it sorts first.
+      //
+      // The ranking is `contrastRoles.mts`'s, not this file's, for the same reason the
+      // arithmetic is: `tools/annotate-tokens.mts` WRITES the ground this assertion reads, so
+      // a second ordering here would let the generator emit a ground the gate rejects.
+      const tied = tiedExtremeGrounds(palette, annotation.token, role, annotation.best);
+      const ranked = rankedGrounds(palette, annotation.token, role);
       const extreme = annotation.best ? ranked[ranked.length - 1] : ranked[0];
       expect(
-        extreme?.[0],
+        tied,
         `${annotation.token}'s comment names ${annotation.namedGround}, but its ` +
           `${annotation.best ? "best" : "worst"} ground is ${String(extreme?.[0])} at ` +
-          `${String(extreme?.[1].toFixed(2))}:1.`,
-      ).toBe(annotation.namedGround);
+          `${String(extreme?.[1].toFixed(2))}:1. The grounds that measure that extreme, and ` +
+          `which this comment may therefore name, are: ${tied.join(", ")}.`,
+      ).toContain(annotation.namedGround);
     },
   );
 
   it("every token whose value is a literal colour carries an annotation", () => {
     // An alias (`--st-failed: var(--error)`) is measured through its target and needs no
     // number of its own. A literal hex is a new colour and must state what it measures.
-    const literal = Object.entries(block(selector))
-      .filter(([token, value]) => /^#[\da-f]{6}$/u.test(value) && ROLES[token] !== undefined)
+    //
+    // `{6,8}` and not `{6}`: `ANNOTATION` accepts an 8-digit hex, and so does the generator's
+    // must-annotate scan, so a `{6}` here was the same rule written two ways — a translucent
+    // ROLE token would have been a colour the grammar can annotate that nothing required to
+    // be annotated. Latent rather than live on this tree (`--skeleton-sheen` is the only
+    // 8-digit value and it is a GROUND, so the `ROLES[token] !== undefined` clause already
+    // excluded it), and widened here anyway, because PlanIQ's kit leans on alpha and the
+    // moment a `#75fc961f` becomes a role token is not the moment to be discovering this.
+    const literal = Object.entries(block(TOKENS_CSS, selector))
+      .filter(([token, value]) => /^#[\da-f]{6,8}$/u.test(value) && ROLES[token] !== undefined)
       .map(([token]) => token);
     const annotated = new Set(found.map((annotation) => annotation.token));
     expect(literal.filter((token) => !annotated.has(token)).sort()).toEqual([]);
@@ -629,7 +682,8 @@ const MARK_WAIVERS: readonly Waiver[] = [
 
 /**
  * `--ink-rule` waivers. There is no `"graphic"` waiver available at this token and there
- * never can be: it is 2.71:1 at its ceiling, so it fails 1.4.11's 3:1 as well as 1.4.3's
+ * never can be: it is 2.94:1 at its ceiling, taken across both cells, so it fails
+ * 1.4.11's 3:1 as well as 1.4.3's
  * 4.5:1. Every entry must be `"exempt"` — the two cases WCAG itself puts outside the contrast
  * requirement, an inactive control (1.4.3) and pure decoration (1.4.11) — and must prove it
  * against the source.
@@ -650,20 +704,27 @@ function tokenUse(token: string): RegExp {
 }
 
 /**
- * Every file that can paint with a token: `.ts`, `.tsx` AND `.css`.
+ * Every file that can paint with a token: `.ts`, `.tsx`, `.mts` AND `.css`.
  *
  * The `.css` half is not hypothetical hygiene — `index.css` paints a scrollbar thumb with
  * `--ink-mark` today, and ESLint's copy of this rule cannot see it. `tokens.css` is included
  * as well: the DEFINITIONS there (`--ink-rule: #adadb4;`) are not uses and do not match.
+ *
+ * The `.mts` half closes a hole this tranche OPENED. `contrastMath`, `contrastRoles` and
+ * `paletteBlocks` made `.mts` a first-class source extension inside `src/` for the first
+ * time, and the extension matched neither this walk nor the ESLint fence beside it — so a
+ * whole extension living in `src/` was invisible to both halves of the guard. It costs
+ * nothing today (no `.mts` file names either policed token as a colour) and it is added
+ * before something paints there rather than after, which is the only useful moment.
  */
 function sourceFiles(): readonly string[] {
   return readdirSync(SRC_DIR, { recursive: true, encoding: "utf8" })
     .map((entry) => entry.split(sep).join("/"))
     .filter(
       (rel) =>
-        /\.(?:tsx?|css)$/u.test(rel) &&
-        !/\.d\.ts$/u.test(rel) &&
-        !/\.test\.tsx?$/u.test(rel) &&
+        /\.(?:m?tsx?|css)$/u.test(rel) &&
+        !/\.d\.m?ts$/u.test(rel) &&
+        !/\.test\.m?tsx?$/u.test(rel) &&
         !rel.startsWith("test/"),
     )
     .sort();
@@ -821,8 +882,8 @@ policeToken("--ink-rule", RULE_SITES, RULE_WAIVERS, "RULE_WAIVERS");
 describe("the policed tokens really cannot be used as text", () => {
   it("--ink-mark clears 3:1 everywhere and 4.5:1 nowhere, taken worst-case", () => {
     // Which is the whole difference between the two verdicts. A surface-agnostic component
-    // does not know which ground it landed on, so the bar is the worst case across both
-    // palettes — and there it is 3.52:1, a legitimate mark and never a word.
+    // does not know which ground it landed on, so the bar is the worst case across every
+    // cell — and there it is 3.56:1, a legitimate mark and never a word.
     const role = ROLES["--ink-mark"];
     expect(role).toBeDefined();
     const ratios = PALETTES.flatMap(([, palette]) =>
@@ -868,6 +929,17 @@ describe("the policed tokens really cannot be used as text", () => {
       "styles/tokens.css",
     ]);
   });
+
+  it("…and .mts, the extension this tranche introduced into src/", () => {
+    // The same canary for the newer half of the filter. `.mts` became a source extension
+    // inside `src/` with `contrastMath`/`contrastRoles`/`paletteBlocks`, and it matched
+    // neither this walk nor the ESLint fence — an entire extension in `src/` that both
+    // halves of the guard were blind to. Enumerating them is deliberately NOT the shape used
+    // for `.css`: modules are expected to multiply and a stylesheet is not. What must not
+    // change is that the walk reaches them at all, so the filter cannot be narrowed back to
+    // `tsx?` by someone tidying a regex.
+    expect(sourceFiles().filter((file) => file.endsWith(".mts")).length).toBeGreaterThan(0);
+  });
 });
 
 /* ------------------------------------------------------------------------------------- *
@@ -901,30 +973,47 @@ describe("the structural facts the components are written around", () => {
     expect(TOKENS_CSS).toContain("--shadow-card: var(--shadow-xs);");
   });
 
-  it("every surface is redefined for dark — no token inherits a light ground", () => {
+  it("every surface is redefined in every theme block — nothing inherits another's ground", () => {
     // `--bg-inset` used to be defined only in the dark palette, so every code block in the
     // light theme was a dark-first surface nobody had looked at. All five surfaces, all four
-    // ink tokens and all three line tokens are now redefined explicitly.
-    const darkOnly = block('[data-theme="dark"]');
-    for (const token of [
-      ...SURFACES,
-      "--ink",
-      "--ink-muted",
-      "--ink-mark",
-      "--ink-rule",
-      "--hairline",
-      "--hairline-strong",
-      "--edge",
-    ]) {
-      expect(darkOnly[token], `${token} is not redefined for the dark theme`).toBeDefined();
+    // ink tokens and all three line tokens are redefined explicitly in every block.
+    //
+    // Key-set parity above is strictly stronger than this — it demands all 65 names, not these
+    // twelve — and this is kept anyway, deliberately. It asks the same question by a DIFFERENT
+    // mechanism: parity's required set is COMPUTED from `:root` through `isPaletteValue`, and a
+    // classifier that were ever narrowed would let parity go vacuously green against a shrunken
+    // key set while a block quietly lost `--surface-sunken`. A hand-named list cannot go
+    // vacuous. It is the same curated-list/computed-set pairing this file's header describes,
+    // and the loop is inside ONE `it` so it costs one assertion whatever the registry grows to
+    // — a second opinion is a fixed cost, not a per-cell measurement.
+    for (const cell of PALETTE_BLOCKS) {
+      const declared = block(TOKENS_CSS, cell.selector);
+      for (const token of [
+        ...SURFACES,
+        "--ink",
+        "--ink-muted",
+        "--ink-mark",
+        "--ink-rule",
+        "--hairline",
+        "--hairline-strong",
+        "--edge",
+      ]) {
+        expect(declared[token], `${token} is not redefined in ${cell.label}`).toBeDefined();
+      }
     }
   });
 
-  it("every semantic family is redefined for dark, in all three members", () => {
-    const darkOnly = block('[data-theme="dark"]');
-    for (const family of FAMILIES) {
-      for (const suffix of ["", "-fill", "-tint"]) {
-        expect(darkOnly[`--${family}${suffix}`], `--${family}${suffix} misses dark`).toBeDefined();
+  it("every semantic family is redefined in every palette block, in all three members", () => {
+    // The family half of the canary above, for the same reason and at the same fixed cost.
+    for (const cell of PALETTE_BLOCKS) {
+      const declared = block(TOKENS_CSS, cell.selector);
+      for (const family of FAMILIES) {
+        for (const suffix of ["", "-fill", "-tint"]) {
+          expect(
+            declared[`--${family}${suffix}`],
+            `--${family}${suffix} misses ${cell.label}`,
+          ).toBeDefined();
+        }
       }
     }
   });

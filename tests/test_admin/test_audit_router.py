@@ -30,7 +30,9 @@ from fastapi import FastAPI
 
 from hbd.admin.app import create_app
 from hbd.admin.container import AdminContainer
+from hbd.admin.errors import ProblemError
 from hbd.admin.routers.audit import AUDIT_PATH, VERIFY_PATH, build_audit_router
+from hbd.admin.window import require_aware
 from hbd.db.admin.audit import AuditEntry, append
 from hbd.db.enums import AdminRole, AuditAction, AuditReasonCode
 from hbd.db.models.admin_audit import AdminAuditRow
@@ -247,6 +249,13 @@ async def test_a_naive_timestamp_is_refused(
 
     # Assert
     assert response.status_code == 422
+    # And the wording is the SHARED validator's, byte for byte. This route carried a private
+    # sixth copy of ``_aware`` that ``hbd.admin.window`` was written to delete: identical,
+    # untested against the other five, and therefore the exact drift the extraction was for
+    # — reword ``require_aware`` and only this endpoint would keep the old refusal.
+    with pytest.raises(ProblemError) as refused:
+        require_aware("from", datetime(2026, 8, 30, 12, 0, 0))
+    assert response.json()["error"]["message"] == str(refused.value)
 
 
 async def test_filters_narrow_the_page(

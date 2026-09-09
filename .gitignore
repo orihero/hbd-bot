@@ -17,6 +17,14 @@
 *.pem
 *.key
 
+# Node — the ROOT node_modules too, not only the SPAs'. A vitest cache file under it
+# reached `git add -A` because only `admin-ui/node_modules/` was listed below.
+node_modules/
+
+# Multi-agent tooling scratch: per-run auditor/challenger transcripts, 1.4 MB and growing,
+# regenerated on every run and meaningful to nobody tomorrow.
+.agents/
+
 # Python
 __pycache__/
 *.py[cod]

@@ -24,9 +24,10 @@
  * it actually lands on: a table cell or a detail panel on `--surface-card` is **6.01:1** in
  * light (`#636363` on `#ffffff`) and **7.16:1** in dark (`#b2b2ba` on `#26262a`); the page
  * ground `--surface` is 5.76:1 / 7.72:1; a hovered row, the worst ground it can reach, is
- * **4.87:1** / 5.95:1. Every one clears 1.4.3's 4.5:1. It is deliberately NOT `--ink-mark`
- * (3.52:1 worst-case) and NOT `--ink-rule` (2.23:1 at its ceiling), both of which would put
- * a graded fact under the text bar.
+ * **4.87:1** / 5.95:1. Those are `gogo`'s figures; `planiq` is identical in light and clearer
+ * in dark (8.18 / 8.97 / 6.21). Every one clears 1.4.3's 4.5:1. It is deliberately NOT
+ * `--ink-mark` (3.56:1 worst-case) and NOT `--ink-rule` (2.94:1 at its ceiling), both taken
+ * across all four cells, and both of which would put a graded fact under the text bar.
  */
 
 import type { ReactElement, ReactNode } from "react";

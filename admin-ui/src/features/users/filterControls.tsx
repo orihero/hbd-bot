@@ -1,5 +1,5 @@
 /**
- * The two filter controls `/users` needs and §11.4's component inventory does not name.
+ * The four filter controls `/users` needs and §11.4's component inventory does not name.
  *
  * The inventory lists `FilterBar` (the URL-backed removable chips) but no form controls to
  * put inside it, so each screen brings its own. These are deliberately plain `<button>` and
@@ -13,11 +13,11 @@
  * means one thing everywhere. Both states keep a text-bar colour: `--ink-muted` off,
  * `--brand` on, each measured over the ground it actually sits on.
  *
- * Both are local to this screen on purpose. If a third screen needs either, the answer is a
- * shared primitive under `components/data/`, not a cross-feature import.
+ * All four are local to this screen on purpose. If a second screen needs one of them, the
+ * answer is a shared primitive under `components/data/`, not a cross-feature import.
  */
 
-import type { ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 
 import { Button, segmentVariant } from "@/components/util";
 
@@ -125,5 +125,165 @@ export function TriStateSelect({
         <option value="false">{falseLabel}</option>
       </select>
     </label>
+  );
+}
+
+/** How long the box waits after the last keystroke before it writes to the URL. */
+export const FILTER_DEBOUNCE_MS = 300;
+
+export interface DebouncedTextInputProps {
+  readonly label: string;
+  /** The COMMITTED value — what the URL says. `undefined` means the parameter is absent. */
+  readonly value: string | undefined;
+  /** Fired once the typing settles, and immediately on Enter or on blur. */
+  readonly onChange: (next: string | undefined) => void;
+  /** Must say what is actually searchable. See the note on `q` in `endpoints.ts`. */
+  readonly placeholder: string;
+  /** Explains the control's narrowness where a placeholder has no room to. */
+  readonly title?: string;
+  /** Digits only: strips everything else as it is typed, and asks for a numeric keypad. */
+  readonly isNumeric?: boolean;
+  /**
+   * Hard character cap, mirroring the server's own limit on the parameter.
+   *
+   * Without it a pasted paragraph is sent verbatim and the SERVER rejects the whole request —
+   * so an over-long paste does not narrow the list, it empties it behind a 422 that names a
+   * parameter rather than the box the operator pasted into.
+   */
+  readonly maxLength?: number;
+  readonly delayMs?: number;
+  readonly widthClassName?: string;
+}
+
+/**
+ * A text filter that writes to the URL when the typing STOPS, not on every keystroke.
+ *
+ * Every filter on this screen lives in the address bar (§11.1), and `patch` writes with
+ * `replace` — but a keystroke-per-request box still fires one `/api/users` call per character
+ * and throws away every response but the last. So the draft is component state and the URL is
+ * written once the operator pauses, which is the only piece of filter state on this screen
+ * that is briefly not in the URL.
+ *
+ * The draft follows the URL back the other way as well: removing the chip, or pressing Clear,
+ * empties the box. Without that the removed filter would still be sitting in the input,
+ * waiting for one more keystroke to reapply itself.
+ */
+export function DebouncedTextInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  title,
+  isNumeric = false,
+  maxLength,
+  delayMs = FILTER_DEBOUNCE_MS,
+  widthClassName = "w-48",
+}: DebouncedTextInputProps): ReactElement {
+  const [draft, setDraft] = useState(value ?? "");
+  /** The last value this control PUT in the URL, so an echo of our own write is not a change. */
+  const committed = useRef(value ?? "");
+  const timer = useRef<number | null>(null);
+
+  function cancel(): void {
+    if (timer.current === null) return;
+    window.clearTimeout(timer.current);
+    timer.current = null;
+  }
+
+  function commit(next: string): void {
+    cancel();
+    if (next === committed.current) return;
+    committed.current = next;
+    onChange(next === "" ? undefined : next);
+  }
+
+  /* The URL moved without us — a chip removal, Clear, a pasted link, the back button. */
+  useEffect(() => {
+    const next = value ?? "";
+    if (next === committed.current) return;
+    committed.current = next;
+    setDraft(next);
+  }, [value]);
+
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  return (
+    <label className="type-body-sm flex items-center gap-2 text-ink-muted">
+      <span>{label}</span>
+      <input
+        type="text"
+        value={draft}
+        placeholder={placeholder}
+        {...(title === undefined ? {} : { title })}
+        {...(isNumeric ? ({ inputMode: "numeric" } as const) : {})}
+        {...(maxLength === undefined ? {} : { maxLength })}
+        className={`type-body-sm rounded-control bg-surface-control px-3 py-1.5 text-ink placeholder:text-ink-muted ${widthClassName}`}
+        onChange={(event) => {
+          // Digits are stripped in the CONTROL rather than by the parent's parse, so the box
+          // never shows a value the filter is quietly ignoring.
+          const next = isNumeric ? event.target.value.replace(/\D/gu, "") : event.target.value;
+          setDraft(next);
+          cancel();
+          timer.current = window.setTimeout(() => {
+            timer.current = null;
+            commit(next);
+          }, delayMs);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          // An operator who pressed Enter has finished typing and should not wait out a timer.
+          event.preventDefault();
+          commit(draft);
+        }}
+        onBlur={() => {
+          commit(draft);
+        }}
+      />
+    </label>
+  );
+}
+
+export interface QuickFilterChipProps {
+  readonly label: string;
+  readonly isActive: boolean;
+  /** Receives the state being moved TO, so the caller writes one `patch` and no negation. */
+  readonly onToggle: (isActive: boolean) => void;
+  /** What the preset actually asks the API for. */
+  readonly title?: string;
+}
+
+/**
+ * A one-click preset over a filter that already exists.
+ *
+ * It is deliberately a TOGGLE and not a link to a pre-built URL: `aria-pressed` is what tells
+ * a screen reader the list is narrowed, and pressing it a second time has to widen the list
+ * again rather than stack a second copy of the same parameter. It owns no state — "on" is
+ * read back out of the URL, so a chip and the control it shortcuts can never disagree.
+ */
+export function QuickFilterChip({
+  label,
+  isActive,
+  onToggle,
+  title,
+}: QuickFilterChipProps): ReactElement {
+  return (
+    <Button
+      variant={segmentVariant(isActive)}
+      size="xs"
+      shape="pill"
+      aria-pressed={isActive}
+      data-quick-filter={label}
+      {...(title === undefined ? {} : { title })}
+      onClick={() => {
+        onToggle(!isActive);
+      }}
+    >
+      {label}
+    </Button>
   );
 }

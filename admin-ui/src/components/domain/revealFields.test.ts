@@ -14,6 +14,7 @@ import { MAX_RECORDS_PER_REVEAL, REVEAL_FIELD_VALUES, type RevealField } from "@
 import {
   ATTEMPT_REVEAL_FIELDS,
   BRIEF_REVEAL_FIELDS,
+  USER_PROFILE_REVEAL_FIELDS,
   canSubmitReveal,
   describeRevealCost,
   orderFields,
@@ -25,7 +26,11 @@ import {
 
 describe("the offered field groups", () => {
   it("cover every RevealField exactly once between them", () => {
-    const covered = [...BRIEF_REVEAL_FIELDS, ...ATTEMPT_REVEAL_FIELDS];
+    const covered = [
+      ...BRIEF_REVEAL_FIELDS,
+      ...ATTEMPT_REVEAL_FIELDS,
+      ...USER_PROFILE_REVEAL_FIELDS,
+    ];
     expect([...covered].sort()).toEqual([...REVEAL_FIELD_VALUES].sort());
     expect(new Set(covered).size).toBe(covered.length);
   });
@@ -33,6 +38,7 @@ describe("the offered field groups", () => {
   it("each group is one shape, because the server refuses a mixed request", () => {
     expect(revealShapeOf(BRIEF_REVEAL_FIELDS)).toBe("single");
     expect(revealShapeOf(ATTEMPT_REVEAL_FIELDS)).toBe("paged");
+    expect(revealShapeOf(USER_PROFILE_REVEAL_FIELDS)).toBe("single");
   });
 
   it("every field has a label and a hint — a bare column name is not an affordance", () => {
@@ -61,6 +67,14 @@ describe("revealCost", () => {
 
   it("never touches the daily conversation ceiling for a single-record reveal", () => {
     expect(revealCost(BRIEF_REVEAL_FIELDS).conversations).toBe(0);
+  });
+
+  it("charges ONE record for the whole profile — the reason the four are offered together", () => {
+    // A `user_profiles` row is 1:1 with the account, so the phone, the two name parts and the
+    // handle are one record between them. If this ever became four, an operator would be paying
+    // four times over for one screen and the group would be the thing charging them.
+    expect(revealCost(USER_PROFILE_REVEAL_FIELDS)).toEqual({ records: 1, conversations: 0 });
+    expect(revealCost(["user_profiles.phone_e164"])).toEqual({ records: 1, conversations: 0 });
   });
 
   it("charges the whole page for the attempts' free text, plus one conversation", () => {

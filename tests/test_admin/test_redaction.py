@@ -33,7 +33,7 @@ import dataclasses
 import unicodedata
 from collections.abc import AsyncIterator
 from typing import Final
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
@@ -45,16 +45,29 @@ from hbd.admin.routers.users import WIZARD_STATE_PATH
 from hbd.admin.schemas.users import WIZARD_TEXT_FIELDS
 from hbd.admin.serializers.redaction import (
     MASK,
+    PHONE_VISIBLE_DIGITS,
     TELEGRAM_ID_VISIBLE_DIGITS,
     first_grapheme,
     mask_name,
+    mask_phone,
     mask_telegram_user_id,
+    mask_username,
 )
 from hbd.admin.settings import AdminSettings
+from hbd.contracts import (
+    BroadcastKind,
+    BroadcastRecipientState,
+    BroadcastState,
+    Language,
+)
 from hbd.db.enums import AdminRole
 from hbd.db.models.asset import AssetRow
+from hbd.db.models.broadcast import BroadcastRow
+from hbd.db.models.broadcast_body import BroadcastBodyRow
+from hbd.db.models.broadcast_recipient import BroadcastRecipientRow
 from hbd.db.models.generation_attempt import GenerationAttemptRow
 from tests.test_admin.conftest import (
+    NOW,
     PASSWORD,
     FakeRedis,
     MemoryRateLimits,
@@ -256,6 +269,113 @@ def test_mask_name_edge_cases(name: str | None, expected: str | None) -> None:
 
 
 @pytest.mark.parametrize(
+    ("username", "expected"),
+    [
+        (None, None),
+        (GULOM, "@G" + MASK),
+        ("@" + GULOM, "@G" + MASK),
+        ("@", "@" + MASK),
+        ("", "@" + MASK),
+    ],
+    ids=["no-handle", "stored-without-the-sigil", "stored-with-it", "sigil-only", "empty"],
+)
+def test_a_handle_masks_to_one_shape_whichever_way_the_sigil_was_stored(
+    username: str | None, expected: str | None
+) -> None:
+    # Arrange / Act — Telegram writes ``@gulom`` and the column holds ``gulom``, so two
+    # writers disagreeing about the sigil is not hypothetical. If the ``@`` were masked
+    # along with the rest, the same account would render as ``@G•••`` from one writer and
+    # ``@•••`` from the other, and an operator would read the second as a different person.
+    # ``None`` stays ``None`` for :func:`mask_name`'s reason: Telegram does not require a
+    # handle, so its absence is a fact about the account rather than something withheld, and
+    # ``@•••`` would send somebody to ``POST /reveal`` for a value nobody ever held.
+    masked = mask_username(username)
+
+    # Assert
+    assert masked == expected
+
+
+def test_the_handle_mask_never_normalises_the_modifier_letter() -> None:
+    # Arrange — the same U+02BB rule as the name mask, asserted separately because
+    # ``mask_username`` is the one masker that builds a new string around its input. NFKC
+    # folds U+02BB into U+0027, so a single ``.normalize()`` anywhere on this path would
+    # hand the panel a different letter than the customer's account carries — and it would
+    # do it silently, since ``"ʻali"`` and ``"'ali"`` look identical in a diff.
+
+    # Act
+    masked = mask_username(TURNED_COMMA + "ali") or ""
+
+    # Assert
+    assert masked.startswith("@" + TURNED_COMMA)
+    assert masked == "@" + TURNED_COMMA + MASK
+    assert APOSTROPHE not in masked
+    assert RIGHT_SINGLE_QUOTE not in masked
+
+
+@pytest.mark.parametrize(
+    ("phone", "expected"),
+    [
+        ("+998901234542", "•" * 5 + "42"),
+        ("+79161234567", "•" * 5 + "67"),
+        ("998901234542", MASK),
+        ("+1", MASK),
+        (None, None),
+        ("", MASK),
+        ("   ", MASK),
+    ],
+    ids=[
+        "uzbek",
+        "russian-keeps-no-country-code-either",
+        "no-plus-is-not-e164",
+        "too-short-to-be-e164",
+        "never-shared",
+        "empty",
+        "whitespace",
+    ],
+)
+def test_a_phone_keeps_its_last_digits_behind_a_mask_that_names_no_country(
+    phone: str | None, expected: str | None
+) -> None:
+    # Arrange / Act — the obvious alternative, keeping a readable ``+998`` head because the
+    # market is Uzbekistan, is the one this must not be. Russian and Kazakh numbers are
+    # entirely plausible here and ``normalise_phone``'s regex admits every country: a fixed
+    # four-character head over ``+79161234567`` publishes two SUBSCRIBER digits while hiding
+    # the country code, which is the mask leaking exactly what it claims to protect. Both
+    # rows above therefore mask identically, and neither says where its owner lives.
+    masked = mask_phone(phone)
+
+    # Assert
+    assert masked == expected
+    assert masked is None or "+" not in masked
+    assert masked is None or masked.startswith(MASK)
+
+
+def test_a_number_that_is_not_e164_is_never_echoed_rather_than_masked_as_best_it_can() -> None:
+    # Arrange — ``_E164_PATTERN.fullmatch`` requires a leading ``+`` and eight to fifteen
+    # digits, and anything else is a value no writer in this system produces. Masking its
+    # tail anyway would publish two digits of a string nobody has validated — a scribbled
+    # note, a partially typed number, an internal reference — under the impression that the
+    # rest was safely hidden. Stated as "not E.164" and NOT as "shorter than the visible
+    # width", because the second reading invites a length guard that does not exist.
+
+    # Act / Assert — the digits are gone, not shortened.
+    for refused in ("998901234542", "+1", "+0123456789", "not a number"):
+        assert mask_phone(refused) == MASK
+        assert refused[-PHONE_VISIBLE_DIGITS:] not in (mask_phone(refused) or "")
+
+
+def test_the_phone_mask_width_does_not_track_the_numbers_length() -> None:
+    # Arrange / Act — the same fixed-width rule the telegram-id mask keeps, and for the same
+    # reason: a proportional elision turns "how many bullets" into the number's length, and a
+    # length is a country. A nine-digit national number and a fifteen-digit one must be
+    # indistinguishable through the mask.
+    widths = {len(mask_phone(value) or "") for value in ("+998901234542", "+12025550143")}
+
+    # Assert — five bullets, as :data:`_ID_MASK` spells it, plus the two visible digits.
+    assert widths == {5 + PHONE_VISIBLE_DIGITS}
+
+
+@pytest.mark.parametrize(
     ("telegram_user_id", "expected"),
     [
         (123_456_789, "•" * 5 + "789"),
@@ -328,10 +448,85 @@ async def signed_in(
     assert response.status_code == 200
 
 
+#: The campaign the sweep reads, and the account it was sent to. Seeded so the two
+#: ``/broadcasts/{id}`` routes answer with a real record rather than a 404 — an empty body
+#: passes every "the plaintext is not in it" assertion for the wrong reason.
+BROADCAST_ID: Final[UUID] = UUID("cccccccc-0000-4000-8000-000000000001")
+
+
+async def seed_broadcast(container: AdminContainer) -> None:
+    """One campaign with one recipient row, for the same person the order belongs to.
+
+    The recipient is ``TELEGRAM_ID``, so the sweep below is asserting something: the ledger
+    holds that account's id in a column, and what must come back is the mask.
+    """
+    async with container.session_factory.begin() as db:
+        db.add(
+            BroadcastRow(
+                id=BROADCAST_ID,
+                title="September outage notice",
+                kind=BroadcastKind.SERVICE,
+                state=BroadcastState.COMPLETED,
+                segment={"v": 1, "match": "all", "rules": []},
+                segment_hash="a" * 64,
+                audience_size=1,
+                audience_evaluated_at=NOW,
+                expand_cursor=None,
+                scheduled_for=None,
+                started_at=NOW,
+                finished_at=NOW,
+                recipient_count=1,
+                sent_count=1,
+                failed_count=0,
+                skipped_count=0,
+                undeliverable_count=0,
+                unknown_count=0,
+                created_by_admin_id=None,
+                created_by_username="operator",
+                scheduled_by_admin_id=None,
+                scheduled_by_username="operator",
+                reason_code=None,
+                reason_ref=None,
+                error_code=None,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        db.add(
+            BroadcastBodyRow(
+                id=uuid4(),
+                broadcast_id=BROADCAST_ID,
+                language=Language.RU,
+                text="Salom!",
+                media_storage_key=None,
+                media_file_id=None,
+                button_label=None,
+                button_url=None,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+        db.add(
+            BroadcastRecipientRow(
+                id=uuid4(),
+                broadcast_id=BROADCAST_ID,
+                telegram_user_id=TELEGRAM_ID,
+                language=Language.RU,
+                state=BroadcastRecipientState.SENT,
+                attempts=1,
+                error_code=None,
+                settled_at=NOW,
+                created_at=NOW,
+                updated_at=NOW,
+            )
+        )
+
+
 async def seed_world(container: AdminContainer, fake_redis: FakeRedis) -> dict[str, object]:
-    """One order carrying every plaintext, plus a live wizard draft for the same person."""
+    """One order carrying every plaintext, a live wizard draft, and a delivered campaign."""
     order_id = await seed_named_order(container)
     await seed_wizard_session(fake_redis, telegram_user_id=TELEGRAM_ID)
+    await seed_broadcast(container)
     async with container.session_factory.begin() as db:
         asset_id = (await db.execute(sa.select(AssetRow.id))).scalars().first()
         attempt_id = (await db.execute(sa.select(GenerationAttemptRow.id))).scalars().first()
@@ -345,6 +540,7 @@ async def seed_world(container: AdminContainer, fake_redis: FakeRedis) -> dict[s
         "asset_id": asset_id,
         "attempt_id": attempt_id,
         "telegram_user_id": TELEGRAM_ID,
+        "broadcast_id": BROADCAST_ID,
     }
 
 

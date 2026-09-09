@@ -9,16 +9,37 @@ should be able to hide inside a passing suite.
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path, PurePosixPath
+from typing import Final
+from uuid import UUID, uuid4
 
 import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import Language, Order, OrderState, Script, is_err, is_ok
+from hbd.contracts import (
+    BroadcastKind,
+    BroadcastRecipientState,
+    BroadcastState,
+    Language,
+    Order,
+    OrderState,
+    Script,
+    is_err,
+    is_ok,
+)
 from hbd.db.attempts import GenerationAttempt, GenerationAttemptRepository
 from hbd.db.enums import GenerationKind, NameSource
-from hbd.db.models import AssetRow, BriefRow, GenerationAttemptRow, NameRecordRow, OrderRow
+from hbd.db.models import (
+    AssetRow,
+    BriefRow,
+    BroadcastRecipientRow,
+    BroadcastRow,
+    GenerationAttemptRow,
+    NameRecordRow,
+    OrderRow,
+)
 from hbd.db.names import NameRecordDraft, NameRecordRepository
 from hbd.db.purge import purge_expired
 from hbd.db.repository import SqlKitRepository
@@ -884,3 +905,169 @@ async def test_a_dictionary_entry_survives_until_its_clock_runs_out(
     lookup = await names.lookup("alyona", Language.RU)
     assert is_ok(lookup)
     assert lookup.value[0].display_form == "Алёна"
+
+
+# ---------------------------------------------------------------------------
+# Broadcast delivery rows — a 400-day CUTOFF, not a clock
+# ---------------------------------------------------------------------------
+_BROADCAST_READER: Final[int] = 8_912_345_678_903
+
+
+def _campaign(clock: MovableClock) -> BroadcastRow:
+    """A completed campaign. Its counters are the rollup the sweep must not disturb."""
+    return BroadcastRow(
+        # The id is minted here rather than left to the column default: the helper's callers
+        # read ``campaign.id`` to build the child rows in the same ``session.add`` batch, and
+        # the ORM default is not applied until the flush that INSERTs them.
+        id=uuid4(),
+        title="September announcement",
+        kind=BroadcastKind.SERVICE,
+        state=BroadcastState.COMPLETED,
+        segment={"v": 1, "match": "all", "rules": []},
+        segment_hash="0" * 64,
+        audience_size=1,
+        audience_evaluated_at=clock.now,
+        recipient_count=1,
+        sent_count=1,
+        created_at=clock.now,
+        updated_at=clock.now,
+    )
+
+
+def _delivery(
+    broadcast_id: UUID, *, at: datetime, telegram_user_id: int | None = _BROADCAST_READER
+) -> BroadcastRecipientRow:
+    return BroadcastRecipientRow(
+        broadcast_id=broadcast_id,
+        telegram_user_id=telegram_user_id,
+        language=Language.RU,
+        state=BroadcastRecipientState.SENT,
+        settled_at=at,
+        created_at=at,
+        updated_at=at,
+    )
+
+
+async def test_a_delivery_row_survives_three_hundred_and_ninety_nine_days(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """A year-over-year comparison needs last spring's send to still be there."""
+    # Arrange
+    campaign = _campaign(clock)
+    async with sessions.begin() as session:
+        session.add(campaign)
+        session.add(_delivery(campaign.id, at=clock.now))
+
+    # Act
+    result = await purge_expired(sessions, now=clock.advance(days=399))
+
+    # Assert
+    assert is_ok(result)
+    assert result.value.broadcast_recipients_deleted == 0
+    async with sessions() as session:
+        remaining = await session.scalar(
+            sa.select(sa.func.count()).select_from(BroadcastRecipientRow)
+        )
+    assert remaining == 1
+
+
+async def test_a_delivery_row_is_deleted_after_four_hundred_days(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """The cutoff is on ``created_at`` — when the audience was frozen — and takes the row whole.
+
+    Nothing is nulled in place here, unlike the identity sweeps: ``/forget`` has already
+    nulled the only column that could be, months or years earlier, and what is left is a
+    state, a count and two clocks.
+    """
+    # Arrange
+    campaign = _campaign(clock)
+    async with sessions.begin() as session:
+        session.add(campaign)
+        session.add(_delivery(campaign.id, at=clock.now))
+
+    # Act
+    result = await purge_expired(sessions, now=clock.advance(days=401))
+
+    # Assert
+    assert is_ok(result)
+    assert result.value.broadcast_recipients_deleted == 1
+    async with sessions() as session:
+        remaining = await session.scalar(
+            sa.select(sa.func.count()).select_from(BroadcastRecipientRow)
+        )
+    assert remaining == 0
+
+
+async def test_the_campaign_and_its_counters_survive_the_delivery_sweep(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """A completed campaign's arithmetic must not change because its ledger aged out.
+
+    ``broadcasts`` holds the rollup an operator has already read and acted on; the sweep
+    bounds the ledger behind it and touches neither the parent row nor its bodies.
+    """
+    # Arrange
+    campaign = _campaign(clock)
+    async with sessions.begin() as session:
+        session.add(campaign)
+        session.add(_delivery(campaign.id, at=clock.now))
+
+    # Act
+    result = await purge_expired(sessions, now=clock.advance(days=401))
+
+    # Assert
+    assert is_ok(result)
+    async with sessions() as session:
+        after = await session.get(BroadcastRow, campaign.id)
+    assert after is not None
+    assert (after.audience_size, after.recipient_count, after.sent_count) == (1, 1, 1)
+
+
+async def test_an_anonymised_delivery_row_is_still_swept_by_the_cutoff(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """The two routes are independent: ``/forget`` takes the id, the cutoff takes the row.
+
+    A row whose ``telegram_user_id`` is already ``NULL`` has nothing left to erase, but it
+    still occupies the fastest-growing table in the schema — so the predicate is on
+    ``created_at`` alone and never on the presence of an id.
+    """
+    # Arrange
+    campaign = _campaign(clock)
+    async with sessions.begin() as session:
+        session.add(campaign)
+        session.add(_delivery(campaign.id, at=clock.now, telegram_user_id=None))
+
+    # Act
+    result = await purge_expired(sessions, now=clock.advance(days=401))
+
+    # Assert
+    assert is_ok(result)
+    assert result.value.broadcast_recipients_deleted == 1
+
+
+async def test_the_delivery_sweep_respects_its_batch_size(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """One campaign can write forty thousand rows in an afternoon."""
+    # Arrange
+    campaign = _campaign(clock)
+    async with sessions.begin() as session:
+        session.add(campaign)
+        for offset in range(5):
+            session.add(
+                _delivery(
+                    campaign.id,
+                    at=clock.now,
+                    telegram_user_id=_BROADCAST_READER + offset,
+                )
+            )
+
+    # Act
+    result = await purge_expired(sessions, now=clock.advance(days=401), batch_size=2)
+
+    # Assert
+    assert is_ok(result)
+    assert result.value.broadcast_recipients_deleted == 2
+    assert result.value.has_work_remaining is True

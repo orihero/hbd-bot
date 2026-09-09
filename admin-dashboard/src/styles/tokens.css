@@ -1,0 +1,261 @@
+/**
+ * The design tokens, and the only place a colour is decided. tailwind.config.ts maps every
+ * one of these to a utility name; components reference the utility or the var, never a hex.
+ *
+ * TWO PALETTES, and the light one is the kit's. Every value under `:root` is measured from
+ * the PlanIQ mockup and is not to be nudged; the dark block at the foot of this file is
+ * AUTHORED — the mockup has no dark counterpart — and each of its values is chosen against
+ * the role the light token plays rather than by inverting a hex.
+ *
+ * `color-scheme` is written by `state/theme.ts` onto `<html>` alongside `data-theme`, so the
+ * UA paints scrollbars and form controls in the palette the page is actually in. The static
+ * declaration below is the pre-React fallback for the frame before that runs.
+ */
+:root {
+  color-scheme: light;
+
+  --bg: #f6f6f6;
+  --card: #ffffff;
+  --stroke: #e8e8e8;
+
+  --ink-900: #0d0d12;
+  --ink-800: #000000;
+  --ink-500: #5b5a64;
+  --ink-400: #666d80;
+  --ink-300: #8d8d8d;
+
+  --gridline: rgba(0, 0, 0, 0.06);
+
+  --accent: #75fc96;
+  --accent-12: rgba(117, 252, 150, 0.12);
+  --accent-deep: #218c3b;
+  /* Ink for text sitting ON --accent. Not --ink-900: the kit's button label is its own value. */
+  --on-accent: #17191c;
+
+  /* The chart ramp, darkest to lightest. Series order is d0..d6, not hue-picked per chart. */
+  --d0: #0d0d12;
+  --d1: #3a3b3f;
+  --d2: #5b5a64;
+  --d3: #8d8d8d;
+  --d4: #b4b4b7;
+  --d5: #d3d3d4;
+  --d6: #e8e8e8;
+
+  --label: #0e121b;
+  --muted: #99a0ae;
+  --required: #e93544;
+  /* The two tints of --required the error banner is drawn from. */
+  --required-24: rgba(233, 53, 68, 0.24);
+  --required-06: rgba(233, 53, 68, 0.06);
+  /*
+   * The readable red. --required itself is 4.15:1 on white and 3.3:1 on --required-24 — under
+   * 4.5 at the 12px badge and the 18px/500 button label, both of which are "normal" text by
+   * WCAG's size rule. So alarm GROUNDS stay --required/--required-24 and alarm INK is this,
+   * the same relationship --accent-deep already has to --accent.
+   */
+  --required-deep: #a11221;
+  --checkbox-stroke: #e1e4ea;
+  --wordmark: #2e2e2e;
+
+  /*
+   * The table's secondary line, measured #00000066. 2.85:1 on white, which is under AA — kept
+   * literal because the kit pins it, and because that line only ever repeats an identifier the
+   * primary line above it already states at full contrast. Nothing is legible ONLY here.
+   */
+  --cell-2: rgba(0, 0, 0, 0.4);
+  /* Not in the kit: it draws no interactive state, and a row you can activate must answer the
+   * pointer. Deliberately below the hairline — a hover that reads as a selection is a lie. */
+  --row-hover: rgba(13, 13, 18, 0.035);
+  /* Also not in the kit: it draws no modal. --ink-900 at 44%, dark enough that the page behind
+   * a reveal dialog stops reading as somewhere you can click. */
+  --overlay: rgba(13, 13, 18, 0.44);
+  /*
+   * The warning that is not a refusal — a `reasonRef` the audit boundary will read as a
+   * credential, a cost above the budget this tab last measured. --required is for what has
+   * already failed; this is for what is about to. Amber ink, 6.2:1 on --card, because a warning
+   * an operator has to squint at is one they will act on too late.
+   */
+  --warn-deep: #7a4b00;
+  /* The ground --warn-deep is written on, and the amber it is a tint of. A badge needs both:
+   * the tint carries the tone, the ink carries the contrast. */
+  --warn: #f5a524;
+  --warn-18: rgba(245, 165, 36, 0.18);
+
+  /*
+   * The kit's badge ground, measured #75FC96B2 — B2 is 0.698 alpha, not 0.7. This is the
+   * literal, and --ink-800 on it is 13:1, so the pill's label needs no separate ink.
+   */
+  --accent-70: rgba(117, 252, 150, 0.698);
+  /* The avatar's healthy status dot, #0AB552. A MARK, never text: 2.7:1 is under the text bar,
+   * which is why every dot also carries an sr-only word. */
+  --status-ok: #0ab552;
+
+  /*
+   * ---------------------------------------------------------------------------
+   * THRESHOLD INKS — the vendor-balance traffic light
+   * ---------------------------------------------------------------------------
+   *
+   * DECLARED TWICE, AND THE TWO DECLARATIONS MUST MOVE TOGETHER: these five roles also live
+   * in `src/features/dashboard/svg.ts` as fields of `PAL_LIGHT` / `PAL_DARK`. That is the
+   * same duplication that forced `PAL_*` into existence — an SVG `stroke` attribute cannot
+   * take a `var()` — and it is a duplication with teeth: change one file only and the traffic
+   * light is right in the caption and wrong in the chart beside it, in one theme.
+   * Use these vars in HTML; use `usePalette()` in SVG. Never a hex in either.
+   *
+   * `--th-ok` is deliberately NOT `--accent`. #75FC96 already means "this is the mark the
+   * figure is about"; health has to be a separate statement or an emphasised vendor and a
+   * funded one look the same. Nor is it `--accent-deep`, which is that same family's ink.
+   *
+   * `--th-warn` and `--th-bad` ARE `--warn-deep` and `--required-deep`: those two tokens are
+   * already defined as "the readable ink member of the family, measured on --card", which is
+   * exactly what a threshold word needs, and a second amber would be a second opinion about
+   * one tone. Written as literals rather than `var(--warn-deep)` so this block and the
+   * palette in svg.ts can be diffed value against value.
+   *
+   * `--th-unknown` is achromatic (--d2) because "we do not know" is the absence of a reading,
+   * not a fourth severity between amber and green; `--th-hatch` (--d3) is the fainter grey
+   * the unmeasured track's diagonals are stroked in — a texture of hairlines reads lighter
+   * than a solid line of the same ink.
+   *
+   * On --card (#FFFFFF here): ok 7.0:1 · warn 7.4:1 · bad 8.0:1 · unknown 6.8:1 — all AA at
+   * the 8px the words are printed at. The bright --warn and --required are absent on purpose:
+   * they are GROUNDS, they do not clear AA, and a threshold that is only a colour is
+   * unreadable to a colour-blind operator anyway. Every state prints its word.
+   */
+  --th-ok: #14663f;
+  --th-warn: #7a4b00;
+  --th-bad: #a11221;
+  --th-unknown: #5b5a64;
+  --th-hatch: #8d8d8d;
+
+  --r-card: 15px;
+  --r-pill: 70px;
+  --r-chip: 30px;
+  --r-seg: 10px;
+  --r-field: 10px;
+  --r-panel: 26px;
+  /* The kit measures both toolbar buttons at radius 6; nothing else in the app is that tight. */
+  --r-button: 6px;
+
+  /* A floating panel needs to leave the page, and the 1px stroke alone does not lift it. */
+  --shadow-panel: 0 24px 60px rgba(13, 13, 18, 0.18);
+  /* The hairline under every input box — the login form's, and every filter and dialog field
+     measured off it. One token, because three inlined copies drift. */
+  --shadow-field: 0 1px 2px rgba(10, 13, 20, 0.03);
+
+  --font: "Manrope Variable", "Manrope", system-ui, sans-serif;
+  --font-wordmark: "Outfit", "Manrope", system-ui, sans-serif;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * DARK
+ * ---------------------------------------------------------------------------
+ *
+ * Selected on `[data-theme="dark"]` alone — never on `@media (prefers-color-scheme: dark)`.
+ * A token whose dark value lives only in a media query cannot be overridden by an operator
+ * who picks light on a dark machine, which is the standard way a theme toggle ends up
+ * working in one direction. `state/theme.ts` resolves the OS preference to an attribute
+ * instead, so the media query is not needed here at all.
+ *
+ * What is NOT inverted, and why:
+ *
+ *  * `--accent` stays #75FC96. It is the brand's one colour, it is the sign-in screen, and a
+ *    green that shifts between palettes reads as two products. `--on-accent` stays dark ink
+ *    for the same reason: the green is light in both palettes, so black-on-green is right in
+ *    both, and it is what makes `--accent-70` badges legible without a second ink token.
+ *  * `--accent-deep`, `--required-deep` and `--warn-deep` DO move, and they are the tokens
+ *    that must. Each is the readable INK member of its family — defined by its contrast on
+ *    the card ground, not by its hue — so on a dark card the readable member is the light
+ *    one. Keeping #218C3B here would put a 2:1 green on a near-black panel.
+ *  * The `--d0..--d6` ramp is REVERSED, not darkened. It is drawn on the card, and its job is
+ *    "darkest to lightest" against that ground; on a dark card that ordering is lightest to
+ *    darkest, or every chart's leading series disappears into the panel it sits on.
+ *  * `--gridline`, `--row-hover` and `--cell-2` become white at low alpha, because they are
+ *    all "a little more or a little less than the ground" rather than colours in their own
+ *    right. `--overlay` goes the other way and gets DARKER: its job is to make the page
+ *    behind a dialog stop reading as somewhere you can click, and a light scrim over a dark
+ *    page lifts it instead of dropping it.
+ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0c0d10;
+  --card: #16181d;
+  --stroke: #262a32;
+
+  --ink-900: #f2f3f5;
+  --ink-800: #ffffff;
+  --ink-500: #a9aebb;
+  --ink-400: #949aa8;
+  --ink-300: #767d8c;
+
+  --gridline: rgba(255, 255, 255, 0.07);
+
+  --accent: #75fc96;
+  --accent-12: rgba(117, 252, 150, 0.14);
+  /* The readable green ON --card (#16181D): 11.4:1, where the light palette's #218C3B is
+     2.1:1 here. Same role, opposite end of the ramp. */
+  --accent-deep: #7bf39d;
+  --on-accent: #17191c;
+
+  /* Reversed: d0 is the ink nearest the FOREGROUND in both palettes. */
+  --d0: #f2f3f5;
+  --d1: #cbd0d9;
+  --d2: #a3aab7;
+  --d3: #7e8695;
+  --d4: #5c6470;
+  --d5: #3e444e;
+  --d6: #272b33;
+
+  --label: #eceef2;
+  --muted: #8f97a5;
+
+  /* Lifted from #E93544: the kit's red is a 3.4:1 ink on this card and a fault colour that
+     has to be read at 12px. The tints follow it so a badge ground stays the same family. */
+  --required: #ff5d6b;
+  --required-24: rgba(255, 93, 107, 0.24);
+  --required-06: rgba(255, 93, 107, 0.1);
+  /* The readable red, 7.3:1 on --card. Same relationship #A11221 has on white. */
+  --required-deep: #ff9aa3;
+  --checkbox-stroke: #2f343d;
+  --wordmark: #e9eaee;
+
+  /* Both are "a shade off the ground", so both flip sign with the ground. */
+  --cell-2: rgba(255, 255, 255, 0.44);
+  --row-hover: rgba(255, 255, 255, 0.045);
+  /* Darker than the light palette's, not lighter — see the note above. */
+  --overlay: rgba(0, 0, 0, 0.62);
+
+  /* The amber pair, same split: --warn carries the tone, --warn-deep carries the contrast
+     (8.9:1 on --card, where #7A4B00 is 1.6:1 and unreadable). */
+  --warn-deep: #f8c46f;
+  --warn: #f5a524;
+  --warn-18: rgba(245, 165, 36, 0.18);
+
+  /* Unchanged: black ink on 70%-alpha green is 13:1 over either ground. */
+  --accent-70: rgba(117, 252, 150, 0.698);
+  /* Brightened from #0AB552 — a status DOT is small, and a mark under 3:1 on a dark panel is
+     one nobody sees. Still a mark and never text; every dot carries an sr-only word. */
+  --status-ok: #34d17a;
+
+  /*
+   * The threshold inks, derived against THIS palette's --card (#16181D), never lightened from
+   * the light block: #7A4B00 is 1.6:1 here and #A11221 is 2.2:1, so reusing them would print
+   * the two states that matter most as two unreadable smudges. Warn and bad are again the
+   * family's readable ink members (--warn-deep, --required-deep); ok is a green that stays
+   * clear of --accent and --accent-deep by lightness as well as hue.
+   * On --card: ok 8.4:1 · warn 11.1:1 · bad 8.8:1 · unknown 7.6:1.
+   * Keep in step with PAL_DARK in src/features/dashboard/svg.ts — see the light block.
+   */
+  --th-ok: #43c98e;
+  --th-warn: #f8c46f;
+  --th-bad: #ff9aa3;
+  --th-unknown: #a3aab7;
+  --th-hatch: #7e8695;
+
+  /* A shadow on a dark ground is not a lighter shadow, it is a heavier one: there is less
+     luminance difference for it to work with, so it needs the depth to read at all. */
+  --shadow-panel: 0 24px 60px rgba(0, 0, 0, 0.62);
+  --shadow-field: 0 1px 2px rgba(0, 0, 0, 0.45);
+}

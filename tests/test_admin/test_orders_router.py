@@ -38,6 +38,7 @@ from hbd.admin.container import AdminContainer
 from hbd.admin.routers.orders import (
     ORDER_ASSETS_PATH,
     ORDER_ATTEMPTS_PATH,
+    ORDER_STATE_COUNTS_PATH,
     ORDER_TIMELINE_PATH,
     ORDERS_PATH,
 )
@@ -51,9 +52,13 @@ from hbd.contracts import (
     Script,
     VoiceGender,
 )
-from hbd.db.enums import AdminRole, GenerationKind
+from hbd.db.admin.sql import MAX_SEARCH_CHARS
+from hbd.db.base import utc_now
+from hbd.db.credits import unenforced_key_prefix
+from hbd.db.enums import AdminRole, CreditEntryKind, CreditReason, GenerationKind
 from hbd.db.models.asset import AssetRow
 from hbd.db.models.brief import BriefRow
+from hbd.db.models.credit_ledger import CreditLedgerRow
 from hbd.db.models.generation_attempt import GenerationAttemptRow
 from hbd.db.models.order import OrderRow
 from hbd.db.models.user import UserRow
@@ -728,18 +733,59 @@ async def test_a_naive_from_is_refused_rather_than_guessed_at(
     assert "UTC offset" in response.json()["error"]["message"]
 
 
-async def test_half_a_window_is_refused_rather_than_completed_with_a_sentinel(
+async def test_a_from_with_no_to_runs_to_the_moment_the_request_was_served(
     container: AdminContainer, client: httpx.AsyncClient
 ) -> None:
-    # Arrange
+    # Arrange — "since X, until now" is the range every date picker produces and it used to be
+    # a 422 (AUDIT_AND_REDESIGN §2.2). ``NOW`` is a fixed instant in the past, so the upper
+    # bound the server supplies is strictly later than both rows.
+    old = await seed_named_order(container, created_at=NOW - timedelta(days=30))
+    recent = await seed_named_order(container, created_at=NOW)
     await signed_in(container, client)
 
     # Act
-    response = await client.get(ORDERS_PATH, params={"from": NOW.isoformat()})
+    body = (
+        await client.get(ORDERS_PATH, params={"from": (NOW - timedelta(days=1)).isoformat()})
+    ).json()
+
+    # Assert — the older row is excluded by the bound the caller gave, not by the one the
+    # server chose, which is what proves the default end is "now" and not "the epoch".
+    ids = [row["id"] for row in body["items"]]
+    assert ids == [str(recent)]
+    assert str(old) not in ids
+
+
+async def test_a_to_with_no_from_leaves_the_lower_bound_off_the_query(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    # Arrange — the mirror case: no invented epoch, just no lower predicate at all.
+    old = await seed_named_order(container, created_at=NOW - timedelta(days=30))
+    await seed_named_order(container, created_at=NOW)
+    await signed_in(container, client)
+
+    # Act
+    body = (
+        await client.get(ORDERS_PATH, params={"to": (NOW - timedelta(days=1)).isoformat()})
+    ).json()
+
+    # Assert
+    assert [row["id"] for row in body["items"]] == [str(old)]
+
+
+async def test_a_from_in_the_future_is_refused_by_the_ordering_check(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    # Arrange — an open-ended window still ends at ``now``, so "since next year" is a window
+    # that ends before it starts rather than a page of nothing to misread.
+    await signed_in(container, client)
+
+    # Act
+    future = utc_now() + timedelta(days=365)
+    response = await client.get(ORDERS_PATH, params={"from": future.isoformat()})
 
     # Assert
     assert response.status_code == 422
-    assert "both bounds" in response.json()["error"]["message"]
+    assert response.json()["error"]["code"] == "INVALID_INPUT"
 
 
 async def test_a_window_that_ends_before_it_starts_is_refused(
@@ -908,3 +954,344 @@ async def test_the_declared_paths_are_the_ones_the_router_serves(
     for declared, concrete in formatted.items():
         assert declared.format(order_id=order_id) == concrete
         assert (await client.get(concrete)).status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Financials on the wire — §5.1 of the audit plan, minus the two rails it invented
+# ---------------------------------------------------------------------------
+async def seed_ledger_entry(session: AsyncSession, **kw: Any) -> CreditLedgerRow:
+    """One ``credit_ledger`` row, by hand.
+
+    Not through ``credits.charge``: that writer takes a policy and a clock, opens its own
+    balance row and decides the generation itself, and every assertion below is about an
+    exact ledger shape rather than about what the entitlement subsystem would have chosen.
+    """
+    row = CreditLedgerRow(
+        id=uuid4(),
+        telegram_user_id=kw.pop("telegram_user_id", TELEGRAM_ID),
+        kind=kw.pop("kind"),
+        reason=kw.pop("reason"),
+        delta=kw.pop("delta"),
+        order_id=kw.pop("order_id", None),
+        generation=kw.pop("generation", 0),
+        idempotency_key=kw.pop("idempotency_key"),
+        actor=kw.pop("actor", "pipeline"),
+        created_at=kw.pop("created_at", NOW),
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def charge_order(container: AdminContainer, order_id: UUID, *, comped: bool = False) -> None:
+    """Debit the order and settle it, exactly as the gate and the worker would.
+
+    ``comped`` adds the dark-switch top-up ``credits._cover_the_shortfall`` writes when
+    ``credits_enforced`` is off — the row that carries no ``order_id`` and is therefore
+    findable only by its idempotency key.
+    """
+    async with container.session_factory.begin() as session:
+        if comped:
+            await seed_ledger_entry(
+                session,
+                kind=CreditEntryKind.GRANT,
+                reason=CreditReason.UNENFORCED_RENDER,
+                delta=1,
+                idempotency_key=f"{unenforced_key_prefix(order_id)}0",
+                actor="unenforced",
+            )
+        await seed_ledger_entry(
+            session,
+            kind=CreditEntryKind.DEBIT,
+            reason=CreditReason.ORDER_RENDER,
+            delta=-1,
+            order_id=order_id,
+            idempotency_key=f"debit:{order_id}:0",
+        )
+        await seed_ledger_entry(
+            session,
+            kind=CreditEntryKind.CONSUME,
+            reason=CreditReason.ORDER_DELIVERED,
+            delta=0,
+            order_id=order_id,
+            idempotency_key=f"consume:{order_id}:0",
+        )
+
+
+async def test_an_order_nobody_charged_reports_no_cost_and_no_rail(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """``creditCost: 0`` with ``ledgerStatus: "unmetered"`` — not "free", and not "pending".
+
+    ``credits_enforced`` ships ``False`` and a DRAFT never reaches the gate, so this is the
+    ordinary case rather than the corner, and it is the case the audit plan's three-value
+    ``ledgerStatus`` had no member for.
+    """
+    # Arrange
+    await seed_named_order(container)
+    await signed_in(container, client)
+
+    # Act
+    row = (await client.get(ORDERS_PATH)).json()["items"][0]
+
+    # Assert
+    assert row["creditCost"] == 0
+    assert row["ledgerStatus"] == "unmetered"
+    assert row["paymentRail"] == "none"
+
+
+async def test_a_settled_order_reports_what_it_cost_on_the_list_and_on_the_detail(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """One answer from two code paths. A detail screen that skipped a query would disagree."""
+    # Arrange
+    order_id = await seed_named_order(container)
+    await charge_order(container, order_id)
+    await signed_in(container, client)
+
+    # Act
+    row = (await client.get(ORDERS_PATH)).json()["items"][0]
+    detail = (await client.get(detail_path(order_id))).json()["order"]
+
+    # Assert
+    assert row == detail
+    assert (row["creditCost"], row["ledgerStatus"], row["paymentRail"]) == (
+        1,
+        "settled",
+        "credits",
+    )
+
+
+async def test_a_refunded_order_reports_zero_because_zero_is_what_makes_it_chargeable_again(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """The one number a "sum of the debits" would get wrong on the screen an operator acts on.
+
+    A refund returns the order to net 0, and net 0 is precisely what lets the gate charge it
+    again at ``generation + 1``. Reporting the debit that was handed back as a cost would have
+    an operator refunding a credit the customer already has.
+    """
+    # Arrange
+    order_id = await seed_named_order(container, state=OrderState.FAILED)
+    async with container.session_factory.begin() as session:
+        await seed_ledger_entry(
+            session,
+            kind=CreditEntryKind.DEBIT,
+            reason=CreditReason.ORDER_RENDER,
+            delta=-1,
+            order_id=order_id,
+            idempotency_key=f"debit:{order_id}:0",
+        )
+        await seed_ledger_entry(
+            session,
+            kind=CreditEntryKind.REFUND,
+            reason=CreditReason.ORDER_FAILED,
+            delta=1,
+            order_id=order_id,
+            idempotency_key=f"refund:{order_id}:0",
+        )
+    await signed_in(container, client)
+
+    # Act
+    row = (await client.get(ORDERS_PATH)).json()["items"][0]
+
+    # Assert
+    assert row["creditCost"] == 0
+    assert row["ledgerStatus"] == "refunded"
+    # Still ``credits``: money moved for this order, it simply moved back.
+    assert row["paymentRail"] == "credits"
+
+
+async def test_a_comped_render_is_labelled_unenforced_rather_than_paid(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """The rail the ledger's ``order_id`` column cannot see, and the deployment's default.
+
+    Both orders below are ``settled`` with a cost of 1. Only the rail says that one customer's
+    balance paid and the other was topped up to the exact cost by a configuration flag.
+    """
+    # Arrange
+    comped_id = await seed_named_order(container, correlation_id="corr-comped")
+    paid_id = await seed_named_order(container, correlation_id="corr-paid")
+    await charge_order(container, comped_id, comped=True)
+    await charge_order(container, paid_id)
+    await signed_in(container, client)
+
+    # Act
+    rows = {row["id"]: row for row in (await client.get(ORDERS_PATH)).json()["items"]}
+
+    # Assert
+    assert rows[str(comped_id)]["ledgerStatus"] == rows[str(paid_id)]["ledgerStatus"] == "settled"
+    assert rows[str(comped_id)]["paymentRail"] == "unenforced"
+    assert rows[str(paid_id)]["paymentRail"] == "credits"
+
+
+async def test_the_retry_count_reports_attempt_rows_and_says_nothing_about_renders(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """``retryCount`` counts rows in ``generation_attempts`` — today, verification verdicts.
+
+    ``seed_named_order`` writes exactly one attempt row, so the field reads ``1`` for a single
+    clean run rather than ``0``: it is not "retries beyond the first". No vendor-render attempt
+    writer exists in ``src/`` at all, which is why the wire docstring forbids the SPA from
+    labelling this "render retries".
+    """
+    # Arrange
+    order_id = await seed_named_order(container)
+    async with container.session_factory.begin() as session:
+        order = await session.get(OrderRow, order_id)
+        assert order is not None
+        await seed_attempt(
+            session, order=order, kind=GenerationKind.NAME_VERIFICATION, attempt=1, is_success=False
+        )
+    await signed_in(container, client)
+
+    # Act
+    row = (await client.get(ORDERS_PATH)).json()["items"][0]
+
+    # Assert
+    assert row["retryCount"] == 2
+
+
+# ---------------------------------------------------------------------------
+# ``/orders/state-counts`` — the distribution bar, over the dataset rather than the page
+# ---------------------------------------------------------------------------
+async def test_the_state_counts_describe_the_dataset_and_not_the_page(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """The bug the route exists for: a bar summarising the fifty rows the browser happens to hold."""
+    # Arrange — three orders, two states, and a page that can only show one of them.
+    await seed_named_order(container, correlation_id="corr-1")
+    await seed_named_order(container, correlation_id="corr-2")
+    await seed_named_order(container, correlation_id="corr-3", state=OrderState.FAILED)
+    await signed_in(container, client)
+
+    # Act
+    page = (await client.get(ORDERS_PATH, params={"limit": 1})).json()
+    body = (await client.get(ORDER_STATE_COUNTS_PATH)).json()
+
+    # Assert
+    assert len(page["items"]) == 1
+    counts = {entry["state"]: entry["count"] for entry in body["counts"]}
+    assert counts[OrderState.DELIVERED.value] == 2
+    assert counts[OrderState.FAILED.value] == 1
+    assert body["total"] == 3
+
+
+async def test_the_state_counts_are_zero_filled_over_every_state(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """Every segment, always, in enum order — a bar that does not re-lay-out as data arrives."""
+    # Arrange
+    await seed_named_order(container)
+    await signed_in(container, client)
+
+    # Act
+    body = (await client.get(ORDER_STATE_COUNTS_PATH)).json()
+
+    # Assert
+    assert [entry["state"] for entry in body["counts"]] == [state.value for state in OrderState]
+    assert body["total"] == 1
+
+
+async def test_the_state_counts_take_the_same_filters_as_the_list(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """It answers for exactly the rows the list would return for the same query string.
+
+    Asserted against the list's own ``?withTotal=true`` rather than against a hand-counted
+    number, because the property that matters is that the two agree: a bar computed from a
+    population the table is not showing is the failure this route was added to fix.
+    """
+    # Arrange
+    await seed_named_order(container, correlation_id="corr-kept")
+    await seed_named_order(container, correlation_id="corr-dropped", state=OrderState.FAILED)
+    await signed_in(container, client)
+    narrowed = {"state": OrderState.DELIVERED.value}
+
+    # Act
+    listed = (await client.get(ORDERS_PATH, params={**narrowed, "withTotal": "true"})).json()
+    body = (await client.get(ORDER_STATE_COUNTS_PATH, params=narrowed)).json()
+
+    # Assert
+    counts = {entry["state"]: entry["count"] for entry in body["counts"]}
+    assert body["total"] == listed["meta"]["total"] == 1
+    assert counts[OrderState.DELIVERED.value] == 1
+    # The state filter narrows this endpoint too, which is what "same filter set" means.
+    assert counts[OrderState.FAILED.value] == 0
+
+
+async def test_the_state_counts_route_needs_a_session_like_every_other_record_read(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    # Arrange
+    await seed_named_order(container)
+
+    # Act
+    response = await client.get(ORDER_STATE_COUNTS_PATH)
+
+    # Assert
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
+# ---------------------------------------------------------------------------
+# ``?q=`` — the identifiers an operator has, and the name they must not get this way
+# ---------------------------------------------------------------------------
+async def test_the_search_matches_the_correlation_id_the_telegram_id_and_a_whole_order_id(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    # Arrange
+    wanted = await seed_named_order(container, correlation_id="req-9f201abc")
+    await seed_named_order(container, correlation_id="req-000zzz")
+    await signed_in(container, client)
+
+    # Act
+    async def ids(query: str) -> list[str]:
+        body = (await client.get(ORDERS_PATH, params={"q": query})).json()
+        return [row["id"] for row in body["items"]]
+
+    # Assert — a fragment of the correlation id, the caller's own Telegram id, a whole
+    # order id. All three are printed unmasked in this very response, so matching a
+    # substring of them discloses nothing the caller was not already handed.
+    assert await ids("9f201") == [str(wanted)]
+    assert await ids(str(wanted)) == [str(wanted)]
+    assert len(await ids(str(TELEGRAM_ID)[-6:])) == 2
+    # A search box that has not been typed into must not empty the table.
+    assert len(await ids("   ")) == 2
+
+
+async def test_the_search_does_not_reach_the_recipient_name(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """A reveal bypass if it regresses: the plaintext costs a step-up, an audit row and a budget."""
+    # Arrange
+    await seed_named_order(container)
+    await signed_in(container, client)
+
+    # Act
+    body = (await client.get(ORDERS_PATH, params={"q": PLAINTEXT_NAME})).json()
+
+    # Assert
+    assert body["items"] == []
+
+
+async def test_an_over_long_search_is_a_422_naming_the_parameter(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """The cap is declared on the route, not left to the query layer's silent truncation.
+
+    ``search_clause`` truncates as a backstop, and a truncated substring pattern *widens*:
+    an operator who pasted a wall of text would get extra rows with nothing on the page to
+    explain them. The boundary refuses instead, and names ``q`` while doing it.
+    """
+    # Arrange
+    await seed_named_order(container)
+    await signed_in(container, client)
+
+    # Act
+    response = await client.get(ORDERS_PATH, params={"q": "x" * (MAX_SEARCH_CHARS + 1)})
+
+    # Assert
+    assert response.status_code == 422
+    assert "q" in str(response.json()["error"]["details"])

@@ -43,12 +43,39 @@ Because it is the join, it also owns every way the run can end from the customer
   ``WIZARD_STATE_TTL`` is the fourteen-day abandoned-draft retention clock, a data
   lifetime rather than a session one. See :func:`_release_session`.
 
-It also assembles ``WorkerSettings``, which is where the SECOND job lives: the hourly
-retention sweep (:mod:`hbd.runtime.retention_job`). Until it was added there, ``functions``
-held one entry and ``cron_jobs`` did not exist, so ``purge_expired`` — complete, tested and
-legally required — was called by nothing at all. The registration is here rather than in
-the sweep's own module because ARQ needs one class naming every job the process can run,
-and one place naming them is what keeps the enqueue side and the worker side in step.
+It also assembles ``WorkerSettings``, which is where every OTHER job lives. There are nine
+of them now, each in its own module and each registered here:
+
+* the hourly retention sweep (:mod:`hbd.runtime.retention_job`). Until it was added,
+  ``functions`` held one entry and ``cron_jobs`` did not exist, so ``purge_expired`` —
+  complete, tested and legally required — was called by nothing at all;
+* the hourly vendor balance poll (:mod:`hbd.runtime.vendor_balance_job`), the only thing in
+  the system that asks a vendor how much credit is left. It runs HERE, in the worker, and
+  never in the admin process, which holds no vendor key and no HTTP client by design;
+* the nightly activity snapshot (:mod:`hbd.runtime.activity_job`), which gives
+  ``users.last_seen_at`` — a gauge that is overwritten every minute — a history that can be
+  charted;
+* the settled-payment notification and the five-minutely Payme sweep
+  (:mod:`hbd.runtime.payme_jobs`). These two are the first entries here whose ENQUEUE side is
+  not in this repository's bot or admin process at all: the Payme gateway is a fourth process
+  that holds the cashbox key and NO Telegram token, so "tell the customer their payment
+  landed" is necessarily a job this worker performs on its behalf. The sweep is the backstop
+  for the enqueue that gateway is allowed to lose — it owes Payme an HTTP 200 whether or not
+  Redis answered — and it is the only cron here that fires more than once an hour, because its
+  cadence is the ceiling on how long a paying customer waits to hear from us;
+* the broadcast pipeline (:mod:`hbd.runtime.broadcast_job`) — an expansion, a send chunk, a
+  one-account test send and a five-minutely due sweep. Their enqueue side is the ADMIN
+  PANEL, the second process after the Payme gateway to queue work here, and for the mirror
+  image of that reason: the panel is denied a Telegram token by design, so composing a
+  campaign and sending it are necessarily two processes. The sweep is both the scheduled-send
+  path (nothing else starts a campaign scheduled for Monday) and the crash recovery for a
+  chunk job a deploy cancelled mid-send.
+
+The registration is here rather than in each job's own module because ARQ needs one class
+naming every job the process can run, and one place naming them is what keeps the enqueue
+side and the worker side in step. Every entry states its ``timeout``, ``max_tries`` and
+``run_at_startup`` explicitly and says why beside it: those three are where a scheduled job
+either starves the customer-facing queue or hammers a rate-limited vendor.
 """
 
 from __future__ import annotations
@@ -64,17 +91,17 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.storage.base import BaseStorage, StorageKey
 from arq.connections import RedisSettings
 from arq.cron import cron
-from arq.worker import Retry
+from arq.worker import Retry, func
 
-from hbd.bot.delivery import deliver_kit
+from hbd.bot.delivery import BLOCKED_BY_CUSTOMER_KEY, deliver_kit
 from hbd.bot.handlers.submitting import ORDER_ID_KEY
 from hbd.bot.i18n import translate
 from hbd.bot.keyboards import start_over_keyboard
 from hbd.bot.progress import TelegramProgressSink
 from hbd.config import Settings
-from hbd.contracts import Err, Order
+from hbd.contracts import BotBlockSource, Err, Order, is_ok
 from hbd.entitlements import SettlementOutcome
-from hbd.errors import PipelineError
+from hbd.errors import HbdError, PipelineError
 from hbd.logging import correlation_scope, get_logger
 from hbd.payments import PIPELINE_ACTOR
 from hbd.pipeline.events import (
@@ -84,19 +111,66 @@ from hbd.pipeline.events import (
     scheduled_stages,
 )
 from hbd.pipeline.outcome import PipelineOutcome
+from hbd.runtime.activity_job import (
+    ACTIVITY_SNAPSHOT_CRON_HOUR,
+    ACTIVITY_SNAPSHOT_CRON_MINUTE,
+    ACTIVITY_SNAPSHOT_JOB_NAME,
+    record_activity_snapshot,
+)
+from hbd.runtime.broadcast_job import (
+    BROADCAST_DUE_CRON_MINUTE,
+    DUE_JOB_NAME,
+    EXPAND_JOB_NAME,
+    SEND_JOB_NAME,
+    TEST_SEND_JOB_NAME,
+    expand_broadcast_audience,
+    send_broadcast_chunk,
+    send_broadcast_test,
+    sweep_due_broadcasts,
+)
 from hbd.runtime.container import AppContainer
+from hbd.runtime.payme_jobs import (
+    PAYME_NOTIFY_JOB_NAME,
+    PAYME_NOTIFY_MAX_TRIES,
+    PAYME_SWEEP_JOB_NAME,
+    notify_payment_settled,
+    run_payme_sweep,
+    sweep_minutes,
+)
 from hbd.runtime.retention_job import (
     RETENTION_CRON_MINUTE,
     RETENTION_JOB_NAME,
     run_retention_sweep,
 )
+from hbd.runtime.vendor_balance_job import (
+    VENDOR_BALANCE_CRON_MINUTE,
+    VENDOR_BALANCE_JOB_NAME,
+    poll_vendor_balances,
+)
+from hbd.usage import usage_scope
 
 __all__ = [
     "generate_and_deliver",
     "run_retention_sweep",
+    "poll_vendor_balances",
+    "record_activity_snapshot",
+    "notify_payment_settled",
+    "run_payme_sweep",
+    "expand_broadcast_audience",
+    "send_broadcast_chunk",
+    "send_broadcast_test",
+    "sweep_due_broadcasts",
     "build_kit_worker_settings",
     "KIT_JOB_NAME",
     "RETENTION_JOB_NAME",
+    "VENDOR_BALANCE_JOB_NAME",
+    "ACTIVITY_SNAPSHOT_JOB_NAME",
+    "PAYME_NOTIFY_JOB_NAME",
+    "PAYME_SWEEP_JOB_NAME",
+    "EXPAND_JOB_NAME",
+    "SEND_JOB_NAME",
+    "TEST_SEND_JOB_NAME",
+    "DUE_JOB_NAME",
     "CONTAINER_CTX_KEY",
     "BOT_CTX_KEY",
     "STORAGE_CTX_KEY",
@@ -402,7 +476,7 @@ async def _send_kit(
     result: PipelineOutcome,
     *,
     ctx: Mapping[str, Any],
-    settings: Settings,
+    container: AppContainer,
     reporter: ProgressReporter,
     chat_id: int,
 ) -> bool:
@@ -417,7 +491,15 @@ async def _send_kit(
     Telegram refused five times left the progress bar frozen on "Sending it over…" with
     the session still parked. On the last attempt the send failure is terminal, and it is
     said out loud like any other.
+
+    ``container`` rather than ``settings`` alone, because this function now has a second job:
+    a send refused because the customer BLOCKED the bot is the only churn source that
+    survives a deploy window (``run_polling`` drops every pending ``my_chat_member`` update
+    on start), and recording it needs ``container.bot_blocks``. The settings it already used
+    for the retry ladder come off the same object, so there is one handle here and not two
+    that could disagree.
     """
+    settings = container.settings
     await reporter.emit(PipelineStage.DELIVERING, ProgressStatus.STARTED, now=_utc_now())
     delivered = await deliver_kit(
         bot,
@@ -439,6 +521,15 @@ async def _send_kit(
             "max_tries": settings.queue_max_tries,
         },
     )
+    # BEFORE the Retry, and that ordering is load-bearing: a retryable delivery failure
+    # raises out of this function, so a record placed after the branch would never run on any
+    # attempt but the last — which is every attempt but one. Recording it changes neither
+    # what this function returns nor what it raises; a blocked customer still burns the full
+    # retry ladder on an undeliverable kit, which is existing behaviour and deliberately
+    # unchanged here (short-circuiting the ladder touches settlement, and settlement's rule
+    # that a kit Telegram refused must not be refunded is what stops a customer blocking the
+    # bot mid-render for a free song).
+    await _record_customer_block(container, order, delivered.error)
     if delivered.error.is_retryable and not _is_final_attempt(ctx, settings):
         raise Retry(defer=_defer_seconds(ctx, settings))
     await reporter.emit(
@@ -446,6 +537,47 @@ async def _send_kit(
     )
     await _tell_the_customer_why(bot, order, key=delivered.error.user_message_key, chat_id=chat_id)
     return False
+
+
+async def _record_customer_block(container: AppContainer, order: Order, error: HbdError) -> None:
+    """Write down that this customer blocked the bot, if that is what the refusal said.
+
+    THE SECOND CHURN SOURCE, and it is not redundant with the first. The bot's
+    ``my_chat_member`` handler learns a block at the instant it happens — but ``run_polling``
+    calls ``delete_webhook(drop_pending_updates=True)`` on every start, so every membership
+    update that arrived while the bot was down is discarded permanently and Telegram never
+    resends it. This arm is the only source that survives a deploy window. Anyone tempted to
+    delete it as duplicated work should read that sentence twice: the transition guard makes
+    a duplicate harmless, and removing this makes every block during a restart invisible.
+
+    ``order.telegram_user_id`` and not ``chat_id``. They are the same number for a private
+    chat today, but the ACCOUNT is what the ``users`` row and the event row are keyed on, and
+    taking it from the order is the version that stays correct if a kit is ever delivered
+    somewhere other than the customer's own chat.
+
+    ``Ok(False)`` is the ORDINARY outcome in a healthy deployment — the membership update
+    arrived first and the transition guard already claimed it — so it is DEBUG rather than a
+    warning. Nothing here changes the caller's return value or its raise.
+    """
+    if not error.context.get(BLOCKED_BY_CUSTOMER_KEY):
+        return
+    recorder = container.bot_blocks
+    if recorder is None:
+        return
+    recorded = await recorder.record_bot_blocked(
+        order.telegram_user_id, at=_utc_now(), source=BotBlockSource.DELIVERY_REFUSAL
+    )
+    context = {"order_id": str(order.id), "telegram_user_id": order.telegram_user_id}
+    if not is_ok(recorded):
+        _LOG.warning(
+            "a delivery refusal could not be recorded as a block",
+            extra={**context, **recorded.error.to_log_dict()},
+        )
+        return
+    if recorded.value:
+        _LOG.info("delivery refusal recorded a customer block", extra=context)
+        return
+    _LOG.debug("delivery refusal matched a block already recorded", extra=context)
 
 
 async def generate_and_deliver(
@@ -477,7 +609,13 @@ async def generate_and_deliver(
         message_id=progress_message_id,
         language=order.brief.ui_language,
     )
-    with correlation_scope(order.correlation_id):
+    # Both scopes, for the same reason and at the same width: every log line and every
+    # vendor_usage row this job writes names the order it was for. Bound HERE as well as in
+    # the orchestrator because the job does more than run the pipeline — delivery, the
+    # settlement legs and the failure paths are all inside it, and a vendor call made on any
+    # of them would otherwise land unattributed. The scopes nest harmlessly when the
+    # orchestrator binds the same id again.
+    with correlation_scope(order.correlation_id), usage_scope(order_id=order.id):
         try:
             return await _run_order(container, bot, order, ctx=ctx, sink=sink, chat_id=chat_id)
         except asyncio.CancelledError:
@@ -517,7 +655,7 @@ async def _run_order(
         order,
         outcome,
         ctx=ctx,
-        settings=container.settings,
+        container=container,
         reporter=_delivery_reporter(sink, order, settings=container.settings),
         chat_id=chat_id,
     )
@@ -585,7 +723,84 @@ def build_kit_worker_settings(
             await shutdown(ctx)
 
     class WorkerSettings:
-        functions = [generate_and_deliver, run_retention_sweep]
+        # Every job this process can run, named here as well as scheduled below: ARQ finds
+        # ``WorkerSettings`` at import and dispatches by FUNCTION NAME, so a cron entry whose
+        # function is absent from this list is a schedule with nothing behind it.
+        functions = [
+            generate_and_deliver,
+            run_retention_sweep,
+            poll_vendor_balances,
+            record_activity_snapshot,
+            # THE SETTLED-PAYMENT NOTIFICATION. Wrapped in ``func`` rather than listed bare
+            # for the ``max_tries``: this is the only job here whose enqueue side is another
+            # PROCESS — the Payme gateway, which holds the cashbox key and no Telegram token
+            # — and its retry ladder is therefore not the queue-wide one. Five attempts, five
+            # seconds apart and growing, sized for a Telegram hiccup rather than for a vendor
+            # rate limit, because the money is already ours and the customer is waiting. The
+            # NAME is stated explicitly instead of being taken from ``__qualname__``: the
+            # gateway enqueues by that string across a process boundary, and letting a
+            # rename silently change it would stop notifications without failing any build.
+            #
+            # ``timeout`` is ``queue_job_timeout_s`` and not a knob of its own: the job makes
+            # one Telegram call and two short reads, and the only thing it can hang on is the
+            # database the kit job already shares that ceiling with.
+            func(
+                notify_payment_settled,
+                name=PAYME_NOTIFY_JOB_NAME,
+                max_tries=PAYME_NOTIFY_MAX_TRIES,
+                timeout=settings.queue_job_timeout_s,
+            ),
+            # The sweep, registered as well as scheduled below. ARQ dispatches by NAME, so a
+            # cron entry whose function is absent from this list is a schedule with nothing
+            # behind it — and this one is also enqueued by hand by ``python -m hbd.payme.cli
+            # reconcile``, which is a second caller that needs the name to resolve.
+            run_payme_sweep,
+            # THE THREE BROADCAST JOBS. Their enqueue side is the ADMIN PANEL — the second
+            # process after the Payme gateway whose jobs run here — so all three names are
+            # stated explicitly rather than taken from ``__qualname__``: ``hbd.admin.queue``
+            # restates the same strings (it must not import this module, which would drag a
+            # ``Bot`` into a process denied a token), and a rename that compiled on both
+            # sides would silently stop every campaign without failing a build.
+            #
+            # ``max_tries=1`` on all three, and it is the same argument the crons make: the
+            # retry is not a ladder, it is the successor chunk and the five-minutely due
+            # sweep below. A ladder here would re-enter a job whose rows are already claimed
+            # — every one of which is settled or released before the job returns — and buy
+            # nothing that the sweep does not already provide from a cleaner state.
+            #
+            # ``timeout`` is ``broadcast_chunk_timeout_s`` and DELIBERATELY NOT
+            # ``queue_job_timeout_s``: 900 seconds is sized for a music render, and a
+            # campaign is 250 chunks. A chunk holding one of fifteen slots for a quarter of
+            # an hour would starve the paying customer behind it, 250 times over. The
+            # cancellation that timeout produces is not free either — it leaves claimed rows
+            # in ``sending`` for the sweep to retire to ``unknown`` — which is why the number
+            # is generous rather than tight.
+            func(
+                expand_broadcast_audience,
+                name=EXPAND_JOB_NAME,
+                max_tries=1,
+                timeout=settings.broadcast_chunk_timeout_s,
+            ),
+            func(
+                send_broadcast_chunk,
+                name=SEND_JOB_NAME,
+                max_tries=1,
+                timeout=settings.broadcast_chunk_timeout_s,
+            ),
+            # The test send is one message to one allowlisted operator. ``max_tries=1``
+            # matters MORE here than above, not less: a retried test send is a second
+            # message to a human who is watching for exactly one.
+            func(
+                send_broadcast_test,
+                name=TEST_SEND_JOB_NAME,
+                max_tries=1,
+                timeout=settings.broadcast_chunk_timeout_s,
+            ),
+            # The due sweep, registered as well as scheduled below, for the reason every
+            # other cron here is: ARQ dispatches by NAME and a schedule whose function is
+            # absent from this list has nothing behind it.
+            sweep_due_broadcasts,
+        ]
         # The FIL-7 retention schedule, on a clock at last. Hourly rather than nightly for
         # two reasons: every sweep is bounded by ``batch_size``, so a backlog is worked off
         # in hourly bites instead of one lock-taking nightly run, and an hourly cadence
@@ -611,7 +826,137 @@ def build_kit_worker_settings(
                 unique=True,
                 max_tries=1,
                 timeout=settings.queue_job_timeout_s,
-            )
+            ),
+            # THE VENDOR BALANCE POLL. Hourly, because a balance moves at the pace of spend
+            # and the alert thresholds are in DAYS of cover, so an hour of staleness cannot
+            # change a decision — and the row carries ``fetched_at``, so its age is never
+            # hidden. Daily was rejected: the SEV-1 condition is a capability's last healthy
+            # provider hitting zero, and a day-old zero is a day of failed customer orders.
+            #
+            # ``timeout`` is ``vendor_balance_job_timeout_s`` and DELIBERATELY NOT
+            # ``queue_job_timeout_s`` like every other entry here: 900 seconds is sized for a
+            # music render, and a cron holding a worker slot for fifteen minutes over a hung
+            # probe would starve the job a paying customer is waiting on, hourly, forever.
+            #
+            # ``max_tries=1``: the next hour IS the retry. The failure is on the
+            # ``vendor_balances`` row either way, with its error code and an incremented
+            # ``consecutive_failures``, and a retry ladder against a rate-limited vendor
+            # endpoint is how a soft 429 becomes a hard block.
+            #
+            # ``run_at_startup=False``, and the alternative was considered. A worker
+            # cold-started at 12:05 shows "not polled" for 38 minutes, which the tile renders
+            # honestly. ``run_at_startup=True`` would close that gap and would fire once PER
+            # REPLICA — arq's ``unique`` key derives from the cron WINDOW and a startup
+            # invocation is in none — so a three-replica rolling deploy would make three
+            # authenticated probes at once. A one-hour cold-start gap on a cached number is
+            # cheaper than a rate-limit ban on the credential the pipeline depends on. Anyone
+            # flipping this to True must bring their own dedupe.
+            cron(
+                poll_vendor_balances,
+                name=VENDOR_BALANCE_JOB_NAME,
+                minute=VENDOR_BALANCE_CRON_MINUTE,
+                run_at_startup=False,
+                unique=True,
+                max_tries=1,
+                timeout=settings.vendor_balance_job_timeout_s,
+            ),
+            # THE NIGHTLY ACTIVITY SNAPSHOT. Once a day just after midnight UTC, because the
+            # row it writes IS a daily sample and a second one the same day is ignored by
+            # ``uq_user_activity_snapshots_snapshot_date`` anyway. ``unique=True`` and
+            # ``max_tries=1`` for the retention entry's reasons; the unique constraint makes
+            # a duplicate harmless rather than merely unlikely, which is what lets
+            # ``max_tries=1`` be safe here — a lost night is a GAP in the series, and a gap
+            # is the honest record of a worker that was down. Nothing back-fills it: the
+            # ``last_seen_at`` values that would have answered for yesterday no longer exist.
+            #
+            # ``timeout`` is ``queue_job_timeout_s`` here and not a knob of its own: this job
+            # makes no network call at all, so the only thing it can hang on is the database
+            # the kit job already shares that ceiling with.
+            cron(
+                record_activity_snapshot,
+                name=ACTIVITY_SNAPSHOT_JOB_NAME,
+                hour=ACTIVITY_SNAPSHOT_CRON_HOUR,
+                minute=ACTIVITY_SNAPSHOT_CRON_MINUTE,
+                run_at_startup=False,
+                unique=True,
+                max_tries=1,
+                timeout=settings.queue_job_timeout_s,
+            ),
+            # THE PAYME SWEEP. The ONLY entry here that fires more than once an hour, and the
+            # cadence is a customer-facing number rather than a technical one: it is the
+            # ceiling on how long somebody who paid during a Redis outage waits to be told,
+            # because the gateway's post-commit enqueue is best-effort by design (Payme is
+            # owed an HTTP 200 whether or not Redis answered). ``HBD_PAYME_SWEEP_MINUTES``
+            # sets it; :func:`hbd.runtime.payme_jobs.sweep_minutes` turns "every N" into the
+            # minute SET arq wants and clamps nonsense to the default rather than refusing to
+            # build ``WorkerSettings``, which is read at IMPORT time and would take the kit
+            # job down with it.
+            #
+            # ``max_tries=1``: the next run — five minutes away, not an hour — IS the retry,
+            # which is the vendor poll's argument with a much shorter penalty. Every arm is
+            # bounded by its own batch size and every one of them is idempotent, so a run
+            # that dies halfway costs nothing but the rows it had not reached yet.
+            #
+            # ``unique=True`` (arq's default, stated because it is load-bearing) keeps a
+            # multi-replica deployment to ONE sweep per window. Note the same caveat the
+            # entries above carry: ``unique`` derives from the cron WINDOW, so a rolling
+            # deploy that cold-starts N replicas produces no simultaneous runs here only
+            # because ``run_at_startup=False`` — a startup invocation belongs to no window
+            # and would fire once per replica. Anyone flipping that to True must bring their
+            # own dedupe, and here it would mean N concurrent re-enqueues of the same backlog
+            # (harmless, because the notification job id is deterministic, but N times the
+            # reads for nothing).
+            cron(
+                run_payme_sweep,
+                name=PAYME_SWEEP_JOB_NAME,
+                # ``sweep_minutes`` hands back a sorted TUPLE and arq's ``OptionType`` says
+                # ``None | int | Set[int]`` — but ``arq.cron._get_next_dt`` dispatches on
+                # ``isinstance(v, (set, list, tuple))``, so the annotation is narrower than
+                # the behaviour and a tuple is fully supported. The tuple is deliberate: a
+                # ``set`` here is unhashable and would break
+                # ``test_no_two_crons_in_this_worker_contend_for_the_same_minute``, which
+                # collects every entry's ``minute`` to prove no two writers collide.
+                minute=sweep_minutes(settings),  # type: ignore[arg-type]
+                run_at_startup=False,
+                unique=True,
+                max_tries=1,
+                timeout=settings.queue_job_timeout_s,
+            ),
+            # THE BROADCAST DUE SWEEP. The second entry here that fires more than once an
+            # hour, and it is TWO backstops in one pass because they are one sentence —
+            # enqueue what is waiting.
+            #
+            # It is the SCHEDULED-SEND PATH: the panel deliberately enqueues nothing for a
+            # future instant, because a job deferred by three days inside Redis is a promise
+            # made by the least durable component in the system, and a campaign an operator
+            # scheduled for Monday must go out on Monday whether or not Redis was restarted
+            # on Sunday. And it is the CRASH RECOVERY: a chunk job cancelled by a deploy
+            # leaves rows claimed and no successor queued, and arq's own retry cannot fix
+            # that — ``max_tries=1`` on the chunk means there is no retry, by design.
+            #
+            # Every campaign it revives has to have STOPPED MOVING first
+            # (``broadcasts.updated_at`` older than the sending lease), which is what keeps a
+            # sweep running twelve times an hour from giving one healthy campaign twelve
+            # parallel chains of chunk jobs.
+            #
+            # ``:04, :09, …`` rather than ``:00, :05, …``: the Payme sweep already owns the
+            # five-minute boundary and ``test_no_two_crons_in_this_worker_contend_for_the_
+            # same_minute`` is the assertion that keeps two database writers off one minute.
+            #
+            # ``max_tries=1`` for the retention entry's reason — the next run five minutes
+            # away IS the retry, and a failed sweep must not become two concurrent ones —
+            # and ``timeout`` is the chunk timeout rather than ``queue_job_timeout_s``,
+            # because this makes one bounded query and at most fifty enqueues and has no
+            # business holding a worker slot for fifteen minutes if Redis goes quiet.
+            cron(
+                sweep_due_broadcasts,
+                name=DUE_JOB_NAME,
+                minute=BROADCAST_DUE_CRON_MINUTE,  # type: ignore[arg-type]
+                run_at_startup=False,
+                unique=True,
+                max_tries=1,
+                timeout=settings.broadcast_chunk_timeout_s,
+            ),
         ]
         redis_settings = RedisSettings.from_dsn(settings.redis_url)
         max_jobs = settings.worker_concurrency

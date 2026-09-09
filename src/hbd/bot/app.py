@@ -18,12 +18,14 @@ from aiogram.fsm.storage.base import BaseEventIsolation, BaseStorage
 from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 from aiogram.fsm.storage.redis import RedisEventIsolation, RedisStorage
 
+from hbd.bot.chatlog import ChatLogInboundMiddleware
 from hbd.bot.deps import DEPS_KEY, BotDeps
 from hbd.bot.gate import InboundGateMiddleware
 from hbd.bot.handlers import build_router
-from hbd.bot.handlers.commands import BOT_COMMANDS
+from hbd.bot.handlers.commands import commands_for
 from hbd.bot.middleware import ErrorGuardMiddleware
 from hbd.config import Settings
+from hbd.contracts import Language
 from hbd.db.retention import DEFAULT_RETENTION_POLICY
 from hbd.logging import get_logger
 from hbd.ratelimit import resolve_inbound_policy
@@ -67,6 +69,18 @@ def build_storage(settings: Settings) -> BaseStorage:
     otherwise keep a second copy in Redis forever, outliving both the 14-day sweep that
     deletes the order it would have created and the 30-day sweep that nulls the lyric.
     Expiring on the abandoned-draft clock is what makes the two copies agree.
+
+    **The two onboarding caches live in this same storage and expire on this same clock**, and
+    that is safe precisely because they are caches and ``user_profiles`` is the truth.
+    ``draft.UI_LANGUAGE_KEY`` and ``draft.ONBOARDED_KEY`` survive ``state.clear()`` — see
+    ``handlers.common.clear_keeping_identity`` — but they do not survive fourteen idle days,
+    and neither needs to: a customer returning after fifteen pays exactly one ``profiles.get``
+    in ``handlers.onboarding.load_identity`` and is shown the MENU, not the language question,
+    because the row still says both questions were answered. The same is true of an abandoned
+    onboarding: a session parked at ``Onboarding.contact`` for fourteen days expires to no
+    state at all, and the ``NotOnboarded`` catch-all then re-enters at the contact step from
+    the row — it RESUMES rather than restarting, so nobody is re-asked their language because
+    a Redis key aged out.
     """
     return RedisStorage.from_url(
         settings.redis_url, state_ttl=WIZARD_STATE_TTL, data_ttl=WIZARD_STATE_TTL
@@ -124,6 +138,12 @@ def build_dispatcher(
     guard = ErrorGuardMiddleware()
     dispatcher.message.middleware(guard)
     dispatcher.callback_query.middleware(guard)
+    if deps.chat_recorder is not None:
+        chat_inbound = ChatLogInboundMiddleware(deps.chat_recorder)
+        dispatcher.message.middleware(chat_inbound)
+        dispatcher.callback_query.middleware(chat_inbound)
+        dispatcher.startup.register(deps.chat_recorder.start)
+        dispatcher.shutdown.register(deps.chat_recorder.aclose)
     install_inbound_gate(dispatcher, deps)
     dispatcher.include_router(build_router())
     return dispatcher
@@ -141,6 +161,17 @@ def install_inbound_gate(dispatcher: Dispatcher, deps: BotDeps) -> InboundGateMi
     live on it, so two instances would hand every account two budgets. Registering per
     event type rather than once on ``update`` is what lets a refused callback be answered,
     which is the only way to stop the customer's button spinning.
+
+    **"Both" stopped being a complete description of this dispatcher when the churn router
+    landed, so the third observer's absence is recorded here rather than inferred.** The
+    dispatcher now also carries ``my_chat_member`` (``hbd.bot.handlers.membership``), and the
+    gate is deliberately NOT installed on it. Two reasons, each sufficient. Its ``TouchDrain``
+    would stamp ``last_seen_at`` from a BLOCK — and somebody who has just blocked the bot is
+    the precise opposite of an active user, so the active-user series would be fed by the one
+    event that disproves it. And its block check would refuse the update outright for a barred
+    account, which would silently stop recording the churn of exactly the accounts an operator
+    most wants to see leave. A ``my_chat_member`` update also costs nothing to serve and is
+    rate-limited by Telegram at the source, so the throttle has no work to do there either.
 
     ``deps.entitlements`` is the READ-ONLY meter (``BotDeps.entitlements``): the gate calls
     ``balance_for`` for the block flag and ``touch`` from its background drain, and nothing
@@ -164,26 +195,60 @@ def install_inbound_gate(dispatcher: Dispatcher, deps: BotDeps) -> InboundGateMi
     return gate
 
 
+#: Which catalogue fills which Telegram command locale, ``None`` being the default list every
+#: client falls back to. Telegram takes a two-letter ISO 639-1 code and nothing else — ``uz``
+#: is accepted but ``uz-latn`` and ``uz-cyrl`` are rejected with a 400 — so Uzbek Cyrillic
+#: has no slot of its own and Uzbek Latin fills both the default and ``uz``.
+#:
+#: The default is Uzbek Latin rather than Russian because
+#: :attr:`~hbd.config.Settings.default_ui_language` already is: a Russian menu above an Uzbek
+#: first screen would be the bot speaking two languages in one breath. Everyone whose client
+#: reports ``ru`` or ``en`` gets their own list below, so the default only ever serves the
+#: residual — which in this market is dominated by users who installed the ``uz-beta``
+#: language pack, and they are the last people to serve in Russian.
+COMMAND_LOCALES: Final[tuple[tuple[str | None, Language], ...]] = (
+    (None, Language.UZ_LATN),
+    ("uz", Language.UZ_LATN),
+    ("ru", Language.RU),
+    ("en", Language.EN),
+)
+
+
 async def publish_commands(bot: Bot) -> None:
-    """Fill Telegram's command menu with :data:`BOT_COMMANDS`. Never raises.
+    """Fill Telegram's command menu, one list per locale. Never raises.
 
     Without this call the menu button in the chat is empty, so ``/privacy`` and ``/support``
     exist but are undiscoverable — which for a bot that collects a third party's name is
     the same as not offering them.
 
-    Failure is logged and swallowed on purpose. The menu is a convenience; a Telegram
-    hiccup while setting it must not stop a bot that is otherwise ready to take orders, and
-    the next start tries again.
+    **Every list is written whole, at the default scope, and nowhere else.** Telegram
+    resolves a menu by first-list-wins and never merges, so a partial translation is not a
+    thing that can be expressed: a ``ru`` list missing one entry hides that command from
+    every Russian client rather than falling through to the default. For the same reason
+    nothing here writes ``all_private_chats`` — that scope sits ABOVE ``default`` in the
+    resolution chain and an unlocalised list there would mask every locale below it.
+
+    Failure is logged and swallowed on purpose, per locale. The menu is a convenience; a
+    Telegram hiccup while setting it must not stop a bot that is otherwise ready to take
+    orders, and the next start tries again.
 
     Called from :func:`run_polling` rather than at import, because importing this module is
     guaranteed to perform no I/O.
     """
-    try:
-        await bot.set_my_commands(list(BOT_COMMANDS))
-    except TelegramAPIError as exc:
-        _LOG.error("could not publish the command menu", extra={"failure": repr(exc)})
-        return
-    _LOG.info("command menu published", extra={"command_count": len(BOT_COMMANDS)})
+    for code, language in COMMAND_LOCALES:
+        commands = commands_for(language)
+        try:
+            await bot.set_my_commands(commands, language_code=code)
+        except TelegramAPIError as exc:
+            _LOG.error(
+                "could not publish the command menu",
+                extra={"language_code": code or "", "failure": repr(exc)},
+            )
+            continue
+        _LOG.info(
+            "command menu published",
+            extra={"language_code": code or "", "command_count": len(commands)},
+        )
 
 
 async def run_polling(bot: Bot, dispatcher: Dispatcher) -> None:  # pragma: no cover - live I/O

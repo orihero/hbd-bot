@@ -19,7 +19,7 @@ beforeEach(() => {
 });
 
 describe("TopBar", () => {
-  it("shows §11.2's controls: env, palette, LIVE, clock, theme, account", () => {
+  it("shows §11.2's controls: env, command palette, LIVE, clock, theme, account", () => {
     renderWithProviders(<TopBar />, { me: meFixture("owner"), config: configFixture("dev") });
     expect(screen.getByText("dev")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open the command palette" })).toBeInTheDocument();

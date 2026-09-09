@@ -30,6 +30,7 @@ from enum import StrEnum
 from typing import Final
 
 __all__ = [
+    "ANY_ORIGIN",
     "CSRF_HEADER_NAME",
     "CSRF_COOKIE_NAME",
     "SESSION_COOKIE_NAME",
@@ -40,6 +41,15 @@ __all__ = [
     "verify_csrf_token",
     "verify_csrf_request",
 ]
+
+#: Configured as ``HBD_ADMIN_PUBLIC_ORIGIN=*``: accept every ``Origin``, and accept a
+#: request that carries none. This turns the pre-session half of T8 OFF — the origin check
+#: is the ONLY CSRF layer a login has, so with it set, any page on the internet can POST
+#: ``/api/auth/login`` and every other mutation at a panel the browser holds a cookie for.
+#: :meth:`AdminSettings.accepted_origins` refuses it outside ``dev`` for that reason. It
+#: exists so that a developer running the SPA on whatever port Vite picked today does not
+#: have to restart the API to change one string.
+ANY_ORIGIN: Final[str] = "*"
 
 CSRF_HEADER_NAME: Final[str] = "X-CSRF-Token"
 #: ``__Host-`` is not cosmetic: the prefix makes the browser refuse the cookie unless it is
@@ -73,11 +83,25 @@ def is_csrf_protected_method(method: str) -> bool:
     return method.upper() not in CSRF_EXEMPT_METHODS
 
 
-def verify_origin(origin: str | None, *, expected_origin: str) -> CsrfDecision:
-    """Exact string match against the configured public origin. Absent is a refusal."""
+def verify_origin(origin: str | None, *, accepted_origins: frozenset[str]) -> CsrfDecision:
+    """Exact string match against the accepted origins. Absent is a refusal.
+
+    A set rather than one string only so that ``dev`` can accept ``localhost`` and
+    ``127.0.0.1`` as the one machine they are (``settings.accepted_origins``). Membership is
+    still exact — no prefix, suffix or subdomain matching — and outside ``dev`` the set holds
+    exactly one element, so this is the same control it was.
+
+    :data:`ANY_ORIGIN` in the set is the one exception, and it is a hole rather than a wider
+    match: it allows every origin AND the absent one, because a check that waves through
+    anything a browser sends but still refuses a request that sends nothing would keep
+    blocking the ``curl`` and the alternate dev port this setting is reached for.
+    ``accepted_origins`` only ever produces it in ``dev``.
+    """
+    if ANY_ORIGIN in accepted_origins:
+        return CsrfDecision.ALLOWED
     if not origin:
         return CsrfDecision.ORIGIN_MISSING
-    if origin != expected_origin:
+    if origin not in accepted_origins:
         return CsrfDecision.ORIGIN_MISMATCH
     return CsrfDecision.ALLOWED
 
@@ -109,7 +133,7 @@ def verify_csrf_request(
     *,
     method: str,
     origin: str | None,
-    expected_origin: str,
+    accepted_origins: frozenset[str],
     header_token: str | None,
     stored_token: str | None,
 ) -> CsrfDecision:
@@ -121,7 +145,7 @@ def verify_csrf_request(
     """
     if not is_csrf_protected_method(method):
         return CsrfDecision.ALLOWED
-    origin_decision = verify_origin(origin, expected_origin=expected_origin)
+    origin_decision = verify_origin(origin, accepted_origins=accepted_origins)
     if origin_decision is not CsrfDecision.ALLOWED:
         return origin_decision
     return verify_csrf_token(header_token, stored_token=stored_token)

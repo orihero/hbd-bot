@@ -64,7 +64,7 @@ _HASH: Final[str] = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$notarealdigest"
 
 #: Matches docker-compose.yml. Overridable so CI can point at its own instance.
 _POSTGRES_URL: Final[str] = os.environ.get(
-    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd"
+    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
 )
 #: Five, because five out of five is what the defect scored. One trial that happens to
 #: serialise proves nothing.

@@ -100,6 +100,10 @@ const config: Config = {
           mark: "var(--ink-mark)",
           rule: "var(--ink-rule)",
           "on-brand": "var(--ink-on-brand)",
+          /* The label on a SOLID --error ground: EnvBadge's prod pill, `danger-solid`. Those
+             sites say `text-surface-card` today, which names a SURFACE as a foreground and is
+             why the pair went unmeasured until it had a name of its own. */
+          "on-error": "var(--ink-on-error)",
         },
         /* Lines. This design draws very few; where it used to, it uses space or a shadow. */
         hairline: {
@@ -111,7 +115,13 @@ const config: Config = {
         focus: "var(--focus-ring)",
 
         /* Semantic hue families. */
-        brand: { ...family("brand"), solid: "var(--brand-solid)" },
+        /* `solid-edge` is the 1px ring that gives `bg-brand-solid` a shape — `ring-brand-solid-edge`
+           or `border-brand-solid-edge`, never a fill and never a chart series. */
+        brand: {
+          ...family("brand"),
+          solid: "var(--brand-solid)",
+          "solid-edge": "var(--brand-solid-edge)",
+        },
         accent: family("accent"),
         success: family("success"),
         caution: family("caution"),

@@ -6,7 +6,7 @@ That absence is the security property, and it is stronger than any check could b
 no attribute it could ever be read through. A missing key cannot be an error here and a
 present key cannot be a value (ADMIN_PANEL_PLAN §4.2, D10). ``.env.admin`` is a separate
 file for the same reason: pointing the panel at the shared ``.env`` would hand it every one
-of the four credentials in ``hbd.config.VENDOR_SECRET_FIELDS`` by accident, which is exactly
+of the five credentials in ``hbd.config.VENDOR_SECRET_FIELDS`` by accident, which is exactly
 the mistake the separate process exists to make impossible.
 
 Everything else here is a bound, and every bound fails at build time rather than at the
@@ -35,6 +35,7 @@ first request that depends on it:
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import date
 from pathlib import Path
 from typing import Annotated, Any, Final, Literal, Self
 
@@ -43,21 +44,44 @@ from pydantic import ValidationError as PydanticValidationError
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from pydantic_settings.exceptions import SettingsError
 
+from hbd.admin.csrf import ANY_ORIGIN
 from hbd.admin.security.clientip import IpNetwork, parse_trusted_proxies
-from hbd.config import ENV_PREFIX, LogLevel
+from hbd.config import ENV_PREFIX, LogLevel, resolve_env_file
 from hbd.errors import ConfigError
 
 __all__ = [
     "AdminSettings",
     "AdminEnvironment",
+    "ANY_ORIGIN",
     "ADMIN_ENV_FILE",
+    "ADMIN_ENV_FILE_VAR",
+    "admin_env_file",
     "DEV_ENVIRONMENT",
     "DEV_PUBLIC_ORIGIN",
+    "LOOPBACK_HOSTS",
+    "loopback_aliases",
     "build_admin_settings",
 ]
 
 #: Never ``.env``: a shared file is how a vendor key reaches a process that must not hold one.
 ADMIN_ENV_FILE: Final[str] = ".env.admin"
+
+#: Selects a different one — ``HBD_ADMIN_ENV_FILE=.env.admin.prod``. Deliberately a SECOND
+#: variable rather than a tier name shared with ``HBD_ENV_FILE``: the whole point of this
+#: module is that the admin process reads a different file from the bot and the worker, and
+#: one knob deriving both paths would be one edit away from pointing them at the same file.
+#: Read from the process environment only, for the reason on :data:`hbd.config.ENV_FILE_VAR`.
+ADMIN_ENV_FILE_VAR: Final[str] = f"{ENV_PREFIX}ADMIN_ENV_FILE"
+
+
+def admin_env_file() -> str:
+    """Which dotenv file the admin process reads. See :data:`ADMIN_ENV_FILE_VAR`.
+
+    Reads the module global at call time rather than closing over it, so that a test which
+    monkeypatches ``ADMIN_ENV_FILE`` still redirects every reader of it.
+    """
+    return resolve_env_file(ADMIN_ENV_FILE_VAR, ADMIN_ENV_FILE)
+
 
 #: The one environment in which ``DEBUG`` may be on and the public origin may be left at its
 #: loopback default. ``Secure`` is not on that list any more — see the module docstring.
@@ -70,6 +94,45 @@ DEV_PUBLIC_ORIGIN: Final[str] = "http://127.0.0.1:8080"
 type AdminEnvironment = Literal["dev", "staging", "prod"]
 
 _ORIGIN_SCHEMES: Final[tuple[str, ...]] = ("http://", "https://")
+
+#: The three spellings of "this machine". A browser treats them as three DIFFERENT origins
+#: — an exact-match check configured for one 403s the other two — but they are one server,
+#: and which one reaches the URL bar is decided by what the operator typed, by a bookmark,
+#: or by whichever one the dev server printed. In dev that distinction protects nothing:
+#: anything that can open http://localhost:8080 can open http://127.0.0.1:8080 just as
+#: easily, so refusing the alias costs an operator an afternoon and costs an attacker
+#: nothing. Outside dev the exact match stands, because there the origin is a real name
+#: with a real certificate and a neighbour on the same host is not automatically us.
+LOOPBACK_HOSTS: Final[tuple[str, ...]] = ("localhost", "127.0.0.1", "[::1]")
+
+
+def _split_authority(authority: str) -> tuple[str, str]:
+    """``host[:port]`` → ``(host, ":port" or "")``, with IPv6 literals kept bracketed."""
+    if authority.startswith("["):
+        closing = authority.find("]")
+        if closing == -1:  # unbracketed garbage; the field validator already refused it
+            return authority, ""
+        return authority[: closing + 1], authority[closing + 1 :]
+    host, separator, port = authority.partition(":")
+    return host, f"{separator}{port}" if separator else ""
+
+
+def loopback_aliases(origin: str) -> frozenset[str]:
+    """Every spelling of ``origin`` a dev browser may present, scheme and port preserved.
+
+    Returns just ``{origin}`` unless its host is one of :data:`LOOPBACK_HOSTS` — a real
+    hostname has no aliases to widen to, so a misconfigured staging origin cannot pick any
+    up by accident. The port is never varied: ``:5173`` and ``:8080`` are two different
+    servers, and only one of them is the panel.
+    """
+    scheme, separator, authority = origin.partition("://")
+    if not separator or not authority:
+        return frozenset({origin})
+    host, port = _split_authority(authority)
+    if host.lower() not in LOOPBACK_HOSTS:
+        return frozenset({origin})
+    return frozenset(f"{scheme}://{alias}{port}" for alias in LOOPBACK_HOSTS)
+
 
 _DEBUG_LEVEL: Final[str] = "DEBUG"
 
@@ -210,6 +273,167 @@ class AdminSettings(BaseSettings):
     #: two can be compared, rather than hidden inside the metrics response alone.
     admin_name_match_min_similarity: float | None = Field(default=None, ge=0.0, le=1.0)
 
+    # -- the settlement grace, MIRRORED and not owned -----------------------
+    #: ``EntitlementPolicy.settlement_grace_s`` as the WORKER is running it, republished here
+    #: so ``GET /users/{id}`` can compute ``inFlightRenderCount`` with the same cutoff the
+    #: bot's gate used.
+    #:
+    #: The number matters because it is the one on the screen that explains a refusal. The
+    #: gate counts unsettled debits newer than ``now - settlement_grace_s``
+    #: (``credit_sql.count_in_flight``), and that grace is either an operator's
+    #: ``HBD_SETTLEMENT_GRACE_S`` or DERIVED from the queue ladder
+    #: (``entitlements.resolve_entitlement_policy``) — so a deployment that lowered it to
+    #: 300s had this panel counting a 30-minute-old debit the customer's own gate had already
+    #: forgotten, and one that raised ``HBD_QUEUE_JOB_TIMEOUT_S`` had the panel showing 0
+    #: while the gate refused. Under shipped defaults the two agree, which is why nothing
+    #: went red.
+    #:
+    #: Unset means "this deployment has not published its grace", and the panel then uses
+    #: ``DEFAULT_ENTITLEMENT_POLICY`` — the shipped default, which is the only honest guess
+    #: available to a process that does not read ``.env``. The mirror's cost is drift, which
+    #: is why the value is published on ``GET /api/config`` beside the rest, exactly as
+    #: ``admin_name_match_min_similarity`` above is: an operator comparing the two columns
+    #: can see which clock produced the number.
+    admin_settlement_grace_s: int | None = Field(default=None, ge=1, le=86_400)
+
+    # -- the free allowance, MIRRORED and not owned -------------------------
+    #: ``EntitlementPolicy.allowance_credits`` as the WORKER is running it, republished here
+    #: so ``GET /users/{id}``'s ``creditsProjected`` is the number the customer was actually
+    #: shown on their Confirm screen.
+    #:
+    #: **This mirror exists because a shipped defect proved the allowance moves.** The panel
+    #: used to build its policy as ``EntitlementPolicy(settlement_grace_s=...)`` and let the
+    #: allowance fall through to the dataclass default of 3, on the argument that the
+    #: allowance was a constant on both sides. It stopped being one when the paywall shipped
+    #: and ``Settings.free_allowance_credits`` went to 0: ``read_balance`` adds
+    #: ``policy.allowance_credits`` whenever an allowance is due, and an allowance of 0 makes
+    #: ``credits._mint_due_allowance`` return before it ever stamps
+    #: ``allowance_period_index``, so "due" is permanently true for every account. The panel
+    #: therefore added 3 songs to every customer in the fleet, forever — a customer holding
+    #: one paid top-up read 1 on their own screen and 4 on the operator's, which is precisely
+    #: the ticket ``creditsProjected`` was added to settle.
+    #:
+    #: An ``int`` and not ``int | None``, unlike the two mirrors above, because there is no
+    #: honest way to render "unpublished" here: the projection is arithmetic and the
+    #: allowance is one of its terms, so this process must commit to a number. The default is
+    #: therefore what the bot itself now ships (``Settings.free_allowance_credits``, 0), so
+    #: an operator who configures nothing gets agreement with the shipped deployment rather
+    #: than a silent three-song overstatement. A deployment that re-opens a free allowance
+    #: must set this to the same number, exactly as it must for the grace above; the cost of
+    #: any mirror is drift, and drift here shows up as a balance the customer disputes.
+    #:
+    #: Not yet on ``GET /api/config``: :mod:`hbd.admin.schemas.config_view` publishes the two
+    #: mirrors it was written for, and this one has to join them so an operator holding a
+    #: disputed balance can see which allowance produced it. Until then the only way to spot
+    #: drift is to compare the two deployments' environments by hand.
+    admin_free_allowance_credits: int = Field(default=0, ge=0, le=100)
+
+    # -- the FX rate, OWNED here and nowhere else ----------------------------
+    #: Soʻm per US dollar, as an operator entered it. Revenue is UZS tiyin and vendor cost is
+    #: USD, and no FX rate exists in any table or setting today — which is the single gap
+    #: blocking the dashboard's Net card and its revenue-versus-cost chart.
+    #:
+    #: **It is on AdminSettings and NOT on ``hbd.config.Settings``**, unlike the three mirrors
+    #: above, because it is not a mirror: it is a REPORTING parameter with no other owner.
+    #: Every vendor rate card and every NFR ceiling in this system is already quoted in USD,
+    #: so nothing the bot or the worker does depends on it, and putting it on the frozen
+    #: ``Settings`` would create a fourth mirror whose only property is drift, for a value the
+    #: worker would never read. It is therefore absent from ``.env.example`` and present only
+    #: in ``.env.admin.example``.
+    #:
+    #: **Unset means NO RATE**, and the panel renders an em-dash rather than a figure. The
+    #: three alternatives are all worse. A default of ``1.0`` silently implies parity and
+    #: makes 7 000 UZS read as $7 000 against $3.47 of cost — a 200 000% margin on the one
+    #: card whose entire purpose is telling an operator whether the business works. A default
+    #: of ``0`` is not a usable multiplier in either direction, since the UZS→USD leg divides
+    #: by it. And a "plausible" 12 800 is the worst of the three: a number nobody chose,
+    #: drifting silently with the som, presented with exactly the confidence of one an
+    #: operator entered — the same argument :attr:`admin_name_match_min_similarity` makes
+    #: about an invented threshold and :attr:`hbd.config.Settings.support_contact` makes about
+    #: a destination nobody reads.
+    #:
+    #: **The server never converts.** Every payload carries ``amountMinor`` in its own
+    #: currency, ``costUsd`` in USD, and this rate beside them; the arithmetic is the client's
+    #: and is gated on a non-null rate. A converted figure on the wire has lost its provenance
+    #: and would be silently revalued the day the rate is edited — the same
+    #: retroactive-repricing defect ``plan_purchases.songs_included`` and
+    #: ``vendor_usage.cost_usd`` were each shaped to avoid.
+    #:
+    #: ``gt=0`` rather than the ``ge=0`` a rate card uses: a zero there means "not priced" and
+    #: its result is discarded, whereas a zero here is arithmetic that cannot be performed.
+    #: ``le=1_000_000`` sits two orders of magnitude clear of the som's ~12 000–13 000, so a
+    #: fat-finger is caught and a real devaluation is not refused.
+    admin_uzs_per_usd: float | None = Field(default=None, gt=0, le=1_000_000)
+    #: The date the rate above was taken. **Mandatory whenever a rate is set**, enforced by
+    #: :meth:`_the_fx_rate_carries_its_date`, so a stale figure is visibly stale. There is no
+    #: feed behind this value and there never will be one in this process; the as-of date is
+    #: the only staleness signal there is, and it only works if the panel renders it beside
+    #: the rate.
+    admin_uzs_per_usd_as_of: date | None = Field(default=None)
+
+    # -- the shipped price, MIRRORED and not owned ---------------------------
+    #: ``Settings.single_song_price_minor`` as the WORKER is running it, republished here
+    #: because every Finance card on the dashboard multiplies by it.
+    #:
+    #: Nullable and defaulting to ``None`` on :attr:`admin_name_match_min_similarity`'s
+    #: precedent: this process does not read ``.env``, so importing the bot model's default
+    #: (700 000) would publish a price a deployment may not be charging. Unset means the
+    #: derived-revenue figure is ``null`` and the cost-per-song chart draws no price line —
+    #: which is honest, where a wrong price is a wrong number on every card at once.
+    #:
+    #: Note what this is NOT for: it prices a HYPOTHETICAL ("delivered × the shipped price"),
+    #: never a historical sale. Recorded revenue comes from ``topup_purchases`` and
+    #: ``plan_purchases``, and nothing may back-price a past sale at a value read now.
+    admin_single_song_price_minor: int | None = Field(default=None, ge=0)
+    #: ISO-4217 code the mirrored price is denominated in. Travels with the price for the
+    #: reason ``cost_source`` travels with ``cost_usd``: an amount with no currency cannot be
+    #: read, and this one is compared against ``plan_purchases.currency`` before any total is
+    #: formed. Bound both-or-neither to the price by
+    #: :meth:`_the_mirrored_price_carries_its_currency` — the AdminSettings counterpart of
+    #: ``ck_vendor_usage_cost_carries_its_source``.
+    admin_kit_currency: str | None = Field(default=None, min_length=3, max_length=3)
+
+    # -- dashboard query bounds ----------------------------------------------
+    #: The trailing window the net run-rate ("MRR") card is computed over, INDEPENDENT of the
+    #: request's ``?from``/``?to``. Computing it over the caller's window would make "MRR"
+    #: mean "today's net" whenever the selector says Today, and then multiply it by twelve for
+    #: the ARR beside it. Bounded above at a year because a monthly run rate annualised by
+    #: twelve is only meaningful over a window shorter than the year it annualises to.
+    admin_dashboard_run_rate_days: int = Field(default=30, ge=1, le=365)
+    #: The longest window ``?bucket=hour`` will serve. Beyond it the request is a 422 naming
+    #: the parameter, never a silent coarsening — a chart that quietly changed its bucket
+    #: width would be a different measurement wearing the same axis. Eight days rather than
+    #: seven so a week-long window plus its equal-length PRIOR window (the delta arm's
+    #: spanning scan) still fits.
+    admin_dashboard_max_hourly_window_days: int = Field(default=8, ge=1, le=31)
+    #: Ceiling on points per series in one dashboard series response; exceeding it is a 422.
+    #: 750 clears a year of daily buckets (366) and a month of hourly ones (744), and refuses
+    #: a year of hourly ones (8 760), which is not a chart anybody draws.
+    admin_dashboard_max_series_buckets: int = Field(default=750, ge=24, le=5_000)
+
+    # -- broadcasts ---------------------------------------------------------
+    #: The ONLY Telegram accounts ``POST /api/broadcasts/{id}/test-send`` may reach. Empty by
+    #: default, which turns the route off: without an allowlist that endpoint is
+    #: "send arbitrary operator-authored text to any customer id you can type", with a step-up
+    #: in front of it and an audit row behind it but no bound on WHO. The list is
+    #: configuration rather than a request field for the same reason the CIDR list is —
+    #: whoever may edit ``.env.admin`` is a different, smaller population than whoever holds
+    #: an ADMIN session, and a control the caller supplies is not a control.
+    #:
+    #: Comma-separated in the environment (``HBD_ADMIN_BROADCAST_TEST_RECIPIENTS=123,456``),
+    #: exactly like the proxy CIDRs above.
+    admin_broadcast_test_recipients: Annotated[tuple[int, ...], NoDecode] = Field(default=())
+    #: How far the real audience may have moved from the number the wizard rendered before a
+    #: create is refused with 409 ``CONFLICT``. A fraction, not a count: the same twelve
+    #: accounts are noise against forty thousand and a different campaign against forty.
+    #:
+    #: It is not zero because it cannot be. The audience is counted at creation and people
+    #: sign up between the preview render and the button press, so an exact-match rule would
+    #: refuse a correct request on a live database roughly always — and the first thing an
+    #: operator would learn is to stop sending the expected size at all, which is the control
+    #: switching itself off.
+    admin_broadcast_audience_drift_tolerance: float = Field(default=0.05, ge=0.0, le=1.0)
+
     # -- the read-only data volume ------------------------------------------
     #: The same directory ``hbd.runtime.container.build_container`` is given as its
     #: ``data_root``, mounted here **read-only** (§12.1 T4). The panel reaches exactly one
@@ -230,20 +454,61 @@ class AdminSettings(BaseSettings):
 
     # -- validators ---------------------------------------------------------
     _normalize_cidrs = field_validator("admin_trusted_proxy_cidrs", mode="before")(_split_csv)
+    _normalize_test_recipients = field_validator("admin_broadcast_test_recipients", mode="before")(
+        _split_csv
+    )
 
-    @field_validator("admin_name_match_min_similarity", mode="before")
+    @field_validator(
+        "admin_name_match_min_similarity",
+        "admin_settlement_grace_s",
+        "admin_uzs_per_usd",
+        "admin_uzs_per_usd_as_of",
+        "admin_single_song_price_minor",
+        "admin_kit_currency",
+        mode="before",
+    )
     @classmethod
-    def _blank_threshold_means_unpublished(cls, value: Any) -> Any:
+    def _blank_mirror_means_unpublished(cls, value: Any) -> Any:
         """``HBD_ADMIN_NAME_MATCH_MIN_SIMILARITY=`` is "not published", not a broken float.
 
         Every other optional value in this file is a ``str`` whose empty form is falsy, so
-        an empty variable is simply off. This one is a number, and pydantic would refuse an
+        an empty variable is simply off. These are numbers, and pydantic would refuse an
         empty string — turning a documented "leave it blank" into a boot failure. The
-        example file ships the variable blank, so this is the path an untouched deployment
+        example file ships the variables blank, so this is the path an untouched deployment
         actually takes.
+
+        Every *optional* published value shares it, mirrors and the FX pair alike: they are
+        the values this process can honestly decline to answer, and a second copy of four
+        lines is how one of them keeps the "blank means unset" contract and the other starts
+        refusing boots. ``admin_uzs_per_usd_as_of`` is on the list for the sharpest version of
+        that: an empty variable would otherwise be a pydantic date-parsing failure at boot,
+        for a value the example file ships blank. ``admin_kit_currency`` is on it because
+        ``min_length=3`` would refuse an empty string rather than read it as unset. The third
+        mirror,
+        :attr:`admin_free_allowance_credits`, is not on this list because ``None`` is not a
+        value it can hold — see :meth:`_blank_allowance_means_the_shipped_default`.
         """
         if isinstance(value, str) and not value.strip():
             return None
+        return value
+
+    @field_validator("admin_free_allowance_credits", mode="before")
+    @classmethod
+    def _blank_allowance_means_the_shipped_default(cls, value: Any) -> Any:
+        """``HBD_ADMIN_FREE_ALLOWANCE_CREDITS=`` is the shipped 0, not a boot failure.
+
+        Four lines rather than one more name on the validator above, because the two answer
+        differently: that one turns blank into ``None`` — "this deployment has not published
+        it" — and this field has no ``None`` to turn into, since the projection it feeds is
+        arithmetic that must produce a number either way. Blank therefore means "whatever the
+        bot ships", which is the field default and is 0.
+
+        It exists at all because the file beside it documents "leave the mirrors blank" twice,
+        so an operator who applies that habit to a third mirror must not be met with a
+        pydantic ``int_parsing`` error naming a variable the example file told them to empty.
+        """
+        if isinstance(value, str) and not value.strip():
+            return 0
         return value
 
     @field_validator("admin_trusted_proxy_cidrs")
@@ -269,13 +534,64 @@ class AdminSettings(BaseSettings):
         The ``Origin`` header a browser sends carries exactly this shape, and the check that
         reads it is an exact string comparison. A configured value with a trailing slash
         would never match, turning the control off in a way that looks like it is on.
+
+        :data:`~hbd.admin.csrf.ANY_ORIGIN` is the one value that is not an origin. It turns
+        the check off ON PURPOSE, which is a different failure from turning it off by typo
+        — so it is spelled as its own token here and refused outside ``dev`` below, rather
+        than being reachable by any origin-shaped string.
         """
+        if value == ANY_ORIGIN:
+            return value
         if not value.startswith(_ORIGIN_SCHEMES):
             raise ValueError(f"must start with http:// or https://, got {value!r}")
         remainder = value.split("://", 1)[1]
         if not remainder or "/" in remainder:
             raise ValueError(f"must be a bare scheme://host[:port] with no path, got {value!r}")
         return value
+
+    @model_validator(mode="after")
+    def _the_fx_rate_carries_its_date(self) -> Self:
+        """A rate and its as-of date are set together or not at all.
+
+        The settings-level counterpart of ``ck_vendor_usage_cost_carries_its_source``: a
+        dollar figure whose provenance is unknown is unreadable, and an undated FX rate is
+        exactly that. A som rate goes stale within weeks, there is no feed behind this value,
+        and the only staleness signal the panel can render is the date beside it — so a rate
+        with no date would be a converted Net card that looks current forever.
+
+        The cost is deliberate and stated: an operator who wants a rate must also type a
+        date. ``build_admin_settings`` reports either half missing as a ``ConfigError``
+        naming both variables.
+        """
+        has_rate = self.admin_uzs_per_usd is not None
+        has_date = self.admin_uzs_per_usd_as_of is not None
+        if has_rate != has_date:
+            raise ValueError(
+                f"{ENV_PREFIX}ADMIN_UZS_PER_USD and {ENV_PREFIX}ADMIN_UZS_PER_USD_AS_OF must be "
+                "set together or left blank together: an FX rate with no as-of date cannot be "
+                "read as stale, and the panel would convert every figure on the Net card at a "
+                "rate of unknown age"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _the_mirrored_price_carries_its_currency(self) -> Self:
+        """A price and its currency are set together or not at all.
+
+        Same discipline as the FX pair above, for the same reason ``cost_source`` travels
+        with ``cost_usd``: an amount with no currency cannot be read, and this one is
+        compared against ``plan_purchases.currency`` before any total is formed. A currency
+        with no price is the mirror image — a unit for a number nobody published.
+        """
+        has_price = self.admin_single_song_price_minor is not None
+        has_currency = self.admin_kit_currency is not None
+        if has_price != has_currency:
+            raise ValueError(
+                f"{ENV_PREFIX}ADMIN_SINGLE_SONG_PRICE_MINOR and {ENV_PREFIX}ADMIN_KIT_CURRENCY "
+                "must be set together or left blank together: an amount with no currency "
+                "cannot be summed or compared, and a currency with no amount publishes nothing"
+            )
+        return self
 
     @model_validator(mode="after")
     def _bounds_that_span_fields(self) -> Self:
@@ -293,6 +609,15 @@ class AdminSettings(BaseSettings):
                 "that prefix makes a browser reject a Set-Cookie without Secure outright — "
                 "the panel would be unusable rather than merely insecure. http://127.0.0.1 "
                 "is a secure context in Chrome and Firefox, so Secure works in dev too"
+            )
+        if self.environment != DEV_ENVIRONMENT and self.admin_public_origin == ANY_ORIGIN:
+            raise ValueError(
+                f"{ENV_PREFIX}ADMIN_PUBLIC_ORIGIN={ANY_ORIGIN!r} is refused when environment "
+                f"is {self.environment!r}: the origin check is the only CSRF layer a login "
+                "has — before a session exists there is no token to compare — so accepting "
+                "every origin lets any page on the internet POST to this panel using the "
+                "operator's cookie. It is a dev-only convenience for running the SPA on an "
+                "arbitrary port"
             )
         if (
             self.environment != DEV_ENVIRONMENT
@@ -337,6 +662,31 @@ class AdminSettings(BaseSettings):
         return True
 
     @property
+    def accepted_origins(self) -> frozenset[str]:
+        """The origins the CSRF check accepts — exactly one outside ``dev``.
+
+        In ``dev`` a loopback origin widens to its aliases (see :func:`loopback_aliases`) so
+        that typing ``localhost`` where the config says ``127.0.0.1`` is not a 403. This is
+        the ONLY consumer that widens: the value reported by the config view, and the one
+        logged at boot, stay the single configured origin, because that is what an operator
+        set and what staging and prod enforce verbatim.
+
+        ``*`` (:data:`~hbd.admin.csrf.ANY_ORIGIN`) passes through as itself, which
+        :func:`~hbd.admin.csrf.verify_origin` reads as "accept anything". The model
+        validator has already refused it outside ``dev``, so the branch below cannot emit it
+        there; the guard is repeated anyway because this property is what the check reads,
+        and a future caller building settings by hand should not be able to route around it.
+        Outside ``dev`` that second guard returns the EMPTY set — refuse every origin —
+        rather than a plausible default: a wildcard that reached prod is a broken
+        configuration, and it should stop the panel, not quietly widen it.
+        """
+        if self.admin_public_origin == ANY_ORIGIN:
+            return frozenset({ANY_ORIGIN}) if self.environment == DEV_ENVIRONMENT else frozenset()
+        if self.environment != DEV_ENVIRONMENT:
+            return frozenset({self.admin_public_origin})
+        return loopback_aliases(self.admin_public_origin)
+
+    @property
     def trusted_proxies(self) -> tuple[IpNetwork, ...]:
         """The parsed CIDR list. Validated at build time, so this cannot raise here."""
         return parse_trusted_proxies(self.admin_trusted_proxy_cidrs)
@@ -364,12 +714,13 @@ def _describe_failure(exc: PydanticValidationError) -> str:
 
 
 def build_admin_settings(overrides: Mapping[str, object] | None = None) -> AdminSettings:
-    """Build from ``.env.admin`` and the environment, with ``overrides`` layered on top.
+    """Build from :func:`admin_env_file` and the environment, ``overrides`` layered on top.
 
     Raises ``ConfigError`` and nothing else — a caller never sees a pydantic exception, and
     the operator message names every offending ``HBD_*`` variable.
     """
     values: dict[str, Any] = dict(overrides or {})
+    values.setdefault("_env_file", admin_env_file())
     try:
         return AdminSettings(**values)
     except PydanticValidationError as exc:

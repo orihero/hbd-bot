@@ -28,6 +28,7 @@ export {
   type SegmentVariant,
 } from "./buttonVariants";
 export { CopyButton, type CopyButtonProps } from "./CopyButton";
+export { Drawer, type DrawerProps } from "./Drawer";
 export { EmptyState, FilteredEmptyState, type EmptyStateProps, type FilteredEmptyStateProps } from "./EmptyState";
 export { ErrorBoundary, type ErrorBoundaryProps } from "./ErrorBoundary";
 export { ErrorState, type ErrorStateProps } from "./ErrorState";

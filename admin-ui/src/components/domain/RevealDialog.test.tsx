@@ -23,7 +23,7 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AdminRole } from "@/api";
+import type { AdminRole, RevealSubjectType } from "@/api";
 import {
   makeTestQueryClient,
   configFixture,
@@ -33,10 +33,16 @@ import {
 } from "@/components/util/testRender";
 import { queryKeys } from "@/lib";
 
-import { ATTEMPT_REVEAL_FIELDS, BRIEF_REVEAL_FIELDS } from "./revealFields";
-import { RevealButton } from "./RevealDialog";
+import {
+  ATTEMPT_REVEAL_FIELDS,
+  BRIEF_REVEAL_FIELDS,
+  USER_PROFILE_REVEAL_FIELDS,
+} from "./revealFields";
+import { NO_RETENTION_CLOCK_NOTE, RevealButton } from "./RevealDialog";
 
 const ORDER = "3f2a9c10-8b44-4d21-9f0e-6a7c5b3e1d02";
+/* `users.id`, never the Telegram integer: the step-up scope is `reveal:<uuid>`, compared whole. */
+const USER = "b41d0f8e-2c77-4a63-9c15-8e0d2f3a6b91";
 const RECORD = "9b8d7c6e-5a4f-4312-8e7d-1c2b3a495867";
 
 /* The datum. Written with explicit escapes so this file's own encoding cannot be the bug. */
@@ -68,6 +74,8 @@ function revealBody(
     revealedFields?: readonly string[];
     records?: unknown[];
     budget?: Record<string, unknown>;
+    subjectType?: RevealSubjectType;
+    subjectId?: string;
   } = {},
 ) {
   const record = {
@@ -82,8 +90,8 @@ function revealBody(
     textPurgedAt: null,
   };
   return {
-    subjectType: "order",
-    subjectId: ORDER,
+    subjectType: overrides.subjectType ?? "order",
+    subjectId: overrides.subjectId ?? ORDER,
     revealedAt: "2026-09-02T10:30:00Z",
     reasonCode: "support_investigation",
     recordCount: overrides.recordCount ?? 1,
@@ -127,13 +135,14 @@ function stubFetch(stub: Stub): ReturnType<typeof vi.fn> {
 function renderButton(
   role: AdminRole = "support",
   fields: readonly (typeof BRIEF_REVEAL_FIELDS)[number][] = BRIEF_REVEAL_FIELDS,
+  subject: { readonly type: RevealSubjectType; readonly id: string } = { type: "order", id: ORDER },
 ) {
   const client = makeTestQueryClient();
   client.setQueryData(queryKeys.config.detail(), configFixture());
   return renderWithProviders(
     <RevealButton
-      subjectType="order"
-      subjectId={ORDER}
+      subjectType={subject.type}
+      subjectId={subject.id}
       subjectLabel="3f2a9c10…"
       fields={fields}
     />,
@@ -563,5 +572,105 @@ describe("closing", () => {
     expect(screen.queryByTestId("reveal-result")).not.toBeInTheDocument();
     expect(screen.getByTestId("reveal-confirm")).toBeDisabled();
     expect(screen.getByTestId("reveal-reason-code")).toHaveValue("");
+  });
+});
+
+/*
+ * §12.3 shows the purge stamps BECAUSE they are different facts from "no value": "no name" and
+ * "name purged on schedule on 2026-05-14" are different answers to a data-subject request. That
+ * argument is about an order. A `user_profiles` row is on no clock at all — PD-2 gives it no
+ * `*_expires_at` and no sweep, and `/forget` DELETEs it — so printing "identity clock: not
+ * purged" beside a customer's phone number would name a schedule that does not exist and imply
+ * the number ages out on its own. Same rule, opposite direction, and both are tested here so a
+ * reword of one cannot quietly take the other with it.
+ */
+describe("the retention line on a revealed record", () => {
+  it("prints both clocks for an order subject", async () => {
+    stubFetch({ reveal: () => jsonResponse(200, revealBody()) });
+    renderButton();
+    open();
+    chooseReason();
+    fireEvent.click(screen.getByTestId("reveal-confirm"));
+    await screen.findByTestId("reveal-result");
+
+    const clocks = screen.getByTestId("reveal-record-clocks");
+    expect(clocks.textContent).toContain("identity clock");
+    expect(clocks.textContent).toContain("free-text clock");
+    expect(clocks.textContent).not.toContain(NO_RETENTION_CLOCK_NOTE);
+  });
+
+  it("names no clock at all for a user subject, and says what erases the row instead", async () => {
+    stubFetch({
+      reveal: () =>
+        jsonResponse(
+          200,
+          revealBody({
+            subjectType: "user",
+            subjectId: USER,
+            fields: { "user_profiles.phone_e164": "+998901234542" },
+            revealedFields: ["user_profiles.phone_e164"],
+          }),
+        ),
+    });
+    renderButton("support", [...USER_PROFILE_REVEAL_FIELDS] as never, {
+      type: "user",
+      id: USER,
+    });
+    open();
+    chooseReason();
+    fireEvent.click(screen.getByTestId("reveal-confirm"));
+    await screen.findByTestId("reveal-result");
+
+    const clocks = screen.getByTestId("reveal-record-clocks");
+    expect(clocks.textContent).toBe(NO_RETENTION_CLOCK_NOTE);
+    // Asserted on the whole result, not just the line: a stray "not purged" anywhere in this
+    // panel is the same claim made in a different place.
+    const result = screen.getByTestId("reveal-result").textContent ?? "";
+    expect(result).not.toContain("identity clock");
+    expect(result).not.toContain("free-text clock");
+    expect(result).not.toContain("not purged");
+  });
+
+  it("sends the users.id UUID as the subject, never the Telegram integer", async () => {
+    const calls = stubFetch({
+      reveal: () =>
+        jsonResponse(
+          200,
+          revealBody({
+            subjectType: "user",
+            subjectId: USER,
+            fields: { "user_profiles.phone_e164": "+998901234542" },
+            revealedFields: ["user_profiles.phone_e164"],
+          }),
+        ),
+    });
+    renderButton("support", [...USER_PROFILE_REVEAL_FIELDS] as never, {
+      type: "user",
+      id: USER,
+    });
+    open();
+    chooseReason();
+    fireEvent.click(screen.getByTestId("reveal-confirm"));
+    await screen.findByTestId("reveal-result");
+
+    // The server composes the step-up scope as `reveal:<subjectId>` and compares it WHOLE. An
+    // integer here would be a scope no grant can ever match: a permanent, undebuggable 403.
+    const body = bodyOf(calls, 0);
+    expect(body["subjectType"]).toBe("user");
+    expect(body["subjectId"]).toBe(USER);
+    expect(body["fields"]).toEqual([...USER_PROFILE_REVEAL_FIELDS]);
+  });
+
+  it("prices all four profile columns as ONE record, before the confirm", () => {
+    stubFetch({ reveal: () => jsonResponse(200, revealBody({ subjectType: "user" })) });
+    renderButton("support", [...USER_PROFILE_REVEAL_FIELDS] as never, {
+      type: "user",
+      id: USER,
+    });
+    open();
+
+    // One `user_profiles` row is one record however many of its columns are named. An operator
+    // who is shown four would tick one, come back for the next, and pay four times over.
+    expect(screen.getByTestId("reveal-cost").textContent).toContain("charged 1 record");
   });
 });

@@ -49,18 +49,17 @@ from types import MappingProxyType
 from typing import Annotated, Final, Self
 from uuid import UUID
 
-from pydantic import Field, JsonValue, field_validator, model_validator
+from pydantic import Field, JsonValue, model_validator
 
+from hbd.admin.schemas.actions import ReasonedRequest
 from hbd.admin.schemas.common import ApiModel
 from hbd.admin.security.budget import MAX_RECORDS_PER_REVEAL
 from hbd.db.enums import AuditReasonCode
-from hbd.db.models.admin_audit import REASON_REF_LENGTH, REASON_TEXT_LENGTH
 
 __all__ = [
     "MAX_CURSOR_CHARS",
-    "MAX_REASON_TEXT_CHARS",
-    "REASON_REF_PATTERN",
     "FIELD_SHAPES",
+    "FIELD_SUBJECTS",
     "RevealShape",
     "RevealSubjectType",
     "RevealField",
@@ -69,19 +68,6 @@ __all__ = [
     "RevealBudgetView",
     "RevealResponse",
 ]
-
-#: §12.3: "``reasonText`` is optional, capped at 500 chars, control chars stripped, and
-#: lives on the audit log's 90-day reason clock." The cap is the column's, not a second
-#: number: ``admin_audit_log.reason_text`` is ``String(500)``.
-MAX_REASON_TEXT_CHARS: Final[int] = REASON_TEXT_LENGTH
-
-#: ``^[A-Za-z0-9#_-]{1,64}$`` — §5.4's shape for a ticket reference, restated here so the
-#: refusal is a 422 naming the field rather than an ``AuditValueRejectedError`` raised
-#: half-way through the audit append. Note that ``audit._CREDENTIAL_SHAPES`` additionally
-#: refuses any ``[A-Za-z0-9_-]{40,}`` run, so a 40-character ticket slug is legal by this
-#: pattern and still refused by the audit boundary; that disagreement is the plan's, and it
-#: surfaces as a 422 rather than as a reveal with an unwritten row.
-REASON_REF_PATTERN: Final[str] = r"^[A-Za-z0-9#_-]{1,64}$"
 
 #: Matches ``hbd.db.admin.page._MAX_CURSOR_CHARS``. Declared so an oversize cursor is
 #: refused by the schema, before it reaches the decoder.
@@ -108,14 +94,24 @@ class RevealSubjectType(StrEnum):
     ``audit.SUBJECT_TYPES`` is the closed vocabulary the audit column accepts —
     ``order``/``user``/``asset``/``chat``/``config``/``admin``/``session``/``wizard_draft``/
     ``system``. This enum is the subset ``POST /reveal`` can actually answer for **today**,
-    which is one member. §12.3 lists four more subjects (``chat`` bodies, ``wizard_draft``
-    keys, moderation detail, audio) and every one of them names a table or a route that does
-    not exist yet: ``chat_messages`` and ``moderation_reviews`` are Phase 3, and the audio
-    reveal is the asset stream's own route. Listing them here would put values on the wire
-    that answer 500, so they arrive with their sources.
+    and a member arrives here only when its source table does. ``ORDER`` reads ``briefs``
+    and ``generation_attempts``; ``USER`` reads ``user_profiles``, which arrives with its
+    own model and its own migration, and until that table existed a ``"user"`` on the wire
+    would have been a value that answers 500. The absences that remain are §12.3's other
+    subjects — ``chat`` bodies and ``wizard_draft`` keys and moderation detail, whose
+    ``chat_messages`` and ``moderation_reviews`` are Phase 3 — plus audio, which is the
+    asset stream's own route rather than a reveal at all.
+
+    Both members are already in ``db.admin.audit.SUBJECT_TYPES`` (``audit.py:136-138``), so
+    the audit column takes them with no schema change and ``audit._checked_subject_type``
+    passes on the string this enum hands it. That is not a coincidence to be relied on
+    quietly: a member added here whose value is outside that closed set would raise inside
+    ``append``, after the step-up was granted and the budget charged, and the reveal would
+    fail with the operator already authorised.
     """
 
     ORDER = "order"
+    USER = "user"
 
 
 class RevealField(StrEnum):
@@ -133,11 +129,17 @@ class RevealField(StrEnum):
     APPROVED_LYRICS = "briefs.approved_lyrics"
     STT_TRANSCRIPT = "generation_attempts.stt_transcript"
     NAME_CANDIDATE_TEXT = "generation_attempts.name_candidate_text"
+    USER_PHONE_E164 = "user_profiles.phone_e164"
+    USER_FIRST_NAME = "user_profiles.first_name"
+    USER_LAST_NAME = "user_profiles.last_name"
+    USER_TELEGRAM_USERNAME = "user_profiles.telegram_username"
 
 
 #: Which shape each field produces. A ``briefs`` column is 1:1 with the order, so it is one
 #: record; ``generation_attempts`` has a row per take, so its free text is the paged,
-#: transcript-shaped reveal §12.3 caps at fifty bodies.
+#: transcript-shaped reveal §12.3 caps at fifty bodies. A ``user_profiles`` column is 1:1
+#: with the account — the table's primary key *is* ``users.id`` — so it is one record too,
+#: and the reveal of a phone number can no more page than the reveal of a recipient's name.
 #:
 #: **A note on which table the paged reveal reads, because it is not the one §12.3 names.**
 #: §12.3's paged row is ``chat_messages.body`` ("Yes, **paged at ≤50 bodies per reveal**"),
@@ -160,20 +162,63 @@ FIELD_SHAPES: Final[Mapping[RevealField, RevealShape]] = MappingProxyType(
         RevealField.APPROVED_LYRICS: RevealShape.SINGLE,
         RevealField.STT_TRANSCRIPT: RevealShape.PAGED,
         RevealField.NAME_CANDIDATE_TEXT: RevealShape.PAGED,
+        RevealField.USER_PHONE_E164: RevealShape.SINGLE,
+        RevealField.USER_FIRST_NAME: RevealShape.SINGLE,
+        RevealField.USER_LAST_NAME: RevealShape.SINGLE,
+        RevealField.USER_TELEGRAM_USERNAME: RevealShape.SINGLE,
     }
 )
 
-#: C0 controls and DEL. Stripped from ``reasonText`` — never from a revealed value.
-_CONTROL_CHARS: Final[frozenset[str]] = frozenset(chr(code) for code in (*range(0x20), 0x7F))
+#: Which subject each field belongs to. A ``Mapping`` and not a ``dict.get`` default, for the
+#: same reason :data:`FIELD_SHAPES` is one: a field added with no entry here must raise
+#: rather than quietly answer for the wrong table.
+#:
+#: This exists because the shape is no longer sufficient on its own. Every ``briefs`` column
+#: and every ``user_profiles`` column is ``SINGLE``, so ``{subjectType: "user", fields:
+#: ["briefs.note"]}`` agrees with itself on shape, validates, charges a step-up scoped to a
+#: ``users.id`` and then reads a ``briefs`` row by that id. That is a 404 today only because
+#: the two id spaces happen not to collide, and the first time they do it is a disclosure of
+#: one customer's note under another customer's grant — audited, correctly, against the
+#: wrong person. :meth:`RevealRequest._one_shape` refuses the mixed request at the boundary
+#: and ``services.reveal.read_records`` branches on the subject at the read; this table is
+#: the single fact both halves consult, so they cannot come to disagree about which column
+#: belongs to which table.
+#:
+#: ``test_reveal.py`` asserts ``set(FIELD_SUBJECTS) == set(RevealField)``, so the mapping is
+#: total by test and the ``KeyError`` above is the belt to that braces.
+FIELD_SUBJECTS: Final[Mapping[RevealField, RevealSubjectType]] = MappingProxyType(
+    {
+        RevealField.RECIPIENT_NAME_DISPLAY: RevealSubjectType.ORDER,
+        RevealField.RECIPIENT_NAME_RAW: RevealSubjectType.ORDER,
+        RevealField.RECIPIENT_LOOKUP_KEY: RevealSubjectType.ORDER,
+        RevealField.RECIPIENT_CANDIDATES: RevealSubjectType.ORDER,
+        RevealField.NOTE: RevealSubjectType.ORDER,
+        RevealField.APPROVED_LYRICS: RevealSubjectType.ORDER,
+        RevealField.STT_TRANSCRIPT: RevealSubjectType.ORDER,
+        RevealField.NAME_CANDIDATE_TEXT: RevealSubjectType.ORDER,
+        RevealField.USER_PHONE_E164: RevealSubjectType.USER,
+        RevealField.USER_FIRST_NAME: RevealSubjectType.USER,
+        RevealField.USER_LAST_NAME: RevealSubjectType.USER,
+        RevealField.USER_TELEGRAM_USERNAME: RevealSubjectType.USER,
+    }
+)
 
 
-class RevealRequest(ApiModel):
+class RevealRequest(ReasonedRequest):
     """§12.3's body: ``{subjectType, subjectId, fields[], reasonCode, reasonRef?,
     reasonText?, limit?, cursor?}``.
 
-    ``reasonCode`` has **no default**, which is the whole of "reveal without a ``reasonCode``
-    → 422". A default of ``ROUTINE_OPS`` would make the accountability optional and the
-    modal value meaningless, which is the failure §5.4's closed vocabulary exists to avoid.
+    **The reason trio is inherited, not restated**, and the restating was a real divergence
+    rather than an untidiness: this model carried its own ``reasonCode``/``reasonRef``/
+    ``reasonText`` and its own copy of ``_strip_control_chars``, so
+    ``admin_audit_log.reason_text`` — one column, one 90-day sweep — was scrubbed by whichever
+    endpoint wrote the row, and adding a character to one set would have left the reveal
+    writing it through. :class:`~hbd.admin.schemas.actions.ReasonedRequest` is where that
+    rule lives for every §9.2 action; ``reasonCode`` still has **no default** there, which is
+    the whole of "reveal without a ``reasonCode`` → 422".
+
+    What stays here is what is genuinely reveal-shaped: the subject, the field list and the
+    two page controls.
     """
 
     subject_type: RevealSubjectType
@@ -183,11 +228,6 @@ class RevealRequest(ApiModel):
     #: A tuple, so the request model stays frozen and the audit's ``field_names`` is the
     #: same object the handler read.
     fields: Annotated[tuple[RevealField, ...], Field(min_length=1, max_length=len(RevealField))]
-    reason_code: AuditReasonCode
-    reason_ref: Annotated[
-        str | None, Field(default=None, pattern=REASON_REF_PATTERN, max_length=REASON_REF_LENGTH)
-    ] = None
-    reason_text: Annotated[str | None, Field(default=None, max_length=MAX_REASON_TEXT_CHARS)] = None
     #: The page size a paged reveal is authorised to return, and therefore the number of
     #: units it is charged. Absent means the whole page.
     limit: Annotated[int | None, Field(default=None, ge=1, le=MAX_RECORDS_PER_REVEAL)] = None
@@ -198,31 +238,33 @@ class RevealRequest(ApiModel):
         """The one shape every requested field agrees on — enforced by :meth:`_one_shape`."""
         return FIELD_SHAPES[self.fields[0]]
 
-    @field_validator("reason_text")
-    @classmethod
-    def _strip_control_chars(cls, value: str | None) -> str | None:
-        """§12.3: control chars stripped. Whitespace-only text is no text.
-
-        This is operator-authored, so cleaning it is required rather than forbidden. The
-        revealed values go nowhere near here.
-        """
-        if value is None:
-            return None
-        cleaned = "".join(char for char in value if char not in _CONTROL_CHARS).strip()
-        return cleaned or None
-
     @model_validator(mode="after")
     def _one_shape(self) -> Self:
         """Refuse a request whose ``record_count`` could not be honest.
 
-        Three refusals, and each one is a way the budget would otherwise stop measuring
-        exposure: a repeated field would be audited twice for one read; a mixed request
-        would have to charge one number for two record shapes; and ``limit``/``cursor`` on a
-        single-record reveal would be a page control on something that has no pages, which
-        is how a caller learns to expect one.
+        Four refusals, and each one is a way the grant, the charge or the audit row would
+        otherwise stop describing what was read: a repeated field would be audited twice for
+        one read; a field asked for under the wrong subject would charge a step-up scoped to
+        one table's id and then read a *different* table by it, disclosing one customer's
+        row under another customer's grant while the audit names the grant's subject; a
+        mixed request would have to charge one number for two record shapes; and
+        ``limit``/``cursor`` on a single-record reveal would be a page control on something
+        that has no pages, which is how a caller learns to expect one.
+
+        The subject check comes **before** the shape check on purpose. Every
+        ``user_profiles`` column and every ``briefs`` column is
+        :attr:`RevealShape.SINGLE`, so a cross-subject request passes the shape test with
+        room to spare; running the shape test first would leave the operator reading an
+        error about record shapes when what they actually got wrong was the table.
         """
         if len(set(self.fields)) != len(self.fields):
             raise ValueError("fields must be distinct; a field revealed twice is audited twice")
+        wrong = [field for field in self.fields if FIELD_SUBJECTS[field] is not self.subject_type]
+        if wrong:
+            raise ValueError(
+                f"{sorted(field.value for field in wrong)} cannot be revealed for subjectType "
+                f"{self.subject_type.value}; one reveal covers one subject"
+            )
         shapes = {FIELD_SHAPES[field] for field in self.fields}
         if len(shapes) != 1:
             raise ValueError(
@@ -242,6 +284,11 @@ class RevealedRecord(ApiModel):
     is §12.3's, and it is why the two purge stamps travel with every record: "no name" and
     "name erased on schedule on 2026-05-14" are different facts about a record, and a screen
     that renders them identically cannot answer the question a data-subject request asks.
+
+    Both stamps are ``None`` on a ``user_profiles`` record and that is not "never purged
+    yet": ``user_profiles`` carries no clock at all (PD-2) and ``/forget`` deletes the whole
+    row (PD-3), so an erased customer is a 404 from this endpoint and never a record with
+    stamps on it. See ``services.reveal._read_user_profile``.
     """
 
     record_id: UUID

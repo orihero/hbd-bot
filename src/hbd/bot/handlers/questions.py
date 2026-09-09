@@ -23,7 +23,14 @@ from hbd.bot.callbacks import (
 from hbd.bot.deps import BotDeps
 from hbd.bot.draft import MAX_NOTE_CHARS, LyricSource, WizardDraft
 from hbd.bot.handlers.balance import show_confirm
-from hbd.bot.handlers.common import COMMAND_PREFIX, expire, read_draft, say, show_step
+from hbd.bot.handlers.common import (
+    COMMAND_PREFIX,
+    expire,
+    is_menu_label,
+    read_draft,
+    say,
+    show_step,
+)
 from hbd.bot.handlers.lyrics import enter_lyrics_step, retagged
 from hbd.bot.i18n import translate
 from hbd.bot.states import Wizard, WizardStep, next_step
@@ -129,20 +136,35 @@ async def handle_note_skipped(callback: CallbackQuery, state: FSMContext) -> Non
 
 
 async def handle_note(message: Message, state: FSMContext) -> None:
-    """The one free-text answer about the recipient. Commands are not answers.
+    """The one free-text answer about the recipient. Commands and menu labels are not answers.
 
     The command guard is the fix for a defect, not a nicety: this handler is bound to any
     text at the note step, so before it a customer who typed ``/help`` here had "/help"
     stored as the fact we knew about their mother and sung back to her. Re-showing the step
     puts the prompt and its Skip button back rather than leaving the chat silent.
+
+    The menu guard beside it closes the same hole from the other side, and the stakes at
+    THIS step are the highest of the three that carry it: what lands in ``draft.note`` is a
+    fact we claim to know about somebody's mother, and the writer turns it into a line that
+    is sung to her. "🎫 Limitim" is not a fact about anybody. The persistent reply keyboard
+    is chat-level state Telegram keeps pinned under the text box, so its labels arrive as
+    ordinary text messages and reach exactly the steps that accept any text.
+
+    The real defence is the router order — ``menu`` is registered above every step router,
+    so a label is claimed before this handler is offered it — and the router order is one
+    line in ``handlers/__init__``. This is the second brace, kept because that one line is
+    the kind of thing a later refactor reorders without noticing what it was holding up.
     """
     draft = await read_draft(state)
     if draft is None:
         await expire(message, state)
         return
     note = (message.text or "").strip()
-    if note.startswith(COMMAND_PREFIX):
-        _LOG.info("command-shaped text at the note step; not stored", extra={"length": len(note)})
+    if note.startswith(COMMAND_PREFIX) or is_menu_label(note):
+        _LOG.info(
+            "command- or menu-shaped text at the note step; not stored",
+            extra={"length": len(note)},
+        )
         await show_step(message, state, draft, WizardStep.NOTE)
         return
     if len(note) > MAX_NOTE_CHARS:

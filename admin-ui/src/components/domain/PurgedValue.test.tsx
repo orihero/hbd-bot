@@ -38,7 +38,8 @@ describe("a lawfully purged value", () => {
     // 6.01:1 on `--surface-card` and 4.87:1 on the worst ground it can reach (a hovered
     // row) in light, 7.16:1 / 5.95:1 in dark — clear of 1.4.3's 4.5:1 everywhere. The two
     // POLICED tokens are named explicitly so that "make it quieter" cannot silently reach
-    // for one: `--ink-mark` is 3.52:1 at its worst and `--ink-rule` is 2.23:1 at its best.
+    // for one: `--ink-mark` is 3.56:1 at its worst and `--ink-rule` is 2.94:1 at its best,
+    // both taken across all four cells.
     render(<PurgedValue purgedAt="2026-05-14T02:00:00Z" clock="identity" />);
     const node = screen.getByTestId("purged-value");
     expect(node.className).toContain("text-ink-muted");

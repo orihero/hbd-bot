@@ -18,10 +18,12 @@ from hbd.bot.callbacks import (
     NavAction,
     NavCB,
 )
-from hbd.bot.draft import DRAFT_KEY
+from hbd.bot.draft import DRAFT_KEY, ONBOARDED_KEY, UI_LANGUAGE_KEY
 from hbd.bot.handlers.submitting import ORDER_ID_KEY
 from hbd.bot.i18n import translate
+from hbd.bot.keyboards import MENU_BUTTON_KEYS
 from hbd.bot.states import (
+    PARKED_ONLY_STEPS,
     WIZARD_ORDER,
     Wizard,
     WizardStep,
@@ -30,12 +32,20 @@ from hbd.bot.states import (
     step_for_state,
 )
 from hbd.contracts import Genre, Language, Occasion
-from tests.test_bot.conftest import RecordingSession, RecordingSubmitter, buttons
+from tests.test_bot.conftest import (
+    RecordingSession,
+    RecordingSubmitter,
+    buttons,
+    last_reply_keyboard,
+    reply_buttons,
+)
 from tests.test_bot.test_wizard_flow import (
     UZBEK_DISPLAY,
     UZBEK_TYPED,
+    complete_onboarding,
     press,
     send,
+    tap,
     walk_to_confirm,
     walk_to_name,
 )
@@ -84,18 +94,34 @@ async def test_back_preserves_answers_already_given(
     assert draft["occasion"] == Occasion.BIRTHDAY.value
 
 
-async def test_back_on_the_first_step_re_renders_that_step(
+async def test_the_first_wizard_step_draws_no_back_button_and_a_stale_back_re_renders_it(
     dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
 ) -> None:
-    # Arrange
-    await send(dispatcher, bot, "/start")
+    """Back on the head of the order is not drawn, and pressing an old one is harmless.
 
-    # Act
-    await press(dispatcher, bot, NavCB(action=NavAction.BACK).pack())
+    Back used to lead from the first step to the language picker, because the picker WAS the
+    first step. The picker has moved in front of the wizard entirely, so ``previous_step``
+    answers ``None`` for ``WIZARD_ORDER[0]`` and there is nothing to go back to: the button
+    is therefore not drawn at all (``occasion_keyboard(is_back_enabled=False)``).
 
-    # Assert
-    assert await state.get_state() == Wizard.ui_language.state
-    assert translate("start.choose_ui_language", Language.UZ_LATN) in session.last_screen.text
+    Both halves are asserted because Telegram leaves every screen the bot ever drew in the
+    message roll. A customer who scrolls up and taps a Back from a previous run must be
+    re-shown the question they are on — not answered "your session expired", which is what a
+    fall-through to ``expire`` would say to somebody whose session is perfectly alive.
+    """
+    # Arrange — an onboarded customer, one tap into a fresh wizard
+    await complete_onboarding(dispatcher, bot, language=Language.EN)
+    await tap(dispatcher, bot, "menu.generate", Language.EN)
+    assert await state.get_state() == Wizard.occasion.state
+    back = NavCB(action=NavAction.BACK).pack()
+    assert back not in {data for _, data in buttons(session.last_screen.reply_markup)}
+
+    # Act — a Back from an older screen, pressed anyway
+    await press(dispatcher, bot, back)
+
+    # Assert — the same step, re-rendered, and no talk of an expiry
+    assert await state.get_state() == Wizard.occasion.state
+    assert translate("wizard.occasion.prompt", Language.EN) in session.last_screen.text
 
 
 async def test_retype_clears_the_resolved_name_and_asks_again(
@@ -114,9 +140,23 @@ async def test_retype_clears_the_resolved_name_and_asks_again(
     assert UZBEK_DISPLAY not in session.last_screen.text
 
 
-async def test_cancel_clears_the_session(
+async def test_cancel_clears_the_session_and_keeps_only_who_the_customer_is(
     dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
 ) -> None:
+    """Cancel empties the session down to exactly two keys, and both are load-bearing (C2-8).
+
+    A bare ``state.clear()`` here would take ``UI_LANGUAGE_KEY`` and ``ONBOARDED_KEY`` with
+    the draft, and the very next update would find no cached identity: the onboarding
+    catch-all would pay for a store read, and — worse — a customer whose store read failed or
+    whose deployment has no store would be answered in the fallback language and asked for
+    their number again, one tap after cancelling a song. Cancelling a wizard run is not a
+    request to be forgotten; ``/forget`` is, and it is the one place that still clears bare.
+
+    The assertion is exact rather than a pair of ``in`` checks, because the failure this
+    guards is a THIRD key surviving — a draft, an order id or a progress-message id left
+    behind by a future edit is a half-cancelled session that the next screen would read as
+    a live one.
+    """
     # Arrange
     await walk_to_name(dispatcher, bot)
 
@@ -125,22 +165,41 @@ async def test_cancel_clears_the_session(
 
     # Assert
     assert await state.get_state() is None
-    assert await state.get_data() == {}
+    assert await state.get_data() == {
+        UI_LANGUAGE_KEY: Language.EN.value,
+        ONBOARDED_KEY: True,
+    }
     assert session.last_screen.text == translate("wizard.cancelled", Language.EN)
 
 
-async def test_start_mid_wizard_starts_over(
-    dispatcher: Dispatcher, bot: Bot, state: FSMContext
+async def test_start_mid_wizard_returns_an_onboarded_customer_to_the_menu(
+    dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
 ) -> None:
+    """``/start`` from somebody the bot already knows is the MENU, not a wizard.
+
+    It used to re-open the wizard at the language picker, which asked a settled question:
+    a customer who has already told us which language to speak and left us their number must
+    never be made to answer anything again to reach the thing they came for. Landing on the
+    menu also leaves the half-finished draft's state cleared rather than replaced by a second
+    one, so ``/start`` stays the reliable way out of any screen.
+
+    The welcome paragraph is asserted ABSENT (C1-13). It runs to well over two hundred
+    characters and is a greeting: drawn on every ``/start`` it becomes a wall of text a
+    returning customer scrolls past to find four buttons, so ``menu_screen`` draws it only on
+    the first menu after onboarding.
+    """
     # Arrange
     await walk_to_name(dispatcher, bot)
 
     # Act
     await send(dispatcher, bot, "/start")
 
-    # Assert — a fresh draft, back at the first step, with no answers carried over
-    assert await state.get_state() == Wizard.ui_language.state
-    assert (await state.get_data())[DRAFT_KEY]["genre"] is None
+    # Assert — no wizard state, the menu on screen, and its four buttons pinned under it
+    assert await state.get_state() is None
+    assert translate("menu.prompt", Language.EN) in session.last_screen.text
+    assert translate("start.welcome", Language.EN) not in session.last_screen.text
+    labels = {label for row in reply_buttons(last_reply_keyboard(session)) for label in row}
+    assert {translate(key, Language.EN) for key in MENU_BUTTON_KEYS} <= labels
 
 
 async def test_the_cancelled_screen_offers_a_way_back_in(
@@ -157,19 +216,32 @@ async def test_the_cancelled_screen_offers_a_way_back_in(
     assert NavCB(action=NavAction.START_OVER).pack() in offered
 
 
-async def test_start_over_is_the_same_clean_slate_start_is(
+async def test_start_over_opens_a_fresh_wizard_and_carries_nothing_over(
     dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
 ) -> None:
+    """↩️ Start over is a NEW SONG, and it is no longer the same thing ``/start`` is.
+
+    The two used to be one code path because the wizard began with the language question, so
+    "clean slate" and "first screen" were the same screen. They have come apart: ``/start``
+    from an onboarded customer is the menu, and this button — drawn on the screens that end a
+    flow, beside a ``TO_MENU`` row that is the way home — is the one that opens the wizard.
+    Both still funnel through ``common.reset_to_welcome``, which is what keeps "begin a song"
+    one implementation rather than three that drift.
+
+    The clean slate is asserted on the DRAFT rather than on the absence of one: a genre
+    carried over from the abandoned run would be a silent answer the customer never gave, and
+    they would only find out when the song came back in the wrong style.
+    """
     # Arrange
     await walk_to_name(dispatcher, bot)
 
     # Act
     await press(dispatcher, bot, NavCB(action=NavAction.START_OVER).pack())
 
-    # Assert — the first screen again, with nothing carried over
-    assert await state.get_state() == Wizard.ui_language.state
+    # Assert — the head of the order again, with nothing carried over
+    assert await state.get_state() == state_for(WIZARD_ORDER[0]).state
     assert (await state.get_data())[DRAFT_KEY]["genre"] is None
-    assert translate("start.choose_ui_language", Language.UZ_LATN) in session.last_screen.text
+    assert translate("wizard.occasion.prompt", Language.EN) in session.last_screen.text
 
 
 async def test_cancel_while_the_song_is_being_made_refuses_instead_of_lying(
@@ -301,8 +373,17 @@ def test_every_step_has_a_state_and_a_place_in_the_order() -> None:
     ``KeyError`` inside ``show_step`` for the first customer who reaches it, and one missing
     from ``WIZARD_ORDER`` is a ``ValueError`` out of ``previous_step``.
     """
-    # Arrange / Act / Assert
-    assert set(WIZARD_ORDER) == set(WizardStep)
+    # Arrange / Act
+    # Assert — a step may leave the order only by being NAMED in ``states.PARKED_ONLY_STEPS``,
+    # which is why that constant is exported rather than subtracted here: the exception lives
+    # in the source, where the next author will meet it, and this assertion reads it. It still
+    # fails when a step is forgotten from the order by accident, which is its whole job.
+    # ``UI_LANGUAGE`` keeps its state, its ``_STATE_BY_STEP`` entry and its ``render_step``
+    # case so ``render_step`` stays TOTAL and ``step_for_state`` resolves a state name Redis
+    # hands back for fourteen days — not because anyone can walk to it.
+    assert set(WIZARD_ORDER) | PARKED_ONLY_STEPS == set(WizardStep)
+    # The loop deliberately covers ALL members, ``UI_LANGUAGE`` included: that is what proves
+    # the state table was not half-deleted along with the step's place in the order.
     for step in WizardStep:
         assert state_for(step) is not None
         assert step_for_state(state_for(step).state) is step

@@ -22,13 +22,13 @@
  *
  * Polling: none (§11.5's "everything else"). An hourly sweep does not need a 5s poll.
  *
- * ## Why the eleven clocks are CARDS and the sweeps are still a table
+ * ## Why the twelve clocks are CARDS and the sweeps are still a table
  *
  * They answer different questions and the shapes now say so. A clock is a standing fact with
  * two numbers and a sentence of policy attached — "what is deleted, on whose clock, how much
  * is waiting, how much the last pass took" — and it is read one at a time, by an operator who
  * came to find out *which* clock is behind. That is a card, and in this design a card is how
- * a thing that is read on its own is drawn. The sweep history is the opposite: eleven columns
+ * a thing that is read on its own is drawn. The sweep history is the opposite: twelve columns
  * of the same shape, scanned down, compared row against row. That is a table and stays one.
  *
  * Every clock is still rendered, in `SWEEP_CLOCKS` order, with both of its figures — the

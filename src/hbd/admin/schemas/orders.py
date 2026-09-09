@@ -27,6 +27,7 @@ both on the wire: a brief whose note is gone and whose name is not is the normal
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from uuid import UUID
 
@@ -55,7 +56,10 @@ from hbd.db.admin.views import (
     AttemptView,
     BriefView,
     OrderDetail,
+    OrderLedgerStatus,
     OrderListItem,
+    OrderPaymentRail,
+    OrderStateTotal,
     Timeline,
     TimelineEvent,
     TimelineEventKind,
@@ -68,6 +72,8 @@ from hbd.pipeline.events import PipelineStage
 __all__ = [
     "OrderView",
     "OrdersPage",
+    "OrderStateTotalView",
+    "OrderStateCountsView",
     "BriefWireView",
     "AssetWireView",
     "AttemptWireView",
@@ -85,6 +91,7 @@ __all__ = [
     "to_stage_plan_view",
     "to_timeline_view",
     "to_order_detail_view",
+    "to_order_state_counts_view",
 ]
 
 
@@ -115,10 +122,67 @@ class OrderView(ApiModel):
     asset_count: int
     has_assets: bool
 
+    # -- financials, derived from ``credit_ledger`` ---------------------------
+    #: Credits standing against this order *right now*: ``-SUM(delta)`` over its ledger rows,
+    #: which is the same net position the authorisation gate reads. A refunded order is
+    #: ``0``, not ``1``, and that is not a rounding of history — net 0 is precisely what makes
+    #: it chargeable again on its next attempt. The SPA must not label this "credits spent":
+    #: it is "credits currently charged".
+    credit_cost: int
+    #: ``unmetered`` / ``pending`` / ``settled`` / ``refunded``. The fourth is the plan's
+    #: three plus the state most orders are actually in — see
+    #: :class:`~hbd.db.admin.views.OrderLedgerStatus`, which defines all four in ledger
+    #: algebra rather than in prose.
+    ledger_status: OrderLedgerStatus
+    #: ``none`` / ``credits`` / ``unenforced``. Two of the audit plan's three named rails are
+    #: absent because this schema cannot produce them — no payment rail writes anywhere in
+    #: ``src/``, and a fungible balance cannot say which grant funded a debit.
+    #: :class:`~hbd.db.admin.views.OrderPaymentRail` argues both refusals in full.
+    payment_rail: OrderPaymentRail
+    #: Rows in ``generation_attempts`` for this order, and the name is the audit plan's
+    #: (§5.1, "total attempts executed for this order") rather than a claim.
+    #:
+    #: **Two warnings the SPA has to render, not swallow.** It counts *attempts*, so a single
+    #: clean render is ``1`` and not ``0`` — it is not "retries beyond the first". And today
+    #: every row it can count is a name-verification verdict: no vendor-render attempt writer
+    #: exists in ``src/`` (``GenerationAttemptRepository.record()`` has no call site;
+    #: ``repository._replace_verdicts`` writes only ``NAME_VERIFICATION`` rows), so a
+    #: delivered order whose three songs were rendered by the vendor reports ``0`` here
+    #: unless verification also ran. Label it "attempts recorded", never "render retries".
+    retry_count: int
+
 
 class OrdersPage(ApiModel):
     items: list[OrderView]
     meta: PageMeta
+
+
+class OrderStateTotalView(ApiModel):
+    """One segment of the Orders hub's distribution bar."""
+
+    state: OrderState
+    count: int
+
+
+class OrderStateCountsView(ApiModel):
+    """``/orders/state-counts`` — per-state totals for the caller's whole filter set.
+
+    Every :class:`~hbd.contracts.OrderState` is present, in enum declaration order, with a
+    count that may be ``0``. That is the opposite of ``UserDetailView.ordersByState``, which
+    omits states nobody reached, and the two are separate models on purpose: this one draws a
+    stacked bar whose segments must not appear and disappear as data arrives, and a shared
+    model would have made one of the two callers silently wrong.
+
+    ``total`` is the sum of the segments and is **exact**, not
+    :data:`~hbd.db.admin.page.TOTAL_COUNT_CAP`-bounded the way ``meta.total`` on the list is.
+    The two therefore disagree above ten thousand rows, and they should: a bar drawn from a
+    capped sample is a differently wrong bar with nothing on the screen to reveal it, whereas
+    "10,000+" is honest about being a ceiling. The SPA should label the bar from ``total``
+    here rather than from the list's ``meta``.
+    """
+
+    counts: list[OrderStateTotalView]
+    total: int
 
 
 class BriefWireView(ApiModel):
@@ -318,6 +382,23 @@ def to_order_view(item: OrderListItem) -> OrderView:
         output_language=item.output_language,
         asset_count=item.asset_count,
         has_assets=item.has_assets,
+        credit_cost=item.ledger.credit_cost,
+        ledger_status=item.ledger.status,
+        payment_rail=item.ledger.payment_rail,
+        retry_count=item.attempt_count,
+    )
+
+
+def to_order_state_counts_view(totals: Sequence[OrderStateTotal]) -> OrderStateCountsView:
+    """Project the per-state totals, summing them here rather than asking the database twice.
+
+    The sum is Python's because the rows are already in hand and there are eight of them: a
+    second aggregate for a number that is the addition of the first one's output would be a
+    full scan bought to avoid a ``sum()``.
+    """
+    return OrderStateCountsView(
+        counts=[OrderStateTotalView(state=total.state, count=total.count) for total in totals],
+        total=sum(total.count for total in totals),
     )
 
 

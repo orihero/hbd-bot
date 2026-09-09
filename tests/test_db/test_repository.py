@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -118,6 +119,59 @@ async def test_create_order_reuses_one_user_row_across_orders(
             sa.select(sa.func.count()).select_from(UserRow).where(UserRow.telegram_user_id == 555)
         )
     assert user_count == 1
+
+
+async def test_creating_an_order_does_not_change_the_interface_language(
+    repository: SqlKitRepository,
+    sessions: async_sessionmaker[AsyncSession],
+    clock: MovableClock,
+) -> None:
+    """An order is evidence the account is alive. It is not evidence about what its owner reads.
+
+    ``_ensure_user`` used to live in this module and its existing-row branch touched
+    ``last_seen_at`` and nothing else; it is now ``hbd.db.users_sql.ensure_user``, called from
+    ``_create_order`` with ``is_language_authoritative=False`` (C0-13 / C1-1). That rewrite is
+    exactly the place where the behaviour could change silently — an upsert whose ``SET``
+    clause carried ``ui_language`` unconditionally is one line shorter and looks more correct
+    — so the guarantee gets a test rather than a comment.
+
+    The failure it prevents is a customer's, not a developer's: they pick Russian in Settings,
+    order a song whose OUTPUT is English, and the bot answers them in English from then on,
+    on every screen, with no way to see what changed. The wizard fills ``brief.ui_language``
+    from whatever the draft happened to be rendering in, which is frequently a fallback rather
+    than a choice, so an order is the last thing that should be allowed to stamp this column.
+    """
+    # Arrange — an account that chose Russian a month ago and has not been seen since.
+    telegram_user_id = 556
+    chose_at = clock.now - timedelta(days=30)
+    async with sessions.begin() as session:
+        session.add(
+            UserRow(
+                id=uuid4(),
+                telegram_user_id=telegram_user_id,
+                ui_language=Language.RU,
+                is_blocked=False,
+                last_seen_at=chose_at,
+                created_at=chose_at,
+                updated_at=chose_at,
+            )
+        )
+
+    # Act — an order whose brief says the interface language is English.
+    created = await repository.create_order(
+        new_order(telegram_user_id=telegram_user_id, brief=make_brief(ui_language=Language.EN))
+    )
+
+    # Assert — the choice survives, and the liveness stamp still moved.
+    assert is_ok(created)
+    async with sessions() as session:
+        row = (
+            await session.execute(
+                sa.select(UserRow).where(UserRow.telegram_user_id == telegram_user_id)
+            )
+        ).scalar_one()
+    assert row.ui_language is Language.RU
+    assert row.last_seen_at == clock.now
 
 
 async def test_create_order_returns_a_terminal_error_on_a_duplicate_id(

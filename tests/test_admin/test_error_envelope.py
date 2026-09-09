@@ -35,7 +35,7 @@ from fastapi import FastAPI
 from starlette.types import Message, Receive, Scope, Send
 
 from hbd.admin import app as app_module
-from hbd.admin.app import FORBIDDEN_ENV_VARS, create_app
+from hbd.admin.app import FORBIDDEN_ENV_VARS, create_app, derive_forbidden_env_vars
 from hbd.admin.container import AdminContainer
 from hbd.admin.errors import (
     STATUS_BY_ADMIN_CODE,
@@ -51,7 +51,7 @@ from hbd.admin.middleware import (
     is_valid_correlation_id,
 )
 from hbd.admin.settings import ADMIN_ENV_FILE
-from hbd.config import ENV_PREFIX, VENDOR_SECRET_FIELDS
+from hbd.config import FOREIGN_SECRET_ENV_VARS, VENDOR_SECRET_FIELDS
 from hbd.errors import ConfigError
 from hbd.logging import current_correlation_id
 from tests.test_admin.conftest import ORIGIN, make_settings
@@ -443,12 +443,22 @@ async def test_an_unreadable_env_admin_file_is_reported_rather_than_swallowed(
 
 
 def test_the_forbidden_list_is_derived_rather_than_restated() -> None:
-    # Arrange / Act
-    derived = tuple(f"{ENV_PREFIX}{name.upper()}" for name in VENDOR_SECRET_FIELDS)
+    """The list is a spelling of two tuples in ``hbd.config``, not a third hand-written one.
 
-    # Assert - a fourth credential added to hbd.config is covered without an edit here
+    Read through the module's own helper rather than by restating the derivation here: the
+    forbidden set now covers two populations that are different kinds of thing - credentials
+    declared as FIELDS on ``Settings``, and environment variable NAMES belonging to a settings
+    model this host never loads (``HBD_PAYME_MERCHANT_KEY``) - and a copy of that arithmetic
+    living in a test is a copy that keeps passing while the two spellings diverge.
+    """
+    # Arrange / Act
+    derived = derive_forbidden_env_vars()
+
+    # Assert - a sixth credential added to hbd.config is covered without an edit here, and
+    # so is a second foreign secret; the length pins that neither population was dropped.
     assert derived == FORBIDDEN_ENV_VARS
-    assert len(FORBIDDEN_ENV_VARS) == len(VENDOR_SECRET_FIELDS)
+    assert len(FORBIDDEN_ENV_VARS) == len(VENDOR_SECRET_FIELDS) + len(FOREIGN_SECRET_ENV_VARS)
+    assert set(FOREIGN_SECRET_ENV_VARS) <= set(FORBIDDEN_ENV_VARS)
 
 
 def test_the_boot_check_reads_the_file_pydantic_settings_reads() -> None:

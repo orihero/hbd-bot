@@ -31,6 +31,7 @@ const ZERO_COUNTS: SweepCounts = {
   auditRowsDeleted: 0,
   adminSessionsDeleted: 0,
   purgeRunsDeleted: 0,
+  vendorUsageDeleted: 0,
 };
 
 function run(overrides: Partial<PurgeRunView> = {}): PurgeRunView {
@@ -130,20 +131,20 @@ describe("RetentionScreen", () => {
   it("lists every clock with what is past it now and what the last run deleted", () => {
     renderScreen();
     // The reskin renders the clocks as cards rather than as table rows. What is under test
-    // is unchanged: all eleven clocks are present, and each one still carries BOTH figures —
+    // is unchanged: all twelve clocks are present, and each one still carries BOTH figures —
     // the live count against the database and what the last run actually deleted. Collapsing
     // those two into one number is the misreading this screen exists to prevent.
     const clocks = screen.getByRole("region", { name: "retention clocks" });
     const cards = within(clocks).getAllByRole("listitem");
-    expect(cards).toHaveLength(11);
+    expect(cards).toHaveLength(12);
     const assets = within(clocks).getByText("assets").closest("li");
     expect(assets).not.toBeNull();
     expect(assets?.textContent).toContain("40");
     expect(assets?.textContent).toContain("12");
     // Both headings survive the change of shape, because the distinction between them is
     // the point: one is counted live, the other is read off the last run.
-    expect(within(clocks).getAllByText("past expiry now").length).toBe(11);
-    expect(within(clocks).getAllByText("last run deleted").length).toBe(11);
+    expect(within(clocks).getAllByText("past expiry now").length).toBe(12);
+    expect(within(clocks).getAllByText("last run deleted").length).toBe(12);
   });
 
   it("shows the sweep history with its storage tally", () => {

@@ -263,6 +263,13 @@ async def test_the_backlog_keys_line_up_with_the_report_fields(
         "audit_rows_deleted",
         "admin_sessions_deleted",
         "purge_runs_deleted",
+        "vendor_usage_deleted",
+        "membership_events_deleted",
+        "chat_bodies_purged",
+        "chat_messages_deleted",
+        "payme_rpc_rows_deleted",
+        "payment_intents_deleted",
+        "broadcast_recipients_deleted",
     ]
     assert {name for name, _ in counted} <= set(PurgeReport.model_fields)
 

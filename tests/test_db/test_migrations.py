@@ -52,7 +52,7 @@ _ALEMBIC_TABLE: Final[str] = "alembic_version"
 
 #: Matches docker-compose.yml. Overridable so CI can point at its own instance.
 _POSTGRES_URL: Final[str] = os.environ.get(
-    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd"
+    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
 )
 
 _REQUIRED_ENV: Final[tuple[str, ...]] = (
@@ -72,7 +72,59 @@ _CORE_TABLES: Final[frozenset[str]] = frozenset(
 #: :func:`test_the_migrated_schema_matches_the_model_metadata` proves; restating the table
 #: list by hand only means a PR that adds a table turns this file red for everyone else
 #: while proving nothing extra.
+#:
+#: **Being derived is also this constant's one blind spot, and the reason
+#: :func:`test_the_new_table_is_registered_as_well_as_migrated` exists.** A model file that
+#: is written but never imported in ``db/models/__init__.py`` is invisible to
+#: ``Base.metadata``, so it drops out of BOTH sides of every comparison in this module at
+#: once and the migration that creates the table passes unnoticed. That is why a new model
+#: and its registration have to land in the same commit as its revision, and why the one
+#: table this file names by hand is named in a test rather than added here.
 _EXPECTED_TABLES: Final[frozenset[str]] = frozenset(Base.metadata.tables)
+
+#: The table revision ``0014`` adds: the customer's language, number, name and photograph.
+#: Spelled out once, because the assertion that keeps it registered has to name something.
+_USER_PROFILES_TABLE: Final[str] = "user_profiles"
+
+#: The table revision ``0016`` adds: one row per vendor call, with what it cost and how we
+#: know. Named here for exactly the reason above — an unregistered model drops out of BOTH
+#: sides of every derived comparison in this file at once — and the stake is specific: the
+#: whole point of that table is that its quantity columns are nullable with no default, and
+#: a schema the unit suite never builds is one whose nulls nothing ever exercises.
+_VENDOR_USAGE_TABLE: Final[str] = "vendor_usage"
+#: The composite index 0016 hand-names rather than deriving from ``NAMING_CONVENTION``, the
+#: same way 0015 does. It is the one the vendor rollup reads on, and a migration that
+#: created it under the templated name would leave the model declaring an index the chain
+#: never builds — which is what ``test_the_migrated_indexes_match_the_model_metadata``
+#: catches generically and this names concretely.
+_VENDOR_USAGE_INDEX: Final[str] = "ix_vendor_usage_vendor_created_at"
+#: The templated index on ``vendor_usage.cost_usd``. Named here for a reason the generic
+#: comparison cannot express: the query it serves — ``has_priced_vendor_usage``, reached on
+#: every ``/api/ops/pulse`` and so every five seconds from the Live screen — finds nothing
+#: at all on a deployment that prices nothing, and a ``LIMIT 1`` that never hits is a full
+#: scan of the largest table in the schema rather than a cheap probe.
+_VENDOR_USAGE_COST_INDEX: Final[str] = "ix_vendor_usage_cost_usd"
+
+#: The three tables revision ``0023`` adds: the redirect payment rail. Named by hand for the
+#: reason stated on ``_EXPECTED_TABLES`` — an unregistered model drops out of BOTH sides of
+#: every derived comparison at once — and the stake here is the sharpest in the file. These
+#: tables carry the state machine that decides whether somebody who has paid gets a credit,
+#: and every one of the concurrency tests that proves exactly-once fulfilment builds its
+#: schema with ``create_all``. A model file written but never imported would leave that whole
+#: suite passing against a database with no payment tables in it.
+_PAYME_RAIL_TABLES: Final[frozenset[str]] = frozenset(
+    {"payment_intents", "payme_transactions", "payme_rpc_log"}
+)
+
+#: The three tables revision ``0024`` adds: the campaign, its bodies and its frozen
+#: audience. Named by hand for the reason stated on ``_EXPECTED_TABLES``, and the stake is
+#: ``broadcast_recipients``: it is the row that answers "has this account already been
+#: messaged?", and every test that proves the send is exactly-once builds its schema with
+#: ``create_all``. An unregistered model would leave that suite green against a database
+#: with no recipient table in it at all.
+_BROADCAST_TABLES: Final[frozenset[str]] = frozenset(
+    {"broadcasts", "broadcast_bodies", "broadcast_recipients"}
+)
 
 #: The revision that adds the lyric the customer approves in the wizard, and the one it
 #: builds on. Named here because both halves of the product depend on this column existing
@@ -101,7 +153,23 @@ def _clean_settings_cache() -> Iterator[None]:
 
 
 def _prepare_env(url: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Point ``env.py`` at ``url`` the same way production does — through ``hbd.config``."""
+    """Point ``env.py`` at ``url`` the same way production does — through ``hbd.config``.
+
+    **The developer's own dotenv file is taken out of reach first**, and that is not
+    tidiness. ``env.py`` prefers ``HBD_DB_MIGRATION_URL`` — the OWNER role's DSN — over the
+    application DSN set below, and reads it from the process environment and then from the
+    dotenv file. A developer who has followed either README instruction has that variable
+    pointed at their real Postgres, and without these two lines every test in this module
+    silently migrated *that* database instead of the SQLite file in ``tmp_path``: the
+    upgrade succeeded, the assertion failed against an empty temp file, and the two
+    downgrade tests were one passing assertion away from running ``downgrade base`` on it.
+
+    ``HBD_ENV_FILE`` at a path that does not exist is the whole neutralisation — it is what
+    ``hbd.config.env_file()`` returns, so it disables ``.env`` for the settings the
+    migration builds as well.
+    """
+    monkeypatch.setenv("HBD_ENV_FILE", str(_ALEMBIC_INI.parent / "no-such.env"))
+    monkeypatch.delenv("HBD_DB_MIGRATION_URL", raising=False)
     monkeypatch.setenv("HBD_DATABASE_URL", url)
     for name in _REQUIRED_ENV:
         monkeypatch.setenv(name, "migration-test-value")
@@ -237,6 +305,108 @@ def test_no_migration_imports_application_code() -> None:
     assert offenders == [], f"migrations importing application code: {offenders}"
 
 
+def test_the_new_table_is_registered_as_well_as_migrated() -> None:
+    """A model file that exists but is not imported is invisible to ``Base.metadata``.
+
+    ``_EXPECTED_TABLES`` and ``test_the_migrated_schema_matches_the_model_metadata`` both
+    derive from the metadata, so an unregistered model makes BOTH sides of the comparison
+    agree on a table that neither knows about — the migration creates it, the models do not
+    declare it, and every behavioural test that builds its schema with ``create_all`` runs
+    without it. The symptom is not a red suite; it is a green one that has never once
+    exercised the table holding every customer's phone number.
+
+    Named by hand, unlike everything else in this module, precisely because a derived check
+    cannot see the absence it is meant to catch.
+    """
+    # Arrange / Act
+    registered = set(Base.metadata.tables)
+
+    # Assert
+    assert _USER_PROFILES_TABLE in registered, (
+        f"{_USER_PROFILES_TABLE} is created by revision 0014 but no model declares it; "
+        "import UserProfileRow in src/hbd/db/models/__init__.py"
+    )
+
+
+def test_the_vendor_usage_table_is_registered_as_well_as_migrated() -> None:
+    """Revision 0016 creates ``vendor_usage``; a model has to declare it too.
+
+    Same failure mode as :func:`test_the_new_table_is_registered_as_well_as_migrated` and
+    worth naming separately, because this table's contract is entirely about what its
+    columns do NOT default to. If ``VendorUsageRow`` is never imported in
+    ``db/models/__init__.py`` the metadata does not know it, ``create_all`` never builds it,
+    and every test that asserts "an unmeasured quantity comes back NULL" is asserting it
+    against a table that is not there.
+    """
+    # Arrange / Act
+    registered = set(Base.metadata.tables)
+
+    # Assert
+    assert _VENDOR_USAGE_TABLE in registered, (
+        f"{_VENDOR_USAGE_TABLE} is created by revision 0016 but no model declares it; "
+        "import VendorUsageRow in src/hbd/db/models/__init__.py"
+    )
+
+
+def test_the_payme_rail_tables_are_registered_as_well_as_migrated() -> None:
+    """Revision 0023 creates three tables; three models have to declare them too.
+
+    The companion this file's own convention demands, and the failure mode is the one
+    ``_EXPECTED_TABLES`` documents: a model file that exists but is never imported in
+    ``db/models/__init__.py`` is invisible to ``Base.metadata``, so it drops out of BOTH
+    sides of every comparison in this module at once — the migration creates the table, the
+    models do not declare it, and the comparison agrees on a table neither side knows about.
+
+    It is worth naming these three separately from ``user_profiles`` and ``vendor_usage``
+    because of what the tables do. They hold the payment state machine: the intent's
+    ``awaiting`` hold, the conditional claim that grants a credit exactly once, and the
+    unique index on the rail's own transaction id that makes a resent call a replay instead
+    of a second charge. Every test that proves those properties builds its schema with
+    ``create_all``. An unregistered model would leave that entire suite green against a
+    database with no payment tables in it at all — the symptom is not a red suite, it is a
+    green one that has never once exercised the code that moves money.
+    """
+    # Arrange / Act
+    registered = set(Base.metadata.tables)
+
+    # Assert
+    missing = sorted(_PAYME_RAIL_TABLES - registered)
+    assert missing == [], (
+        f"{missing} are created by revision 0023 but no model declares them; import "
+        "PaymentIntentRow, PaymeTransactionRow and PaymeRpcLogRow in "
+        "src/hbd/db/models/__init__.py"
+    )
+
+
+def test_the_broadcast_tables_are_registered_as_well_as_migrated() -> None:
+    """Revision 0024 creates three tables; three models have to declare them too.
+
+    The same companion the two tests above are, and the same blind spot in
+    ``_EXPECTED_TABLES``: a model file that exists but is never imported in
+    ``db/models/__init__.py`` is invisible to ``Base.metadata`` and drops out of BOTH sides
+    of every comparison in this module at once.
+
+    ``broadcast_recipients`` is why these three are named rather than left to the derived
+    comparison. It is the materialised audience — the table that makes "who was this sent
+    to?" answerable and "has this account already been messaged?" askable — and the
+    ``UNIQUE (broadcast_id, telegram_user_id)`` on it is the idempotency authority a replayed
+    expansion chunk relies on. Every test that proves a campaign sends once builds its schema
+    with ``create_all``, so an unregistered model would not turn this suite red; it would
+    leave it green while never once exercising the constraint that stops forty thousand
+    people getting the same message twice.
+    """
+    # Arrange / Act
+    registered = set(Base.metadata.tables)
+
+    # Assert
+    missing = sorted(_BROADCAST_TABLES - registered)
+    assert missing == [], (
+        f"{missing} are created by revision 0024 but no model declares them; import "
+        "BroadcastRow, BroadcastBodyRow and BroadcastRecipientRow in "
+        "src/hbd/db/models/__init__.py"
+    )
+
+
 def test_the_approved_lyrics_revision_is_reachable_from_head() -> None:
     # Arrange — walk_revisions starts at head, so membership proves the chain resolves.
     script = ScriptDirectory.from_config(_config())
@@ -313,6 +483,49 @@ def test_the_migrated_indexes_match_the_model_metadata(
         if names - migrated.get(table, set())
     }
     assert missing == {}, f"declared on the model but not created by the chain: {missing}"
+
+
+def test_the_hand_named_vendor_rollup_index_is_actually_created_by_the_chain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The composite index the vendor rollup reads on, asserted by name.
+
+    ``test_the_migrated_indexes_match_the_model_metadata`` above would catch this too, but
+    only as one entry in a diff of every table in the schema. Naming it here says which
+    index and why: a rollup that filters ``created_at`` and groups by ``vendor`` over a
+    table written once per vendor call is the one read in the panel that a missing index
+    turns into a full scan.
+    """
+    # Arrange
+    url = _sqlite_url(tmp_path, "vendor-index.db")
+
+    # Act
+    _upgrade(url, monkeypatch)
+
+    # Assert
+    assert _VENDOR_USAGE_INDEX in _indexes_of(url)[_VENDOR_USAGE_TABLE]
+
+
+def test_the_capability_probe_on_cost_usd_is_indexed_by_the_chain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The index that pays for itself on the deployment where it never matches.
+
+    ``has_priced_vendor_usage`` asks ``WHERE cost_usd IS NOT NULL LIMIT 1``, and
+    ``read_capabilities`` runs it on every ``/api/ops/pulse`` — a five-second poll from the
+    Live screen. Where a priced row exists the ``LIMIT 1`` stops at the first one and this
+    index is invisible; where none does there is nothing to stop at, and without the index
+    that is a full scan of the fastest-growing table in the schema, twelve times a minute,
+    for as long as nobody configures a rate.
+    """
+    # Arrange
+    url = _sqlite_url(tmp_path, "vendor-cost-index.db")
+
+    # Act
+    _upgrade(url, monkeypatch)
+
+    # Assert
+    assert _VENDOR_USAGE_COST_INDEX in _indexes_of(url)[_VENDOR_USAGE_TABLE]
 
 
 def test_upgrade_then_downgrade_leaves_no_tables_behind(

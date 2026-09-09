@@ -25,8 +25,14 @@ three steps it drops are dropped because they have stopped meaning anything:
   be woven into their words on top of that — so the whole name subsystem is skipped for
   these orders, all the way down to ``Brief.recipient`` being ``None``.
 
-Both orders start at UI_LANGUAGE and end at CONFIRM, and every step in the shorter one
+Both orders start at OCCASION and end at CONFIRM, and every step in the shorter one
 appears in the longer one, which is what lets one set of handlers serve both.
+
+The interface language used to be the first step of both. It is not a step any more: it is
+asked once, at first contact, by :class:`Onboarding`, because a customer who has already
+told us which language to speak should not be asked again at the top of every wizard run.
+:data:`WizardStep.UI_LANGUAGE` survives that move — see :data:`PARKED_ONLY_STEPS` for the
+only two things it still buys and for why deleting it would be worse than keeping it.
 """
 
 from __future__ import annotations
@@ -39,8 +45,10 @@ from aiogram.fsm.state import State, StatesGroup
 __all__ = [
     "WizardStep",
     "Wizard",
+    "Onboarding",
     "WIZARD_ORDER",
     "OWN_LYRICS_ORDER",
+    "PARKED_ONLY_STEPS",
     "order_for",
     "previous_step",
     "next_step",
@@ -52,6 +60,9 @@ __all__ = [
 class WizardStep(StrEnum):
     """One screen of the intake wizard."""
 
+    #: No longer a screen of any run. It is in neither order and it is kept for the two
+    #: reasons :data:`PARKED_ONLY_STEPS` sets out — do not delete it, and do not read it as
+    #: evidence that a customer is ever sent here.
     UI_LANGUAGE = "ui_language"
     OCCASION = "occasion"
     GENRE = "genre"
@@ -80,8 +91,36 @@ class Wizard(StatesGroup):
     submitting = State()
 
 
+class Onboarding(StatesGroup):
+    """First contact: which language to speak, and the phone number. NOT wizard steps.
+
+    These two screens are deliberately a separate :class:`StatesGroup` rather than two more
+    members of :class:`Wizard`, and the reason is that everything in this module treats a
+    ``Wizard`` member as a step of an order. :data:`_STATE_BY_STEP` maps a step to a state
+    and :func:`state_for` reads it as an UNDEFAULTED dict lookup, so a state with no step
+    behind it is a ``KeyError`` in a handler rather than a screen; :func:`step_for_state`
+    would answer ``None`` for these two and the navigation router would read that as "not in
+    a wizard"; ``screens.render_step``'s ``match`` is total over :class:`WizardStep` and
+    would need two arms for screens that have no draft to render from; and
+    ``test_navigation`` pins the enum and the order against each other, so a member added
+    here without a place in an order fails the build. Onboarding is not a step of the
+    wizard. It is the thing that has to have happened before the wizard is offered at all,
+    which is exactly why it is reached from its own router and its own catch-all.
+
+    There is deliberately no ``Settings`` group beside it. The settings submenu is
+    reachable from the persistent menu keyboard at any moment, including halfway through a
+    wizard run, and a screen that set its own FSM state would overwrite the ``Wizard.*``
+    state a half-finished draft is parked in — losing the draft to a customer who only
+    wanted to change their language. Settings is therefore stateless callbacks, and which
+    picker a ``LanguageCB`` came from is carried in its payload (``LanguageSlot.SETTINGS``)
+    rather than inferred from the state.
+    """
+
+    language = State()
+    contact = State()
+
+
 WIZARD_ORDER: Final[tuple[WizardStep, ...]] = (
-    WizardStep.UI_LANGUAGE,
     WizardStep.OCCASION,
     WizardStep.GENRE,
     WizardStep.VOCAL_GENDER,
@@ -102,7 +141,6 @@ WIZARD_ORDER: Final[tuple[WizardStep, ...]] = (
 #: alternative is to hold raw text on the draft and delay the preview to the end of the
 #: wizard, which would put the one screen the customer came for last.
 OWN_LYRICS_ORDER: Final[tuple[WizardStep, ...]] = (
-    WizardStep.UI_LANGUAGE,
     WizardStep.OCCASION,
     WizardStep.LYRICS,
     WizardStep.GENRE,
@@ -110,6 +148,41 @@ OWN_LYRICS_ORDER: Final[tuple[WizardStep, ...]] = (
     WizardStep.OUTPUT_LANGUAGE,
     WizardStep.CONFIRM,
 )
+
+#: Steps that no longer belong to either order but whose STATE must still resolve.
+#:
+#: There is exactly one, and it is :attr:`WizardStep.UI_LANGUAGE`. The interface language is
+#: asked once, at first contact, by :class:`Onboarding`; it stopped being a wizard step and
+#: left both orders above. The enum member, ``Wizard.ui_language``, its
+#: :data:`_STATE_BY_STEP` entry and ``screens.render_step``'s arm for it all survive anyway,
+#: and it is worth being precise about what that buys, because it is NOT a live screen.
+#:
+#: It buys two things, both true. ``hbd.bot.app`` gives the Redis storage
+#: ``state_ttl=data_ttl=WIZARD_STATE_TTL`` — fourteen days, sized to
+#: ``RetentionPolicy.abandoned_draft_days`` — so for two weeks after this deploys Redis
+#: keeps handing back the state name ``Wizard:ui_language``, and :func:`step_for_state` must
+#: resolve it to something rather than answering ``None`` and reporting an expired session
+#: for a state the bot itself wrote. And ``render_step`` stays TOTAL over
+#: :class:`WizardStep`, which is what mypy's exhaustive ``match`` checks and what stops a
+#: forgotten arm becoming a runtime hole.
+#:
+#: It does NOT buy a customer a screen. There is no backfill of ``user_profiles``, so
+#: everyone parked in ``Wizard:ui_language`` on deploy day has no profile row: their next
+#: tap is claimed by the onboarding router's not-onboarded catch-all, which sits above
+#: ``questions`` in the router order, and they are re-asked their language by
+#: ``screens.onboarding_language_screen``. The parked draft — a session id and a default,
+#: since UI_LANGUAGE was the FIRST step and nothing after it had been answered — is
+#: discarded when onboarding ends. The one live reader of the arm is an already-onboarded
+#: customer holding a stale Redis state.
+#:
+#: This constant exists so the exception is WRITTEN DOWN in the source rather than
+#: subtracted inside a test: ``test_every_step_has_a_state_and_a_place_in_the_order``
+#: asserts ``set(WIZARD_ORDER) | PARKED_ONLY_STEPS == set(WizardStep)``, which still fails
+#: when a NEW step is forgotten from the order by accident — which a subset check, or a test
+#: that simply subtracted this member, would quietly allow. No special case is needed in
+#: :func:`previous_step` or :func:`next_step`, and a reader will look for one: both already
+#: answer ``None`` for a step that is not in the order they were handed.
+PARKED_ONLY_STEPS: Final[frozenset[WizardStep]] = frozenset({WizardStep.UI_LANGUAGE})
 
 _STATE_BY_STEP: Final[dict[WizardStep, State]] = {
     WizardStep.UI_LANGUAGE: Wizard.ui_language,

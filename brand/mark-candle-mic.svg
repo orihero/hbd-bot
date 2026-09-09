@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-label="HBD Studio">
+  <rect x="23.5" y="18.8" width="17" height="25" rx="8.5" fill="#1C1620"/>
+  <path d="M14.5 29.8v3.5a17.5 17.5 0 0 0 35 0V29.8" stroke="#1C1620" stroke-width="4.5" stroke-linecap="round"/>
+  <path d="M32 50.8v7.5" stroke="#1C1620" stroke-width="4.5" stroke-linecap="round"/>
+  <path d="M32 3.4C35.496 8.288 36.6 10.868 36.6 12.8a4.6 4.6 0 0 1 -9.2 0C27.4 10.868 28.504 8.288 32 3.4Z" fill="#BD32AF"/>
+</svg>

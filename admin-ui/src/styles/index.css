@@ -61,7 +61,9 @@
    * A scrollbar that does not repaint the whole surface a different colour.
    *
    * The thumb is a UI component, so WCAG 1.4.11's 3:1 applies to it and 1.4.3's 4.5:1 does
-   * not. `--ink-mark` is the token for exactly that and clears it at 3.52:1 worst-case.
+   * not. `--ink-mark` is the token for exactly that and clears it at 3.56:1 worst-case,
+   * taken across both theme cells.
+   *
    * This declaration is also the live proof that `tokenContrast.test.ts`'s file walk really
    * reads `.css` — ESLint parses TypeScript and cannot see this line, so the waiver for it
    * lives in that file's `MARK_WAIVERS` and is checked against this source.

@@ -21,15 +21,33 @@ from hbd.config import Settings
 from hbd.errors import ConfigError
 from hbd.runtime.container import build_container
 from hbd.runtime.jobs import (
+    ACTIVITY_SNAPSHOT_JOB_NAME,
     BOT_CTX_KEY,
     CONTAINER_CTX_KEY,
+    DUE_JOB_NAME,
+    EXPAND_JOB_NAME,
     KIT_JOB_NAME,
+    PAYME_NOTIFY_JOB_NAME,
+    PAYME_SWEEP_JOB_NAME,
     RETENTION_JOB_NAME,
+    SEND_JOB_NAME,
+    TEST_SEND_JOB_NAME,
+    VENDOR_BALANCE_JOB_NAME,
     build_kit_worker_settings,
     generate_and_deliver,
 )
 from hbd.runtime.startup import verify_host
 from hbd.runtime.submitter import InProcessOrderSubmitter
+
+
+def _registered_name(entry: Any) -> str:
+    """The name ARQ will dispatch this entry under, whether it is bare or wrapped.
+
+    A bare coroutine is looked up by ``__qualname__``; one wrapped in ``arq.worker.func`` —
+    which is how a job states a retry budget of its own — carries an explicit ``name``. Both
+    end up as the key in the worker's function table, so this reads whichever is present.
+    """
+    return str(getattr(entry, "name", getattr(entry, "__name__", "")))
 
 
 def _offline(base: Settings, tmp_path: Path, **extra: Any) -> Settings:
@@ -162,12 +180,39 @@ async def test_the_worker_registers_the_job_the_submitter_enqueues(settings: Set
     # Act
     worker_settings = build_kit_worker_settings(settings=settings, build_dependencies=dependencies)
 
-    # Assert — both jobs, named exactly. The retention sweep joined the kit job when the
-    # hourly cron landed; leaving this as an exact list is what keeps a third job from being
-    # registered without somebody deciding it should be.
-    assert [fn.__name__ for fn in worker_settings.functions] == [
+    # Assert — every job, named exactly. The retention sweep joined the kit job when the
+    # hourly cron landed, and the dashboard instrumentation added two more: the hourly vendor
+    # balance poll and the nightly activity snapshot. Leaving this as an exact list is what
+    # keeps a job from being registered without somebody deciding it should be — and the
+    # Payme rail is that decision being taken: the settled-payment notification and the
+    # five-minutely sweep are the FIRST entries here whose enqueue side is not this
+    # repository's bot or admin process at all, but the payment gateway, which holds the
+    # cashbox key and no Telegram token. A name that drifted would leave a paying customer
+    # silently untold with the money already banked, which is why this list is read by NAME.
+    #
+    # ``_registered_name`` rather than ``__name__``: the notification is wrapped in arq's
+    # ``func()`` so it can carry its own retry budget instead of the queue-wide one, and a
+    # wrapped entry is an ``arq.worker.Function`` — which carries ``name`` and not
+    # ``__name__``. That is the same string arq dispatches on, so reading it is if anything
+    # closer to the property this test is about.
+    #
+    # The four broadcast entries are the same decision taken a second time, for the second
+    # process that queues work into this worker: the ADMIN PANEL. It is denied a Telegram
+    # token by design, so composing a campaign and sending it are necessarily two processes
+    # — and ``hbd.admin.queue`` names these jobs as STRINGS it restates rather than imports.
+    # A rename that compiled on both sides of that gap would silently stop every campaign,
+    # which is exactly what reading this list by name prevents.
+    assert [_registered_name(fn) for fn in worker_settings.functions] == [
         KIT_JOB_NAME,
         RETENTION_JOB_NAME,
+        VENDOR_BALANCE_JOB_NAME,
+        ACTIVITY_SNAPSHOT_JOB_NAME,
+        PAYME_NOTIFY_JOB_NAME,
+        PAYME_SWEEP_JOB_NAME,
+        EXPAND_JOB_NAME,
+        SEND_JOB_NAME,
+        TEST_SEND_JOB_NAME,
+        DUE_JOB_NAME,
     ]
     assert worker_settings.max_jobs == settings.worker_concurrency
     assert worker_settings.job_timeout == settings.queue_job_timeout_s

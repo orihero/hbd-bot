@@ -20,7 +20,15 @@ from aiogram.types import CallbackQuery, Message
 
 from hbd.bot.callbacks import NavAction, NavCB
 from hbd.bot.deps import BotDeps
-from hbd.bot.handlers.common import error_text, expire, read_draft, say, show_step
+from hbd.bot.handlers.common import (
+    COMMAND_PREFIX,
+    error_text,
+    expire,
+    is_menu_label,
+    read_draft,
+    say,
+    show_step,
+)
 from hbd.bot.i18n import translate
 from hbd.bot.name_entry import resolve_typed_name
 from hbd.bot.states import Wizard, WizardStep
@@ -33,9 +41,33 @@ _LOG = get_logger(__name__)
 
 
 async def handle_name_typed(message: Message, state: FSMContext, deps: BotDeps) -> None:
+    """The typed name. Commands and menu labels never reach the validator.
+
+    This step had no guard at all until now, and it is the step that most needed one: the
+    word stored here is the word the whole product exists to pronounce correctly. It is
+    echoed for confirmation, transliterated into vendor-facing candidates, sung in the hook
+    and printed on the card. "🎵 Qoʻshiq yasash" going through as somebody's name is not a
+    validation error with a nice message — it is a birthday song addressed to a button.
+
+    Before this, ``/halp`` at the name step was handed straight to ``resolve_typed_name``
+    and was rejected only by accident, by whatever that validator happened to say about a
+    leading slash; a menu label, being ordinary letters, would have sailed through it. Both
+    now get the same remedy the note and lyric steps use — log it, re-show the step, store
+    nothing — rather than an error sentence about a message the customer never meant as an
+    answer.
+
+    As at the other two steps, the router order is the real defence (``commands`` and
+    ``menu`` are both registered above the step routers) and this is the second brace,
+    because that order is one line in ``handlers/__init__``.
+    """
     draft = await read_draft(state)
     if draft is None:
         await expire(message, state)
+        return
+    typed = (message.text or "").strip()
+    if typed.startswith(COMMAND_PREFIX) or is_menu_label(typed):
+        _LOG.info("command- or menu-shaped text at the name step; not stored")
+        await show_step(message, state, draft, WizardStep.NAME)
         return
     result = resolve_typed_name(
         message.text or "",

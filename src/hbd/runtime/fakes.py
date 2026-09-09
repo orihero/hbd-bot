@@ -28,11 +28,14 @@ from hbd.contracts import (
     ProviderHealth,
     Result,
     Transcript,
+    Vendor,
+    VendorOperation,
     err,
     ok,
 )
-from hbd.errors import ValidationError
+from hbd.errors import HbdError, ValidationError
 from hbd.logging import get_logger
+from hbd.usage import LOGGING_USAGE_SINK, UsageSink, VendorUsage
 
 __all__ = ["KeytermSttProvider", "KEYTERM_STT_NAME", "MISHEARD_TRANSCRIPT"]
 
@@ -53,11 +56,12 @@ class KeytermSttProvider:
 
     name: str = KEYTERM_STT_NAME
 
-    def __init__(self, *, mishear_first: int = 0) -> None:
+    def __init__(self, *, mishear_first: int = 0, usage: UsageSink = LOGGING_USAGE_SINK) -> None:
         if mishear_first < 0:
             raise ValueError(f"mishear_first must be >= 0, got {mishear_first}")
         self._mishear_first = mishear_first
         self._heard = 0
+        self._usage = usage
 
     @property
     def call_count(self) -> int:
@@ -73,26 +77,64 @@ class KeytermSttProvider:
         timeout_s: float,
     ) -> Result[Transcript]:
         if not audio:
-            return err(
-                ValidationError(
-                    "cannot transcribe an empty audio payload", context={"provider": self.name}
-                )
+            rejected = ValidationError(
+                "cannot transcribe an empty audio payload", context={"provider": self.name}
             )
+            await self._record(
+                operation=VendorOperation.TRANSCRIPTION,
+                is_success=False,
+                error=rejected,
+                request_bytes=len(audio),
+            )
+            return err(rejected)
         self._heard += 1
         text = MISHEARD_TRANSCRIPT if self._heard <= self._mishear_first else _first(keyterms)
         _LOG.info(
             "fake transcription served",
             extra={"provider": self.name, "attempt": self._heard, "heard": text},
         )
+        await self._record(
+            operation=VendorOperation.TRANSCRIPTION,
+            is_success=True,
+            request_bytes=len(audio),
+        )
         return ok(Transcript(text=text, language=language, confidence=_FAKE_CONFIDENCE))
 
     async def health(self) -> Result[ProviderHealth]:
+        await self._record(operation=VendorOperation.HEALTH, is_success=True)
         return ok(
             ProviderHealth(
                 name=self.name,
                 state=HealthState.HEALTHY,
                 as_of=datetime.now(tz=UTC),
                 detail="fake provider; no vendor contacted",
+            )
+        )
+
+    # -- internals ----------------------------------------------------------
+    async def _record(
+        self,
+        *,
+        operation: VendorOperation,
+        is_success: bool,
+        error: HbdError | None = None,
+        request_bytes: int | None = None,
+    ) -> None:
+        """Record the call the way every other fake does: what happened, nothing more.
+
+        No cost, no latency and no billed quantity: no vendor was contacted, so there is
+        nothing genuine to put in those columns and a plausible-looking figure there would
+        be exactly the fabricated number the usage table exists to keep out.
+        """
+        await self._usage.record(
+            VendorUsage(
+                vendor=Vendor.FAKE,
+                operation=operation,
+                provider=self.name,
+                is_success=is_success,
+                is_fake=True,
+                error_code=error.error_code.value if error is not None else None,
+                request_bytes=request_bytes,
             )
         )
 

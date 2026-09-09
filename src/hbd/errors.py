@@ -41,6 +41,8 @@ __all__ = [
     "StorageError",
     "DeliveryError",
     "PaymentError",
+    "CheckoutError",
+    "CheckoutPausedError",
     "EntitlementError",
     "InsufficientCreditsError",
     "TooManyOrdersInFlightError",
@@ -363,11 +365,70 @@ class DeliveryError(PipelineError):
 
 
 class PaymentError(HbdError):
-    """Reserved for the real rail. ``NoopPaymentProvider`` never raises it."""
+    """The RENDER seam's refusal: ``hbd.payments.PaymentProvider.authorize`` said no.
+
+    Named before either seam existed and now sharpened by the arrival of the second one:
+    this is the error of "may this order be rendered against a credit the customer already
+    owns?", raised on the worker's side of a gate, per order. The question "did money change
+    hands for a product?" is :class:`CheckoutError` below. They share
+    :attr:`ErrorCode.PAYMENT_FAILED` because both are money-shaped to a dashboard, and they
+    do not share a class because they are not the same sentence to a customer.
+    """
 
     code = ErrorCode.PAYMENT_FAILED
     default_user_message_key = "error.payment_failed"
     default_is_retryable = False
+
+
+# ---------------------------------------------------------------------------
+# Checkout — the BUY seam, which is a different question from the RENDER seam above
+# ---------------------------------------------------------------------------
+class CheckoutError(HbdError):
+    """A purchase could not be started or could not be taken. **Not** :class:`PaymentError`.
+
+    The two seams this codebase draws around money answer different questions and are faked
+    independently — ``hbd.payments.PaymentProvider.authorize`` asks "may this order render?"
+    and ``hbd.checkout.CheckoutProvider.charge`` asks "did money change hands?" — so giving
+    them one exception class would give one object two meanings and let the first person to
+    catch it for one meaning silently swallow the other. That is the same argument
+    :mod:`hbd.checkout`'s module docstring makes for not overloading ``authorize``, applied
+    to the error channel, which is the half that is easy to forget.
+
+    **The user message key is ``checkout.failed`` rather than a freshly minted ``error.*``
+    key, and that is what makes this class free to introduce.** That string is already in all
+    four catalogues, already translated, and already what ``handlers.checkout`` renders on its
+    failure branch as a hardcoded ``translate("checkout.failed", ...)``. Pointing the class at
+    it means the day that branch becomes ``error_text(charged.error, language)`` — so that a
+    paused rail and a declined card can read differently — the shipped copy for an ordinary
+    decline does not move by one byte. A new ``error.checkout_failed`` would have been a
+    second sentence saying the same thing, in four languages, for no reader's benefit.
+
+    ``default_is_retryable = False`` and it is load-bearing rather than a default: ``Err``'s
+    retry flag drives the ARQ ladder, and a purchase is never retried by a machine. A customer
+    presses the button again, or does not.
+    """
+
+    code = ErrorCode.PAYMENT_FAILED
+    default_user_message_key = "checkout.failed"
+    default_is_retryable = False
+
+
+class CheckoutPausedError(CheckoutError):
+    """An operator has closed the rail to NEW purchases. Nothing was charged and nothing broke.
+
+    Distinct from its parent for exactly one reason and it is a copy reason: "that did not go
+    through, try again in a moment" is a lie when the rail is deliberately shut, because the
+    customer's next three attempts will fail the same way. A separate key lets the screen say
+    "payments are paused right now" and mean it.
+
+    **The switch it reports is asymmetric on purpose.** It stops new checkouts and is never
+    consulted on an inbound settlement: money already in flight is settled, granted and
+    receipted while the rail is paused, because refusing a payment a customer's bank has
+    already taken is how an incident becomes a dispute. So this error only ever reaches a
+    customer who has not yet been charged, which is precisely why it may say so plainly.
+    """
+
+    default_user_message_key = "checkout.paused"
 
 
 # ---------------------------------------------------------------------------

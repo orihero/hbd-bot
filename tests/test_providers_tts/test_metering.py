@@ -1,4 +1,11 @@
-"""Character billing and duration estimates. No price is ever invented."""
+"""Character billing and duration estimates. No price is ever invented, and no price is zero.
+
+The unpriced case is the one that matters most here. ``cost_for`` answers ``(None, None)``
+rather than ``(0.0, ESTIMATED)`` when no rate was configured, because a zero-dollar figure
+and an unknown-dollar figure are different facts and only one of them is true. The
+provenance tests pin the other half of the rule: a cost is ``DERIVED`` only when the
+vendor's own header supplied the character count.
+"""
 
 from __future__ import annotations
 
@@ -16,16 +23,16 @@ UZS_PER_USD = 12_500.0
 UZS_PER_CHARACTER = 25.0
 
 
-def test_reports_zero_and_estimated_when_no_rate_was_supplied() -> None:
+def test_an_unpriced_call_has_no_cost_at_all_rather_than_a_cost_of_zero() -> None:
     # Arrange
     pricing = CharacterPricing()
 
     # Act
-    cost, source = pricing.cost_for(1_000)
+    cost, source = pricing.cost_for(1_000, is_vendor_counted=True)
 
-    # Assert — a fabricated figure would poison cost reconciliation.
-    assert cost == 0.0
-    assert source is CostSource.ESTIMATED
+    # Assert — zero would be summed as spend; absent is the truth and stays absent.
+    assert cost is None
+    assert source is None
 
 
 def test_derives_usd_from_a_uzs_rate() -> None:
@@ -33,11 +40,23 @@ def test_derives_usd_from_a_uzs_rate() -> None:
     pricing = CharacterPricing(rate_per_character=UZS_PER_CHARACTER, units_per_usd=UZS_PER_USD)
 
     # Act
-    cost, source = pricing.cost_for(500)
+    cost, source = pricing.cost_for(500, is_vendor_counted=True)
 
     # Assert
     assert cost == pytest.approx(500 * UZS_PER_CHARACTER / UZS_PER_USD)
     assert source is CostSource.DERIVED
+
+
+def test_a_cost_over_our_own_character_count_is_estimated_not_derived() -> None:
+    # Arrange
+    pricing = CharacterPricing(rate_per_character=UZS_PER_CHARACTER, units_per_usd=UZS_PER_USD)
+
+    # Act — the vendor sent no character-cost header, so we counted the text ourselves.
+    cost, source = pricing.cost_for(500, is_vendor_counted=False)
+
+    # Assert — same arithmetic, weaker provenance, and the row must say so.
+    assert cost == pytest.approx(500 * UZS_PER_CHARACTER / UZS_PER_USD)
+    assert source is CostSource.ESTIMATED
 
 
 def test_reports_the_vendor_currency_figure_an_invoice_will_show() -> None:
@@ -53,7 +72,7 @@ def test_zero_characters_cost_nothing() -> None:
     pricing = CharacterPricing(rate_per_character=1.0)
 
     # Act
-    cost, _ = pricing.cost_for(0)
+    cost, _ = pricing.cost_for(0, is_vendor_counted=True)
 
     # Assert
     assert cost == 0.0
@@ -77,7 +96,7 @@ def test_rejects_a_negative_character_count() -> None:
 
     # Act / Assert
     with pytest.raises(ConfigError, match="character_count"):
-        pricing.cost_for(-1)
+        pricing.cost_for(-1, is_vendor_counted=True)
 
 
 def test_estimates_duration_from_the_spoken_length() -> None:

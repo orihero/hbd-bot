@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-label="Bayram — Suzani rosette">
+  <g transform="translate(32 32)">
+  <rect x="-3.5" y="-25" width="7" height="16" rx="3.5" fill="#1C1620" transform="rotate(0)"/>
+  <rect x="-3.5" y="-20" width="7" height="11" rx="3.5" fill="#1C1620" transform="rotate(45)"/>
+  <rect x="-3.5" y="-22.5" width="7" height="13.5" rx="3.5" fill="#1C1620" transform="rotate(90)"/>
+  <rect x="-3.5" y="-20" width="7" height="11" rx="3.5" fill="#1C1620" transform="rotate(135)"/>
+  <rect x="-3.5" y="-25" width="7" height="16" rx="3.5" fill="#1C1620" transform="rotate(180)"/>
+  <rect x="-3.5" y="-20" width="7" height="11" rx="3.5" fill="#1C1620" transform="rotate(225)"/>
+  <rect x="-3.5" y="-22.5" width="7" height="13.5" rx="3.5" fill="#1C1620" transform="rotate(270)"/>
+  <rect x="-3.5" y="-20" width="7" height="11" rx="3.5" fill="#1C1620" transform="rotate(315)"/>
+  <circle cx="0" cy="0" r="6.5" fill="#BD32AF"/>
+  </g>
+</svg>

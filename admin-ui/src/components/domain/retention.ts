@@ -80,8 +80,8 @@ export function retentionUrgencyColorVar(urgency: RetentionUrgency): string {
     case "later":
       return "var(--ink-muted)";
     // `--ink-muted`, not the policed `--ink-mark`: this colour paints the WORDS "expires
-    // today" / "4d past expiry" / the em dash. `--ink-muted` clears 4.5:1 on every ground in
-    // both palettes; `--ink-mark` is 3.52:1 at its worst and is a glyph colour only.
+    // today" / "4d past expiry" / the em dash. `--ink-muted` clears 4.5:1 on every ground of
+    // every cell; `--ink-mark` is 3.56:1 at its worst and is a glyph colour only.
     case "purged":
       return "var(--ink-muted)";
     case "none":

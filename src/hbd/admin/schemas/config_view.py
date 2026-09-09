@@ -36,6 +36,7 @@ still be the answer to "what is the panel itself running with".
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from urllib.parse import urlsplit
 
 from hbd.admin.schemas.common import ApiModel
@@ -137,6 +138,41 @@ class ConfigView(ApiModel):
     #: needs to see either the number the marker was drawn from or the fact that there
     #: isn't one. Not a secret and not derived: it is a setting like the rest.
     admin_name_match_min_similarity: float | None
+    #: The WORKER's ``settlement_grace_s``, mirrored into this process so
+    #: ``/users/{id}``'s ``inFlightRenderCount`` counts unsettled debits against the same
+    #: cutoff the customer's own gate used. ``null`` means this deployment has not published
+    #: it and the panel is counting against ``DEFAULT_ENTITLEMENT_POLICY``; an operator
+    #: reading a refusal they cannot explain needs to see which of the two produced the
+    #: number, which is exactly what this column is for.
+    admin_settlement_grace_s: int | None
+    #: The operator's own soʻm-per-dollar rate and the date they took it, always both or
+    #: neither (``AdminSettings`` refuses a boot where only one is set). ``null`` means this
+    #: deployment has not published a rate, and the Net card renders an absence rather than a
+    #: converted figure — a default of ``1.0`` would read 7 000 soʻm as $7 000 against $3.47
+    #: of cost. Published here as well as on the finance response for the reason
+    #: ``admin_name_match_min_similarity`` already is: ``/api/config`` is where an operator
+    #: confirms which rate the panel is running under and how stale it has gone, while the
+    #: metrics response carries it so a chart stays reproducible from its own answer.
+    admin_uzs_per_usd: float | None
+    admin_uzs_per_usd_as_of: date | None
+    #: The WORKER's ``single_song_price_minor`` and the currency it is quoted in, MIRRORED.
+    #: This process does not read ``.env``, so it cannot know what price the worker started
+    #: with, and importing the bot model's default would publish 700 000 on a deployment
+    #: charging something else — the exact defect ``admin_free_allowance_credits``' comment
+    #: records as a three-song overstatement on every customer in the fleet. ``null`` means
+    #: unpublished, and the derived-revenue card then renders as an absence with a reason
+    #: rather than as an estimate nobody configured. It is the number the whole Finance
+    #: section multiplies by, so it must be auditable here.
+    admin_single_song_price_minor: int | None
+    admin_kit_currency: str | None
+    #: The trailing window the net run-rate card is computed over, INDEPENDENT of the
+    #: request's ``?from``/``?to``. Published because a card labelled with a period the
+    #: picker above it does not control is one an operator has to be able to check.
+    admin_dashboard_run_rate_days: int
+    #: The two ceilings ``/metrics/dashboard/series`` refuses past. Published so a 422 naming
+    #: ``bucket`` can be reconciled against the limit that produced it rather than guessed at.
+    admin_dashboard_max_hourly_window_days: int
+    admin_dashboard_max_series_buckets: int
 
     # -- derived: where the DSNs point, never what they authenticate with ---
     database_host: str | None
@@ -178,6 +214,14 @@ def to_config_view(settings: AdminSettings) -> ConfigView:
         admin_reveal_records_per_hour=settings.admin_reveal_records_per_hour,
         admin_reveal_conversations_per_day=settings.admin_reveal_conversations_per_day,
         admin_name_match_min_similarity=settings.admin_name_match_min_similarity,
+        admin_settlement_grace_s=settings.admin_settlement_grace_s,
+        admin_uzs_per_usd=settings.admin_uzs_per_usd,
+        admin_uzs_per_usd_as_of=settings.admin_uzs_per_usd_as_of,
+        admin_single_song_price_minor=settings.admin_single_song_price_minor,
+        admin_kit_currency=settings.admin_kit_currency,
+        admin_dashboard_run_rate_days=settings.admin_dashboard_run_rate_days,
+        admin_dashboard_max_hourly_window_days=settings.admin_dashboard_max_hourly_window_days,
+        admin_dashboard_max_series_buckets=settings.admin_dashboard_max_series_buckets,
         database_host=database.host,
         database_port=database.port,
         redis_host=redis.host,

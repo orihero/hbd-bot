@@ -12,6 +12,16 @@ screen — and no failure on this side of the seam can consume a credit, because
 here can write one. The single debit lives in the worker, which is the only process whose
 terminal paths can refund. See :func:`_entitlement_refusal`.
 
+**On a deployment that SELLS, both reads of that meter fail CLOSED.** They used to fail
+open, and the reasoning for that is preserved in :func:`_entitlement_refusal` because it is
+still correct for a deployment that sells nothing. It stopped being correct the day a
+render cost 7 000 UZS: the shipped configuration leaves ``credits_enforced`` false, so the
+worker covers a shortfall rather than refusing it, and the bot's read is then the only
+thing between an unreadable database and a paid song given away. A customer who meets that
+failure is told the service is temporarily unavailable and left on the Confirm screen to
+press again — never that they are out of songs, which is a claim about a number nobody
+could read.
+
 The message the user is looking at when they press Confirm becomes the progress message:
 it is edited into the first frame and its id travels with the job, so the worker's events
 land in a message that already exists instead of racing to create one.
@@ -46,6 +56,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+from enum import StrEnum
 from typing import Final
 from uuid import UUID, uuid5
 
@@ -57,8 +68,9 @@ from aiogram.types import CallbackQuery, Message
 from hbd.bot.callbacks import NavAction, NavCB
 from hbd.bot.deps import BotDeps
 from hbd.bot.draft import WizardDraft
-from hbd.bot.handlers.balance import show_confirm
+from hbd.bot.handlers.balance import build_offer, show_confirm
 from hbd.bot.handlers.common import (
+    clear_keeping_identity,
     error_text,
     expire,
     present,
@@ -85,6 +97,7 @@ from hbd.entitlements import (
     period_start,
     resolve_entitlement_policy,
 )
+from hbd.errors import HbdError, StorageError
 from hbd.logging import current_correlation_id, get_logger, new_correlation_id
 
 __all__ = ["build_router"]
@@ -160,6 +173,24 @@ async def _authorize_and_submit(
     if refusal is not None:
         await _refuse(callback, state, deps, draft, order, refusal)
         return
+    second_line = await _second_line(deps, order)
+    if second_line is _SecondLine.PAYWALL:
+        # A customer can be holding a keyboard drawn BEFORE they spent their last credit —
+        # a stale message, a second tab, a redelivered update — and that keyboard still
+        # carries 🎬 Record it. This is what stops such a tap queueing a render nobody paid
+        # for: ``show_confirm`` redraws the very same screen wearing the paywall, so the
+        # customer sees the price instead of a progress bar, and the button that should not
+        # have been there is gone from the message they are looking at.
+        await show_confirm(callback, state, deps, draft)
+        return
+    if second_line is _SecondLine.UNREADABLE:
+        # Said out loud rather than redrawn in silence. The paywall branch above needs no
+        # sentence because the screen it draws IS the sentence — a price where a Record it
+        # button used to be. This one redraws the screen unchanged, so a customer given no
+        # message would press the same button again and watch nothing happen.
+        await say(callback, error_text(_meter_unreadable(order), language))
+        await show_confirm(callback, state, deps, draft)
+        return
     if not await _is_authorized(deps, order, language, callback):
         await show_confirm(callback, state, deps, draft)
         return
@@ -220,7 +251,7 @@ async def _queue(
     await remember_submission(state, order_id=authorized.id, progress_message_id=message_id)
 
 
-async def _entitlement_refusal(deps: BotDeps, order: Order) -> EntitlementError | None:
+async def _entitlement_refusal(deps: BotDeps, order: Order) -> HbdError | None:
     """Read the meter and decide. **This gate writes nothing**, and that is its whole point.
 
     The customer learns on the Confirm screen instead of after the progress bar has been
@@ -237,12 +268,28 @@ async def _entitlement_refusal(deps: BotDeps, order: Order) -> EntitlementError 
     ``exclude_order_id`` leaves this order out of the in-flight count, so a customer who
     re-confirms the same draft after a queue failure is never refused by their own debit.
 
-    A read that FAILS lets the order through. The refusal it would have produced is not
-    worth an outage: with the meter unreadable the worker gate — which reads the same rows
-    inside the transaction that charges — is still there to refuse, so the cost of failing
-    open is that a refused customer hears about it a minute later, exactly as they did
-    before this gate existed. The cost of failing closed would be a database blip that
-    stops every order in the product.
+    **A read that FAILS now depends on whether this deployment SELLS, and that is a change
+    from the fail-open this function used to do unconditionally.** The old argument was
+    sound for what it covered: this was a read-only refusal gate in FRONT of a worker gate
+    that read the same rows inside the transaction that charges, so failing open cost a
+    refused customer one extra minute and failing closed would have stopped every order in
+    the product over a database blip. That argument does not survive a PAYWALL. Once the
+    customer has paid 7 000 UZS for a render, the bot-side read is the only thing standing
+    between a blip and a song given away — ``.env.example`` ships ``credits_enforced=false``,
+    so ``hbd.db.credits.charge`` covers the shortfall with an ``UNENFORCED_RENDER`` grant and
+    sings it. Proven end to end: with the store injected with a ``StorageError`` the Confirm
+    screen drew 🎬 Record it, the press was queued, and the balance never moved.
+
+    So: a deployment that sells fails CLOSED, and says the service is temporarily
+    unavailable — a ``StorageError``, not an ``EntitlementError``, because the customer is
+    not being refused for a business reason and must never be told they are out of songs
+    when the truth is simply unknown (a customer holding ten credits reads the same
+    sentence). A deployment that sells nothing keeps the old fail-open exactly, because
+    there the worker gate really is the defence and nothing has been paid for.
+
+    The return type widened to ``HbdError`` for that sentence. :func:`_refusal_for` still
+    answers ``EntitlementError | None`` — the business refusals have not changed — and
+    :func:`_refuse` is what routes the two kinds to their two shapes of screen.
     """
     store = deps.entitlements
     if store is None:
@@ -250,8 +297,100 @@ async def _entitlement_refusal(deps: BotDeps, order: Order) -> EntitlementError 
     balance = await store.balance_for(order.telegram_user_id, exclude_order_id=order.id)
     if isinstance(balance, Err):
         _LOG.error("the entitlement meter could not be read", extra=balance.error.to_log_dict())
-        return None
+        return _meter_unreadable(order) if _sells(deps) else None
     return _refusal_for(balance.value, settings=deps.settings, now=deps.clock())
+
+
+def _sells(deps: BotDeps) -> bool:
+    """Does this deployment take money for a render? The one test both gates branch on.
+
+    Written once because the two of them must never disagree: a build where the first gate
+    thought it was selling and the second did not would fail closed on one read and open on
+    the next, which is the shape of a bug that shows up as "it only happens sometimes".
+    It mirrors ``handlers.balance.build_offer``'s first condition — both ports, not either.
+    """
+    return deps.purchases is not None and deps.pricing is not None
+
+
+def _meter_unreadable(order: Order) -> StorageError:
+    """The refusal an unreadable meter earns on a SELLING deployment. See the two gates.
+
+    A ``StorageError`` deliberately, so ``error_text`` renders ``error.generic`` — "something
+    went wrong on our side, please try again in a moment". Every ``EntitlementError`` key
+    says something about the ACCOUNT ("you have used every song", "you are blocked"), and
+    saying any of them here would be a claim about a balance nobody could read.
+    """
+    return StorageError(
+        "the entitlement meter could not be read on a selling deployment",
+        context={"order_id": str(order.id), "telegram_user_id": order.telegram_user_id},
+    )
+
+
+class _SecondLine(StrEnum):
+    """What the second read of the meter decided. Three answers, three different screens.
+
+    A tri-state rather than the boolean this was, because "not paywalled" and "we could not
+    tell" used to be the same ``False`` and that collapse was the defect: a meter that
+    failed on the second read let a render through on an account with no credits. The names
+    are the customer-visible outcomes, not the internal condition.
+    """
+
+    #: Nothing here refuses the order; go on to the payment gate.
+    ALLOW = "allow"
+    #: The account cannot afford this render. Redraw the screen wearing the paywall.
+    PAYWALL = "paywall"
+    #: The meter could not be read at all on a deployment that sells. Refuse and say why.
+    UNREADABLE = "unreadable"
+
+
+async def _second_line(deps: BotDeps, order: Order) -> _SecondLine:
+    """Would the Confirm screen be drawn as a CHECKOUT right now? A read; writes nothing.
+
+    This is the second line of the "no render is queued unpaid" defence. The first is
+    structural — the paywall keyboard carries no 🎬 Record it button at all — and it is the
+    one that holds for every screen this build draws. This one covers the screen it did not
+    draw: a message from before the last credit was spent, still on the customer's phone,
+    still carrying ``nav:confirm``.
+
+    **It short-circuits before awaiting anything when the deployment does not sell**, which
+    is every deployment and every test that wires neither ``purchases`` nor ``pricing``. That
+    ordering is not tidiness. Three tests in ``tests/test_bot/test_submitting.py`` park the
+    first of two taps on ``deps.payment.authorize`` with a ``GatedPaymentProvider`` and feed
+    the second while it waits; an ``await`` that fired ahead of it for THEM would move the
+    suspension point they measure and quietly stop them testing a double tap at all. See
+    :func:`_is_authorized`.
+
+    It reads the meter a second time, after ``_entitlement_refusal`` has already read it, and
+    that is a deliberate cost paid only on a selling deployment. The alternative was to
+    thread the balance out of that function, which would turn the one call site of the
+    codebase's most carefully argued read-only gate into a two-value return in order to save
+    a round trip on a path that is about to spend several minutes in a vendor. The two reads
+    cannot disagree in a way that matters, either: both fail open, and a balance that moved
+    between them moved in the customer's favour or is caught by the worker's own gate.
+
+    ``exclude_order_id`` matches ``_entitlement_refusal``'s, so a customer re-confirming
+    after a queue failure is never paywalled by their own in-flight debit.
+
+    **The failed read is UNREADABLE and not ALLOW, and the residual hole it closes is worth
+    stating because it survives the fix to the gate above.** ``build_offer`` answers ``None``
+    for an ``Err`` balance — deliberately, so no price is shown to somebody whose balance
+    nobody could read — and this function used to turn that ``None`` into ``False``. With
+    ``credits_enforced`` off, ``_refusal_for`` never looks at the balance at all, so a first
+    read that SUCCEEDS on a zero-credit account passes the gate above, and a second read
+    that then failed handed the customer a free render. Two reads means two chances to fail,
+    and both of them now stop the order.
+    """
+    store = deps.entitlements
+    if not _sells(deps) or store is None:
+        return _SecondLine.ALLOW
+    balance = await store.balance_for(order.telegram_user_id, exclude_order_id=order.id)
+    if isinstance(balance, Err):
+        _LOG.error("the entitlement meter could not be re-read", extra=balance.error.to_log_dict())
+        return _SecondLine.UNREADABLE
+    offer = build_offer(balance, deps)
+    if offer is not None and offer.is_paywalled:
+        return _SecondLine.PAYWALL
+    return _SecondLine.ALLOW
 
 
 def _refusal_for(
@@ -318,7 +457,7 @@ async def _refuse(
     deps: BotDeps,
     draft: WizardDraft,
     order: Order,
-    error: EntitlementError,
+    error: HbdError,
 ) -> None:
     """Say no in the shape the refusal actually has. Two shapes, and the split is the point.
 
@@ -334,24 +473,55 @@ async def _refuse(
     which this codebase designs against everywhere else (see the ``NavAction`` docstring).
     The session is cleared and the confirm screen is replaced by the reason, a route to a
     human, and the one button that still leads somewhere.
+
+    **On a SELLING deployment, out-of-credits stops being terminal**, and that is the third
+    shape. There is now something the customer can do inside this wizard about it: buy a
+    song. ``show_confirm`` redraws the same screen as the paywall, so a stale message still
+    carrying ``nav:confirm`` — one drawn before the last credit was spent, pressed a minute
+    later — is self-healing: the read-only gate refuses it and the customer lands on the buy
+    screen rather than in a dead end with their lyric cleared away. The branch is keyed on
+    ``deps.purchases`` and not on the error, so a deployment with no purchase store keeps the
+    clear-and-start-over behaviour exactly as it was; a BLOCK stays terminal in both, because
+    money does not lift an operator's block.
+
+    **A ``StorageError`` is the fourth shape and it is retryable**, which is why the branch
+    below tests for it by type rather than folding it in with the business refusals. It is
+    what :func:`_entitlement_refusal` answers when a selling deployment cannot read the
+    meter, and nothing about it is the customer's fault or the customer's to fix: clearing
+    their session and throwing away a lyric they have just approved because a database was
+    briefly down would turn a blip into a lost sale. They stay on the Confirm screen and can
+    press again in a moment, exactly as the in-flight wait does.
     """
     _LOG.info(
         "the confirm screen refused the order",
         extra={"order_id": str(order.id), **error.to_log_dict()},
     )
     language = draft.ui_language
-    if isinstance(error, TooManyOrdersInFlightError):
+    if isinstance(error, TooManyOrdersInFlightError | StorageError) or (
+        isinstance(error, InsufficientCreditsError) and deps.purchases is not None
+    ):
         await say(callback, error_text(error, language))
         await show_confirm(callback, state, deps, draft)
         return
-    await state.clear()
+    # ``clear_keeping_identity``, not a bare clear. A block or a spent allowance ends the
+    # session, but it does not end the relationship: the calendar or an operator lifts it and
+    # the customer comes back. Their language and the fact that they have already given us a
+    # phone number are not part of the session that just failed, and a bare clear threw both
+    # away — which on a deployment with no profile store loses the language for good, and on
+    # one with a store buys a database read inside the FSM isolation lock on their very next
+    # message. The other five sites, so the list stays derivable with
+    # ``grep -rn "state.clear()" src``: ``common.finish_with``, ``common.reset_to_welcome``,
+    # the lyric-budget exhaustion in ``handlers.lyrics``, the end of onboarding, and
+    # ``commands.handle_forget`` — the deliberate bare one, because a data-subject request
+    # is precisely the case where the identity must go too.
+    await clear_keeping_identity(state)
     await present(
         callback,
         Screen(text=_refusal_text(error, deps, language), markup=start_over_keyboard(language)),
     )
 
 
-def _refusal_text(error: EntitlementError, deps: BotDeps, language: Language) -> str:
+def _refusal_text(error: HbdError, deps: BotDeps, language: Language) -> str:
     """The reason, the date it lifts if it lifts on its own, and where to write if it does not.
 
     ``next_grant_at`` is a SEPARATE line rather than a placeholder inside

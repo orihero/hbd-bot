@@ -15,8 +15,23 @@ before propagating (``aiogram/fsm/middleware.py``), so everything here runs **in
 lock** — the lock the double-tap guarantee depends on. Nothing below may therefore await a
 write. The user upsert is offered to a bounded queue with ``put_nowait`` and drained by a
 background task; the block read is cached for a minute; the throttle touches an in-process
-dict by default. The one unavoidable await is ``resolve_language``, an FSM-storage read that
-aiogram has already primed by loading ``raw_state`` from the same key.
+dict by default. The one unavoidable await is ``resolve_language_or_none``, an FSM-storage
+read that aiogram has already primed by loading ``raw_state`` from the same key — and it is
+read ONCE, with both values the decision needs derived from it, because a second
+``state.get_data()`` inside the isolation lock would serialise one chat's updates behind a
+second storage round trip for no new information.
+
+**What this middleware deliberately does NOT do: the onboarding check.** An account with no
+phone number is turned back by a ROUTER (``hbd.bot.handlers.onboarding``), not from here, and
+the reason is not the one an earlier draft of the specification gave. That draft argued the
+check must stay out of the middleware because the middleware runs inside the FSM isolation
+lock — but so does everything else: ``FSMContextMiddleware`` is an outer middleware on the
+``update`` observer and holds the lock across the WHOLE router tree, so a router filter runs
+inside exactly the lock that was offered as the reason to avoid one. The lock argument does
+not distinguish the two layers at all. The real reason is a capability: a middleware can
+neither set FSM state nor render a screen. The most it can do is refuse an update with one
+canned sentence — and "please tell me which language to speak, and then your number" is a
+screen with buttons on it, not a refusal.
 
 ``ErrorGuardMiddleware`` is registered INNER (``hbd.bot.app.build_dispatcher``) and outer
 middlewares run first, so it does **not** wrap this one: an exception escaping here would
@@ -58,8 +73,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
 from hbd.bot.handlers.common import COMMAND_PREFIX
-from hbd.bot.i18n import translate
-from hbd.bot.middleware import resolve_language
+from hbd.bot.i18n import FALLBACK_LANGUAGE, translate
+from hbd.bot.middleware import resolve_language_or_none
 from hbd.bot.ports import Clock, utc_now
 from hbd.contracts import Language, Result, is_ok
 from hbd.entitlements import EntitlementStore
@@ -125,10 +140,29 @@ class UserTouch:
     Carries the language because this is the **first writer in the system that refreshes
     ``users.ui_language``** — ``repository._ensure_user`` deliberately does not — and it is
     the reason an account that never confirmed an order has a row for an operator to block.
+
+    It is no longer the ONLY writer of that column: ``db.users_sql.ensure_user`` refreshes it
+    authoritatively when a customer picks a language in onboarding or in Settings. That is
+    what makes it safe for this one to DECLINE to write rather than guess — see
+    :attr:`ui_language` below. The deliberate writer records the choice; this one only
+    refreshes the column when the update it is serving genuinely told us a language.
     """
 
     telegram_user_id: int
-    ui_language: Language
+    #: The language this update was read in, or ``None`` when nobody has chosen one yet.
+    #:
+    #: ``None`` is not a missing value to be filled in with a default — it means "do not
+    #: write the column", and the store honours it by leaving whatever is there alone. A
+    #: fallback here would be indistinguishable from a choice: every update from a customer
+    #: who has never been asked would stamp UZ_LATN over the column, and so would every
+    #: update in the minute after a ``state.clear()`` wiped the language cache.
+    #:
+    #: One consequence, harmless and stated so nobody has to rediscover it:
+    #: :meth:`TouchDrain._write`'s per-minute dedupe keys on the account alone, so a ``None``
+    #: touch can suppress a real one that arrives in the same bucket. It costs nothing,
+    #: because ``UserProfileStore.record_language`` writes ``users.ui_language`` directly and
+    #: never goes through this queue — this path is a refresher, not the record of a choice.
+    ui_language: Language | None
     at: datetime
 
     @property
@@ -210,8 +244,13 @@ class TouchWriter(Protocol):
     would erode without anyone noticing.
     """
 
-    async def touch(self, telegram_user_id: int, *, ui_language: Language) -> Result[None]:
-        """Record that this account is alive and which language it is reading."""
+    async def touch(self, telegram_user_id: int, *, ui_language: Language | None) -> Result[None]:
+        """Record that this account is alive and, when told, which language it reads.
+
+        ``ui_language`` is optional in the strong sense: ``None`` means the column must be
+        left as it is, not that the implementation should choose a default. See
+        :attr:`UserTouch.ui_language`.
+        """
         ...
 
 
@@ -397,16 +436,21 @@ class InboundGateMiddleware(BaseMiddleware):
         if telegram_user_id is None:
             return None
         state = data.get("state")
-        language = await resolve_language(state if isinstance(state, FSMContext) else None)
+        chosen = await resolve_language_or_none(state if isinstance(state, FSMContext) else None)
+        #: The language to SPEAK in. ``chosen`` is what we are willing to WRITE; the two are
+        #: deliberately different values derived from ONE read, because ``_refuse`` and
+        #: ``_meter_the_erasure_request`` render ``error.blocked`` and ``error.too_fast``,
+        #: and a refusal with no language is not a refusal anyone can read. A second
+        #: ``state.get_data()`` inside the FSM isolation lock is not acceptable — see this
+        #: module's docstring.
+        spoken = chosen or FALLBACK_LANGUAGE
         now = self._clock()
-        self.touches.offer(
-            UserTouch(telegram_user_id=telegram_user_id, ui_language=language, at=now)
-        )
+        self.touches.offer(UserTouch(telegram_user_id=telegram_user_id, ui_language=chosen, at=now))
         if _is_erasure_request(event):
-            return await self._meter_the_erasure_request(telegram_user_id, language, now)
+            return await self._meter_the_erasure_request(telegram_user_id, spoken, now)
         if await self._is_blocked(telegram_user_id, now):
             _LOG.info("blocked account refused", extra={"telegram_user_id": telegram_user_id})
-            return await self._refuse(_BLOCKED_MESSAGE_KEY, language, telegram_user_id, now)
+            return await self._refuse(_BLOCKED_MESSAGE_KEY, spoken, telegram_user_id, now)
         verdict = await check_update_rate(
             self._counters, telegram_user_id=telegram_user_id, now=now, policy=self._policy
         )
@@ -420,7 +464,7 @@ class InboundGateMiddleware(BaseMiddleware):
                 "retry_after_s": verdict.retry_after_s,
             },
         )
-        return await self._refuse(_TOO_FAST_MESSAGE_KEY, language, telegram_user_id, now)
+        return await self._refuse(_TOO_FAST_MESSAGE_KEY, spoken, telegram_user_id, now)
 
     async def _meter_the_erasure_request(
         self, telegram_user_id: int, language: Language, now: datetime

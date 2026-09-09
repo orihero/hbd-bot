@@ -6,10 +6,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   EMPTY_VALUE,
+  NOT_PRICED_LABEL,
+  costSourceLabel,
   formatCostUsd,
   formatRate,
+  formatSpendUsd,
   formatTimestamp,
   formatTotal,
+  latencyBand,
   rateBand,
   retryabilityLabel,
 } from "./format";
@@ -50,6 +54,84 @@ describe("the three-state numbers", () => {
     expect(retryabilityLabel(null)).toBe("unknown");
     expect(retryabilityLabel(false)).toBe("terminal");
     expect(retryabilityLabel(true)).toBe("retryable");
+  });
+
+  it("classifies latency correctly: <1s fast, 1-5s neutral, 5-15s slow, >15s critical", () => {
+    expect(latencyBand(null)).toBe("unknown");
+    expect(latencyBand(undefined)).toBe("unknown");
+    expect(latencyBand(500)).toBe("fast");
+    expect(latencyBand(1_000)).toBe("neutral");
+    expect(latencyBand(3_500)).toBe("neutral");
+    expect(latencyBand(5_000)).toBe("neutral");
+    expect(latencyBand(8_000)).toBe("slow");
+    expect(latencyBand(15_000)).toBe("slow");
+    expect(latencyBand(15_001)).toBe("critical");
+    expect(latencyBand(30_000)).toBe("critical");
+  });
+});
+
+describe("vendor spend", () => {
+  it("says 'not priced' rather than $0.00 when this deployment configures no rate", () => {
+    // Arrange: the shipped default — every vendor rate is 0.0, so nothing is priced.
+    const isPriced = false;
+
+    // Act / Assert: the absence is a sentence, and no currency reaches the DOM.
+    expect(formatSpendUsd(null, isPriced)).toBe(NOT_PRICED_LABEL);
+    expect(formatSpendUsd(12.34, isPriced)).toBe(NOT_PRICED_LABEL);
+    expect(formatSpendUsd(0, isPriced)).not.toContain("$");
+  });
+
+  it("renders a null cost as an em dash even when the deployment IS priced — never $0.00", () => {
+    // Arrange: rates exist, but this particular leg (Scribe) carries no cost by design.
+    // Act / Assert: an unpriced leg inside a priced deployment is absent, not free.
+    expect(formatSpendUsd(null, true)).toBe(EMPTY_VALUE);
+    expect(formatSpendUsd(undefined, true)).toBe(EMPTY_VALUE);
+    expect(formatSpendUsd(Number.NaN, true)).toBe(EMPTY_VALUE);
+    expect(formatSpendUsd(null, true)).not.toBe("$0.00");
+  });
+
+  it("rounds an aggregate to cents, while a single call keeps its four decimals", () => {
+    // Arrange: the same figure through both formatters.
+    const costUsd = 0.014_2;
+
+    // Act / Assert: the aggregate is money to compare against an invoice; the single call is
+    // a measurement whose whole magnitude lives in the third and fourth digits.
+    expect(formatSpendUsd(costUsd, true)).toBe("$0.01");
+    expect(formatCostUsd(costUsd, true)).toBe("$0.0142");
+    expect(formatSpendUsd(12.345, true)).toBe("$12.35");
+    // A genuine, measured zero still prints as a figure — it is `null` that must not.
+    expect(formatSpendUsd(0, true)).toBe("$0.00");
+  });
+
+  it("gives the money and the provenance the SAME sentence for an unpriced row, so only one may be rendered", () => {
+    // Arrange: one unpriced group, read through both formatters. `cost_usd` and
+    // `cost_source` are null together — the database will not let one exist without the
+    // other — so both of these describe the same row at the same time.
+    const group: { costUsd: number | null; costSource: string | null } = {
+      costUsd: null,
+      costSource: null,
+    };
+
+    // Act.
+    const value = formatSpendUsd(group.costUsd, group.costSource !== null);
+    const provenance = costSourceLabel(group.costSource);
+
+    // Assert: identical strings, which is why a cell that prints both reads "not priced not
+    // priced". `/vendors` shipped that way and now omits the provenance chip when there is
+    // no provenance; this test is the anchor that makes re-adding it a visible decision.
+    expect(value).toBe(NOT_PRICED_LABEL);
+    expect(provenance).toBe(NOT_PRICED_LABEL);
+    expect(value).toBe(provenance);
+  });
+
+  it("labels a cost's provenance, and calls an unknown or absent source 'not priced'", () => {
+    // Arrange / Act / Assert: four strengths of claim, and one honest fallback.
+    expect(costSourceLabel("vendor_reported")).toBe("vendor-reported");
+    expect(costSourceLabel("derived")).toBe("derived");
+    expect(costSourceLabel("estimated")).toBe("estimated");
+    expect(costSourceLabel("mixed")).toBe("mixed");
+    expect(costSourceLabel(null)).toBe(NOT_PRICED_LABEL);
+    expect(costSourceLabel("invented_by_a_newer_server")).toBe(NOT_PRICED_LABEL);
   });
 });
 

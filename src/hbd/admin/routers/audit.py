@@ -41,6 +41,7 @@ from hbd.admin.schemas.audit import (
     to_view,
 )
 from hbd.admin.security.permissions import Permission, grant_for
+from hbd.admin.window import require_aware
 from hbd.db.admin.audit import (
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
@@ -64,13 +65,6 @@ VERIFY_PATH: Final[str] = f"{AUDIT_PATH}/verify"
 def _invalid(message: str) -> ProblemError:
     """422 in the pipeline taxonomy — the code the rest of the system already uses for this."""
     return ProblemError(AdminProblem(code=ErrorCode.INVALID_INPUT, message=message))
-
-
-def _aware(name: str, value: datetime | None) -> datetime | None:
-    """Refuse a naive instant (§6.1): the column is ``timestamptz`` and would raise anyway."""
-    if value is not None and value.tzinfo is None:
-        raise _invalid(f"{name} must carry a UTC offset, e.g. 2026-08-30T12:00:00Z")
-    return value
 
 
 def _actor(actor: str | None) -> tuple[UUID | None, str | None]:
@@ -102,6 +96,13 @@ def build_query(
     Repeated ``action`` and ``outcome`` parameters are OR within the field and AND across
     fields (§6.1). Both are typed as enums, so an unknown value is a 422 from FastAPI rather
     than a filter that quietly matches nothing.
+
+    The naive-instant refusal is :func:`hbd.admin.window.require_aware` and not a copy of it.
+    This route is the only caller of that check that wants no :class:`TimeWindow`: ``from``
+    and ``to`` reach ``AuditQuery`` as two independent bounds, so folding them into a
+    half-open interval to share the validator would change a query's shape to reuse twelve
+    lines. Importing the check alone is what deleted this module's private sixth copy —
+    which was byte-identical and therefore invisible until somebody edited one of the six.
     """
     actor_id, actor_username = _actor(actor)
     return AuditQuery(
@@ -111,8 +112,8 @@ def build_query(
         subject_type=subject_type,
         subject_id=subject_id,
         outcomes=tuple(outcome or ()),
-        since=_aware("from", since),
-        until=_aware("to", until),
+        since=require_aware("from", since),
+        until=require_aware("to", until),
     )
 
 

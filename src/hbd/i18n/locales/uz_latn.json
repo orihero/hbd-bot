@@ -27,6 +27,13 @@
   "occasion.prompt": "Nimani nishonlaymiz?",
   "occasion.birthday": "Tugʻilgan kun",
   "occasion.anniversary": "Yubiley",
+  "occasion.love": "Sevgi izhori",
+  "occasion.support": "Dalda",
+  "occasion.prank": "Hazil",
+  "occasion.holiday": "Bayram",
+  "occasion.wedding": "Toʻy",
+  "occasion.kids": "Bolalar uchun",
+  "occasion.no_occasion": "Sababsiz",
   "occasion.custom": "Boshqa sabab",
   "occasion.custom_prompt": "Sababni ikki ogʻiz soʻz bilan yozing.",
 
@@ -48,7 +55,7 @@
   "voice.duet": "Duet",
   "voice.any": "Farqi yoʻq",
 
-  "note.prompt": "Shaxsiy biror narsa boʻlsa yozing: laqab, sevimli mashgʻulot, oilaviy hazil. Yoki «Oʻtkazib yuborish»ni bosing.",
+  "note.prompt": "Endi eng muhimi! Janr ham, sabab ham bor — endi qoʻshiqni chinakam shaxsiy qilamiz. Ilhom beradigan hamma narsani yozing: u qanday odam, kulgili voqealar, sevimli iboralari, bu trek nimani aytsin. Yoki «Oʻtkazib yuborish»ni bosing.",
   "note.too_long": "Iltimos, {max} belgidan oshirmang.",
   "note.skipped": "Yaxshi — iliq va umumiy qilib yozaman.",
 

@@ -7,6 +7,14 @@ the local half of idempotency: a retried job overwrites `song.mp3`, it does not 
 Post-processing is behind the ``AudioPostProcessor`` seam, so none of this needs ffmpeg to
 be tested. Where post-processing fails the raw file still ships — a slightly hot mix beats
 no song — and the failure is returned to the caller as a gap rather than swallowed.
+
+The watermark is applied HERE, on the rendered artefacts, and nowhere upstream. Two of its
+four carriers live in this file: the generated cover art (:func:`cover_asset`, muxed into
+the mp3 by :func:`_branded` and attached as the Telegram thumbnail by the delivery layer)
+and the rule lines on the archived lyric sheet (:func:`render_lyric_sheet`). Both read from
+``hbd.watermark`` and neither touches the ``LyricDraft`` it is handed — a watermark inside
+the draft would be posted to the music vendor and SUNG, which is the one failure this
+arrangement exists to make structurally impossible rather than merely unlikely.
 """
 
 from __future__ import annotations
@@ -15,6 +23,7 @@ import hashlib
 from pathlib import Path
 from typing import Final
 
+from hbd.audio.cover import COVER_MIME, COVER_SUFFIX, render_cover
 from hbd.config import Settings
 from hbd.contracts import (
     AssetKind,
@@ -33,8 +42,10 @@ from hbd.contracts import (
 from hbd.errors import AudioProcessingError, HbdError, StorageError
 from hbd.logging import get_logger
 from hbd.storage import archive_key
+from hbd.watermark import SHEET_RULE, audio_tags
 
 __all__ = [
+    "cover_asset",
     "song_asset",
     "greeting_asset",
     "lyric_sheet_asset",
@@ -51,6 +62,14 @@ _LOGGER = get_logger(__name__)
 VOICE_NOTE_MIME: Final[str] = "audio/ogg"
 LYRIC_SHEET_MIME: Final[str] = "text/plain; charset=utf-8"
 LYRIC_SHEET_FILENAME: Final[str] = "lyrics.txt"
+#: The cover's deterministic name, like every other file in a workspace: a re-run of the
+#: order overwrites it rather than leaving two of them for the archival step to upload.
+COVER_FILENAME: Final[str] = f"cover{COVER_SUFFIX}"
+#: The stem of the branded copy of the song. A THIRD name beside ``song-raw`` and ``song``
+#: rather than an in-place rewrite, because ffmpeg cannot read and write the same file and
+#: because keeping the normalised input around is what lets the branding pass fail without
+#: costing the customer their mastering — the caller simply ships the previous file.
+BRANDED_STEM: Final[str] = "song-tagged"
 
 _EXTENSIONS: Final[dict[str, str]] = {
     "audio/mpeg": ".mp3",
@@ -121,6 +140,64 @@ async def _normalized(
     return result.value
 
 
+async def cover_asset(*, workspace: Path) -> GeneratedAsset | None:
+    """Draw the watermark cover, or ``None`` when it could not be drawn.
+
+    Returns ``None`` rather than a ``Result`` because there is no caller decision to make:
+    a kit with no cover is a complete kit — ``Kit.cover`` has always been optional and
+    ``Kit.all_assets`` has always folded a present one in — so a ``Result`` here would only
+    invite somebody to propagate a picture's failure into an order's. The reason is logged
+    at WARNING, which is where an operator looks when covers stop appearing.
+
+    ``AssetKind.COVER`` and ``Kit.cover`` were modelled long before anything produced one,
+    so archival, the assets table and the admin panel already handle this shape; nothing
+    downstream needed a change to accept it.
+
+    ``duration_s=0.0`` for the same reason the lyric sheet carries it: the column is not
+    nullable and a picture has no duration. That is the existing convention for a text
+    asset and this is the second non-audio one.
+    """
+    rendered = render_cover(workspace / COVER_FILENAME)
+    if isinstance(rendered, Err):
+        _LOGGER.warning(
+            "cover art could not be drawn; shipping the kit without one",
+            extra={"workspace": str(workspace), **rendered.error.to_log_dict()},
+        )
+        return None
+    return GeneratedAsset(
+        kind=AssetKind.COVER,
+        path=rendered.value,
+        duration_s=0.0,
+        mime=COVER_MIME,
+        sha256=sha256_of(rendered.value),
+    )
+
+
+async def _branded(
+    post: AudioPostProcessor,
+    source: Path,
+    *,
+    destination: Path,
+    cover: Path | None,
+    tags: tuple[tuple[str, str], ...],
+) -> Path:
+    """Attach the cover and the tags, or fall back to the source file. Never fatal.
+
+    The same shape as :func:`_normalized`, and for a stronger reason: normalisation is
+    mastering the customer paid for, whereas branding is an advertisement we added. If the
+    mux fails, the previous file is already a finished, normalised song, so returning it
+    unchanged costs nothing but the watermark.
+    """
+    result = await post.brand(source, destination=destination, cover=cover, tags=tags)
+    if isinstance(result, Err):
+        _LOGGER.warning(
+            "watermarking failed; shipping the untagged render",
+            extra={"source": str(source), **result.error.to_log_dict()},
+        )
+        return source
+    return result.value
+
+
 async def song_asset(
     audio: RenderedAudio,
     *,
@@ -130,18 +207,38 @@ async def song_asset(
     #: ``None`` for a song with no name in it, which is what a nameless order renders.
     #: ``asset_name_candidate_values`` already stores that as three NULL columns.
     name_candidate: NameCandidate | None,
+    #: What the phone's lock screen shows. The song's own title, NOT a watermark — the
+    #: three watermark tags are fixed and come from ``hbd.watermark.audio_tags``.
+    title: str,
+    #: The picture to attach, or ``None`` when :func:`cover_asset` could not draw one. The
+    #: tags are still written in that case; a missing cover is not a missing watermark.
+    cover: Path | None = None,
 ) -> Result[GeneratedAsset]:
-    """Write, normalise and describe the song. The expensive asset — it always ships."""
+    """Write, normalise, watermark and describe the song. The expensive asset — it always ships.
+
+    Three passes, each of which may fail without failing the order: normalisation falls
+    back to the raw render, branding falls back to whatever normalisation produced, and the
+    probe falls back to the vendor's own duration. The probe and the hash then run against
+    the file that ACTUALLY ships, not the one we hoped to ship — getting that wrong is how
+    a kit ends up recording the digest of a file the customer never received.
+    """
     extension = _extension_for(audio.mime)
     written = _write_bytes(workspace / f"song-raw{extension}", audio.data)
     if isinstance(written, Err):
         return written
 
-    final = await _normalized(
+    normalized = await _normalized(
         post,
         written.value,
         destination=workspace / f"song{extension}",
         target_lufs=settings.loudnorm_song_lufs,
+    )
+    final = await _branded(
+        post,
+        normalized,
+        destination=workspace / f"{BRANDED_STEM}{extension}",
+        cover=cover,
+        tags=audio_tags(title=title),
     )
     duration_s, loudness = await _probe_or_default(
         post, final, fallback_duration_s=audio.duration_s
@@ -230,18 +327,32 @@ async def greeting_asset(
 def render_lyric_sheet(lyrics: LyricDraft) -> str:
     """Typeset the sheet. This is OUR typography, so the name is the display form.
 
+    **This function renders a SHEET, and the ``LyricDraft`` it reads is returned to nobody
+    and mutated in no way.** That is the whole reason the watermark rules are safe here:
+    the payload posted to the music vendor is built in the orchestrator from
+    ``LyricDraft.sections`` and never from this string, so the rules added below are typeset
+    onto a text file and can never be sung. Composing them into the draft instead — which
+    is the obvious shortcut, because the draft is right there — would hand the vendor
+    "Generate yours at @hbduzbot" as a line of the song, and the model would set it to
+    music. ``tests/test_pipeline/test_watermark.py`` pins the separation.
+
+    The rule is a header AND a footer because this artefact travels alone: it is forwarded
+    as a file, opened in a text editor, and read where no caption goes with it. A reader who
+    starts at the bottom needs the same line as one who starts at the top.
+
     The signature line is dropped entirely for a nameless lyric — the bring-your-own path,
     where the customer wrote the words and was never asked who they are for. An em dash
     followed by nothing is not a smaller version of a dedication, it is a typo on the last
     line of the deliverable.
     """
-    blocks = [lyrics.title, ""]
+    blocks = [SHEET_RULE, "", lyrics.title, ""]
     for section in lyrics.sections:
         blocks.append(f"[{section.label}]")
         blocks.extend(section.lines)
         blocks.append("")
     if lyrics.name_display is not None:
         blocks.append(f"— {lyrics.name_display}")
+    blocks.extend(("", SHEET_RULE))
     return "\n".join(blocks)
 
 

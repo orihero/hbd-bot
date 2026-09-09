@@ -659,7 +659,7 @@ async def test_an_unreadable_privilege_probe_reports_the_weaker_guarantee(
 # Postgres — the engine the REVOKE, the advisory lock and BIGSERIAL are real on
 # ---------------------------------------------------------------------------
 _POSTGRES_URL: Final[str] = os.environ.get(
-    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd"
+    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
 )
 _PROBE_ROLE: Final[str] = "hbd_audit_probe"
 _PROBE_PASSWORD: Final[str] = "probe"

@@ -32,6 +32,7 @@
   "include": [
     "src",
     "e2e",
+    "tools",
     "vite.config.ts",
     "vitest.config.ts",
     "playwright.config.ts",

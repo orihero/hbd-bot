@@ -104,6 +104,15 @@ export const REASON_REQUIRED_HINT =
 export const REVEAL_IS_LOGGED_NOTE =
   "The audit row is written before the read, so this reveal is attributable even if it then fails. It records that these columns were revealed — never what they said.";
 
+/**
+ * What a revealed `user` record's retention line says, because it has no retention clock.
+ *
+ * Exported so the copy is asserted by name rather than by a substring a reword would break —
+ * and so nobody has to guess whether the absence of a stamp here was deliberate.
+ */
+export const NO_RETENTION_CLOCK_NOTE =
+  "On no retention clock: this profile is kept while the account exists, and /forget erases it.";
+
 /** The credential-shape trap `reasonRef` walks into. */
 export const LONG_REF_WARNING =
   "40 or more characters of letters, digits, _ and - reads as a credential to the audit boundary and the reveal will be refused. Shorten it, or add a # or another separator.";
@@ -314,6 +323,7 @@ export function RevealDialog({
 
             {result === undefined ? null : (
               <RevealedRecords
+                subjectType={subjectType}
                 records={result.records}
                 revealedFields={result.revealedFields}
                 recordCount={result.recordCount}
@@ -715,10 +725,13 @@ function RevealFailureNotice({
 }
 
 function RevealedRecords({
+  subjectType,
   records,
   revealedFields,
   recordCount,
 }: {
+  /** Which clock sentence is the true one. See `<RecordClocks>`. */
+  readonly subjectType: RevealSubjectType;
   readonly records: readonly RevealedRecord[];
   readonly revealedFields: readonly RevealField[];
   readonly recordCount: number;
@@ -752,18 +765,11 @@ function RevealedRecords({
             <Timestamp at={record.createdAt} seconds />
           </p>
 
-          {/* §12.3: `identity_purged_at` is ALWAYS displayed. "No name" and "name purged on
-              schedule 2026-05-14" are different facts and only one is defensible. */}
-          <p className="type-caption text-ink-muted">
-            {"identity clock: "}
-            <PurgedValue purgedAt={record.identityPurgedAt} clock="identity retention">
-              <span>not purged</span>
-            </PurgedValue>
-            {" · free-text clock: "}
-            <PurgedValue purgedAt={record.textPurgedAt} clock="free-text retention">
-              <span>not purged</span>
-            </PurgedValue>
-          </p>
+          <RecordClocks
+            subjectType={subjectType}
+            identityPurgedAt={record.identityPurgedAt}
+            textPurgedAt={record.textPurgedAt}
+          />
 
           {revealedFields.map((field) => (
             <div key={field} data-testid="revealed-field" data-field={field} className="flex flex-col gap-0.5">
@@ -774,6 +780,51 @@ function RevealedRecords({
         </article>
       ))}
     </section>
+  );
+}
+
+/**
+ * The retention facts about ONE revealed record, which are not the same facts for every subject.
+ *
+ * §12.3 requires the purge stamps to be shown *because* they are different facts from "no
+ * value": "no name" and "name purged on schedule on 2026-05-14" are different answers to a
+ * data-subject request, and only one of them is defensible. That argument is about an ORDER,
+ * whose brief is on the identity clock and whose free text is on its own.
+ *
+ * A `user_profiles` row is on NO clock at all (PD-2: no `*_expires_at`, no sweep, no purge
+ * counter), and `/forget` is its whole erasure route — it DELETEs the row, so absence is the
+ * erasure record and there was never a stamp to print. Printing "identity clock: not purged"
+ * for that subject would name a schedule that does not exist and imply the data ages out on its
+ * own, which is the same untruth §12.3 forbids, pointing the other way. So the sentence changes
+ * with the subject rather than the subject being made to fit the sentence.
+ */
+function RecordClocks({
+  subjectType,
+  identityPurgedAt,
+  textPurgedAt,
+}: {
+  readonly subjectType: RevealSubjectType;
+  readonly identityPurgedAt: string | null;
+  readonly textPurgedAt: string | null;
+}): ReactElement {
+  if (subjectType === "user") {
+    return (
+      <p data-testid="reveal-record-clocks" className="type-caption text-ink-muted">
+        {NO_RETENTION_CLOCK_NOTE}
+      </p>
+    );
+  }
+  return (
+    <p data-testid="reveal-record-clocks" className="type-caption text-ink-muted">
+      {"identity clock: "}
+      <PurgedValue purgedAt={identityPurgedAt} clock="identity retention">
+        <span>not purged</span>
+      </PurgedValue>
+      {" · free-text clock: "}
+      <PurgedValue purgedAt={textPurgedAt} clock="free-text retention">
+        <span>not purged</span>
+      </PurgedValue>
+    </p>
   );
 }
 

@@ -27,6 +27,7 @@ from hbd.bot.lyrics_entry import MAX_LYRIC_CHARS, MIN_LYRIC_CHARS
 from hbd.bot.states import Wizard, WizardStep
 from hbd.contracts import Genre, Language, Occasion, Ok, VoiceGender
 from hbd.errors import ProviderTimeoutError
+from hbd.watermark import WATERMARK_HANDLE
 from tests.conftest import make_name
 from tests.test_bot.conftest import (
     LYRIC_VERSE,
@@ -144,6 +145,36 @@ async def test_the_preview_offers_approve_regenerate_and_a_back_button(
     assert NavCB(action=NavAction.REGENERATE).pack() in offered
     assert NavCB(action=NavAction.BACK).pack() in offered
     assert NavCB(action=NavAction.SKIP).pack() not in offered
+
+
+async def test_the_preview_carries_the_invite_below_the_words_and_never_inside_them(
+    dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
+) -> None:
+    """The lyric is the free half of the product, so it is also the half people forward.
+
+    The preview is therefore watermarked — ``watermark.invite``, composed in
+    :func:`hbd.bot.screens._lyrics_screen` rather than baked into the four catalogues' two
+    preview templates. Two things are asserted and the second is the load-bearing one:
+
+    * the line is on the screen, in the customer's UI language;
+    * it is NOT in the ``LyricDraft``. What is in the draft is what is handed to the music
+      vendor and sung, so a mark that drifted in there would be sung to a real person on
+      their birthday. That is the hard invariant ``hbd.watermark`` is a leaf for, and this
+      is the screen where it is easiest to break by accident.
+
+    The bot-written path is asserted here; the customer-written one is asserted the same way
+    in ``tests/test_bot/test_own_lyrics.py``, because the two previews are two templates.
+    """
+    # Arrange / Act
+    await walk_to_lyrics(dispatcher, bot)
+
+    # Assert
+    lyrics = (await current_draft(state)).lyrics
+    assert lyrics is not None
+    invite = translate("watermark.invite", Language.EN, handle=WATERMARK_HANDLE)
+    assert session.last_screen.text.endswith(f"\n\n{invite}")
+    assert WATERMARK_HANDLE not in lyrics.as_plain_text()
+    assert WATERMARK_HANDLE not in lyrics.title
 
 
 def test_the_regenerate_button_is_labelled_not_left_as_a_raw_key() -> None:

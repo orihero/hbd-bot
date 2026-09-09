@@ -18,10 +18,11 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+import sqlalchemy as sa
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from hbd.contracts import (
     AssetKind,
@@ -32,13 +33,43 @@ from hbd.contracts import (
     OrderState,
     Script,
     VoiceGender,
+    is_ok,
 )
 from hbd.db.admin import attempts as attempt_queries
 from hbd.db.admin import metrics, orders, users
-from hbd.db.admin.page import PageRequest
+from hbd.db.admin import page as page_module
+from hbd.db.admin.page import (
+    Cursor,
+    PageRequest,
+    SortedCursor,
+    SortSpec,
+    SortValueKind,
+    decode_sorted_cursor,
+)
+from hbd.db.admin.segment import (
+    DEFAULT_SORT,
+    FIELDS,
+    SORT_KEYS,
+    CompiledSegment,
+    MatchMode,
+    Segment,
+    SegmentError,
+    SegmentGroup,
+    SegmentOp,
+    SegmentRule,
+    compile_segment,
+    segment_capabilities,
+)
+from hbd.db.admin.segment import SortSpec as SegmentSortSpec
 from hbd.db.admin.sql import TimeWindow
-from hbd.db.admin.views import LatencySummary
-from hbd.db.enums import GenerationKind
+from hbd.db.admin.views import (
+    LatencySummary,
+    OrderLedgerStatus,
+    OrderListItem,
+    OrderPaymentRail,
+)
+from hbd.db.credits import unenforced_key_prefix
+from hbd.db.enums import CreditEntryKind, CreditReason, GenerationKind
 from hbd.db.mapping import to_order
 from hbd.db.models import Base
 from hbd.db.models.asset import AssetRow
@@ -46,8 +77,11 @@ from hbd.db.models.brief import BriefRow
 from hbd.db.models.generation_attempt import GenerationAttemptRow
 from hbd.db.models.order import OrderRow
 from hbd.db.models.user import UserRow
+from hbd.db.models.user_profile import UserProfileRow
 from hbd.db.retention import RetentionClass
+from hbd.entitlements import EntitlementPolicy
 from hbd.errors import PipelineError
+from tests.test_db.test_admin_credits import seed_account, seed_entry
 
 #: Every index migration ``0009`` is responsible for, restated here so the test fails if the
 #: migration quietly loses one rather than only if it fails to run.
@@ -87,6 +121,11 @@ _DAY_TWO: Final[datetime] = datetime(2026, 3, 21, 9, 0, tzinfo=UTC)
 _FAR_FUTURE: Final[datetime] = datetime(2027, 1, 1, tzinfo=UTC)
 _TELEGRAM_ID: Final[int] = 99_000_111
 
+#: One canonical E.164 number, in the spelling ``hbd.user_profiles.normalise_phone`` produces.
+#: A formatted variant here would be a fixture asserting a normalisation this layer does not
+#: perform: the read model hands back exactly what the store wrote.
+_PHONE: Final[str] = "+998901234542"
+
 
 # ---------------------------------------------------------------------------
 # Seed helpers — explicit values, no clocks, no policies
@@ -102,6 +141,36 @@ async def seed_user(
         last_seen_at=kw.pop("last_seen_at", created_at),
         created_at=created_at,
         updated_at=created_at,
+    )
+    session.add(row)
+    await session.flush()
+    return row
+
+
+async def seed_profile(session: AsyncSession, *, user: UserRow, **kw: Any) -> UserProfileRow:
+    """A ``user_profiles`` row, written by hand for the same reason every other seed is.
+
+    ``SqlUserProfiles`` reads a clock and would decide these timestamps itself, and the join
+    tests below assert that ``phone_shared_at`` and ``avatar_stored_at`` arrive as two
+    DIFFERENT instants — a store-written fixture would set them from one ``now`` and the
+    assertion would pass even if the read layer mapped one column onto the other.
+    """
+    row = UserProfileRow(
+        user_id=user.id,
+        telegram_user_id=user.telegram_user_id,
+        phone_e164=kw.pop("phone_e164", _PHONE),
+        # Stored WITHOUT the ``@``: the sigil is drawn, never persisted.
+        telegram_username=kw.pop("telegram_username", "gulomjon"),
+        first_name=kw.pop("first_name", "Gʻulomjon"),
+        last_name=kw.pop("last_name", "Toshmatov"),
+        avatar_file_unique_id=kw.pop("avatar_file_unique_id", "AgADBAADq6cxG"),
+        avatar_mime=kw.pop("avatar_mime", "image/jpeg"),
+        avatar_stored_at=kw.pop("avatar_stored_at", _DAY_TWO),
+        language_chosen_at=kw.pop("language_chosen_at", _DAY_ONE),
+        phone_shared_at=kw.pop("phone_shared_at", _DAY_ONE),
+        onboarded_at=kw.pop("onboarded_at", _DAY_ONE),
+        created_at=kw.pop("created_at", _DAY_ONE),
+        updated_at=kw.pop("updated_at", _DAY_ONE),
     )
     session.add(row)
     await session.flush()
@@ -502,7 +571,7 @@ async def test_the_timeline_merges_sources_and_flags_what_is_inferred(
     # Delivery is read off a mutable column, so it is inferred; an attempt row is not.
     inferred = {event.kind.value for event in timeline.events if event.is_inferred}
     assert inferred == {"order_delivered"}
-    assert "chat" in {source.value for source in timeline.unavailable_sources}
+    assert "chat" not in {source.value for source in timeline.unavailable_sources}
     assert "audit" in {source.value for source in timeline.unavailable_sources}
 
 
@@ -530,6 +599,547 @@ async def test_a_failed_order_reports_its_failure_on_the_timeline(
     assert detail is not None
     last = detail.timeline.events[-1]
     assert (last.kind.value, last.label, last.is_inferred) == ("order_failed", "UPSTREAM_5XX", True)
+
+
+# ---------------------------------------------------------------------------
+# Order financials — the ledger algebra, asserted against the gate's own arithmetic
+# ---------------------------------------------------------------------------
+async def _debit(session: AsyncSession, order: OrderRow, *, generation: int = 0) -> None:
+    """What ``credits.charge`` writes when the render gate authorises this order."""
+    await seed_entry(
+        session,
+        created_at=order.created_at,
+        telegram_user_id=order.telegram_user_id,
+        kind=CreditEntryKind.DEBIT,
+        reason=CreditReason.ORDER_RENDER,
+        delta=-1,
+        order_id=order.id,
+        generation=generation,
+        idempotency_key=f"debit:{order.id}:{generation}",
+    )
+
+
+async def _refund(session: AsyncSession, order: OrderRow, *, generation: int = 0) -> None:
+    """What ``credit_settlement.refund`` writes when the render failed terminally."""
+    await seed_entry(
+        session,
+        created_at=order.created_at,
+        telegram_user_id=order.telegram_user_id,
+        kind=CreditEntryKind.REFUND,
+        reason=CreditReason.ORDER_FAILED,
+        delta=1,
+        order_id=order.id,
+        generation=generation,
+        idempotency_key=f"refund:{order.id}:{generation}",
+    )
+
+
+async def _consume(session: AsyncSession, order: OrderRow, *, generation: int = 0) -> None:
+    """What ``credit_settlement.consume`` writes when the kit reached the customer."""
+    await seed_entry(
+        session,
+        created_at=order.created_at,
+        telegram_user_id=order.telegram_user_id,
+        kind=CreditEntryKind.CONSUME,
+        reason=CreditReason.ORDER_DELIVERED,
+        delta=0,
+        order_id=order.id,
+        generation=generation,
+        idempotency_key=f"consume:{order.id}:{generation}",
+    )
+
+
+async def _top_up(session: AsyncSession, order: OrderRow, *, generation: int = 0) -> None:
+    """What ``credits._cover_the_shortfall`` writes with the meter shipped dark.
+
+    Note the two things this row does NOT have, both deliberate and both load-bearing here:
+    no ``order_id`` (``net_position`` sums that column, and a grant hanging off the order
+    would net it to zero) and therefore no link to the render except its idempotency key.
+    """
+    await seed_entry(
+        session,
+        created_at=order.created_at,
+        telegram_user_id=order.telegram_user_id,
+        kind=CreditEntryKind.GRANT,
+        reason=CreditReason.UNENFORCED_RENDER,
+        delta=1,
+        order_id=None,
+        generation=generation,
+        idempotency_key=f"{unenforced_key_prefix(order.id)}{generation}",
+    )
+
+
+async def _only_item(sessions: async_sessionmaker[AsyncSession], order_id: UUID) -> OrderListItem:
+    """The list row for one order, so every assertion below runs against the LIST query.
+
+    The detail path is asserted to agree in
+    :func:`test_the_detail_and_the_list_report_the_same_financial_position`; everything else
+    goes through ``list_orders`` because that is the query that must not N+1 and the one a
+    correlated subquery could silently mis-correlate.
+    """
+    async with sessions.begin() as session:
+        page = await orders.list_orders(
+            session, filters=orders.OrderFilters(), request=PageRequest(limit=10)
+        )
+    (item,) = [row for row in page.items if row.id == order_id]
+    return item
+
+
+async def test_an_order_with_no_ledger_rows_is_unmetered_rather_than_free(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The state most orders in this deployment are in, and the fourth member of the enum.
+
+    ``credits_enforced`` ships ``False`` and a DRAFT never reaches the gate at all, so "no
+    ledger row" is the common case rather than the corner. Reporting it as ``pending`` would
+    claim a credit is held against an order that holds none; reporting it as ``settled``
+    would invent a sale.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        order = await seed_order(session, user=user, created_at=_DAY_ONE)
+        order_id = order.id
+
+    # Act
+    item = await _only_item(sessions, order_id)
+
+    # Assert
+    assert item.ledger.credit_cost == 0
+    assert item.ledger.status is OrderLedgerStatus.UNMETERED
+    assert item.ledger.payment_rail is OrderPaymentRail.NONE
+
+
+async def test_an_open_debit_is_pending_and_a_settled_one_is_settled(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """``net < 0`` split by the presence of a CONSUME — the whole of the two live states."""
+    # Arrange — same charge, one closed and one not.
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        open_order = await seed_order(session, user=user, created_at=_DAY_ONE)
+        closed_order = await seed_order(session, user=user, created_at=_DAY_TWO)
+        await _debit(session, open_order)
+        await _debit(session, closed_order)
+        await _consume(session, closed_order)
+        open_id, closed_id = open_order.id, closed_order.id
+
+    # Act
+    pending = await _only_item(sessions, open_id)
+    settled = await _only_item(sessions, closed_id)
+
+    # Assert — the cost is the same in both; only whether it is closed differs.
+    assert (pending.ledger.credit_cost, pending.ledger.status) == (1, OrderLedgerStatus.PENDING)
+    assert (settled.ledger.credit_cost, settled.ledger.status) == (1, OrderLedgerStatus.SETTLED)
+    assert settled.ledger.payment_rail is OrderPaymentRail.CREDITS
+
+
+async def test_a_refunded_order_costs_nothing_and_costs_again_when_it_is_recharged(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The regression a "sum of the DEBIT rows" cost would fail, in both of its halves.
+
+    A refund returns the order to net 0, which is exactly what makes it chargeable again at
+    ``generation + 1`` — so the re-authorised order below carries two debits and one refund
+    and has cost the customer **one** credit, not two. A naive sum of debits would say two,
+    and an operator would refund a credit that was never taken.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        given_back = await seed_order(session, user=user, created_at=_DAY_ONE)
+        recharged = await seed_order(session, user=user, created_at=_DAY_TWO)
+        await _debit(session, given_back)
+        await _refund(session, given_back)
+        await _debit(session, recharged)
+        await _refund(session, recharged)
+        await _debit(session, recharged, generation=1)
+        await _consume(session, recharged, generation=1)
+        refunded_id, recharged_id = given_back.id, recharged.id
+
+    # Act
+    refunded = await _only_item(sessions, refunded_id)
+    again = await _only_item(sessions, recharged_id)
+
+    # Assert
+    assert (refunded.ledger.credit_cost, refunded.ledger.status) == (
+        0,
+        OrderLedgerStatus.REFUNDED,
+    )
+    # Refunded is not unmetered: the rail still says credits moved for this order.
+    assert refunded.ledger.payment_rail is OrderPaymentRail.CREDITS
+    assert (again.ledger.credit_cost, again.ledger.status) == (1, OrderLedgerStatus.SETTLED)
+
+
+async def test_a_dark_deployment_reports_the_render_as_comped_not_as_paid(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The rail an ``order_id`` predicate cannot see, and the reason the extra query exists.
+
+    With ``credits_enforced=False`` the shortfall grant and the debit it funds are both
+    written, so the ledger algebra alone reads this as an ordinary settled sale. It is not:
+    the customer's balance did not pay, a configuration flag topped it up to exactly the
+    cost. The grant carries no ``order_id``, so only its idempotency key can say which render
+    it belonged to.
+    """
+    # Arrange — one comped render and one ordinary one, same account, same shape otherwise.
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        comped = await seed_order(session, user=user, created_at=_DAY_ONE)
+        paid = await seed_order(session, user=user, created_at=_DAY_TWO)
+        await _top_up(session, comped)
+        await _debit(session, comped)
+        await _consume(session, comped)
+        await _debit(session, paid)
+        await _consume(session, paid)
+        comped_id, paid_id = comped.id, paid.id
+
+    # Act
+    dark = await _only_item(sessions, comped_id)
+    ordinary = await _only_item(sessions, paid_id)
+
+    # Assert — the status is identical for the two; only the rail tells them apart.
+    assert dark.ledger.status is ordinary.ledger.status is OrderLedgerStatus.SETTLED
+    assert dark.ledger.payment_rail is OrderPaymentRail.UNENFORCED
+    assert ordinary.ledger.payment_rail is OrderPaymentRail.CREDITS
+
+
+async def test_one_order_never_reports_another_orders_credits(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """A subquery that forgot to correlate reports the deployment's ledger on every row.
+
+    The two orders below belong to the same account and differ only in their movements, so a
+    ``SUM(delta)`` that lost its ``order_id`` predicate — or a top-up prefix match that
+    matched on the account rather than the render — would give both the same numbers and
+    every other test in this section would still pass.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        charged = await seed_order(session, user=user, created_at=_DAY_ONE)
+        untouched = await seed_order(session, user=user, created_at=_DAY_TWO)
+        await _top_up(session, charged)
+        await _debit(session, charged)
+        charged_id, untouched_id = charged.id, untouched.id
+
+    # Act
+    mine = await _only_item(sessions, charged_id)
+    theirs = await _only_item(sessions, untouched_id)
+
+    # Assert
+    assert (mine.ledger.credit_cost, mine.ledger.payment_rail) == (
+        1,
+        OrderPaymentRail.UNENFORCED,
+    )
+    assert (theirs.ledger.credit_cost, theirs.ledger.payment_rail) == (0, OrderPaymentRail.NONE)
+
+
+async def test_an_erased_ledger_row_still_counts_towards_the_order_it_charged(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """``/forget`` nulls ``telegram_user_id`` and keeps the row — the order's cost survives.
+
+    The mirror of ``db/admin/credits.py``'s "erased rows appear on nobody's page": that page
+    keys on the account, this aggregate keys on the order, and the whole reason erasure keeps
+    the row is that the count answers a billing question months later. An aggregate that
+    filtered on the account too would erase the answer along with the identity.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        order = await seed_order(session, user=user, created_at=_DAY_ONE)
+        await seed_entry(
+            session,
+            created_at=_DAY_ONE,
+            telegram_user_id=None,
+            kind=CreditEntryKind.DEBIT,
+            reason=CreditReason.ORDER_RENDER,
+            delta=-1,
+            order_id=order.id,
+            idempotency_key=f"debit:{order.id}:0",
+        )
+        order_id = order.id
+
+    # Act
+    item = await _only_item(sessions, order_id)
+
+    # Assert
+    assert (item.ledger.credit_cost, item.ledger.status) == (1, OrderLedgerStatus.PENDING)
+
+
+async def test_the_detail_and_the_list_report_the_same_financial_position(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """Two code paths, one answer. A detail screen that dropped the extra query would lie."""
+    # Arrange
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        order = await seed_order(session, user=user, created_at=_DAY_ONE)
+        await _top_up(session, order)
+        await _debit(session, order)
+        await seed_attempt(session, order=order, created_at=_DAY_ONE)
+        await seed_attempt(session, order=order, created_at=_DAY_ONE, attempt=1)
+        order_id = order.id
+
+    # Act
+    listed = await _only_item(sessions, order_id)
+    async with sessions.begin() as session:
+        detail = await orders.get_order_detail(session, order_id)
+
+    # Assert
+    assert detail is not None
+    assert detail.order.ledger == listed.ledger
+    assert detail.order.attempt_count == listed.attempt_count == 2
+
+
+async def test_the_attempt_count_counts_rows_and_an_order_with_none_reports_zero(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """``retryCount``'s honest meaning: rows in ``generation_attempts``, nothing more.
+
+    Today every row it can count is a name-verification verdict, because no vendor-render
+    attempt writer exists in ``src/``. A delivered order with three songs behind it therefore
+    reports ``0`` here, which is why the wire field's docstring forbids the label "render
+    retries". The fixture below writes the rows explicitly rather than through the pipeline
+    for exactly that reason — there is no pipeline path that would write them.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        verified = await seed_order(session, user=user, created_at=_DAY_ONE)
+        silent = await seed_order(session, user=user, created_at=_DAY_TWO)
+        for attempt in range(3):
+            await seed_attempt(
+                session,
+                order=verified,
+                created_at=_DAY_ONE,
+                attempt=attempt,
+                kind=GenerationKind.NAME_VERIFICATION,
+            )
+        verified_id, silent_id = verified.id, silent.id
+
+    # Act
+    counted = await _only_item(sessions, verified_id)
+    none = await _only_item(sessions, silent_id)
+
+    # Assert
+    assert counted.attempt_count == 3
+    assert none.attempt_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Dataset-scoped state counts — the distribution bar's real numbers
+# ---------------------------------------------------------------------------
+async def test_state_counts_describe_the_whole_filter_set_and_not_one_page(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The bug this endpoint exists for: a bar computed from the fifty rows the browser holds.
+
+    The fixture is deliberately lopsided — six delivered, one failed — so a count taken over a
+    two-row page could not accidentally equal the count taken over the dataset.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        for _ in range(6):
+            await seed_order(session, user=user, created_at=_DAY_ONE)
+        await seed_order(session, user=user, created_at=_DAY_ONE, state=OrderState.FAILED)
+
+    # Act — a page of two, and the counts for the same (empty) filter set.
+    async with sessions.begin() as session:
+        page = await orders.list_orders(
+            session, filters=orders.OrderFilters(), request=PageRequest(limit=2)
+        )
+        totals = await orders.count_orders_by_state(session, filters=orders.OrderFilters())
+
+    # Assert
+    assert len(page.items) == 2
+    counted = {total.state: total.count for total in totals}
+    assert counted[OrderState.DELIVERED] == 6
+    assert counted[OrderState.FAILED] == 1
+
+
+async def test_state_counts_are_zero_filled_in_enum_order(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """Every state, always, in declaration order — a bar whose segments do not move.
+
+    ``UserDetail.orders_by_state`` makes the opposite promise on purpose, which is why these
+    are two types and not one. A segment that appears from nowhere as the first FAILED order
+    of the day lands is a bar that re-lays-out under the operator's cursor.
+    """
+    # Arrange — one state has rows; the rest must still be reported.
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        await seed_order(session, user=user, created_at=_DAY_ONE)
+
+    # Act
+    async with sessions.begin() as session:
+        totals = await orders.count_orders_by_state(session, filters=orders.OrderFilters())
+
+    # Assert
+    assert [total.state for total in totals] == list(OrderState)
+    assert sum(total.count for total in totals) == 1
+    assert all(total.count == 0 for total in totals if total.state is not OrderState.DELIVERED)
+
+
+async def test_state_counts_respect_every_filter_including_the_state_filter(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """It answers for exactly the rows ``GET /api/orders`` with the same query string returns.
+
+    Including ``?state=``, which zeroes every other segment. That reads as useless until you
+    ask what the alternative is: a server that quietly dropped one filter to draw a prettier
+    bar would be describing a set the operator is not looking at, and the two numbers on the
+    screen would disagree with nothing to explain why. Which distribution the SPA wants is
+    settled by which parameters it sends.
+    """
+    # Arrange — the window and the state filter each exclude a different row.
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        await seed_order(session, user=user, created_at=_DAY_ONE)
+        await seed_order(session, user=user, created_at=_DAY_TWO)
+        await seed_order(session, user=user, created_at=_DAY_TWO, state=OrderState.FAILED)
+
+    # Act
+    async with sessions.begin() as session:
+        windowed = await orders.count_orders_by_state(
+            session,
+            filters=orders.OrderFilters(
+                window=TimeWindow(start=_DAY_TWO, end=_DAY_TWO + timedelta(days=1))
+            ),
+        )
+        narrowed = await orders.count_orders_by_state(
+            session, filters=orders.OrderFilters(states=(OrderState.FAILED,))
+        )
+
+    # Assert
+    by_window = {total.state: total.count for total in windowed}
+    assert (by_window[OrderState.DELIVERED], by_window[OrderState.FAILED]) == (1, 1)
+    by_state = {total.state: total.count for total in narrowed}
+    assert by_state[OrderState.FAILED] == 1
+    assert by_state[OrderState.DELIVERED] == 0
+
+
+# ---------------------------------------------------------------------------
+# ``?q=`` on orders — the operational identifiers, and the name that is not one
+# ---------------------------------------------------------------------------
+async def test_the_order_search_matches_the_correlation_id_and_the_telegram_id(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    # Arrange — two orders sharing no substring in either searchable column.
+    async with sessions.begin() as session:
+        mine = await seed_user(session, created_at=_DAY_ONE)
+        theirs = await seed_user(session, telegram_user_id=44_555_666, created_at=_DAY_ONE)
+        await seed_order(session, user=mine, created_at=_DAY_ONE, correlation_id="abc123def")
+        await seed_order(session, user=theirs, created_at=_DAY_TWO, correlation_id="zzz999zzz")
+
+    # Act
+    async with sessions.begin() as session:
+        by_correlation = await orders.list_orders(
+            session, filters=orders.OrderFilters(search="123de"), request=PageRequest(limit=10)
+        )
+        by_telegram = await orders.list_orders(
+            session, filters=orders.OrderFilters(search="000111"), request=PageRequest(limit=10)
+        )
+        counted = await orders.count_orders(session, filters=orders.OrderFilters(search="123de"))
+        blank = await orders.list_orders(
+            session, filters=orders.OrderFilters(search="  "), request=PageRequest(limit=10)
+        )
+
+    # Assert — and the bounded total agrees with the page it labels, which a search applied
+    # to only one of the two statements would break.
+    assert [item.correlation_id for item in by_correlation.items] == ["abc123def"]
+    assert [item.telegram_user_id for item in by_telegram.items] == [_TELEGRAM_ID]
+    assert counted.total == 1
+    assert len(blank.items) == 2
+
+
+async def test_the_order_search_matches_a_whole_order_id_but_not_a_fragment_of_one(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The boundary ``_matches_order_id`` draws, and it is a portability one, not a privacy one.
+
+    A substring of a UUID would need ``CAST(id AS VARCHAR)``, which renders 32 undashed hex
+    characters on SQLite and a dashed native value on Postgres — a filter that would match in
+    production and never in this suite. A whole id needs no cast, is served by the primary key
+    and is accepted in every spelling ``UUID()`` parses.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        wanted = await seed_order(session, user=user, created_at=_DAY_ONE)
+        await seed_order(session, user=user, created_at=_DAY_TWO)
+        order_id = wanted.id
+
+    # Act
+    async with sessions.begin() as session:
+        found = {
+            probe: await orders.list_orders(
+                session, filters=orders.OrderFilters(search=probe), request=PageRequest(limit=10)
+            )
+            for probe in (str(order_id), order_id.hex, str(order_id)[:8])
+        }
+
+    # Assert
+    assert [item.id for item in found[str(order_id)].items] == [order_id]
+    assert [item.id for item in found[order_id.hex].items] == [order_id]
+    # A fragment is not an id and is not a substring of anything else here either.
+    assert found[str(order_id)[:8]].items == ()
+
+
+async def test_the_order_search_matches_no_recipient_name(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The refusal, asserted rather than assumed — this is a reveal bypass if it regresses.
+
+    ``briefs.recipient_name_display`` is ``M`` at all four roles and its plaintext is reachable
+    only through ``POST /reveal``: step-up, reason code, audit row, record budget. A
+    ``LIKE '%…%'`` an operator steers over this ungated list endpoint would recover the same
+    plaintext a few characters at a time and pay none of them. The probes carry U+02BB, correct
+    Uzbek Latin orthography, so this cannot pass merely because the query folded a character
+    the column did not.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        order = await seed_order(session, user=user, created_at=_DAY_ONE)
+        await seed_brief(
+            session, order=order, recipient_name_display="Gʻulom", note="Loves Chimgan."
+        )
+
+    # Act
+    async with sessions.begin() as session:
+        found = {
+            probe: await orders.list_orders(
+                session, filters=orders.OrderFilters(search=probe), request=PageRequest(limit=10)
+            )
+            for probe in ("Gʻulom", "ulom", "Chimgan")
+        }
+
+    # Assert
+    for probe, page in found.items():
+        assert page.items == (), probe
+
+
+async def test_the_order_search_escapes_like_metacharacters_rather_than_widening(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """``q=%`` must match nothing, not every order. The escaping is ``escape_like``'s job."""
+    # Arrange
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        await seed_order(session, user=user, created_at=_DAY_ONE, correlation_id="plain")
+
+    # Act
+    async with sessions.begin() as session:
+        wildcard = await orders.list_orders(
+            session, filters=orders.OrderFilters(search="%"), request=PageRequest(limit=10)
+        )
+
+    # Assert
+    assert wildcard.items == ()
 
 
 # ---------------------------------------------------------------------------
@@ -902,7 +1512,7 @@ async def test_user_detail_breaks_orders_down_by_state(
 
     # Act
     async with sessions.begin() as session:
-        detail = await users.get_user_detail(session, _TELEGRAM_ID)
+        detail = await users.get_user_detail(session, _TELEGRAM_ID, now=_DAY_TWO)
 
     # Assert
     assert detail is not None
@@ -913,13 +1523,190 @@ async def test_user_detail_breaks_orders_down_by_state(
 async def test_a_person_who_never_confirmed_an_order_has_no_row(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
-    """``users`` is written only by ``_ensure_user`` from ``_create_order`` — so: no row."""
+    """Still ``None``, but this test's subject changed under it and the old wording was false.
+
+    It used to read "``users`` is written only by ``_ensure_user`` from ``_create_order``",
+    and every clause of that is now wrong (C0-12). There are three writers —
+    ``users_sql.ensure_user`` from ``_create_order`` AND from
+    ``SqlUserProfiles.record_language``, ``credits.touch`` on every inbound update, and
+    ``credits.set_blocked`` — so a ``users`` row is born at FIRST CONTACT. The subject of this
+    test is therefore no longer somebody who chatted and abandoned a wizard: chatting is what
+    mints the row. It is somebody who has never reached the bot at all, not even far enough to
+    answer the language question.
+
+    Which makes ``None`` a stronger claim than it was, and worth keeping: it must mean "we
+    have never met this person", so the router's 404 is honest rather than an invented empty
+    profile implying we hold nothing on somebody we do hold something on.
+    """
     # Act
     async with sessions.begin() as session:
-        detail = await users.get_user_detail(session, 12_345)
+        detail = await users.get_user_detail(session, 12_345, now=_DAY_TWO)
 
     # Assert
     assert detail is None
+
+
+async def test_the_user_list_left_joins_the_profile_and_still_lists_a_user_who_has_none(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """An INNER join here would be data loss wearing a filter's clothes.
+
+    Two whole populations have a ``users`` row and no ``user_profiles`` row: everybody who has
+    touched the bot since onboarding shipped without finishing it, and everybody whose
+    ``/forget`` ran. An INNER join deletes both from the panel — and the second is the account
+    most likely to be the subject of the support ticket that opened this screen, so the
+    operator would be looking for a person the query has silently decided does not exist.
+
+    ``is_profile_present`` is asserted as well as the nulls because a null phone number alone
+    cannot tell "no profile row" from "a profile row that has not reached the contact step".
+    """
+    # Arrange — an account with no profile row at all.
+    async with sessions.begin() as session:
+        await seed_user(session, created_at=_DAY_ONE)
+
+    # Act
+    async with sessions.begin() as session:
+        page = await users.list_users(
+            session, filters=users.UserFilters(), request=PageRequest(limit=10)
+        )
+
+    # Assert — listed, flagged, and every profile field empty.
+    assert [item.telegram_user_id for item in page.items] == [_TELEGRAM_ID]
+    item = page.items[0]
+    assert item.is_profile_present is False
+    assert item.telegram_username is None
+    assert item.first_name is None
+    assert item.last_name is None
+    assert item.phone_e164 is None
+    assert item.phone_shared_at is None
+    assert item.avatar_mime is None
+    assert item.avatar_stored_at is None
+    assert item.has_avatar is False
+
+
+async def test_the_user_list_reports_the_profile_fields_when_there_is_one(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The join's positive half, field by field, because a silent ``None`` reads as "no data".
+
+    A join that resolves but maps the wrong column is indistinguishable, on the screen, from a
+    customer who shared nothing — the panel draws an empty row either way and nobody files a
+    bug about a person who told us nothing. So every field the join carries is asserted
+    against a value that could only have come from the profile row.
+
+    ``telegram_username`` is asserted WITHOUT its ``@``: the sigil is a rendering decision and
+    a stored one would make an operator's search for ``gulom`` miss the row it is on.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        await seed_profile(session, user=user)
+
+    # Act
+    async with sessions.begin() as session:
+        page = await users.list_users(
+            session, filters=users.UserFilters(), request=PageRequest(limit=10)
+        )
+
+    # Assert
+    item = page.items[0]
+    assert item.is_profile_present is True
+    assert item.telegram_username == "gulomjon"
+    assert (item.first_name, item.last_name) == ("Gʻulomjon", "Toshmatov")
+    assert item.phone_e164 == _PHONE
+    assert item.phone_shared_at == _DAY_ONE
+    assert item.avatar_mime == "image/jpeg"
+    assert item.avatar_stored_at == _DAY_TWO
+    assert item.has_avatar is True
+
+
+async def test_load_avatar_answers_none_for_an_unknown_user_and_for_one_with_no_photo(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The two arms the avatar route turns into its single 404, kept separable in the data.
+
+    ``load_avatar`` answers ``None`` only when there is no ``users`` row at all; an account
+    that exists and has never had a photo answers ``(user_id, None, None)``. The route
+    collapses both into one 404 that does not echo the id, but the distinction has to live in
+    the query rather than in a future rewrite, because "we have never heard of this account"
+    and "this account has no avatar" are different facts and only one of them is about a
+    person we know.
+
+    The third row here is the one that matters most: a profile row that exists but never
+    stored bytes must NOT report an avatar, or the panel draws an ``<img>`` at a URL that
+    404s for every customer who has not set a profile photo.
+    """
+    # Arrange — an account with a profile row that has no avatar on it.
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        await seed_profile(
+            session, user=user, avatar_mime=None, avatar_stored_at=None, avatar_file_unique_id=None
+        )
+
+    # Act
+    async with sessions.begin() as session:
+        unknown = await users.load_avatar(session, 4_040_404)
+        known = await users.load_avatar(session, _TELEGRAM_ID)
+
+    # Assert
+    assert unknown is None
+    assert known == (user.id, None, None)
+
+
+async def test_counting_users_does_not_pay_for_the_join(
+    sessions: async_sessionmaker[AsyncSession], engine: AsyncEngine
+) -> None:
+    """``?withTotal=true`` must not join a table whose columns it does not select.
+
+    ``count_users`` and ``list_users`` share ``_filtered``; only the list adds the profile
+    (CONTRACTS §6). The count is the one query on this screen that can touch every row the
+    filters match, up to the bounded cap, so a join added there is paid ten thousand times to
+    answer a question about a number. It is also the easiest join in the codebase to add by
+    accident, because the obvious refactor is to make both callers share one statement builder
+    — which is why this is asserted against the SQL that actually executes rather than against
+    a helper's source.
+
+    ``credit_accounts`` is held to the same rule and for a sharper reason: it arrived as a
+    THIRD outer join on the list, and the obvious way to add it — to ``_filtered``, where the
+    filters already are — would have put it on the count as well, where nothing selects a
+    column from it.
+
+    Both directions are checked: a count that mentions either joined table is the regression,
+    and a list that does NOT mention them would mean the assertion had stopped reading real SQL.
+    """
+    # Arrange — record every statement the engine sends to the driver.
+    executed: list[str] = []
+
+    def _record(
+        conn: Any, cursor: Any, statement: str, parameters: Any, context: Any, executemany: bool
+    ) -> None:
+        executed.append(statement)
+
+    sa.event.listen(engine.sync_engine, "before_cursor_execute", _record)
+    try:
+        async with sessions.begin() as session:
+            user = await seed_user(session, created_at=_DAY_ONE)
+            await seed_profile(session, user=user)
+            await seed_account(session, telegram_user_id=user.telegram_user_id)
+
+        # Act
+        async with sessions.begin() as session:
+            executed.clear()
+            await users.count_users(session, filters=users.UserFilters())
+            counted = list(executed)
+            executed.clear()
+            await users.list_users(
+                session, filters=users.UserFilters(), request=PageRequest(limit=10)
+            )
+            listed = list(executed)
+    finally:
+        sa.event.remove(engine.sync_engine, "before_cursor_execute", _record)
+
+    # Assert
+    assert counted, "the count issued no statement at all"
+    for joined in ("user_profiles", "credit_accounts"):
+        assert not any(joined in statement for statement in counted), (joined, counted)
+        assert any(joined in statement for statement in listed), (joined, listed)
 
 
 async def test_user_filters_narrow_by_block_language_and_window(
@@ -959,6 +1746,588 @@ async def test_user_filters_narrow_by_block_language_and_window(
     assert [item.telegram_user_id for item in recent.items] == [7]
     assert exact.items[0].order_count == 0
     assert exact.items[0].last_order_at is None
+
+
+async def test_has_balance_splits_the_list_and_never_metered_is_not_a_positive_balance(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The predicate behind the panel's "Has balance > 0" chip, on all three credit shapes.
+
+    ``credit_accounts`` has no row until an account's first charge or grant, so there are three
+    populations here and only two values of the filter. ``True`` is strictly positive and the
+    never-metered account is excluded from it — the same call ``_list_item`` makes when it
+    publishes ``credit_balance=None`` rather than ``0``. ``False`` is the literal complement, so
+    the two answers add back up to the unfiltered page and no customer is stranded between the
+    chip's on and off states.
+
+    ``count_users`` is asserted beside ``list_users`` because the two share ``_filtered``: the
+    predicate is a correlated ``EXISTS`` precisely so the count can narrow by it without the
+    ``credit_accounts`` join ``test_counting_users_does_not_pay_for_the_join`` forbids there.
+    """
+    # Arrange — credits, metered to zero, and never metered at all.
+    async with sessions.begin() as session:
+        await seed_user(session, created_at=_DAY_ONE)
+        await seed_user(session, telegram_user_id=7, created_at=_DAY_TWO)
+        await seed_user(session, telegram_user_id=8, created_at=_DAY_TWO + timedelta(days=1))
+        await seed_account(session, telegram_user_id=_TELEGRAM_ID, balance=2)
+        await seed_account(session, telegram_user_id=7, balance=0)
+
+    # Act
+    async with sessions.begin() as session:
+
+        async def listed(has_balance: bool | None) -> list[int]:
+            page = await users.list_users(
+                session,
+                filters=users.UserFilters(has_balance=has_balance),
+                request=PageRequest(limit=10),
+            )
+            return [item.telegram_user_id for item in page.items]
+
+        unfiltered = await listed(None)
+        positive = await listed(True)
+        rest = await listed(False)
+        counted = await users.count_users(session, filters=users.UserFilters(has_balance=True))
+
+    # Assert — newest account first, and the two halves reassemble the whole.
+    assert unfiltered == [8, 7, _TELEGRAM_ID]
+    assert positive == [_TELEGRAM_ID]
+    assert rest == [8, 7]
+    assert sorted(positive + rest) == sorted(unfiltered)
+    assert counted.total == 1
+
+
+# ---------------------------------------------------------------------------
+# Credits on the user row — the join, and the null that is not a zero
+# ---------------------------------------------------------------------------
+async def test_the_user_row_carries_its_credit_account_and_nulls_where_there_is_none(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """``None`` and ``0`` are different answers, and the list must be able to say both.
+
+    A user with no ``credit_accounts`` row has never been metered — the row is opened by the
+    first charge or grant — and is still owed a whole rolling allowance. Reporting ``0`` for
+    them says the opposite: that they have spent everything. The account exists for exactly
+    one of the two users here, so a mapping that hardcoded either answer fails.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        await seed_user(session, created_at=_DAY_ONE)
+        await seed_user(session, telegram_user_id=7, created_at=_DAY_TWO)
+        await seed_account(
+            session,
+            telegram_user_id=_TELEGRAM_ID,
+            balance=2,
+            lifetime_granted=5,
+            allowance_period_index=4,
+        )
+
+    # Act
+    async with sessions.begin() as session:
+        page = await users.list_users(
+            session, filters=users.UserFilters(), request=PageRequest(limit=10)
+        )
+        detail = await users.get_user_detail(session, _TELEGRAM_ID, now=_DAY_TWO)
+
+    # Assert
+    by_id = {item.telegram_user_id: item for item in page.items}
+    metered = by_id[_TELEGRAM_ID]
+    assert (metered.credit_balance, metered.lifetime_credits_granted) == (2, 5)
+    assert metered.allowance_period_index == 4
+    assert metered.has_credit_account
+
+    unmetered = by_id[7]
+    assert unmetered.credit_balance is None
+    assert unmetered.lifetime_credits_granted is None
+    assert unmetered.allowance_period_index is None
+    assert not unmetered.has_credit_account
+
+    assert detail is not None
+    assert detail.user.credit_balance == 2
+
+
+@pytest.mark.parametrize(
+    "granted", [0, 3], ids=["the-shipped-paywall-gives-nothing-away", "a-legacy-free-tier"]
+)
+async def test_the_detail_reports_the_projection_the_customer_is_shown_beside_the_stored_balance(
+    sessions: async_sessionmaker[AsyncSession], granted: int
+) -> None:
+    """``creditsProjected`` is ``read_balance``'s answer under the CALLER's policy.
+
+    Two things are asserted here and the second one was a bug this test pinned. First, the
+    projection is computed from something other than the stored column: an account with a
+    stored balance of ``0`` and no allowance yet minted is shown its whole free allowance by
+    the bot, and an operator who saw only the column would tell the customer they have none.
+
+    Second — and this is the correction — the allowance that appears is the POLICY'S, not a
+    constant. This test used to call ``get_user_detail`` with no policy at all and assert
+    ``credits_projected == DEFAULT_ENTITLEMENT_POLICY.allowance_credits``, which read as a
+    fact about the customer's balance and was really a fact about a dataclass default. It
+    made the admin router's real defect green: that router built its policy without an
+    allowance, so once ``Settings.free_allowance_credits`` went to 0 with the paywall the
+    panel added three songs to every customer forever — and because a zero allowance never
+    stamps ``allowance_period_index``, "an allowance is due" never stops being true, so the
+    overstatement was permanent rather than once a period. Parametrised over the shipped
+    paywalled policy and a legacy free-tier one, the assertion is now about the number the
+    caller asked for.
+    """
+    # Arrange — an opened account that has spent everything and has never had an allowance.
+    async with sessions.begin() as session:
+        await seed_user(session, created_at=_DAY_ONE)
+        await seed_account(
+            session, telegram_user_id=_TELEGRAM_ID, balance=0, allowance_period_index=None
+        )
+
+    # Act
+    async with sessions.begin() as session:
+        detail = await users.get_user_detail(
+            session, _TELEGRAM_ID, now=_DAY_TWO, policy=EntitlementPolicy(allowance_credits=granted)
+        )
+
+    # Assert — the stored column says nothing left; the projection says what this deployment
+    # actually gives away, which on the shipped paywall is nothing either.
+    assert detail is not None
+    assert detail.user.credit_balance == 0
+    assert detail.credits_projected == granted
+    assert detail.in_flight_render_count == 0
+
+
+# ---------------------------------------------------------------------------
+# ``?q=`` — what it matches, and the far more important half of what it does not
+# ---------------------------------------------------------------------------
+async def test_the_search_matches_a_substring_of_the_telegram_id(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    # Arrange — two ids that share no substring, so a match cannot be an accident.
+    async with sessions.begin() as session:
+        await seed_user(session, created_at=_DAY_ONE)  # 99_000_111
+        await seed_user(session, telegram_user_id=44_555_666, created_at=_DAY_TWO)
+
+    # Act
+    async with sessions.begin() as session:
+        middle = await users.list_users(
+            session, filters=users.UserFilters(search="000111"), request=PageRequest(limit=10)
+        )
+        counted = await users.count_users(session, filters=users.UserFilters(search="000111"))
+        blank = await users.list_users(
+            session, filters=users.UserFilters(search="   "), request=PageRequest(limit=10)
+        )
+
+    # Assert — and the count agrees with the page it labels, which is what a search applied
+    # to only one of the two statements would break.
+    assert [item.telegram_user_id for item in middle.items] == [_TELEGRAM_ID]
+    assert counted.total == 1
+    # A search box that has not been typed into must not empty the table.
+    assert len(blank.items) == 2
+
+
+async def test_the_search_matches_no_profile_column_at_all(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The refusal, asserted rather than assumed — this is a reveal bypass if it regresses.
+
+    Every free-text column ``/users`` can reach lives on ``user_profiles`` and is masked at all
+    four roles; §12.3 routes their plaintext through ``POST /reveal`` alone. A ``LIKE '%…%'``
+    over any of them would let an operator with no reveal cell confirm a name or a phone number
+    a few characters at a time, with no step-up, no budget unit and no audit row — so each one
+    is probed here with a value that IS in the row and must still match nothing.
+
+    The names carry U+02BB, correct Uzbek Latin orthography, so this cannot pass merely because
+    the query folded a character the column did not.
+    """
+    # Arrange — one fully onboarded account, whose profile holds every searchable-looking value.
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=_DAY_ONE)
+        await seed_profile(
+            session,
+            user=user,
+            telegram_username="gulomjon",
+            first_name="Gʻulom",
+            last_name="Oʻktamov",
+            phone_e164=_PHONE,
+        )
+
+    # Act
+    async with sessions.begin() as session:
+        found = {
+            probe: await users.list_users(
+                session, filters=users.UserFilters(search=probe), request=PageRequest(limit=10)
+            )
+            for probe in ("gulomjon", "Gʻulom", "Oʻktamov", "901234542", _PHONE)
+        }
+
+    # Assert
+    for probe, page in found.items():
+        assert page.items == (), probe
+
+
+async def test_the_search_escapes_like_metacharacters_rather_than_widening(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """``q=%`` must match nothing, not everything. The escaping is ``escape_like``'s job.
+
+    Asserted here as well as in ``test_admin_sql.py`` because this is the caller that binds
+    the pattern: a query that built its own ``LIKE`` without the ``ESCAPE`` clause would pass
+    that unit test and return the whole table here.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        await seed_user(session, created_at=_DAY_ONE)
+
+    # Act
+    async with sessions.begin() as session:
+        wildcard = await users.list_users(
+            session, filters=users.UserFilters(search="%"), request=PageRequest(limit=10)
+        )
+        single = await users.list_users(
+            session, filters=users.UserFilters(search="_"), request=PageRequest(limit=10)
+        )
+
+    # Assert — neither metacharacter appears in a decimal id, so both match nothing.
+    assert wildcard.items == ()
+    assert single.items == ()
+
+
+# ---------------------------------------------------------------------------
+# Segments on the user list — the document, the sort, and the exact count
+# ---------------------------------------------------------------------------
+#: A day after ``_DAY_THREE``, so every relative operator below measures from an instant the
+#: fixture is entirely behind. Threaded into the compiler, never read from a clock.
+_SEGMENT_NOW: Final[datetime] = datetime(2026, 3, 23, 9, 0, tzinfo=UTC)
+_DAY_THREE: Final[datetime] = datetime(2026, 3, 22, 9, 0, tzinfo=UTC)
+
+
+def _segment(*rules: SegmentRule, sort: SegmentSortSpec = DEFAULT_SORT) -> CompiledSegment:
+    """Compile a root ``all`` group.
+
+    The compiler's own semantics are ``test_admin_segment.py``'s subject; what these tests
+    need from it is a real predicate object — one the query layer can only apply or fail to
+    apply, never reinterpret.
+    """
+    document = Segment(root=SegmentGroup(match=MatchMode.ALL, rules=rules), sort=sort)
+    compiled = compile_segment(document, now=_SEGMENT_NOW, capabilities=segment_capabilities())
+    assert is_ok(compiled), compiled
+    return compiled.value
+
+
+async def _walk(session: AsyncSession, *, filters: users.UserFilters, limit: int) -> list[int]:
+    """Page a sorted list to its end, resuming through the tokens it mints. Ids, in order."""
+    assert filters.sort is not None
+    sort, kind = users.page_sort(
+        SegmentSortSpec(key=filters.sort.key, direction=filters.sort.direction)
+    )
+    seen: list[int] = []
+    cursor: SortedCursor | None = None
+    while True:
+        page = await users.list_users(
+            session, filters=filters, request=PageRequest(limit=limit), cursor=cursor
+        )
+        seen.extend(item.telegram_user_id for item in page.items)
+        if page.next_cursor is None:
+            return seen
+        decoded = decode_sorted_cursor(page.next_cursor, sort=sort, kind=kind)
+        assert is_ok(decoded), decoded
+        cursor = decoded.value
+
+
+async def test_a_segment_narrows_the_page_and_the_count_and_is_anded_with_the_chips(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """``BROADCAST_SPEC §1.7``: the document is a second filter, never a replacement.
+
+    The chips are untouched, so a bookmarked URL keeps working; a segment beside one narrows
+    further rather than winning. ``count_users`` is asserted next to every page because the
+    two share ``_filtered`` — a segment applied to the list alone is how a two-row page gets
+    labelled with the unfiltered total.
+    """
+    # Arrange — one account with no orders, one buyer, one barred buyer.
+    async with sessions.begin() as session:
+        quiet = await seed_user(session, created_at=_DAY_ONE)
+        buyer = await seed_user(session, telegram_user_id=7, created_at=_DAY_TWO)
+        barred = await seed_user(
+            session, telegram_user_id=8, created_at=_DAY_THREE, is_blocked=True
+        )
+        await seed_order(session, user=buyer, created_at=_DAY_TWO)
+        await seed_order(session, user=barred, created_at=_DAY_THREE)
+        assert quiet.telegram_user_id == _TELEGRAM_ID
+
+    has_ordered = _segment(SegmentRule("order_count", SegmentOp.GTE, 1))
+    everyone = _segment()
+
+    # Act
+    async with sessions.begin() as session:
+
+        async def listed(filters: users.UserFilters) -> list[int]:
+            page = await users.list_users(session, filters=filters, request=PageRequest(limit=10))
+            return [item.telegram_user_id for item in page.items]
+
+        segmented = users.UserFilters(segment=has_ordered)
+        with_chip = users.UserFilters(segment=has_ordered, is_blocked=True)
+        chip_only = users.UserFilters(is_blocked=True)
+        buyers = await listed(segmented)
+        both = await listed(with_chip)
+        chipped = await listed(chip_only)
+        unfiltered = await listed(users.UserFilters(segment=everyone))
+        counted = await users.count_users(session, filters=with_chip)
+
+    # Assert — newest account first, and the intersection is narrower than either side.
+    assert buyers == [8, 7]
+    assert chipped == [8]
+    assert both == [8]
+    assert counted.total == 1
+    # An empty root group compiles to no predicate at all, so it costs what no segment costs.
+    assert everyone.predicate is None
+    assert unfiltered == [8, 7, _TELEGRAM_ID]
+
+
+async def test_the_audience_count_is_exact_where_the_screen_count_saturates(
+    sessions: async_sessionmaker[AsyncSession], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``count_segment_exactly`` answers the one question a bounded total cannot.
+
+    ``count_users`` stops at ``TOTAL_COUNT_CAP`` and says so, which is right for a screen and
+    useless for "how many people will receive this": an operator authorising a send against
+    "10,000+" is authorising a number the system knows is not the number. The cap is lowered
+    to two here rather than ten thousand rows being seeded — the saturation is the behaviour
+    under test, not the constant.
+    """
+    # Arrange — three accounts, all of them buyers.
+    async with sessions.begin() as session:
+        for offset, telegram_user_id in enumerate((_TELEGRAM_ID, 7, 8)):
+            user = await seed_user(
+                session,
+                telegram_user_id=telegram_user_id,
+                created_at=_DAY_ONE + timedelta(days=offset),
+            )
+            await seed_order(session, user=user, created_at=_DAY_TWO)
+    monkeypatch.setattr(page_module, "TOTAL_COUNT_CAP", 2)
+    filters = users.UserFilters(segment=_segment(SegmentRule("order_count", SegmentOp.GTE, 1)))
+
+    # Act
+    async with sessions.begin() as session:
+        bounded = await users.count_users(session, filters=filters)
+        exact = await users.count_segment_exactly(session, filters=filters)
+
+    # Assert
+    assert (bounded.total, bounded.is_exact) == (2, False)
+    assert exact == 3
+
+
+async def test_the_exact_count_narrows_by_the_same_filters_the_page_does(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The preview and the page must be one population, or the wizard previews a fiction."""
+    # Arrange
+    async with sessions.begin() as session:
+        quiet = await seed_user(session, created_at=_DAY_ONE)
+        buyer = await seed_user(session, telegram_user_id=7, created_at=_DAY_TWO)
+        await seed_order(session, user=buyer, created_at=_DAY_TWO)
+        assert quiet.telegram_user_id == _TELEGRAM_ID
+
+    filters = users.UserFilters(segment=_segment(SegmentRule("order_count", SegmentOp.GTE, 1)))
+
+    # Act
+    async with sessions.begin() as session:
+        page = await users.list_users(session, filters=filters, request=PageRequest(limit=10))
+        exact = await users.count_segment_exactly(session, filters=filters)
+        everyone = await users.count_segment_exactly(session, filters=users.UserFilters())
+
+    # Assert
+    assert [item.telegram_user_id for item in page.items] == [7]
+    assert exact == 1
+    assert everyone == 2
+
+
+async def test_sorting_by_an_aggregate_orders_the_page_and_pages_through_it(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """A registry sort key, walked one row at a time, losing and repeating nothing.
+
+    The heaviest account is the OLDEST one, so the sorted order is not the default order
+    reappearing under another name. The account that has never been delivered to is still on
+    the list: every sortable expression is ``COALESCE``-d, so "never" sorts as zero rather
+    than dropping out of an ordering it has no value for.
+    """
+    # Arrange — three delivered, one delivered, none; oldest account first.
+    async with sessions.begin() as session:
+        heavy = await seed_user(session, created_at=_DAY_ONE)
+        light = await seed_user(session, telegram_user_id=7, created_at=_DAY_TWO)
+        await seed_user(session, telegram_user_id=8, created_at=_DAY_THREE)
+        for _ in range(3):
+            await seed_order(session, user=heavy, created_at=_DAY_ONE)
+        await seed_order(session, user=light, created_at=_DAY_TWO)
+
+    ranked = _segment(sort=SegmentSortSpec(key="delivered_order_count", direction="desc"))
+    sort, kind = users.page_sort(ranked.sort)
+    filters = users.UserFilters(segment=ranked, sort=sort)
+
+    # Act
+    async with sessions.begin() as session:
+        default_order = await users.list_users(
+            session, filters=users.UserFilters(), request=PageRequest(limit=10)
+        )
+        whole = await users.list_users(session, filters=filters, request=PageRequest(limit=10))
+        walked = await _walk(session, filters=filters, limit=1)
+        narrowed = _segment(
+            SegmentRule("delivered_order_count", SegmentOp.GTE, 1),
+            sort=SegmentSortSpec(key="delivered_order_count", direction="desc"),
+        )
+        with_predicate = await _walk(
+            session, filters=users.UserFilters(segment=narrowed, sort=sort), limit=1
+        )
+
+    # Assert — the sort is a different order from the default, and the walk agrees with it.
+    assert kind is SortValueKind.INTEGER
+    assert [item.telegram_user_id for item in default_order.items] == [8, 7, _TELEGRAM_ID]
+    assert [item.telegram_user_id for item in whole.items] == [_TELEGRAM_ID, 7, 8]
+    assert walked == [_TELEGRAM_ID, 7, 8]
+    # The predicate still applies under a sort: the never-delivered account is gone, and the
+    # order of the two that remain is unchanged.
+    assert with_predicate == [_TELEGRAM_ID, 7]
+
+
+async def test_sorting_by_an_instant_carries_an_aware_value_through_the_cursor(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The instant half of the sorted walk, ascending, with the epoch block at the front.
+
+    A naive datetime coming back out of ``COALESCE`` would be caught by ``SortedCursor``'s own
+    constructor rather than silently paging wrong, which is exactly why the walk below resumes
+    through real tokens instead of asserting one page.
+    """
+    # Arrange — never ordered, ordered on day one, ordered on day two.
+    async with sessions.begin() as session:
+        early = await seed_user(session, created_at=_DAY_ONE)
+        late = await seed_user(session, telegram_user_id=7, created_at=_DAY_TWO)
+        await seed_user(session, telegram_user_id=8, created_at=_DAY_THREE)
+        await seed_order(session, user=early, created_at=_DAY_ONE)
+        await seed_order(session, user=late, created_at=_DAY_TWO)
+
+    oldest_first = _segment(sort=SegmentSortSpec(key="last_order_at", direction="asc"))
+    sort, kind = users.page_sort(oldest_first.sort)
+    filters = users.UserFilters(segment=oldest_first, sort=sort)
+
+    # Act
+    async with sessions.begin() as session:
+        whole = await users.list_users(session, filters=filters, request=PageRequest(limit=10))
+        walked = await _walk(session, filters=filters, limit=1)
+
+    # Assert — "never ordered" sorts as the epoch, which is the front of an ascending list.
+    assert kind is SortValueKind.INSTANT
+    assert [item.telegram_user_id for item in whole.items] == [8, _TELEGRAM_ID, 7]
+    assert walked == [8, _TELEGRAM_ID, 7]
+
+
+async def test_a_cursor_minted_under_one_ordering_cannot_resume_the_other(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """Two orderings, two token shapes, and no way to hand one walk the other's position.
+
+    ``decode_sorted_cursor`` is the boundary that turns this into a 422 for a request; a
+    caller that reaches the query layer with the wrong token skipped that boundary, so this is
+    a ``ValueError`` about our own code rather than a refusal aimed at an operator.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        await seed_user(session, created_at=_DAY_ONE)
+    ranked = _segment(sort=SegmentSortSpec(key="order_count", direction="desc"))
+    sort, _ = users.page_sort(ranked.sort)
+
+    # Act / Assert
+    async with sessions.begin() as session:
+        with pytest.raises(ValueError, match="sorted cursor"):
+            await users.list_users(
+                session,
+                filters=users.UserFilters(),
+                request=PageRequest(limit=1),
+                cursor=SortedCursor(k="order_count", d="desc", v=0, id=uuid4()),
+            )
+        with pytest.raises(ValueError, match="unsorted cursor"):
+            await users.list_users(
+                session,
+                filters=users.UserFilters(segment=ranked, sort=sort),
+                request=PageRequest(limit=1, cursor=Cursor(at=_DAY_ONE, id=uuid4())),
+            )
+
+
+def test_a_sort_that_contradicts_the_compiled_segment_is_refused() -> None:
+    """One document, one order. A page ordered by a key the stored document does not name is a
+    campaign preview describing an audience nobody will ever see in that order."""
+    # Arrange
+    ranked = _segment(sort=SegmentSortSpec(key="order_count", direction="desc"))
+    agreeing, kind = users.page_sort(ranked.sort)
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="contradicts"):
+        users.UserFilters(segment=ranked, sort=SortSpec(key="joined_at", direction="desc"))
+    with pytest.raises(ValueError, match="contradicts"):
+        users.UserFilters(segment=ranked, sort=SortSpec(key="order_count", direction="asc"))
+    assert users.UserFilters(segment=ranked, sort=agreeing).sort == agreeing
+    assert kind is SortValueKind.INTEGER
+
+
+def test_page_sort_translates_a_registry_sort_and_names_its_cursor_kind() -> None:
+    """The bridge between two identically-shaped ``SortSpec`` dataclasses, in one place."""
+    # Arrange / Act
+    instant, instant_kind = users.page_sort(SegmentSortSpec(key="last_order_at", direction="asc"))
+    integer, integer_kind = users.page_sort(
+        SegmentSortSpec(key="topup_spend_minor", direction="desc")
+    )
+
+    # Assert
+    assert (instant.key, instant.direction) == ("last_order_at", "asc")
+    assert instant_kind is SortValueKind.INSTANT
+    assert (integer.key, integer.direction) == ("topup_spend_minor", "desc")
+    assert integer_kind is SortValueKind.INTEGER
+    with pytest.raises(SegmentError):
+        users.page_sort(SegmentSortSpec(key="ui_language", direction="asc"))
+
+
+async def test_last_seen_at_is_filterable_but_never_sortable_and_never_published(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The registry's one asymmetry, asserted on all three of its halves.
+
+    A PREDICATE over ``users.last_seen_at`` discloses only the bucket the operator themself
+    chose — "quiet for 90 days" is the whole of a re-engagement campaign. A COLUMN or an
+    ORDERING hands over a total activity ranking of identified accounts, which is the
+    surveillance ``touch``-driven ``last_seen_at`` is withheld to prevent. Adding it to
+    ``SORT_KEYS`` is a one-word edit, which is why this test exists.
+    """
+    # Arrange — one account silent since day one, one seen the day the window opens.
+    async with sessions.begin() as session:
+        await seed_user(session, created_at=_DAY_ONE, last_seen_at=_DAY_ONE - timedelta(days=200))
+        await seed_user(session, telegram_user_id=7, created_at=_DAY_TWO, last_seen_at=_DAY_TWO)
+
+    quiet = _segment(SegmentRule("last_activity_at", SegmentOp.NOT_WITHIN_LAST_DAYS, 90))
+
+    # Act
+    async with sessions.begin() as session:
+        page = await users.list_users(
+            session, filters=users.UserFilters(segment=quiet), request=PageRequest(limit=10)
+        )
+        counted = await users.count_segment_exactly(
+            session, filters=users.UserFilters(segment=quiet)
+        )
+
+        # Assert — filterable …
+        assert [item.telegram_user_id for item in page.items] == [_TELEGRAM_ID]
+        assert counted == 1
+
+        # … never sortable, at the registry and at the query builder …
+        assert "last_activity_at" not in SORT_KEYS
+        assert "last_activity_at" in FIELDS
+        with pytest.raises(SegmentError):
+            await users.list_users(
+                session,
+                filters=users.UserFilters(sort=SortSpec(key="last_activity_at", direction="desc")),
+                request=PageRequest(limit=10),
+            )
+
+    # … and never on the row, no matter which filter put the row there.
+    item = page.items[0]
+    assert not hasattr(item, "last_seen_at")
+    assert not hasattr(item, "last_activity_at")
+    assert item.last_order_at is None
 
 
 # ---------------------------------------------------------------------------
@@ -1126,7 +2495,7 @@ async def test_capabilities_are_measured_not_declared(
     assert capabilities.is_asset_storage_key_recorded is True
     assert capabilities.is_cost_telemetry is False
     assert capabilities.is_latency_telemetry is False
-    assert capabilities.is_chat_capture is False
+    assert capabilities.is_chat_capture is True
     assert capabilities.is_payment_ledger is False
     assert capabilities.is_state_transition_log is False
 

@@ -20,17 +20,37 @@ importantly, the three things that shape breaks if nobody looks.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Final
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import OrderState, is_ok
+from hbd.contracts import (
+    BotBlockSource,
+    BroadcastKind,
+    BroadcastRecipientState,
+    BroadcastState,
+    Language,
+    OrderState,
+    is_ok,
+)
+from hbd.db.churn import SqlBotBlocks
 from hbd.db.credit_erasure import forget_account
 from hbd.db.credit_sql import stale_debits, verify_balances
 from hbd.db.credits import SqlCreditLedger
-from hbd.db.models import CreditAccountRow, CreditLedgerRow
+from hbd.db.enums import IntentProduct, PaymentIntentState, TopupKind
+from hbd.db.models import (
+    BroadcastRecipientRow,
+    BroadcastRow,
+    CreditAccountRow,
+    CreditLedgerRow,
+)
+from hbd.db.models.bot_membership_event import BotMembershipEventRow
+from hbd.db.models.payment_intent import PaymentIntentRow
+from hbd.db.models.user import UserRow
+from hbd.db.topup_sql import insert_topup, topup_by_key
 from hbd.entitlements import EntitlementPolicy, SettlementOutcome
 from tests.test_db.conftest import MovableClock
 
@@ -366,3 +386,362 @@ async def test_a_live_debit_is_still_swept_after_an_unrelated_erasure(
     # Assert
     assert [(debit.telegram_user_id, debit.order_id) for debit in found] == [(_OTHER_USER, order)]
     assert found[0].order_state in (None, OrderState.FAILED, OrderState.CANCELLED)
+
+
+# ---------------------------------------------------------------------------
+# The top-up receipt: a fourth table, and a fourth counter
+# ---------------------------------------------------------------------------
+async def test_forget_anonymises_the_topup_receipt_and_keeps_every_other_column(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """A sales receipt that survived ``/forget`` with a name on it is the whole failure."""
+    # Arrange — one recorded sale, exactly as `_fulfil_single` writes it.
+    async with sessions.begin() as session:
+        await insert_topup(
+            session,
+            telegram_user_id=_USER,
+            product=TopupKind.SINGLE,
+            credits_granted=1,
+            amount_minor=700_000,
+            currency="UZS",
+            provider="stub",
+            reference="stub-c0ffee",
+            idempotency_key="topup:seed:session:0",
+            now=clock.now,
+        )
+
+    # Act
+    async with sessions.begin() as session:
+        erased = await forget_account(session, telegram_user_id=_USER)
+
+    # Assert — the identity comes off and the money stays. Deleting the row would make
+    # /forget mean "refund me" and would destroy the answer to a billing dispute; rewriting
+    # the key would let a second purchase under it record a second sale.
+    assert erased.topups_anonymised == 1
+    async with sessions() as session:
+        row = await topup_by_key(session, "topup:seed:session:0")
+    assert row is not None
+    assert row.telegram_user_id is None
+    assert (row.amount_minor, row.currency) == (700_000, "UZS")
+    assert (row.provider, row.reference) == ("stub", "stub-c0ffee")
+    assert row.credits_granted == 1
+    assert row.created_at == clock.now
+
+
+async def test_forget_reports_four_zeroes_for_an_account_that_bought_nothing(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """The fourth counter is reported on its own, not summed into the plan one.
+
+    A plan dispute and a single-song dispute are different conversations with different
+    amounts, so an operator reading the log line needs to know WHICH receipt survived.
+    """
+    # Arrange / Act — a second erasure of an account that never bought anything at all.
+    async with sessions.begin() as session:
+        await forget_account(session, telegram_user_id=_USER)
+    async with sessions.begin() as session:
+        again = await forget_account(session, telegram_user_id=_USER)
+
+    # Assert
+    assert (
+        again.accounts_deleted,
+        again.entries_anonymised,
+        again.plans_anonymised,
+        again.topups_anonymised,
+        again.intents_anonymised,
+    ) == (0, 0, 0, 0, 0)
+
+
+async def test_forget_anonymises_the_payment_intent_and_keeps_it_answerable(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """A deleted intent would make us tell the payment rail one of its payments never existed.
+
+    The rail keeps its own copy permanently and can ask us about any transaction it created,
+    over an arbitrary period, through its statement call. So the identity comes off and the
+    account object stays renderable: ``public_ref``, every money column, the merchant
+    account, the settlement note and all four clocks survive.
+    """
+    # Arrange — one settled intent, exactly as the gateway leaves it after a Perform.
+    async with sessions.begin() as session:
+        session.add(
+            PaymentIntentRow(
+                public_ref="c0ffee11c0ffee22c0ffee33",
+                idempotency_key="topup:seed:session:0",
+                telegram_user_id=_USER,
+                product=IntentProduct.SINGLE,
+                amount_minor=700_000,
+                currency="UZS",
+                provider="payme",
+                merchant_id="587f72c72cac0d162c722ae2",
+                is_sandbox=False,
+                language="uz_latn",
+                state=PaymentIntentState.PAID,
+                valid_until=clock.now + timedelta(hours=12),
+                settled_at=clock.now,
+                settle_note="payme",
+            )
+        )
+
+    # Act
+    async with sessions.begin() as session:
+        erased = await forget_account(session, telegram_user_id=_USER)
+
+    # Assert — the person is gone and the payment is not.
+    assert erased.intents_anonymised == 1
+    async with sessions() as session:
+        row = (await session.execute(sa.select(PaymentIntentRow))).scalar_one()
+    assert row.telegram_user_id is None
+    assert row.public_ref == "c0ffee11c0ffee22c0ffee33"
+    assert (row.amount_minor, row.currency) == (700_000, "UZS")
+    assert (row.provider, row.merchant_id) == ("payme", "587f72c72cac0d162c722ae2")
+    assert row.state is PaymentIntentState.PAID
+    assert (row.settled_at, row.settle_note) == (clock.now, "payme")
+    assert row.idempotency_key == "topup:seed:session:0"
+
+
+async def test_forget_leaves_another_customers_payment_intent_alone(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """The anonymising UPDATE is keyed on one account, and this is what proves it."""
+    # Arrange
+    async with sessions.begin() as session:
+        for owner, ref in (
+            (_USER, "aaaa1111aaaa1111aaaa1111"),
+            (_OTHER_USER, "bbbb2222bbbb2222bbbb2222"),
+        ):
+            session.add(
+                PaymentIntentRow(
+                    public_ref=ref,
+                    idempotency_key=f"topup:{owner}:single:0",
+                    telegram_user_id=owner,
+                    product=IntentProduct.SINGLE,
+                    amount_minor=700_000,
+                    currency="UZS",
+                    provider="payme",
+                    merchant_id="587f72c72cac0d162c722ae2",
+                    is_sandbox=True,
+                    language="ru",
+                    state=PaymentIntentState.PENDING,
+                    valid_until=clock.now + timedelta(hours=12),
+                )
+            )
+
+    # Act
+    async with sessions.begin() as session:
+        erased = await forget_account(session, telegram_user_id=_USER)
+
+    # Assert
+    assert erased.intents_anonymised == 1
+    async with sessions() as session:
+        survivors = (
+            (
+                await session.execute(
+                    sa.select(PaymentIntentRow.telegram_user_id).order_by(
+                        PaymentIntentRow.public_ref
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert list(survivors) == [None, _OTHER_USER]
+
+
+async def test_forget_anonymises_the_churn_history_without_shrinking_it(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """THE PROPERTY THE EVENTS TABLE EXISTS FOR, asserted across an erasure.
+
+    ``bot_membership_events`` is the fifth table this function reaches, and the only one
+    that holds no money. Deleting its rows on request would make the daily block counts
+    shrink retroactively by the number of people who asked to be forgotten — last March's
+    churn would stop being last March's churn, which is precisely the defect an append-only
+    passage log is for. So the id comes off and everything else is byte-identical.
+    """
+    # Arrange — one departure and one win-back.
+    store = SqlBotBlocks(sessions)
+    assert is_ok(
+        await store.record_bot_blocked(_USER, at=clock.now, source=BotBlockSource.MEMBERSHIP_UPDATE)
+    )
+    assert is_ok(
+        await store.record_bot_unblocked(
+            _USER, at=clock.now, source=BotBlockSource.DELIVERY_REFUSAL
+        )
+    )
+
+    async def rows() -> list[BotMembershipEventRow]:
+        async with sessions() as session:
+            found = await session.scalars(
+                sa.select(BotMembershipEventRow).order_by(BotMembershipEventRow.event)
+            )
+            return list(found)
+
+    before = [(row.event, row.source, row.at) for row in await rows()]
+    assert len(before) == 2
+
+    # Act
+    async with sessions.begin() as session:
+        erasure = await forget_account(session, telegram_user_id=_USER)
+
+    # Assert — the count is reported, the rows are all still there, only the id is gone.
+    assert erasure.membership_events_anonymised == 2
+    after = await rows()
+    assert len(after) == 2
+    assert [(row.event, row.source, row.at) for row in after] == before
+    assert all(row.telegram_user_id is None for row in after)
+
+
+async def test_forget_leaves_the_churn_gauge_alone(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """``users.blocked_bot_at`` is NOT cleared, on the same footing as ``is_blocked``.
+
+    The ``users`` row exists precisely so a block can outlive an erasure. A forgotten
+    customer who still has the bot blocked is still unreachable, and clearing the column
+    would make the gauge count them as reachable — a number that is wrong in the one
+    direction an operator would act on.
+    """
+    # Arrange
+    store = SqlBotBlocks(sessions)
+    assert is_ok(
+        await store.record_bot_blocked(_USER, at=clock.now, source=BotBlockSource.MEMBERSHIP_UPDATE)
+    )
+
+    # Act
+    async with sessions.begin() as session:
+        await forget_account(session, telegram_user_id=_USER)
+
+    # Assert
+    async with sessions() as session:
+        blocked_at = await session.scalar(
+            sa.select(UserRow.blocked_bot_at).where(UserRow.telegram_user_id == _USER)
+        )
+    assert blocked_at == clock.now
+
+
+# ---------------------------------------------------------------------------
+# ``broadcast_recipients`` — the delivery ledger, anonymised and kept
+# ---------------------------------------------------------------------------
+def _campaign(clock: MovableClock) -> BroadcastRow:
+    return BroadcastRow(
+        # The id is minted here rather than left to the column default: the helper's callers
+        # read ``campaign.id`` to build the child rows in the same ``session.add`` batch, and
+        # the ORM default is not applied until the flush that INSERTs them.
+        id=uuid4(),
+        title="September announcement",
+        kind=BroadcastKind.SERVICE,
+        state=BroadcastState.COMPLETED,
+        segment={"v": 1, "match": "all", "rules": []},
+        segment_hash="0" * 64,
+        audience_size=2,
+        audience_evaluated_at=clock.now,
+        recipient_count=2,
+        sent_count=2,
+    )
+
+
+def _delivery(broadcast_id: UUID, telegram_user_id: int, *, at: datetime) -> BroadcastRecipientRow:
+    return BroadcastRecipientRow(
+        broadcast_id=broadcast_id,
+        telegram_user_id=telegram_user_id,
+        language=Language.RU,
+        state=BroadcastRecipientState.SENT,
+        settled_at=at,
+    )
+
+
+async def test_forget_anonymises_the_delivery_rows_and_keeps_the_campaign_arithmetic(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """THE PROPERTY A COMPLETED CAMPAIGN'S COUNTERS DEPEND ON, asserted across an erasure.
+
+    ``broadcast_recipients`` is the seventh table this function reaches and the second that
+    holds no money. Deleting its rows on request would make a send that has already gone out
+    shrink retroactively by the number of people who have since asked to be forgotten — a
+    number an operator has already read — so the id comes off and everything else is
+    byte-identical. Only the erased account's rows are touched.
+    """
+    # Arrange — two accounts on one campaign.
+    campaign = _campaign(clock)
+    async with sessions.begin() as session:
+        session.add(campaign)
+        session.add(_delivery(campaign.id, _USER, at=clock.now))
+        session.add(_delivery(campaign.id, _OTHER_USER, at=clock.now))
+
+    async def rows() -> list[BroadcastRecipientRow]:
+        async with sessions() as session:
+            found = await session.scalars(
+                sa.select(BroadcastRecipientRow).order_by(BroadcastRecipientRow.created_at)
+            )
+            return list(found)
+
+    before = {(row.state, row.settled_at, row.attempts) for row in await rows()}
+    assert len(before) == 1
+
+    # Act
+    async with sessions.begin() as session:
+        erasure = await forget_account(session, telegram_user_id=_USER)
+
+    # Assert — the count is reported, both rows are still there, only one id is gone.
+    assert erasure.recipients_anonymised == 1
+    after = await rows()
+    assert len(after) == 2
+    assert {(row.state, row.settled_at, row.attempts) for row in after} == before
+    assert [row.telegram_user_id for row in after] == [None, _OTHER_USER]
+    async with sessions() as session:
+        campaign_after = await session.get(BroadcastRow, campaign.id)
+    assert campaign_after is not None
+    assert (campaign_after.recipient_count, campaign_after.sent_count) == (2, 2)
+
+
+async def test_a_second_forget_touches_no_delivery_row(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """Idempotent by construction: an anonymised row no longer matches the predicate."""
+    # Arrange
+    campaign = _campaign(clock)
+    async with sessions.begin() as session:
+        session.add(campaign)
+        session.add(_delivery(campaign.id, _USER, at=clock.now))
+    async with sessions.begin() as session:
+        assert (await forget_account(session, telegram_user_id=_USER)).recipients_anonymised == 1
+
+    # Act
+    async with sessions.begin() as session:
+        erasure = await forget_account(session, telegram_user_id=_USER)
+
+    # Assert
+    assert erasure.recipients_anonymised == 0
+
+
+async def test_an_anonymised_delivery_row_does_not_block_a_later_expansion(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """``UNIQUE (broadcast_id, telegram_user_id)`` tolerates any number of NULLs.
+
+    The constraint is the campaign's idempotency authority, so the anonymising ``UPDATE``
+    has to be able to leave several NULLs behind on one campaign without either raising or
+    stopping a later account from being materialised onto it. That is exactly what a
+    nullable column in a unique index buys, and it is asserted rather than assumed.
+    """
+    # Arrange — two accounts erased off the same campaign.
+    campaign = _campaign(clock)
+    async with sessions.begin() as session:
+        session.add(campaign)
+        session.add(_delivery(campaign.id, _USER, at=clock.now))
+        session.add(_delivery(campaign.id, _OTHER_USER, at=clock.now))
+    for erased in (_USER, _OTHER_USER):
+        async with sessions.begin() as session:
+            await forget_account(session, telegram_user_id=erased)
+
+    # Act — a third account joins the same campaign afterwards.
+    async with sessions.begin() as session:
+        session.add(_delivery(campaign.id, _USER + 1, at=clock.now))
+
+    # Assert
+    async with sessions() as session:
+        remaining = await session.scalar(
+            sa.select(sa.func.count()).select_from(BroadcastRecipientRow)
+        )
+    assert remaining == 3

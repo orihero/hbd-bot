@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { makeOrder } from "@/components/domain/fixtures";
 import { parseSearchParams } from "@/lib";
 
 import {
   ORDERS_FILTER_FALLBACK,
   completeWindow,
-  countByState,
   ordersFilterSchema,
   toOrdersQuery,
+  toStateCountsQuery,
+  type OrdersFilter,
 } from "./ordersFilters";
 
 function parse(search: string) {
@@ -46,7 +46,8 @@ describe("completeWindow", () => {
   const NOW = Date.parse("2026-09-02T12:00:00Z");
 
   it("fills the end TimeRangePicker's presets leave open", () => {
-    // The picker emits `{from, to: undefined}`; /api/orders 422s on half a window.
+    // The picker emits `{from, to: undefined}`. /api/orders accepts that now; the end is
+    // filled so the URL names a fixed pair a paste can reproduce, not to dodge a refusal.
     const range = completeWindow({ from: "2026-09-01T12:00:00Z", to: undefined }, NOW);
     expect(range.to).toBe("2026-09-02T12:00:00Z");
     expect(range.from).toBe("2026-09-01T12:00:00Z");
@@ -88,24 +89,38 @@ describe("toOrdersQuery", () => {
   });
 });
 
-describe("countByState", () => {
-  it("counts the page in lifecycle order, never count order", () => {
-    const counts = countByState([
-      makeOrder({ id: "a", state: "failed" }),
-      makeOrder({ id: "b", state: "draft" }),
-      makeOrder({ id: "c", state: "failed" }),
-      makeOrder({ id: "d", state: "delivered" }),
-    ]);
-    expect(counts.map((entry) => entry.state)).toEqual(["draft", "delivered", "failed"]);
-    expect(counts.map((entry) => entry.count)).toEqual([1, 1, 2]);
+describe("toStateCountsQuery", () => {
+  const FILTER: OrdersFilter = {
+    ...ORDERS_FILTER_FALLBACK,
+    state: ["failed"],
+    isPaid: true,
+    hasAssets: false,
+    telegramUserId: 4242,
+    correlationId: "corr-1",
+    from: "2026-09-01T00:00:00Z",
+    to: "2026-09-02T00:00:00Z",
+  };
+
+  it("carries every filter the list carries, so the bar and the table agree", () => {
+    const counts = toStateCountsQuery(FILTER);
+    const list = toOrdersQuery(FILTER);
+    for (const key of Object.keys(counts) as (keyof typeof counts)[]) {
+      expect(counts[key]).toEqual(list[key]);
+    }
   });
 
-  it("omits a state with no rows rather than emitting a zero-width sliver", () => {
-    const counts = countByState([makeOrder({ state: "delivered" })]);
-    expect(counts).toHaveLength(1);
+  it("sends no paging, so turning a page does not refetch the aggregate", () => {
+    // The route ignores all three; sending them would still change the query KEY.
+    const counts = toStateCountsQuery({ ...FILTER, limit: 100, cursor: "opaque" });
+    expect(counts).not.toHaveProperty("limit");
+    expect(counts).not.toHaveProperty("cursor");
+    expect(counts).not.toHaveProperty("withTotal");
+    expect(counts).toEqual(toStateCountsQuery(FILTER));
   });
 
-  it("is empty for an empty page", () => {
-    expect(countByState([])).toEqual([]);
+  it("drops a half window, exactly as the list query does", () => {
+    const half = toStateCountsQuery({ ...ORDERS_FILTER_FALLBACK, from: "2026-09-01T00:00:00Z" });
+    expect(half.from).toBeUndefined();
+    expect(half.to).toBeUndefined();
   });
 });

@@ -13,7 +13,10 @@ check is about the host. A credential the deploy put within reach means it hande
 host something the design says it must never hold, and in prod that is a mistake to stop
 rather than to note. In dev it is a WARNING naming the variable, because a shared dev
 ``.env`` is normal and a hard failure there would push people to weaken the check in the
-place where it matters.
+place where it matters. The list covers a second population as well: secrets belonging to a
+settings model this host never loads at all — today the Payme cashbox key — which is what
+keeps the merchant endpoint a separate process rather than a router somebody could quietly
+add here later.
 
 **Both places count as reach.** The check reads ``os.environ`` *and* the names parsed out of
 ``.env.admin``. A key written into that file is exactly as present on this host as an
@@ -70,9 +73,15 @@ from hbd.admin.routers import (
     build_admins_router,
     build_asset_media_router,
     build_assets_router,
+    build_audience_lists_router,
     build_audit_router,
     build_auth_router,
+    build_broadcast_actions_router,
+    build_broadcasts_router,
+    build_chats_router,
     build_config_router,
+    build_credit_grant_router,
+    build_credits_router,
     build_dashboard_router,
     build_generations_router,
     build_health_router,
@@ -80,18 +89,34 @@ from hbd.admin.routers import (
     build_orders_router,
     build_retention_router,
     build_reveal_router,
+    build_segment_fields_router,
+    build_segments_router,
+    build_user_block_router,
     build_users_router,
+    build_vendors_router,
     build_wizard_state_router,
 )
-from hbd.admin.settings import ADMIN_ENV_FILE, AdminSettings, build_admin_settings
+from hbd.admin.settings import (
+    ADMIN_ENV_FILE,
+    ADMIN_ENV_FILE_VAR,
+    AdminSettings,
+    build_admin_settings,
+)
 from hbd.admin.shell import render_shell
-from hbd.config import ENV_PREFIX, VENDOR_SECRET_FIELDS
+from hbd.config import (
+    ENV_PREFIX,
+    FOREIGN_SECRET_ENV_VARS,
+    VENDOR_SECRET_FIELDS,
+    resolve_env_file,
+)
 from hbd.errors import ConfigError
 from hbd.logging import configure_logging, get_logger
 
 __all__ = [
     "FORBIDDEN_ENV_VARS",
+    "derive_forbidden_env_vars",
     "ADMIN_ENV_FILE",
+    "ADMIN_ENV_FILE_VAR",
     "STATIC_DIR",
     "SPA_INDEX",
     "create_app",
@@ -100,12 +125,41 @@ __all__ = [
 
 _LOGGER: Final = get_logger(__name__)
 
-#: ``HBD_TELEGRAM_BOT_TOKEN``, ``HBD_ELEVENLABS_API_KEY``, ``HBD_LLM_API_KEY`` — derived from
-#: ``hbd.config`` rather than restated, so a fourth vendor credential added there is covered
-#: here without anyone remembering to add it. Never restate this list anywhere.
-FORBIDDEN_ENV_VARS: Final[tuple[str, ...]] = tuple(
-    f"{ENV_PREFIX}{name.upper()}" for name in VENDOR_SECRET_FIELDS
-)
+
+def derive_forbidden_env_vars() -> tuple[str, ...]:
+    """The variable names this host must not have within reach, derived from ``hbd.config``.
+
+    **Two populations, and they are different kinds of thing.** The first is every
+    credential declared as a FIELD on :class:`hbd.config.Settings` — ``HBD_TELEGRAM_BOT_TOKEN``,
+    ``HBD_ELEVENLABS_API_KEY``, ``HBD_LLM_API_KEY``, ``HBD_LLM_FALLBACK_API_KEY``,
+    ``HBD_OPENROUTER_MANAGEMENT_KEY`` — spelled by upper-casing ``VENDOR_SECRET_FIELDS``, so a
+    sixth credential added to that class is covered here without anyone remembering this file
+    exists. The second is ``FOREIGN_SECRET_ENV_VARS``: environment variable NAMES belonging to
+    a settings model this process never loads at all (``hbd.payme.settings.PaymeSettings``),
+    which is why they cannot be derived from a field tuple and why the forbidden set is now
+    wider than the field tuple it used to mirror one-for-one.
+
+    ``HBD_PAYME_MERCHANT_KEY`` is in that second population, and it is the mechanism that
+    makes "the Payme endpoint is not a router on the panel" a fact rather than an intention:
+    a prod admin host that can reach the cashbox key refuses to boot, so the endpoint cannot
+    quietly be moved onto this app later. Its blast radius is also different in kind from the
+    five outbound credentials — stealing it mints credits by forging settlements at our own
+    gateway rather than spending our money at a vendor — which is the argument for a fourth
+    process holding it, recorded in full at ``hbd.config.FOREIGN_SECRET_ENV_VARS``.
+
+    A function rather than a pair of expressions because ``test_error_envelope.py``'s
+    ``test_the_forbidden_list_is_derived_rather_than_restated`` calls it: one place to read
+    from cannot drift from itself, whereas a test that restated the derivation would keep
+    passing while the two spellings diverged. Never restate this list anywhere.
+    """
+    return tuple(f"{ENV_PREFIX}{name.upper()}" for name in VENDOR_SECRET_FIELDS) + (
+        FOREIGN_SECRET_ENV_VARS
+    )
+
+
+#: Evaluated once at import: both tuples it reads are module constants, so this is a spelling
+#: of them and not a decision made at boot time.
+FORBIDDEN_ENV_VARS: Final[tuple[str, ...]] = derive_forbidden_env_vars()
 
 _DISABLED_MESSAGE: Final[str] = (
     "The admin panel is disabled. Set HBD_ADMIN_ENABLED=true in .env.admin to run it."
@@ -128,22 +182,34 @@ SPA_INDEX: Final[Path] = STATIC_DIR / "index.html"
 _SPA_ROUTE_TEMPLATE: Final[str] = "/{spa_path:path}"
 
 
+def _admin_env_file() -> str:
+    """The dotenv file this process actually reads — ``.env.admin`` or ``HBD_ADMIN_ENV_FILE``.
+
+    Resolved here rather than imported as a value because the scan below is a security
+    control: it has to read the SAME file ``build_admin_settings`` read, or it clears a host
+    whose credentials are sitting in the file that was loaded. The module global is read at
+    call time so a test that monkeypatches ``ADMIN_ENV_FILE`` redirects the scan with it.
+    """
+    return resolve_env_file(ADMIN_ENV_FILE_VAR, ADMIN_ENV_FILE)
+
+
 def _env_file_names() -> frozenset[str]:
-    """The variable NAMES set in ``.env.admin``, upper-cased. Values are never returned.
+    """The variable NAMES set in the admin dotenv file, upper-cased. Values never returned.
 
     Parsed with the same library pydantic-settings uses to read this file, so the two agree
     on what "set" means, and upper-cased because that read is case-insensitive: a lowercase
     ``hbd_llm_api_key`` line is just as live as the shouted form.
     """
+    path = _admin_env_file()
     try:
-        parsed = dotenv_values(ADMIN_ENV_FILE)
+        parsed = dotenv_values(path)
     except OSError as exc:
         # Not swallowed. The file is unreadable rather than absent, so the check below is
         # weaker than it looks and an operator has to be told which half ran.
         _LOGGER.warning(
             "could not read the admin env file; the vendor-credential check saw the "
             "process environment only",
-            extra={"event": "admin.boot.env_file_unreadable", "path": ADMIN_ENV_FILE},
+            extra={"event": "admin.boot.env_file_unreadable", "path": path},
             exc_info=exc,
         )
         return frozenset()
@@ -170,7 +236,7 @@ def _refuse_vendor_credentials(settings: AdminSettings) -> None:
     if settings.is_production:
         raise ConfigError(
             "The admin process must not hold a vendor credential or a bot token, and these "
-            f"are within reach of it — in its environment or in {ADMIN_ENV_FILE}: {listed}. "
+            f"are within reach of it — in its environment or in {_admin_env_file()}: {listed}. "
             "Remove them from the admin host: every action needing a credential is an ARQ "
             "job the worker performs.",
             context={"variables": list(present)},
@@ -302,6 +368,9 @@ def _lifespan_factory(
             extra={
                 "event": "admin.boot.ok",
                 "environment": settings.environment,
+                # Which file this came from, for the same reason ``verify_host`` logs it:
+                # HBD_ADMIN_ENV_FILE can boot a prod panel from a dev checkout.
+                "env_file": _admin_env_file(),
                 "is_cookie_secure": settings.is_cookie_secure,
                 "public_origin": settings.admin_public_origin,
             },
@@ -377,12 +446,31 @@ def create_app(
     application.include_router(build_audit_router())
     application.include_router(build_retention_router())
     application.include_router(build_dashboard_router())
+    # ``dashboard.py`` ships two routers, and the split is the control rather than a
+    # filing choice: ``/dashboard/audience-lists`` returns the ACCOUNT HOLDER's Telegram
+    # id, handle and first name unmasked and stands on RECORDS_READ with an audit row on
+    # every call, while the six aggregate routes beside it carry no personal data at all
+    # and need no masking branch. The guard is per-router (§12.1 T3), so each needs its
+    # own line — and mounting only the first would drop the identified route silently.
+    application.include_router(build_audience_lists_router())
     application.include_router(build_orders_router())
     application.include_router(build_users_router())
-    # ``users.py`` ships two routers: the wizard-state projection sits behind
-    # WIZARD_STATE_READ rather than RECORDS_READ, and the guard is per-router (§12.1 T3).
+    application.include_router(build_chats_router())
+    # ``users.py`` ships three routers: the wizard-state projection sits behind
+    # WIZARD_STATE_READ rather than RECORDS_READ, and block/unblock behind the role half of
+    # §12.2's ``W+S`` cell. The guard is per-router (§12.1 T3), so each needs its own line.
     application.include_router(build_wizard_state_router())
+    application.include_router(build_user_block_router())
+    # ``credits.py`` splits the same way: the ledger is an ordinary record read and the grant
+    # issues value, so they cannot share a guard.
+    application.include_router(build_credits_router())
+    application.include_router(build_credit_grant_router())
     application.include_router(build_generations_router())
+    # Vendor spend. Its own router rather than three more routes on ``dashboard.py``: the
+    # two share a guard and nothing else — that module reads ``orders`` and
+    # ``generation_attempts`` and refuses to print a cost figure from either, and this one
+    # reads a table built so it can.
+    application.include_router(build_vendors_router())
     application.include_router(build_assets_router())
     # ``assets.py`` ships two routers for the same reason ``users.py`` does: the two media
     # reveals stand on the REVEAL_MEDIA_READ cell, not on RECORDS_READ, and the guard is
@@ -392,6 +480,21 @@ def create_app(
     # decides the role and its handler decides the subject-scoped step-up; see
     # ``routers/reveal.py`` for why an ``A+S`` cell cannot be enforced at the router.
     application.include_router(build_reveal_router())
+    # ``segments.py`` ships two routers, and the split is a permission rather than a filing
+    # choice: the audience PREVIEW counts the same population ``/users`` pages and stands on
+    # RECORDS_READ beside it, while the field REGISTRY is the broadcast builder's vocabulary
+    # and stands on BROADCAST_READ. The guard is per-router (§12.1 T3), so each needs its own
+    # line — and mounting only one would drop the other with no error anywhere.
+    application.include_router(build_segments_router())
+    application.include_router(build_segment_fields_router())
+    # ``broadcasts.py`` ships two routers, and the split is §12.2's ``W+S`` row rather than a
+    # filing choice: reading a campaign is BROADCAST_READ (M in all four cells — the record
+    # holds operator copy and counters, no customer data), while composing, sending, pausing
+    # and cancelling stand on BROADCAST_WRITE, the ROLE half whose step-up the send handlers
+    # enforce on the campaign id. The guard is per-router (§12.1 T3), so each needs its own
+    # line — and mounting only the read one would leave the campaign screen unable to act.
+    application.include_router(build_broadcasts_router())
+    application.include_router(build_broadcast_actions_router())
     application.include_router(build_admins_router())
     application.include_router(build_config_router())
     # The SPA's catch-all is NOT added here. It is installed by the lifespan, after everything

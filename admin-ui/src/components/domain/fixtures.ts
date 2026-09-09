@@ -53,6 +53,14 @@ export function makeOrder(overrides: Partial<OrderView> = {}): OrderView {
     outputLanguage: "uz_latn",
     assetCount: 2,
     hasAssets: true,
+    // The financials the server has always sent and `orderViewSchema` now declares. A
+    // delivered order that was charged and settled is the ordinary case; `retryCount: 0` is
+    // the honest default, because today every countable attempt row is a name-verification
+    // verdict and a vendor-rendered order records none.
+    creditCost: 1,
+    ledgerStatus: "settled",
+    paymentRail: "credits",
+    retryCount: 0,
     ...overrides,
   };
 }

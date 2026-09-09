@@ -11,6 +11,13 @@ The concurrency tests drive two real ``Update`` objects through a real ``Dispatc
 a payment provider that blocks, because that is the only arrangement in which the second
 tap's state filter is evaluated while the first tap is still inside authorisation. Without
 the block the fakes never yield and the race cannot happen.
+
+Every ``BotDeps`` here carries an EMPTY ``FakeProfiles``, which is the correct half of the
+two-sided rule: these tests reach ``Wizard.submitting`` by WALKING — ``walk_to_confirm``
+drives the real onboarding screens and creates the row on the way past — and only then set
+the state by hand. A seeded store would work too but would hide the walk's own coverage; a
+missing store would fail open, leave the walker's first language press unmatched, and turn
+every race assertion below into "that session expired".
 """
 
 from __future__ import annotations
@@ -36,13 +43,20 @@ from hbd.contracts import Genre, Language, Occasion, PaymentAuthorization, Resul
 from tests.test_bot.conftest import (
     CHAT_ID,
     USER_ID,
+    FakeProfiles,
     RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
     callback_update,
     message_update,
 )
-from tests.test_bot.test_wizard_flow import UZBEK_DISPLAY, press, walk_to_confirm
+from tests.test_bot.test_wizard_flow import (
+    UZBEK_DISPLAY,
+    complete_onboarding,
+    press,
+    tap,
+    walk_to_confirm,
+)
 
 #: How many times to yield to the loop before deciding a task has parked where we want it.
 #: The dispatcher awaits several layers of middleware and filters, none of which suspends
@@ -112,6 +126,7 @@ async def test_two_concurrent_confirms_queue_exactly_one_order(
             submitter=submitter,
             content=RecordingContentWriter(),
             payment=payment,
+            profiles=FakeProfiles(),
         ),
         storage=storage,
     )
@@ -154,6 +169,7 @@ async def test_the_losing_tap_does_not_land_the_customer_back_on_the_confirm_scr
             submitter=submitter,
             content=RecordingContentWriter(),
             payment=payment,
+            profiles=FakeProfiles(),
         ),
         storage=storage,
     )
@@ -188,6 +204,7 @@ async def test_the_second_confirm_is_answered_rather_than_ignored(
             submitter=submitter,
             content=RecordingContentWriter(),
             payment=payment,
+            profiles=FakeProfiles(),
         ),
         storage=MemoryStorage(),
     )
@@ -244,10 +261,25 @@ def test_the_same_answers_in_a_second_run_are_a_second_order() -> None:
 async def test_each_pass_through_the_wizard_gets_its_own_session_id(
     dispatcher: Dispatcher, bot: Bot, state: FSMContext
 ) -> None:
-    # Arrange / Act — two clean slates, which is what /start and Start over both perform
-    await dispatcher.feed_update(bot, message_update("/start"))
+    """Two runs, two ids — and 🎵 is what opens a run now, not ``/start``.
+
+    The property is the one the order id is derived from, and it is unchanged: two passes over
+    the same four answers must mint different ids or the second collides on the ``orders``
+    primary key and is reported as "I could not hand this to the studio" for ever.
+
+    What changed is where a run begins. ``/start`` answers "who is this?" and opens no wizard —
+    it draws an onboarding screen or the menu — so it mints no draft at all, and this test read
+    the mint through it. Driving it with the 🎵 button instead is not a workaround: 🎵 is the
+    ONLY way into the wizard now, and ``menu.handle_menu_label`` reaches the same
+    ``common.reset_to_welcome`` that ↩️ Start over and 🎂 Make another do.
+    """
+    # Arrange
+    await complete_onboarding(dispatcher, bot)
+
+    # Act — two clean slates, which is what 🎵 performs on a menu it never leaves
+    await tap(dispatcher, bot, "menu.generate", Language.EN)
     first = (await state.get_data())["draft"]["session_id"]
-    await dispatcher.feed_update(bot, message_update("/start"))
+    await tap(dispatcher, bot, "menu.generate", Language.EN)
     second = (await state.get_data())["draft"]["session_id"]
 
     # Assert
@@ -318,7 +350,10 @@ async def test_typing_while_the_lyric_is_being_written_says_so_rather_than_queue
     storage = MemoryStorage()
     dispatcher = build_dispatcher(
         BotDeps(
-            settings=settings, submitter=RecordingSubmitter(), content=RecordingContentWriter()
+            settings=settings,
+            submitter=RecordingSubmitter(),
+            content=RecordingContentWriter(),
+            profiles=FakeProfiles(),
         ),
         storage=storage,
     )

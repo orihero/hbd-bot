@@ -20,6 +20,7 @@ from typing import Final
 import pytest
 
 from hbd.admin.csrf import (
+    ANY_ORIGIN,
     CSRF_COOKIE_NAME,
     CSRF_EXEMPT_METHODS,
     CSRF_HEADER_NAME,
@@ -52,7 +53,7 @@ def _verify(
     return verify_csrf_request(
         method=method,
         origin=origin,
-        expected_origin=_ORIGIN,
+        accepted_origins=frozenset({_ORIGIN}),
         header_token=header_token,
         stored_token=stored_token,
     )
@@ -143,7 +144,9 @@ def test_a_missing_origin_on_a_state_change_is_refused() -> None:
     ],
 )
 def test_the_origin_match_is_exact(origin: str) -> None:
-    assert verify_origin(origin, expected_origin=_ORIGIN) is CsrfDecision.ORIGIN_MISMATCH
+    assert (
+        verify_origin(origin, accepted_origins=frozenset({_ORIGIN})) is CsrfDecision.ORIGIN_MISMATCH
+    )
     assert _verify(origin=origin) is CsrfDecision.ORIGIN_MISMATCH
 
 
@@ -151,6 +154,32 @@ def test_the_origin_is_checked_before_the_token() -> None:
     """A cross-site caller is told nothing about whether its token guess was close."""
     assert _verify(origin="https://evil.example", header_token=None) is (
         CsrfDecision.ORIGIN_MISMATCH
+    )
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [_ORIGIN, "https://evil.example", "http://localhost:5174", None, ""],
+)
+def test_the_wildcard_accepts_every_origin_and_the_absent_one(origin: str | None) -> None:
+    """`*` is a hole, not a wider pattern — including for the request that sends nothing.
+
+    ``settings.accepted_origins`` only produces this set in ``dev``.
+    """
+    assert verify_origin(origin, accepted_origins=frozenset({ANY_ORIGIN})) is CsrfDecision.ALLOWED
+
+
+def test_the_wildcard_leaves_the_token_layer_standing() -> None:
+    """Only the pre-session half of T8 is switched off; a session still needs its token."""
+    assert (
+        verify_csrf_request(
+            method="POST",
+            origin="https://evil.example",
+            accepted_origins=frozenset({ANY_ORIGIN}),
+            header_token="not-the-stored-token",
+            stored_token=_STORED,
+        )
+        is CsrfDecision.TOKEN_MISMATCH
     )
 
 

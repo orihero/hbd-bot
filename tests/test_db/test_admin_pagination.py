@@ -11,6 +11,13 @@ every row exactly once and end with ``next_cursor is None``. That is asserted ag
 rows rather than against a mock, including the case the tie-break exists for: several rows
 sharing one ``created_at``.
 
+*The sorted walk is safe or it is refused.* Sorting by anything other than ``created_at``
+adds two ways to lose a row silently, and both are asserted below against real rows: a
+cursor replayed under a different sort must come back as a typed ``Err`` rather than resume
+inside another ordering, and a nullable sort key must be made total by
+:func:`hbd.db.admin.page.total_sort_key` so that "never delivered" is a position the cursor
+can name instead of a NULL every comparison is false against.
+
 The seed helpers come from ``test_admin_queries`` rather than being copied: two definitions
 of "an order row" is how two test modules end up disagreeing about what the fixture means.
 """
@@ -23,6 +30,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Final
 from uuid import UUID, uuid4
 
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from hbd.contracts import OrderState, is_err, is_ok
@@ -30,16 +38,28 @@ from hbd.db.admin import orders
 from hbd.db.admin.page import (
     DEFAULT_PAGE_LIMIT,
     MAX_PAGE_LIMIT,
+    SORT_EPOCH,
     TOTAL_COUNT_CAP,
     Cursor,
     Page,
     PageRequest,
+    SortedCursor,
+    SortSpec,
+    SortValueKind,
     build_page,
+    build_sorted_page,
     decode_cursor,
+    decode_sorted_cursor,
     encode_cursor,
+    encode_sorted_cursor,
     page_request,
+    sorted_keyset_order,
+    sorted_keyset_predicate,
+    total_sort_key,
 )
-from hbd.db.admin.views import OrderListItem
+from hbd.db.admin.views import OrderLedger, OrderListItem
+from hbd.db.models import OrderRow
+from hbd.errors import ErrorCode
 from tests.test_db.test_admin_queries import seed_order, seed_user
 
 _AT: Final[datetime] = datetime(2026, 3, 21, 9, 0, tzinfo=UTC)
@@ -264,6 +284,8 @@ def _item(at: datetime, item_id: UUID) -> OrderListItem:
         genre=None,
         output_language=None,
         asset_count=0,
+        ledger=OrderLedger(net=0, refund_count=0, consume_count=0, is_unenforced=False),
+        attempt_count=0,
     )
 
 
@@ -395,3 +417,318 @@ async def test_a_bounded_total_is_exact_well_below_the_cap(
     assert total.total == 4
     assert total.is_exact is True
     assert total.total < TOTAL_COUNT_CAP
+
+
+# ---------------------------------------------------------------------------
+# The sorted cursor — the round trip and the sort it belongs to
+# ---------------------------------------------------------------------------
+_DELIVERED_SORT: Final[SortSpec] = SortSpec(key="last_delivered_at", direction="desc")
+_COUNT_SORT: Final[SortSpec] = SortSpec(key="delivered_order_count", direction="desc")
+
+
+def test_a_sorted_cursor_round_trips_with_an_instant_value() -> None:
+    # Arrange
+    cursor = SortedCursor(k=_DELIVERED_SORT.key, d="desc", v=_AT, id=_ID)
+
+    # Act
+    decoded = decode_sorted_cursor(
+        encode_sorted_cursor(cursor), sort=_DELIVERED_SORT, kind=SortValueKind.INSTANT
+    )
+
+    # Assert
+    assert is_ok(decoded)
+    assert decoded.value == cursor
+
+
+def test_a_sorted_cursor_round_trips_with_an_integer_value() -> None:
+    # Arrange
+    cursor = SortedCursor(k=_COUNT_SORT.key, d="desc", v=17, id=_ID)
+
+    # Act
+    decoded = decode_sorted_cursor(
+        encode_sorted_cursor(cursor), sort=_COUNT_SORT, kind=SortValueKind.INTEGER
+    )
+
+    # Assert
+    assert is_ok(decoded)
+    assert decoded.value.v == 17
+
+
+def test_the_encoded_sorted_cursor_is_opaque() -> None:
+    # Act
+    token = encode_sorted_cursor(SortedCursor(k=_DELIVERED_SORT.key, d="desc", v=_AT, id=_ID))
+
+    # Assert
+    assert "delivered" not in token
+    assert str(_ID) not in token
+
+
+def test_a_sorted_cursor_rejects_a_naive_sort_value_at_construction() -> None:
+    # Act
+    try:
+        SortedCursor(k=_DELIVERED_SORT.key, d="desc", v=datetime(2026, 3, 21, 9, 0), id=_ID)
+    except ValueError as exc:
+        message = str(exc)
+    else:  # pragma: no cover - the constructor must reject this
+        message = ""
+
+    # Assert
+    assert "timezone-aware" in message
+
+
+def test_a_cursor_minted_under_another_key_is_refused() -> None:
+    """Resuming it would page through a different order and drop rows in silence."""
+    # Arrange — a token from the "last delivered" list, replayed on the "order count" one.
+    token = encode_sorted_cursor(SortedCursor(k=_DELIVERED_SORT.key, d="desc", v=_AT, id=_ID))
+
+    # Act
+    decoded = decode_sorted_cursor(token, sort=_COUNT_SORT, kind=SortValueKind.INTEGER)
+
+    # Assert — a 422, not a resume, and it says which failure this was.
+    assert is_err(decoded)
+    assert decoded.error.error_code is ErrorCode.INVALID_INPUT
+    assert "different sort" in decoded.error.operator_message
+
+
+def test_a_cursor_minted_under_the_other_direction_is_refused() -> None:
+    """Same key, flipped direction: the predicate would exclude exactly the wrong half."""
+    # Arrange
+    token = encode_sorted_cursor(SortedCursor(k=_DELIVERED_SORT.key, d="asc", v=_AT, id=_ID))
+
+    # Act
+    decoded = decode_sorted_cursor(token, sort=_DELIVERED_SORT, kind=SortValueKind.INSTANT)
+
+    # Assert
+    assert is_err(decoded)
+    assert "different sort" in decoded.error.operator_message
+
+
+def test_the_mismatch_is_reported_before_the_value_is_parsed() -> None:
+    """An operator who changed the sort must not be told their cursor is malformed."""
+    # Arrange — an instant value that cannot possibly parse as the integer kind asked for.
+    token = encode_sorted_cursor(SortedCursor(k=_DELIVERED_SORT.key, d="desc", v=_AT, id=_ID))
+
+    # Act
+    decoded = decode_sorted_cursor(token, sort=_COUNT_SORT, kind=SortValueKind.INTEGER)
+
+    # Assert
+    assert is_err(decoded)
+    assert "unparseable" not in decoded.error.operator_message
+
+
+def test_a_rejected_sorted_cursor_never_echoes_the_attacker_supplied_value() -> None:
+    # Arrange
+    hostile = _token(
+        {"k": "<script>alert(1)</script>", "d": "desc", "v": _AT.isoformat(), "id": str(_ID)}
+    )
+
+    # Act
+    decoded = decode_sorted_cursor(hostile, sort=_DELIVERED_SORT, kind=SortValueKind.INSTANT)
+
+    # Assert
+    assert is_err(decoded)
+    assert "script" not in str(decoded.error.context)
+    assert "script" not in str(decoded.error)
+
+
+def test_a_sorted_decode_rejects_an_unsorted_cursor() -> None:
+    """The two token shapes are not interchangeable, and neither is silently accepted."""
+    # Act
+    decoded = decode_sorted_cursor(
+        encode_cursor(Cursor(at=_AT, id=_ID)), sort=_DELIVERED_SORT, kind=SortValueKind.INSTANT
+    )
+
+    # Assert
+    assert is_err(decoded)
+
+
+def test_an_unsorted_decode_rejects_a_sorted_cursor() -> None:
+    # Act
+    decoded = decode_cursor(
+        encode_sorted_cursor(SortedCursor(k=_DELIVERED_SORT.key, d="desc", v=_AT, id=_ID))
+    )
+
+    # Assert
+    assert is_err(decoded)
+
+
+def test_a_sorted_decode_rejects_a_non_integer_value_for_an_integer_key() -> None:
+    # Arrange
+    token = _token({"k": _COUNT_SORT.key, "d": "desc", "v": "3.5", "id": str(_ID)})
+
+    # Act
+    decoded = decode_sorted_cursor(token, sort=_COUNT_SORT, kind=SortValueKind.INTEGER)
+
+    # Assert
+    assert is_err(decoded)
+
+
+def test_a_sorted_decode_rejects_a_naive_instant_value() -> None:
+    # Arrange
+    token = _token(
+        {"k": _DELIVERED_SORT.key, "d": "desc", "v": "2026-03-21T09:00:00", "id": str(_ID)}
+    )
+
+    # Act
+    decoded = decode_sorted_cursor(token, sort=_DELIVERED_SORT, kind=SortValueKind.INSTANT)
+
+    # Assert
+    assert is_err(decoded)
+
+
+def test_the_predicate_refuses_a_cursor_from_another_sort() -> None:
+    """The 422 lives at the decode boundary; reaching the builder with a mismatch is a bug."""
+    # Arrange
+    cursor = SortedCursor(k=_DELIVERED_SORT.key, d="desc", v=_AT, id=_ID)
+
+    # Act
+    try:
+        sorted_keyset_predicate(OrderRow.delivered_at, OrderRow.id, cursor, sort=_COUNT_SORT)
+    except ValueError as exc:
+        message = str(exc)
+    else:  # pragma: no cover - the builder must refuse this
+        message = ""
+
+    # Assert
+    assert _COUNT_SORT.key in message
+
+
+# ---------------------------------------------------------------------------
+# The sorted walk, against real rows
+# ---------------------------------------------------------------------------
+async def _sorted_order_page(
+    session: AsyncSession, *, sort: SortSpec, cursor: SortedCursor | None, limit: int
+) -> Page[tuple[UUID, datetime]]:
+    """One page of orders sorted by ``delivered_at``, a key that is null for most rows."""
+    request = PageRequest(limit=limit)
+    sort_key = total_sort_key(OrderRow.delivered_at, absent=SORT_EPOCH)
+    statement = sa.select(OrderRow.id, sort_key.label("sort_value"))
+    resume = sorted_keyset_predicate(sort_key, OrderRow.id, cursor, sort=sort)
+    if resume is not None:
+        statement = statement.where(resume)
+    statement = statement.order_by(
+        *sorted_keyset_order(sort_key, OrderRow.id, direction=sort.direction)
+    ).limit(request.fetch_limit)
+    rows = [(row.id, row.sort_value) for row in (await session.execute(statement)).all()]
+    return build_sorted_page(
+        rows,
+        request,
+        lambda row: SortedCursor(k=sort.key, d=sort.direction, v=row[1], id=row[0]),
+    )
+
+
+async def _sorted_walk(
+    sessions: async_sessionmaker[AsyncSession], *, sort: SortSpec, limit: int
+) -> tuple[list[UUID], list[datetime], int]:
+    """Page all the way through the sorted list and report ids, sort values and page count."""
+    seen: list[UUID] = []
+    values: list[datetime] = []
+    token: str | None = None
+    pages = 0
+    while True:
+        cursor: SortedCursor | None = None
+        if token is not None:
+            decoded = decode_sorted_cursor(token, sort=sort, kind=SortValueKind.INSTANT)
+            assert is_ok(decoded)
+            cursor = decoded.value
+        async with sessions.begin() as session:
+            page = await _sorted_order_page(session, sort=sort, cursor=cursor, limit=limit)
+        seen.extend(row[0] for row in page.items)
+        values.extend(row[1] for row in page.items)
+        pages += 1
+        token = page.next_cursor
+        if token is None:
+            return seen, values, pages
+
+
+async def test_a_null_sort_key_is_paged_as_the_epoch_and_never_lost(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """Without COALESCE every comparison against a NULL key is false and the tail vanishes."""
+    # Arrange — three delivered orders and four that never were.
+    base = datetime(2026, 3, 21, 9, 0, tzinfo=UTC)
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=base)
+        delivered = [
+            (
+                await seed_order(
+                    session,
+                    user=user,
+                    created_at=base,
+                    delivered_at=base + timedelta(minutes=index),
+                )
+            ).id
+            for index in range(3)
+        ]
+        never = {
+            (await seed_order(session, user=user, created_at=base, delivered_at=None)).id
+            for _ in range(4)
+        }
+
+    # Act — a limit of two, so a page boundary falls inside the block of nulls.
+    seen, values, _pages = await _sorted_walk(sessions, sort=_DELIVERED_SORT, limit=2)
+
+    # Assert — every row reached exactly once, the nulls last and reported as the epoch.
+    assert len(seen) == 7
+    assert len(set(seen)) == 7
+    assert seen[:3] == list(reversed(delivered))
+    assert set(seen[3:]) == never
+    assert values[3:] == [SORT_EPOCH] * 4
+
+
+async def test_ascending_order_puts_the_never_delivered_rows_first(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The tie-break follows the key's direction, or a tie-block is walked twice."""
+    # Arrange
+    base = datetime(2026, 3, 21, 9, 0, tzinfo=UTC)
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=base)
+        never = {
+            (await seed_order(session, user=user, created_at=base, delivered_at=None)).id
+            for _ in range(3)
+        }
+        delivered = [
+            (
+                await seed_order(
+                    session,
+                    user=user,
+                    created_at=base,
+                    delivered_at=base + timedelta(minutes=index),
+                )
+            ).id
+            for index in range(2)
+        ]
+
+    # Act
+    seen, _values, _pages = await _sorted_walk(
+        sessions, sort=SortSpec(key=_DELIVERED_SORT.key, direction="asc"), limit=2
+    )
+
+    # Assert
+    assert len(seen) == 5
+    assert set(seen[:3]) == never
+    assert seen[3:] == delivered
+
+
+async def test_a_tie_block_wider_than_the_page_loses_and_repeats_nothing(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """Twelve rows sharing one sort value: only the id tie-break can walk them."""
+    # Arrange
+    base = datetime(2026, 3, 21, 9, 0, tzinfo=UTC)
+    async with sessions.begin() as session:
+        user = await seed_user(session, created_at=base)
+        expected = {
+            (await seed_order(session, user=user, created_at=base, delivered_at=base)).id
+            for _ in range(12)
+        }
+
+    # Act — four pages of three, all inside one tie-block.
+    seen, values, pages = await _sorted_walk(sessions, sort=_DELIVERED_SORT, limit=3)
+
+    # Assert
+    assert set(seen) == expected
+    assert len(seen) == 12
+    assert values == [base] * 12
+    assert pages == 4

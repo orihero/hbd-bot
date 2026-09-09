@@ -39,6 +39,9 @@ export type { CursorPagerProps } from "./CursorPager";
 export { DataTable } from "./DataTable";
 export type { DataColumn, DataTableProps } from "./DataTable";
 
+export { DurationBadge } from "./DurationBadge";
+export type { DurationBadgeProps } from "./DurationBadge";
+
 export { FilterBar, FilterChip } from "./FilterBar";
 export type { FilterBarProps } from "./FilterBar";
 

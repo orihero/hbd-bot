@@ -108,6 +108,31 @@ def test_an_override_wins_over_the_environment(monkeypatch: pytest.MonkeyPatch) 
     assert settings.song_length_ms == 120_000
 
 
+def test_a_zero_music_rate_is_accepted_because_unpriced_is_a_thing_to_say() -> None:
+    # Act — the bound is ``ge`` and not ``gt`` on purpose: every other cost leg says "no
+    # rate is configured here" by shipping 0.0, and music must be able to say it too.
+    settings = build_settings(_overrides(music_usd_per_minute=0.0), require_vendor_secrets=False)
+
+    # Assert
+    assert settings.music_usd_per_minute == 0.0
+
+
+def test_the_music_rate_still_ships_priced_at_the_placeholder() -> None:
+    # Act — the shipped default is deliberate, not an oversight this test would hide: an
+    # unconfigured deployment reports an ESTIMATED music cost rather than none at all.
+    settings = build_settings(_overrides(), require_vendor_secrets=False)
+
+    # Assert
+    assert settings.music_usd_per_minute == 0.15
+
+
+def test_a_negative_music_rate_is_still_refused_at_startup() -> None:
+    # Act / Assert — relaxing the floor to zero relaxed nothing below it; a negative rate
+    # would credit the ledger for spending money.
+    with pytest.raises(ConfigError, match="MUSIC_USD_PER_MINUTE"):
+        build_settings(_overrides(music_usd_per_minute=-0.01), require_vendor_secrets=False)
+
+
 def test_an_unknown_log_level_fails_at_startup_not_inside_a_running_worker() -> None:
     # Act / Assert — untyped, this reached root.setLevel("TRACE") and raised there, outside
     # the ConfigError contract every caller of build_settings relies on.

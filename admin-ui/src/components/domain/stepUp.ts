@@ -46,6 +46,12 @@ const STEP_UP_ACTIONS: readonly string[] = [
   "reveal",
   "order.force_deliver",
   "user.block",
+  // `POST /users/{id}/credits/grant` — the second handler on the surface to consume a grant,
+  // and the first whose subject id is NOT a UUID: the scope is `credit.grant:<telegram id>`,
+  // the integer as a bare decimal string, because that is the path parameter the server built
+  // the scope from. Take it from `details.subjectId` verbatim (fact 2 above) rather than
+  // re-formatting the number yourself.
+  "credit.grant",
   "moderation.decide",
   "user.purge",
   "config.write",

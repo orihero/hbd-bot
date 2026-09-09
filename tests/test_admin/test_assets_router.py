@@ -513,18 +513,32 @@ async def test_a_naive_instant_is_refused_rather_than_reaching_the_column(
     assert response.json()["error"]["code"] == "INVALID_INPUT"
 
 
-async def test_half_a_window_is_refused_rather_than_silently_completed(
-    container: AdminContainer, client: httpx.AsyncClient
+@pytest.mark.parametrize(
+    ("half", "expected"),
+    [("from", "recent"), ("to", "old")],
+    ids=["from-runs-to-now", "to-is-open-below"],
+)
+async def test_one_sided_windows_are_answered_rather_than_refused(
+    container: AdminContainer, client: httpx.AsyncClient, half: str, expected: str
 ) -> None:
-    # Arrange — an implicit second bound is a value the operator never typed.
+    # Arrange — "what has been written since the sweep ran" has no upper bound an operator
+    # would type, and used to be a 422 (AUDIT_AND_REDESIGN §2.2). ``NOW`` was read at import,
+    # so the ``now`` the request supplies is strictly later than every seeded row.
+    order = await seed_order(container)
+    rows = {
+        "old": await seed_asset(
+            container, order=order, variant_index=0, created_at=NOW - timedelta(days=30)
+        ),
+        "recent": await seed_asset(container, order=order, variant_index=1, created_at=NOW),
+    }
     await signed_in(container, client)
 
     # Act
-    response = await client.get(ASSETS_PATH, params={"from": NOW.isoformat()})
+    boundary = (NOW - timedelta(days=1)).isoformat()
+    body = (await client.get(ASSETS_PATH, params={half: boundary})).json()
 
     # Assert
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "INVALID_INPUT"
+    assert [row["id"] for row in body["items"]] == [str(rows[expected].id)]
 
 
 async def test_a_window_that_ends_before_it_starts_is_refused(

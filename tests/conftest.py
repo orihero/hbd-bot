@@ -204,9 +204,18 @@ def make_plan(**overrides: Any) -> CompositionPlan:
 
 
 def make_asset(tmp_path: Path, **overrides: Any) -> GeneratedAsset:
+    """A ``GeneratedAsset`` whose file really exists, so a hash or a read is honest.
+
+    ``payload`` is an override like any other but is not a field: it is the bytes written
+    to the path when nothing is there yet. It exists because ``sha256`` is derived from
+    what is on disk, so a caller that wants a non-audio asset — a cover, a sheet — has no
+    other way to make the digest describe its own content instead of ``fake-audio-bytes``.
+    """
     path = overrides.pop("path", None) or (tmp_path / "song.mp3")
+    payload: bytes = overrides.pop("payload", b"fake-audio-bytes")
     if not path.exists():
-        path.write_bytes(b"fake-audio-bytes")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
     defaults: dict[str, Any] = {
         "kind": AssetKind.SONG,
         "path": path,
@@ -216,6 +225,30 @@ def make_asset(tmp_path: Path, **overrides: Any) -> GeneratedAsset:
         "loudness_lufs": -14.0,
     }
     return GeneratedAsset(**{**defaults, **overrides})
+
+
+def make_cover_asset(tmp_path: Path, **overrides: Any) -> GeneratedAsset:
+    """The cover art asset, on a real file. ``duration_s=0.0``: a picture has no duration.
+
+    A shaped helper rather than four repeated overrides at every call site, because
+    ``AssetKind.COVER`` was modelled long before anything produced one and every field that
+    differs from a song — the mime, the suffix, the absent loudness — is a place a test can
+    quietly disagree with what ``hbd.audio.cover`` actually writes.
+
+    The payload begins with the JPEG start-of-image marker so a reader that sniffs the
+    bytes sees a picture, but it is NOT a decodable JPEG: rendering a real one belongs in
+    ``tests/test_audio/test_cover.py``, and every other package only needs a kit that has
+    a cover in it.
+    """
+    defaults: dict[str, Any] = {
+        "path": tmp_path / "cover.jpg",
+        "payload": b"\xff\xd8fake-cover-bytes",
+        "kind": AssetKind.COVER,
+        "mime": "image/jpeg",
+        "duration_s": 0.0,
+        "loudness_lufs": None,
+    }
+    return make_asset(tmp_path, **{**defaults, **overrides})
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +304,13 @@ def rendered_audio() -> RenderedAudio:
 
 @pytest.fixture
 def kit(tmp_path: Path, lyrics: LyricDraft) -> Kit:
+    """The default kit carries NO cover, deliberately.
+
+    ``Kit.cover`` is optional and was optional long before anything drew one, so leaving it
+    unset here keeps every existing assertion about ``all_assets``, archival and delivery
+    measuring what it measured before the watermark shipped. A test that wants one asks for
+    ``kit_with_cover``.
+    """
     order_id: UUID = uuid4()
     song = make_asset(tmp_path, path=tmp_path / "song.mp3")
     greeting = make_asset(
@@ -297,6 +337,16 @@ def kit(tmp_path: Path, lyrics: LyricDraft) -> Kit:
         lyric_sheet=sheet,
         lyrics=lyrics,
     )
+
+
+@pytest.fixture
+def kit_with_cover(kit: Kit, tmp_path: Path) -> Kit:
+    """The same kit, wearing the watermark cover art.
+
+    Derived from ``kit`` with ``model_copy`` rather than assembled again, so the two can
+    never drift: whatever the default kit is, this is that kit plus one asset.
+    """
+    return kit.model_copy(update={"cover": make_cover_asset(tmp_path)})
 
 
 @pytest.fixture

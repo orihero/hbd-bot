@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Exported from the OpenPencil "PlanIQ UI Kit" document, page 0:2853, node 0:3010
+     ("vuesax/linear/eye", the password field's trailing icon on the Log In frame).
+     Two corrections to the raw export, nothing else: the exporter emitted width/height/viewBox
+     at 48 for a 24x24 frame, and it duplicated every stroked path as a filled outline
+     expansion of that same stroke. Stroke spec is the design's: #99A0AE at 1.5. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+     fill="none" stroke="#99A0AE" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+  <path transform="translate(8.42, 8.42)" d="M7.16 3.58C7.16 5.56 5.56 7.16 3.58 7.16C1.6 7.16 0 5.56 0 3.58C0 1.6 1.6 0 3.58 0C5.56 0 7.16 1.6 7.16 3.58Z"/>
+  <path transform="translate(2.21, 3.72)" d="M9.78 16.55C13.31 16.55 16.61 14.47 18.9 10.87C19.8 9.46 19.8 7.09 18.9 5.68C16.61 2.08 13.31 0 9.78 0C6.25 0 2.96 2.08 0.67 5.68C-0.23 7.09 -0.23 9.46 0.67 10.87C2.96 14.47 6.25 16.55 9.78 16.55Z"/>
+</svg>

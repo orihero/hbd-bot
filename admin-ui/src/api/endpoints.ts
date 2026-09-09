@@ -1,5 +1,5 @@
 /**
- * One typed function per endpoint. Thirty-one routes, all of them.
+ * One typed function per endpoint. Thirty-six routes, all of them.
  *
  * Screen and component code imports from here (via `src/api`) and calls `fetch` nowhere.
  * Every function returns `Promise<ApiResult<T>>` and never throws; at a TanStack Query
@@ -12,15 +12,29 @@
  *   test compares against it; the plan's §6.1 writes `{telegramUserId}` and is stale
  *   (contract D3). It does not change the URL a client builds.
  *
- * - **There is NO `sort` parameter on any endpoint.** §6.1's `?sort=-created_at` is not
- *   implemented anywhere. Every list is `ORDER BY created_at DESC, id DESC`, newest first,
- *   fixed. Do not build a sort control (contract D2).
+ * - **There is NO `sort` parameter on any endpoint.** §6.1's `?sort=-created_at` is
+ *   UNIMPLEMENTED SERVER-SIDE — no router declares it, so `?sort=` is an unknown query
+ *   parameter that is silently ignored rather than refused, which is worse than a 422: the
+ *   operator gets a page ordered by something they did not ask for and nothing says so. Every
+ *   list is `ORDER BY created_at DESC, id DESC`, newest first, fixed. Do not build a sort
+ *   control and do not send the parameter (contract D2).
  *
- * - **`from`/`to` are ONE WINDOW everywhere except `/api/audit`.** Sending one without the
- *   other is a 422 on orders, users, generations, assets and all four metrics routes. The
- *   audit log alone accepts a half-open window, because its query builder passes the bounds
- *   through independently (contract D6). A shared date-range widget must still send both
- *   bounds to everything else. A naive (offset-less) timestamp is a 422 everywhere.
+ * - **`from`/`to` are ONE WINDOW everywhere except `/api/audit`, and half of one is now
+ *   legal.** `hbd/admin/window.py::resolve_window` — the single parser all five list routers
+ *   and the metrics routes share — resolves a missing `to` to the request's own `now` and
+ *   leaves a missing `from` genuinely absent (`TimeWindow.start is None`, no epoch sentinel).
+ *   So `?from=X` alone means "since X, and still going" and `?to=Y` alone means "everything up
+ *   to Y"; neither is the 422 it used to be. The audit log remains different for a different
+ *   reason: it passes the two bounds to its query builder INDEPENDENTLY rather than as an
+ *   interval (contract D6). A naive (offset-less) timestamp is still a 422 everywhere, and
+ *   `to` before `from` is still refused by `time_window`.
+ *
+ *   `windowParams` below therefore sends each bound it was given, INCLUDING one without the
+ *   other. It used to drop half a window on the floor, which outlived the 422 it was written
+ *   for and became the worse failure of the two: an operator whose link carried only `?from=`
+ *   got a filter chip saying so, a request with no window in it, and a full-record page
+ *   rendered under a filtered heading. A silently ignored filter is the same class of bug as
+ *   the `?sort=` note above.
  *
  * - **404 behaviour is deliberately uneven and must not be normalised.**
  *   `/orders/{id}` and `/orders/{id}/timeline` 404; `/orders/{id}/attempts` and
@@ -41,6 +55,7 @@ import type {
   NameStrategy,
   OrderState,
   RetentionClass,
+  Vendor,
 } from "./enums";
 import {
   adminRosterResponseSchema,
@@ -53,12 +68,15 @@ import {
   capabilitiesViewSchema,
   chainVerifyResponseSchema,
   configViewSchema,
+  creditGrantResultViewSchema,
+  creditLedgerPageSchema,
   failureSeriesSchema,
   latencyViewSchema,
   loginResponseSchema,
   meResponseSchema,
   nameAnalyticsViewSchema,
   orderDetailViewSchema,
+  orderStateCountsSchema,
   ordersPageSchema,
   ordersPerDaySeriesSchema,
   pulseViewSchema,
@@ -68,8 +86,12 @@ import {
   stepUpResponseSchema,
   strategyOutcomeSeriesSchema,
   timelineViewSchema,
+  userBlockResultViewSchema,
   userDetailViewSchema,
   usersPageSchema,
+  vendorErrorSeriesSchema,
+  vendorUsagePerDaySeriesSchema,
+  vendorUsageResponseSchema,
   wizardStateViewSchema,
   type AdminRosterResponse,
   type AssetTextView,
@@ -81,6 +103,9 @@ import {
   type CapabilitiesView,
   type ChainVerifyResponse,
   type ConfigView,
+  type CreditGrantRequest,
+  type CreditGrantResultView,
+  type CreditLedgerPage,
   type FailureView,
   type LatencyView,
   type LoginRequest,
@@ -88,6 +113,7 @@ import {
   type MeResponse,
   type NameAnalyticsView,
   type OrderDetailView,
+  type OrderStateCountsView,
   type OrdersPage,
   type OrdersPerDayView,
   type PasswordChangeRequest,
@@ -100,8 +126,13 @@ import {
   type StepUpResponse,
   type StrategyOutcomeView,
   type TimelineView,
+  type UserBlockRequest,
+  type UserBlockResultView,
   type UserDetailView,
   type UsersPage,
+  type VendorErrorView,
+  type VendorUsagePerDayView,
+  type VendorUsageResponse,
   type WizardStateView,
 } from "./schemas";
 
@@ -130,8 +161,15 @@ export const ENDPOINT = {
   latency: "GET /api/metrics/latency",
   nameStrategies: "GET /api/metrics/name-strategies",
   nameAnalytics: "GET /api/metrics/name-analytics",
+  vendorUsage: "GET /api/metrics/vendor-usage",
+  vendorUsageByDay: "GET /api/metrics/vendor-usage-by-day",
+  vendorErrors: "GET /api/metrics/vendor-errors",
 
   orders: "GET /api/orders",
+  /* Registered BEFORE `/orders/{order_id}` server-side — routes match in registration order,
+     and `state-counts` would otherwise be answered by the detail route's UUID coercion as a
+     422 about a malformed path parameter. */
+  orderStateCounts: "GET /api/orders/state-counts",
   order: "GET /api/orders/{order_id}",
   orderAttempts: "GET /api/orders/{order_id}/attempts",
   orderAssets: "GET /api/orders/{order_id}/assets",
@@ -141,6 +179,11 @@ export const ENDPOINT = {
   user: "GET /api/users/{telegram_user_id}",
   userOrders: "GET /api/users/{telegram_user_id}/orders",
   wizardState: "GET /api/users/{telegram_user_id}/wizard-state",
+  userAvatar: "GET /api/users/{telegram_user_id}/avatar",
+  userCredits: "GET /api/users/{telegram_user_id}/credits",
+  userCreditsGrant: "POST /api/users/{telegram_user_id}/credits/grant",
+  userBlock: "POST /api/users/{telegram_user_id}/block",
+  userUnblock: "POST /api/users/{telegram_user_id}/unblock",
 
   generations: "GET /api/generations",
   attempt: "GET /api/generations/{attempt_id}",
@@ -184,7 +227,9 @@ export interface PageQuery {
   readonly withTotal?: boolean | undefined;
 }
 
-/** `from`/`to` are a PAIR: both, or neither. Both are RFC 3339 with an offset. */
+/** `from`/`to`: either, both, or neither. Each is RFC 3339 WITH an offset — a naive instant
+ *  is still a 422 on every windowed route. See `windowParams` for why half a window is a
+ *  question this API answers rather than refuses. */
 export interface WindowQuery {
   readonly from?: string | undefined;
   readonly to?: string | undefined;
@@ -199,12 +244,48 @@ export interface OrdersQuery extends PageQuery, WindowQuery {
   readonly hasAssets?: boolean | undefined;
 }
 
+/**
+ * `/api/orders/state-counts` — the SAME filter dependency as the list, minus every paging
+ * parameter, which is why this is `OrdersQuery` with `PageQuery` removed rather than a
+ * separate shape.
+ *
+ * The omission is load-bearing rather than tidy. The route takes no `limit`, `cursor` or
+ * `withTotal` — its counts are one unbounded `GROUP BY` and its `total` is already exact — so
+ * sending a cursor would be an ignored parameter that nonetheless changed the query KEY, and
+ * the aggregate would be refetched on every page an operator turned to. Build it from the
+ * same filter object the list uses and strip the paging.
+ */
+export type OrderStateCountsQuery = Omit<OrdersQuery, keyof PageQuery>;
+
 export interface UsersQuery extends PageQuery, WindowQuery {
   readonly telegramUserId?: number | undefined;
+  /**
+   * `?q=` — free-text search, capped server-side, and it matches the **Telegram id and
+   * nothing else**.
+   *
+   * That narrowness is a privacy decision made in `UserFilters`, not an unfinished feature:
+   * every other text column this list can reach lives on `user_profiles`, is masked at all
+   * four roles, and a substring filter over it would let an operator with no reveal cell
+   * confirm a customer's name three characters at a time with no step-up and no audit row. So
+   * any placeholder on the control must say plainly that search is by Telegram id.
+   */
+  readonly q?: string | undefined;
   readonly isBlocked?: boolean | undefined;
+  /**
+   * `credit_accounts.balance > 0` — the "Has Balance" quick filter.
+   *
+   * `true` narrows to accounts holding at least one credit; `false` is its complement, which
+   * includes accounts with a zero balance AND accounts with no `credit_accounts` row at all —
+   * the same null-is-a-third-state distinction `UserView.creditBalance` carries, collapsed by
+   * the predicate. Omit it for "either", which is not the same as `false`.
+   */
+  readonly hasBalance?: boolean | undefined;
   /** Repeats. */
   readonly uiLanguage?: readonly Language[] | undefined;
 }
+
+/** `/api/users/{telegram_user_id}/credits` — paging only; no filters on the ledger. */
+export type UserCreditsQuery = PageQuery;
 
 export interface GenerationsQuery extends PageQuery, WindowQuery {
   /** Repeats. */
@@ -228,6 +309,19 @@ export interface AssetsQuery extends PageQuery, WindowQuery {
    * included, because it is the most urgent line on the retention page.
    */
   readonly expiringWithinDays?: number | undefined;
+}
+
+/**
+ * The three `/metrics/vendor-*` routes take the SAME shape: a window, and a repeatable
+ * vendor filter.
+ *
+ * `vendor` repeats — `?vendor=elevenlabs&vendor=openrouter` — and an EMPTY list means no
+ * filter, never "match none". That is the same OR spelling every other list uses, and the
+ * same absent-is-not-empty rule: `?vendor=` is a 422.
+ */
+export interface VendorUsageQuery extends WindowQuery {
+  /** Repeats. */
+  readonly vendor?: readonly Vendor[] | undefined;
 }
 
 /** `/api/orders/{order_id}/attempts` — no `from`/`to` here. */
@@ -277,6 +371,35 @@ export const pathUserOrders = (telegramUserId: number): string =>
   `${pathUser(telegramUserId)}/orders`;
 export const pathWizardState = (telegramUserId: number): string =>
   `${pathUser(telegramUserId)}/wizard-state`;
+export const pathUserCredits = (telegramUserId: number): string =>
+  `${pathUser(telegramUserId)}/credits`;
+export const pathUserCreditsGrant = (telegramUserId: number): string =>
+  `${pathUserCredits(telegramUserId)}/grant`;
+export const pathUserBlock = (telegramUserId: number): string =>
+  `${pathUser(telegramUserId)}/block`;
+export const pathUserUnblock = (telegramUserId: number): string =>
+  `${pathUser(telegramUserId)}/unblock`;
+
+/**
+ * `GET /api/users/{telegram_user_id}/avatar` — the URL an `<img src>` points at.
+ *
+ * Same-origin, so the `__Host-` session cookie travels with the subresource automatically and
+ * no token appears in a URL, exactly as `pathAssetStream` documents for `<audio src>`. The CSP
+ * is `img-src 'self' data:` and this path is `'self'`, so it is permitted; `blob:` is absent,
+ * which is why nothing here builds an object URL.
+ *
+ * PD-1: this is an ORDINARY `records.read` route. It is NOT a reveal surface — no step-up, no
+ * budget unit, no audit row, and therefore no probe. `stream.ts` exists because an `<audio>`
+ * element collapses six different refusals into one opaque event and the operator needed to be
+ * told which; here there is exactly one interesting refusal (404 — no photo), and the monogram
+ * fallback IS its rendering.
+ *
+ * The SPA does not normally call this: `UserView.avatarUrl` carries the server's own spelling of
+ * the same URL, so the presence decision and the URL cannot drift apart. This builder is the
+ * client's record of the route and what the test fixtures build `avatarUrl` from.
+ */
+export const pathUserAvatar = (telegramUserId: number): string =>
+  `${pathUser(telegramUserId)}/avatar`;
 export const pathAttempt = (attemptId: string): string => `/api/generations/${encode(attemptId)}`;
 export const pathAsset = (assetId: string): string => `/api/assets/${encode(assetId)}`;
 
@@ -501,6 +624,57 @@ export function getNameAnalytics(
   );
 }
 
+/**
+ * The whole of `/vendors`' top half in one read: the two window-ignoring capability probes,
+ * the window's totals, and the per-(vendor, operation, model) rollup.
+ *
+ * The probes travel with the numbers rather than in `/ops/capabilities` for the same reason
+ * `capabilities` rides inside `/ops/pulse`: `calls: 0` is unreadable without them, and a
+ * second request means a render in which the screen has counts and does not yet know
+ * whether the counts mean anything.
+ */
+export function getVendorUsage(
+  query: VendorUsageQuery = {},
+  options?: CallOptions,
+): Promise<ApiResult<VendorUsageResponse>> {
+  return get(
+    ENDPOINT.vendorUsage,
+    "/api/metrics/vendor-usage",
+    vendorUsageResponseSchema,
+    vendorParams(query),
+    options,
+  );
+}
+
+/** Bare array, day ASC then vendor ASC. A (day, vendor) pair with no calls is ABSENT — the
+ *  chart draws the gap, and never a zero the operator would read as "no spend that day". */
+export function getVendorUsageByDay(
+  query: VendorUsageQuery = {},
+  options?: CallOptions,
+): Promise<ApiResult<VendorUsagePerDayView[]>> {
+  return get(
+    ENDPOINT.vendorUsageByDay,
+    "/api/metrics/vendor-usage-by-day",
+    vendorUsagePerDaySeriesSchema,
+    vendorParams(query),
+    options,
+  );
+}
+
+/** Bare array over FAILED calls only, count DESC. `share` is per vendor, not overall. */
+export function getVendorErrors(
+  query: VendorUsageQuery = {},
+  options?: CallOptions,
+): Promise<ApiResult<VendorErrorView[]>> {
+  return get(
+    ENDPOINT.vendorErrors,
+    "/api/metrics/vendor-errors",
+    vendorErrorSeriesSchema,
+    vendorParams(query),
+    options,
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Orders                                                                      */
 /* -------------------------------------------------------------------------- */
@@ -521,6 +695,42 @@ export function getOrders(
       hasAssets: query.hasAssets,
       ...windowParams(query),
       ...pageParams(query),
+    },
+    options,
+  );
+}
+
+/**
+ * Per-state totals for the caller's WHOLE filter set — the distribution bar's real numbers.
+ *
+ * It takes the identical filter dependency as `getOrders`, so it answers for exactly the rows
+ * the list with the same query string would return — window, `isPaid`, `hasAssets` and all.
+ * That includes `?state=` itself: filtering to `failed` makes every other segment `0`, which
+ * is correct rather than useless. Pass the same filter object, minus paging.
+ *
+ * Every `OrderState` comes back, in declaration order, possibly `0`; `total` is the exact sum
+ * of the segments and is NOT `TOTAL_COUNT_CAP`-bounded the way the list's `meta.total` is, so
+ * the two disagree above ten thousand rows and the bar must be labelled from this one.
+ *
+ * There is no `withTotal` here and no paging: the aggregate is one unbounded `GROUP BY`, which
+ * is exactly why it is a sibling route rather than a field on the list's `meta` — on `meta` it
+ * would run again for every cursor an operator turned to.
+ */
+export function getOrderStateCounts(
+  query: OrderStateCountsQuery = {},
+  options?: CallOptions,
+): Promise<ApiResult<OrderStateCountsView>> {
+  return get(
+    ENDPOINT.orderStateCounts,
+    "/api/orders/state-counts",
+    orderStateCountsSchema,
+    {
+      state: query.state,
+      isPaid: query.isPaid,
+      telegramUserId: query.telegramUserId,
+      correlationId: query.correlationId,
+      hasAssets: query.hasAssets,
+      ...windowParams(query),
     },
     options,
   );
@@ -594,7 +804,10 @@ export function getUsers(
     usersPageSchema,
     {
       telegramUserId: query.telegramUserId,
+      // The server's alias is the bare `q` (`Query(alias="q")`), not `search`.
+      q: query.q,
       isBlocked: query.isBlocked,
+      hasBalance: query.hasBalance,
       uiLanguage: query.uiLanguage,
       ...windowParams(query),
       ...pageParams(query),
@@ -647,6 +860,105 @@ export function getWizardState(
     pathWizardState(telegramUserId),
     wizardStateViewSchema,
     undefined,
+    options,
+  );
+}
+
+/**
+ * The account's balance and one keyset page of its movements, newest first — `records.read`,
+ * the same cell as the `/users` row it explains.
+ *
+ * **`account: null` is not an empty ledger.** It means `credit_accounts` holds no row, which
+ * is a different fact from a balance of 0 and must render differently: "never metered", not
+ * "spent everything". `items` may still be non-empty beside a null account, because `/forget`
+ * keeps the ledger rows and nulls their Telegram id.
+ *
+ * It DOES 404, but only for an id that neither `credit_accounts` nor `users` has heard of —
+ * the account row is probed first, so a customer who was granted credits without ever having
+ * a `users` row still reads back. Nothing on this response is masked or reveal-gated; the
+ * ledger holds no personal data, which is why it outlives every purge.
+ */
+export function getUserCredits(
+  telegramUserId: number,
+  query: UserCreditsQuery = {},
+  options?: CallOptions,
+): Promise<ApiResult<CreditLedgerPage>> {
+  return get(
+    ENDPOINT.userCredits,
+    pathUserCredits(telegramUserId),
+    creditLedgerPageSchema,
+    pageParams(query),
+    options,
+  );
+}
+
+/**
+ * Add credits to one account on an operator's say-so, with a mandatory reason.
+ *
+ * `credit.grant.write` on the router and `credit.grant`'s **subject-scoped step-up** inside
+ * the handler, so a 403 here is `STEP_UP_REQUIRED` carrying `details.stepUpAction:
+ * "credit.grant"` and `details.subjectId: "<telegram id>"` — the integer as a bare decimal
+ * string, not a UUID. Route it through `stepUpTargetOf` and `<StepUpPrompt>` and resend
+ * unchanged; do not compose the scope yourself.
+ *
+ * **There is no 404.** The grant opens the account it credits, which is precisely the customer
+ * a goodwill comp is usually for. An id with no `users` row is credited too — refusing it
+ * would make this route an existence oracle for guessable Telegram ids.
+ *
+ * **Mint a fresh `requestId` UUID per distinct ATTEMPT — and resend the SAME one on a retry.**
+ * The server keys `grant:admin:{telegramUserId}:{requestId}`, so the same value sent twice tops
+ * the account up once and answers `isReplay: true` with nothing moved. That is the whole point:
+ * a timeout tells you nothing about whether the grant landed, so the retry must carry the id of
+ * the attempt it is retrying, or a grant that already settled is issued a second time. Mint
+ * again only when the operator changes what they are granting (a different amount or reason is
+ * a different attempt), which is also why a `requestId` derived from anything coarser — a ticket
+ * id, a resubmitted form — silently issues nothing. Omit it and the server mints one, so every
+ * send is a fresh grant. Surface `isReplay` in the success message either way.
+ *
+ * `GrantCreditsDialog` implements exactly this; see rule 1 in its docstring.
+ */
+export function postCreditGrant(
+  telegramUserId: number,
+  body: CreditGrantRequest,
+  options?: CallOptions,
+): Promise<ApiResult<CreditGrantResultView>> {
+  return post(
+    ENDPOINT.userCreditsGrant,
+    pathUserCreditsGrant(telegramUserId),
+    creditGrantResultViewSchema,
+    body,
+    options,
+  );
+}
+
+/**
+ * Block or unblock one Telegram account. `isBlocked` picks the ROUTE, never a body field.
+ *
+ * Two routes and one body, because the state being set is the only durable record of which
+ * action happened: a single `POST /block {"isBlocked": false}` would be an unblock that audits
+ * as a block. They also write different audit actions — `user.block` and `user.unblock`.
+ *
+ * `user.block.write` on the router (the ROLE half) and `user.block`'s subject-scoped step-up
+ * inside the handler, so gate the button on `user.block.write` — the permission the router
+ * actually names — and recover a 403 `STEP_UP_REQUIRED` the same way `postCreditGrant`
+ * describes, with the Telegram id as a bare decimal subject.
+ *
+ * Idempotent by design: blocking an already-blocked account is a no-op that STILL writes an
+ * audit row, because pressing it twice is information. The result echoes the resulting
+ * `isBlocked` and the instant the action was recorded — `changedAt` is not "when this account
+ * was first blocked", a fact the `users` row does not carry.
+ */
+export function postUserBlock(
+  telegramUserId: number,
+  isBlocked: boolean,
+  reason: UserBlockRequest,
+  options?: CallOptions,
+): Promise<ApiResult<UserBlockResultView>> {
+  return post(
+    isBlocked ? ENDPOINT.userBlock : ENDPOINT.userUnblock,
+    isBlocked ? pathUserBlock(telegramUserId) : pathUserUnblock(telegramUserId),
+    userBlockResultViewSchema,
+    reason,
     options,
   );
 }
@@ -887,15 +1199,44 @@ function pageParams(query: PageQuery): QueryParams {
 }
 
 /**
- * `from`/`to` travel together or not at all.
+ * Each bound the caller was given, including one without the other.
  *
- * Sending exactly one is a 422 on every endpoint except `/api/audit`, and the three routers
- * word that 422 slightly differently from each other — orders says "give both bounds or
- * neither", users says it with a semicolon, generations and assets each have their own
- * phrasing. Nothing should parse those strings; refusing to send half a window here is what
- * keeps an operator from ever seeing one.
+ * **Half a window is a legal question now, so half a window goes on the wire.** The rule
+ * this helper used to enforce — "both bounds or neither" — was written against a 422 that
+ * `hbd/admin/window.py::resolve_window` no longer raises: a missing `to` is closed at the
+ * instant the request was served, and a missing `from` is left genuinely absent
+ * (`TimeWindow.start is None`, never an epoch sentinel). All six windowed routers reach that
+ * one parser through the same three-line clock adapter — `orders`, `users`, `generations`,
+ * `assets`, `dashboard` and `vendors` — so there is no endpoint left for which dropping a
+ * lone bound is the safe move.
+ *
+ * Keeping the old rule after the server relaxed it was strictly worse than sending the
+ * parameter: the filter chip said "from 2026-09-01", the request carried no window at all,
+ * and the operator read the whole record under a filtered heading. There is no honest way
+ * for a screen to notice that, which is why the fix is here rather than in a screen.
+ *
+ * "Neither" still spells the empty map without a branch: `buildQueryString` drops an
+ * `undefined` value. `/api/audit` takes the same two names as INDEPENDENT bounds rather than
+ * as an interval (contract D6) and builds its parameters itself, so it never comes through
+ * here.
  */
 function windowParams(query: WindowQuery): QueryParams {
-  if (query.from === undefined || query.to === undefined) return {};
   return { from: query.from, to: query.to };
+}
+
+/**
+ * The `/metrics/vendor-*` parameters: a window, composed from `windowParams` so the rule for
+ * a one-sided range is stated once, plus the repeatable vendor filter.
+ *
+ * An EMPTY or absent `vendor` writes no parameter at all. `buildQueryString` drops an empty
+ * array anyway, but saying it here is what keeps "the operator deselected the last chip"
+ * from ever becoming `?vendor=` — which is a 422, and would be one an operator triggers by
+ * clicking a toggle off.
+ */
+function vendorParams(query: VendorUsageQuery): QueryParams {
+  const vendors = query.vendor ?? [];
+  return {
+    ...windowParams(query),
+    ...(vendors.length === 0 ? {} : { vendor: vendors }),
+  };
 }

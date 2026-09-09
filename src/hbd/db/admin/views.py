@@ -39,10 +39,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime
 from enum import StrEnum
+from typing import Any
 from uuid import UUID
 
 from hbd.contracts import (
     AssetKind,
+    BalanceEstimateBasis,
+    BalanceUnit,
+    BroadcastKind,
+    BroadcastRecipientState,
+    BroadcastState,
     CostSource,
     Genre,
     Language,
@@ -50,9 +56,11 @@ from hbd.contracts import (
     Occasion,
     OrderState,
     Script,
+    Vendor,
+    VendorOperation,
     VoiceGender,
 )
-from hbd.db.enums import GenerationKind
+from hbd.db.enums import AuditReasonCode, CreditEntryKind, CreditReason, GenerationKind, PlanKind
 from hbd.db.retention import RetentionClass
 
 __all__ = [
@@ -60,6 +68,10 @@ __all__ = [
     "BriefView",
     "AssetView",
     "AttemptView",
+    "OrderLedgerStatus",
+    "OrderPaymentRail",
+    "OrderLedger",
+    "OrderStateTotal",
     "OrderListItem",
     "OrderDetail",
     "TimelineSource",
@@ -68,6 +80,15 @@ __all__ = [
     "Timeline",
     "UserListItem",
     "UserDetail",
+    "SegmentBreakdown",
+    # -- broadcasts: the campaign, its bodies, and the ledger of who it reached ---
+    "BroadcastProgress",
+    "BroadcastListItem",
+    "BroadcastBodyView",
+    "BroadcastDetail",
+    "BroadcastRecipientItem",
+    "CreditAccountState",
+    "CreditLedgerItem",
     "OrdersPerDay",
     "DeliveryOutcome",
     "LatencySummary",
@@ -76,7 +97,44 @@ __all__ = [
     "SimilarityBucket",
     "StrategyAnalysis",
     "NameAnalytics",
+    "VendorUsageRollup",
+    "VendorUsageTotals",
+    "VendorUsagePerDay",
+    "VendorErrorCount",
     "ReadCapabilities",
+    # -- the dashboard's aggregate shapes ---
+    "Trend",
+    "BucketPoint",
+    "DeliveredPerBucket",
+    "NewAccountsPerBucket",
+    "AccountTotals",
+    "ActiveAccounts",
+    "ChurnCounts",
+    "OrderFunnel",
+    "RevenueSource",
+    "RevenueBucket",
+    "RevenueTotal",
+    "CurrencyAmount",
+    "PlanLiability",
+    "PlanUtilisationBucket",
+    "UnpricedTopups",
+    "VendorSpendPerBucket",
+    "VendorSpendSplit",
+    "CostPerDeliveredSong",
+    "UnattributedSpendPerBucket",
+    "OperationLatency",
+    "FakeCallGuard",
+    "VendorBalanceState",
+    # -- renewal, audience, unit economics, provenance ---
+    "SubscriptionChurn",
+    "LanguageMix",
+    "LanguageMixTotals",
+    "ActivityPoint",
+    "TopGenerator",
+    "RecentSubscriber",
+    "VendorCostPerSong",
+    "VendorUnitsPerSong",
+    "CostProvenance",
 ]
 
 
@@ -217,8 +275,187 @@ class AttemptView:
 
 
 # ---------------------------------------------------------------------------
-# Orders
+# Orders — and the ledger algebra that decides what an order cost
 # ---------------------------------------------------------------------------
+class OrderLedgerStatus(StrEnum):
+    """Where one order stands in ``credit_ledger``, in the algebra the gate itself uses.
+
+    Every member is defined against exactly three numbers, all of them taken over
+    ``credit_ledger WHERE order_id = orders.id``: ``net = SUM(delta)``, the count of
+    ``REFUND`` rows and the count of ``CONSUME`` rows. Prose definitions were the alternative
+    and they are how this field would drift from the authorisation decision: ``charge`` reads
+    ``net_position`` (``db/credit_sql.py``) and nothing else, so a status derived from
+    anything else would eventually disagree with whether the customer is about to be charged
+    again.
+
+    * :attr:`PENDING` — ``net < 0`` and no ``CONSUME``. A debit stands open: the render is in
+      flight, or it died without settling and the hourly sweep has not reached it yet. This
+      is the state that holds an in-flight slot the customer cannot see.
+    * :attr:`SETTLED` — ``net < 0`` and at least one ``CONSUME``. The charge stands and was
+      closed: the kit exists (``ORDER_DELIVERED``), or exists and Telegram refused it
+      (``ORDER_NOT_DELIVERED``), or the sweep closed a delivered order's debit
+      (``STALE_SETTLEMENT``). The customer paid and keeps paying.
+    * :attr:`REFUNDED` — ``net >= 0`` and at least one ``REFUND``. The debit was handed back,
+      which returns the order to net 0 — and net 0 is precisely what makes it **chargeable
+      again**, at ``generation + 1``, on its next authorisation. A refunded order is not a
+      closed one, and the panel must not draw it as an ending.
+    * :attr:`UNMETERED` — everything else: ``net >= 0`` with no refund, which in practice
+      means the ledger holds no row for this order at all.
+
+    :attr:`UNMETERED` is a fourth member where ``ADMIN_PANEL_AUDIT_AND_REDESIGN_PLAN.md``
+    §5.1 named three (``settled`` / ``refunded`` / ``pending``), and it is the state most
+    orders in this deployment are actually in: a DRAFT that never reached authorisation has
+    no ledger row, and neither does anything created before the meter existed. Folding it
+    into ``pending`` would tell an operator a credit is held against an order that holds
+    none; folding it into ``settled`` would invent a sale. It is a real fourth state, so it
+    is named.
+    """
+
+    UNMETERED = "unmetered"
+    PENDING = "pending"
+    SETTLED = "settled"
+    REFUNDED = "refunded"
+
+
+class OrderPaymentRail(StrEnum):
+    """What paid for one order — restricted to what this schema can actually prove.
+
+    §5.1 of the audit plan names ``telegram_stars``, ``credit_allowance`` and ``admin_grant``.
+    Two of those three are **not derivable here and are deliberately absent**, because a
+    value the data cannot support is worse than a missing field: an operator reading
+    ``admin_grant`` off a screen would act on it.
+
+    * ``telegram_stars`` has no writer anywhere in ``src/``. There is no ``payments`` table
+      (``db.admin.sql.PAYMENTS_TABLE`` is what the timeline reports as unavailable for
+      exactly this reason) and ``CreditReason`` has no member a payment rail could write.
+      ``orders.is_paid`` is not it either: it latches when the order reaches ``AUTHORIZED``,
+      whichever provider produced that, so it says *authorised*, never *by whom*.
+    * ``credit_allowance`` versus ``admin_grant`` cannot be told apart **by construction**,
+      not merely for want of a column. ``credit_accounts.balance`` is fungible: a debit spends
+      the balance, and the balance does not record which grant minted the credit it is
+      spending. An account holding one allowance credit and one comped credit that renders
+      one song produces exactly one ``DEBIT``/``ORDER_RENDER`` row, and no query over this
+      schema can say which of the two it consumed. Recovering it would take a lot-tracked
+      ledger (FIFO consumption linking each debit to the grants it draws down), which is a
+      schema decision and not a read-layer one.
+
+    What is left is real, and the third member is the one an operator actually asks for:
+
+    * :attr:`CREDITS` — a charge stands or stood against this order in the ledger. The
+      customer's own balance paid for the render.
+    * :attr:`UNENFORCED` — ``Settings.credits_enforced`` was off and the account could not
+      afford the render, so ``credits._cover_the_shortfall`` minted exactly what it cost.
+      Nobody paid; a configuration flag did. This is the "was it comped?" the audit document
+      asks for, and it is the closest thing to ``admin_grant`` that the ledger can prove,
+      because that grant is the only one keyed to a specific render.
+    * :attr:`NONE` — no ledger row references this order and no top-up was written for it.
+      An unmetered order, not a free one: the difference matters for a DRAFT that simply
+      never got as far as being charged.
+
+    Note that :attr:`CREDITS` and :attr:`NONE` carry no information
+    :class:`OrderLedgerStatus` does not already carry — with one charging reason in the enum,
+    "which rail" collapses into "was there a charge at all". The rail is a separate field
+    only because :attr:`UNENFORCED` is genuinely orthogonal to it: a dark render is charged
+    *and* comped, and the status alone would show it as an ordinary sale.
+    """
+
+    NONE = "none"
+    CREDITS = "credits"
+    UNENFORCED = "unenforced"
+
+
+@dataclass(frozen=True, slots=True)
+class OrderLedger:
+    """One order's position in ``credit_ledger``: three scalars from one statement, plus a flag.
+
+    A value object rather than four loose parameters on :func:`~hbd.db.admin.orders.
+    order_list_item`, so that adding a fifth aggregate is a field on a type the type checker
+    walks rather than a positional argument every call site has to get in the right order.
+
+    **``is_unenforced`` does not come from the same statement as the other three**, and the
+    distinction is worth keeping in this docstring rather than discovering in a query plan:
+    :attr:`net`, :attr:`refund_count` and :attr:`consume_count` are correlated subqueries on
+    the page's own SELECT, while the comp flag arrives from :func:`~hbd.db.admin.orders.
+    _unenforced_orders`, a second round trip that matches idempotency-key prefixes in Python
+    for the dialect reason that function's module docstring gives.
+
+    Every field is total: an order with no ledger rows at all is ``net=0`` with two zero
+    counts and ``is_unenforced=False``, which is what a ``COALESCE``-ed ``SUM``, two
+    ``COUNT``s and an absent key return for an empty set without anybody writing a branch.
+    """
+
+    #: ``SUM(delta)``. Zero for an unmetered order; negative while a debit stands; back to
+    #: zero once it is refunded. This is the exact expression ``credit_sql.net_position``
+    #: computes for the authorisation gate.
+    net: int
+    refund_count: int
+    consume_count: int
+    #: Whether ``credits._cover_the_shortfall`` wrote a top-up for this render. It is found
+    #: by the idempotency key rather than by ``order_id`` because that grant deliberately
+    #: carries no ``order_id`` — see :func:`hbd.db.credits.unenforced_key_prefix`.
+    is_unenforced: bool
+
+    @property
+    def credit_cost(self) -> int:
+        """Credits standing against this order right now — ``-net``, never a sum of debits.
+
+        A "sum of the DEBIT rows" is the obvious spelling and it misreports every refunded
+        order: debit ``-1`` then refund ``+1`` sums to a cost of 1 for an order the customer
+        was given their credit back for, and if that order is then re-authorised it debits
+        again at ``generation + 1`` and the naive number reads 2. ``-net`` is what the gate
+        reads, so this field and the charge decision cannot disagree.
+
+        Negative is arithmetically possible (more refunded than ever debited) and nothing in
+        the schema forbids it; there is no writer that can produce it, and clamping it to
+        zero would hide the day one appears.
+        """
+        return -self.net
+
+    @property
+    def status(self) -> OrderLedgerStatus:
+        """The three-predicate decision :class:`OrderLedgerStatus` documents. Total by shape."""
+        if self.net < 0:
+            return (
+                OrderLedgerStatus.SETTLED if self.consume_count > 0 else OrderLedgerStatus.PENDING
+            )
+        if self.refund_count > 0:
+            return OrderLedgerStatus.REFUNDED
+        return OrderLedgerStatus.UNMETERED
+
+    @property
+    def payment_rail(self) -> OrderPaymentRail:
+        """Which rail, with the dark-switch top-up winning over the ordinary charge.
+
+        A dark render writes BOTH rows — the top-up grant and then the debit it funds — so
+        precedence is the whole content of this function. Reporting ``CREDITS`` for it would
+        be true about the mechanism and false about the fact an operator is after: the
+        customer's balance did not pay, it was topped up to the exact cost first.
+        """
+        if self.is_unenforced:
+            return OrderPaymentRail.UNENFORCED
+        if self.status is OrderLedgerStatus.UNMETERED:
+            return OrderPaymentRail.NONE
+        return OrderPaymentRail.CREDITS
+
+
+@dataclass(frozen=True, slots=True)
+class OrderStateTotal:
+    """One state and how many orders in the CURRENT FILTER SET are in it.
+
+    Deliberately **zero-filled**: every member of ``OrderState`` appears, in declaration
+    order, whether or not it matched. That is the opposite contract from
+    :attr:`UserDetail.orders_by_state`, which omits states with no orders — and the two are
+    separate types rather than one shared model precisely because of it. This one draws a
+    stacked distribution bar, where a missing segment and a zero segment must render
+    identically or the bar's geometry changes as data arrives; that one answers "what has
+    this person done", where a zero-filled list of eight states would bury the two they
+    actually reached.
+    """
+
+    state: OrderState
+    count: int
+
+
 @dataclass(frozen=True, slots=True)
 class OrderListItem:
     """One row of ``/orders``.
@@ -250,6 +487,18 @@ class OrderListItem:
     genre: Genre | None
     output_language: Language | None
     asset_count: int
+    #: This order's position in ``credit_ledger``. Always present — an unmetered order gets
+    #: the all-zero ledger rather than ``None``, because "no rows" is a position and every
+    #: derived field below is defined for it.
+    ledger: OrderLedger
+    #: Rows in ``generation_attempts`` for this order. **Not renders.** No vendor-render
+    #: attempt writer exists in ``src/`` — ``GenerationAttemptRepository.record()`` has no
+    #: call site, and ``repository._replace_verdicts`` writes only ``NAME_VERIFICATION``
+    #: verdicts — so today this counts acoustic name checks and nothing else. A delivered
+    #: order can therefore report ``0`` while three songs were rendered for it.
+    #: ``hbd.admin.schemas.orders.OrderView.retry_count`` carries the same warning to the
+    #: layer that names the field on the wire.
+    attempt_count: int
 
     @property
     def is_identity_purged(self) -> bool:
@@ -337,25 +586,106 @@ class OrderDetail:
 class UserListItem:
     """One row of ``/users``, named for what the data can actually prove.
 
-    There is deliberately **no** ``last_seen_at`` here. ``users`` is written by
-    ``repository._ensure_user``, called only from ``_create_order``, so the row's clock
-    advances when an order is *created* and at no other moment — and a person who walks the
-    whole wizard without confirming has no row at all. ``last_order_at`` says exactly that,
-    and is derived from ``MAX(orders.created_at)`` so it stays true even if a future writer
-    changes what ``users.last_seen_at`` means. Phase 3's inbound middleware gives the column
-    a real writer; until then the panel's header reads "last order".
+    **There are three writers of ``users``, and none of them is an order alone.**
+    ``users_sql.ensure_user`` is called from ``repository._create_order`` (an order was
+    placed) and from ``SqlUserProfiles.record_language`` (somebody answered the very first
+    question the bot asks); ``credits.touch`` (``db/credits.py``) upserts the row on
+    every inbound update, driven by ``gate.TouchDrain`` and wired in production at
+    ``main.py``; and ``credits.set_blocked`` (``db/credits.py``) upserts it so an
+    operator can bar an account that never ordered. So ``account_created_at`` means **first
+    contact**, this list now contains people who have never bought anything, and that is a
+    feature rather than a regression — it is the whole of what onboarding bought the panel.
+    The previous version of this docstring claimed one writer and one call site; every clause
+    of it was already false in the shipped code before onboarding landed.
+
+    There is still deliberately **no** ``last_seen_at`` on this view, and the reason has
+    changed rather than gone away: the column now has a real writer (``touch``), but it is
+    written per *update*, so publishing it would let an operator watch a customer's activity
+    minute by minute from a screen whose stated purpose is records. ``last_order_at`` is
+    derived from ``MAX(orders.created_at)`` and says one bounded, purchase-shaped thing, no
+    matter what a later writer does to the column.
+
+    The profile half of this row comes from a LEFT OUTER join on ``user_profiles``. Every
+    profile field below is ``| None`` for two different reasons at once — there is no profile
+    row, or there is one with that column unset — and :attr:`is_profile_present` is the only
+    thing that separates them.
     """
 
     id: UUID
     telegram_user_id: int
     ui_language: Language
     is_blocked: bool
-    #: When the ``users`` row was inserted — i.e. when this person's FIRST order was created.
+    #: When the ``users`` row was inserted — i.e. this account's FIRST CONTACT, whichever of
+    #: the three writers got there first: ``users_sql.ensure_user`` (from ``_create_order``
+    #: or from ``record_language``), ``credits.touch``, or ``credits.set_blocked``. It is not
+    #: the first order, and reading it as one understates how long an account has existed by
+    #: everything between the language question and the first purchase.
     account_created_at: datetime
     first_order_at: datetime | None
     last_order_at: datetime | None
     order_count: int
     paid_order_count: int
+    #: Whether a ``user_profiles`` row exists for this account at all. ``False`` is TWO facts
+    #: at once and deliberately does not distinguish them: a person who has answered the
+    #: language question but not yet shared a phone, and a person whose ``/forget`` deleted
+    #: the row. PD-2/PD-3 put no purge stamp on this table — the row is deleted outright and
+    #: absence IS the erasure record — so there is nothing further to report and the panel
+    #: must not imply there is.
+    is_profile_present: bool
+    #: Telegram's ``@handle``, stored WITHOUT the ``@``. ``None`` when the account has none
+    #: (Telegram does not require one) or when no profile row exists.
+    telegram_username: str | None
+    first_name: str | None
+    last_name: str | None
+    #: E.164, e.g. ``+998901234542``. Never masked here — masking is the response boundary's
+    #: job, and this layer's whole contract is that it hands the truth to exactly one
+    #: serializer rather than to every caller that thinks it needs it.
+    phone_e164: str | None
+    #: When the customer pressed the contact button. Distinct from ``created_at``: the row is
+    #: born at the language question and the number arrives one screen later.
+    phone_shared_at: datetime | None
+    #: The content type the bot recorded for the stored avatar. Held on the row because
+    #: ``LocalFileStorage.put`` persists no content type, so without this the avatar route
+    #: would have to guess — and a guessed content type on a stored image is how an upload
+    #: becomes stored XSS.
+    avatar_mime: str | None
+    #: When the bot last stored an avatar. A presence flag and nothing more: no ``stat``
+    #: happens in this layer, for the reason ``db/admin/assets.py`` gives for refusing
+    #: ``isFilePresent`` — a green tick computed without looking at a file is a claim about
+    #: bytes nobody has seen.
+    avatar_stored_at: datetime | None
+    #: The entitlement half of the row, from a LEFT OUTER join on ``credit_accounts``.
+    #:
+    #: **``None`` means there is no ``credit_accounts`` row, and it is never a zero.** The
+    #: column itself is ``nullable=False`` with a ``balance >= 0`` check
+    #: (``models/credit_account.py``: ``balance_not_negative``), so a ``None`` arriving here
+    #: has exactly one cause
+    #: and needs no companion flag to disambiguate it — which is why there is no
+    #: ``is_credit_account_present`` beside ``is_profile_present``. That single meaning
+    #: covers two situations an operator must not see collapsed into "0 credits": an
+    #: account nobody has ever metered (``open_account`` runs on the first charge or grant,
+    #: so everyone who has not confirmed an order is in this state, and they are still owed
+    #: the rolling allowance the moment they do), and an account whose ``/forget`` deleted
+    #: the row while the anonymised ledger kept the count
+    #: (``hbd.db.credit_erasure.forget_account``). Rendering either as ``0`` would tell an
+    #: operator the customer has spent everything.
+    credit_balance: int | None
+    #: Every credit ever added, allowances included. Monotone; never decremented.
+    lifetime_credits_granted: int | None
+    #: The last rolling-allowance window this account was minted for, as a period index.
+    #: ``None`` for two reasons at once — no account row, or an account that has never been
+    #: granted an allowance — and :attr:`credit_balance` is what separates them.
+    allowance_period_index: int | None
+
+    @property
+    def has_avatar(self) -> bool:
+        """Whether a row claims stored avatar bytes. Says nothing about the bytes."""
+        return self.avatar_stored_at is not None
+
+    @property
+    def has_credit_account(self) -> bool:
+        """Whether ``credit_accounts`` holds a row for this Telegram id."""
+        return self.credit_balance is not None
 
 
 @dataclass(frozen=True, slots=True)
@@ -368,6 +698,328 @@ class UserDetail:
     orders_by_state: tuple[tuple[OrderState, int], ...]
     delivered_order_count: int
     failed_order_count: int
+    #: What the BOT would tell this customer they have right now, from
+    #: :func:`hbd.db.credit_sql.read_balance` — the stored balance plus a rolling allowance
+    #: that is due and not yet minted. Deliberately different from
+    #: :attr:`UserListItem.credit_balance`, and both are on the wire: the stored column is
+    #: what the ledger can prove, the projection is what the customer sees on the Confirm
+    #: screen, and an operator answering "they say they have three songs left and your panel
+    #: says zero" needs the two side by side rather than a single number that is right for
+    #: one of the two conversations. It is an ``int`` rather than ``int | None`` because it
+    #: is computed for every account, row or no row: no account is exactly what a brand-new
+    #: customer with a full allowance looks like.
+    credits_projected: int
+    #: Debits this account has not settled yet, inside the settlement grace. The number that
+    #: explains a refusal an operator cannot see any other way — a wedged render holds a
+    #: credit that neither the balance nor the ledger's totals show as spent.
+    in_flight_render_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class SegmentBreakdown:
+    """What one audience is made of — the numbers a human authorises a send against.
+
+    Every figure here is an **exact** count over the same statement the Users screen pages
+    (``BROADCAST_SPEC §1.7``), never a bounded one: "10,000+" is not a number anybody can
+    approve, and a preview that saturated would disagree with the page an operator checked
+    it against.
+
+    **The three refusal counts overlap, and the arithmetic must not be invented.**
+    :attr:`blocked` is our own bar and :attr:`bot_blocked` is the customer's — opposite facts
+    with opposite subjects (``db.admin.segment``'s registry says so beside both fields) — and
+    one account can be both, so ``matched`` is **not** the sum of the four. Only
+    :attr:`reachable` is defined as a complement: neither barred by us nor blocked by them,
+    which is the population a send would actually attempt.
+
+    :attr:`by_language` is the only dimension published beside the totals, and it is the only
+    personalisation a broadcast has (§6.1: the body carries no name, no placeholder and no
+    reveal), so it is the one split that changes what an operator has to write.
+    """
+
+    matched: int
+    #: Neither :attr:`blocked` nor :attr:`bot_blocked` — ``users.is_blocked IS false AND
+    #: users.blocked_bot_at IS NULL``, the registry's ``is_reachable`` said once more here so
+    #: the preview and a rule spelling it out cannot disagree.
+    reachable: int
+    #: Barred by us. Counted whether or not the customer also blocked the bot.
+    blocked: int
+    #: They blocked the bot. Counted whether or not we also barred them.
+    bot_blocked: int
+    #: Ordered by the language's own value so two previews of one audience compare equal.
+    #: Languages with nobody in them are absent, never zero-filled — the same rule
+    #: :attr:`UserDetail.orders_by_state` follows.
+    by_language: tuple[tuple[Language, int], ...]
+
+
+# ---------------------------------------------------------------------------
+# Broadcasts — the campaign, its bodies, and the ledger of who it reached
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class BroadcastProgress:
+    """How far one campaign has got, counted from ``broadcast_recipients`` itself.
+
+    **The rows are the truth and this shape is what reads them.** ``broadcasts`` carries six
+    denormalised counters that the worker's rollup writes, and :class:`BroadcastListItem`
+    publishes those — a list of campaigns must not run a ``GROUP BY`` per row. This one is
+    recomputed from the recipient rows for the detail screen, so an operator watching a send
+    is looking at the ledger rather than at a summary a crashed rollup may not have caught
+    up with. Two numbers that disagree are the drift worth seeing, which is the same argument
+    ``credit_accounts.balance`` beside ``SUM(credit_ledger.delta)`` is kept for.
+
+    One field per :class:`~hbd.contracts.BroadcastRecipientState`, always, zero-filled — a
+    campaign whose expansion has not started reports seven zeros rather than an empty
+    mapping, so a progress bar's segments do not appear from nowhere as the first row lands.
+    ``UNKNOWN`` gets its own number for the reason that member's own docstring gives: folding
+    a possibly-delivered message into ``failed`` misreports it in the one direction that
+    matters.
+    """
+
+    pending: int
+    sending: int
+    sent: int
+    failed: int
+    #: Barred by us or blocked by them — one number, because neither is a delivery attempt.
+    skipped_blocked: int
+    undeliverable: int
+    #: Left in ``SENDING`` by a killed job and aged out. Neither sent nor failed, ever.
+    unknown: int
+
+    @property
+    def total(self) -> int:
+        """Every recipient row of this campaign — the audience as materialised."""
+        return (
+            self.pending
+            + self.sending
+            + self.sent
+            + self.failed
+            + self.skipped_blocked
+            + self.undeliverable
+            + self.unknown
+        )
+
+    @property
+    def settled(self) -> int:
+        """Rows that have stopped moving. The complement of ``pending + sending``."""
+        return self.total - self.pending - self.sending
+
+
+@dataclass(frozen=True, slots=True)
+class BroadcastListItem:
+    """One row of the campaign list — **one per campaign, never one per recipient**.
+
+    :attr:`audience_size` and :attr:`recipient_count` are two numbers on purpose and the gap
+    between them is the whole point: the first is what the segment counted when the campaign
+    was created, the second is how many recipient rows the expansion actually wrote. They are
+    equal on every healthy campaign, and a half-expanded one is visible as arithmetic on the
+    row rather than as a support ticket.
+
+    The six counters are the ``broadcasts`` row's own, written by the worker's rollup.
+    :class:`BroadcastProgress` recounts them from the recipient rows for the detail screen;
+    on a list they would be a ``GROUP BY`` per row over the largest table in the schema.
+
+    ``broadcasts.segment`` is deliberately NOT here. The stored document is what
+    :class:`BroadcastDetail` carries, because a list of campaigns needs to say *which*
+    audience each one used (:attr:`segment_hash`) rather than restate the whole filter tree
+    fifty times. ``broadcasts.expand_cursor`` is not here either, at any depth: it is the
+    worker's resumption token — a keyset position inside the audience — and the pair above
+    already tells an operator everything the token could about an incomplete expansion.
+    """
+
+    id: UUID
+    title: str
+    kind: BroadcastKind
+    state: BroadcastState
+    #: The digest of the segment document this campaign was composed against. Enough to say
+    #: "this is the audience you are looking at" without comparing two JSON blobs.
+    segment_hash: str
+    #: The exact count the segment returned at creation. Never bounded — see
+    #: ``db.admin.users.count_segment_exactly``.
+    audience_size: int
+    #: The ``now`` the segment was compiled against. THE AUDIENCE IS FROZEN AT THIS INSTANT.
+    audience_evaluated_at: datetime
+    #: Rows the expansion actually materialised. Below :attr:`audience_size` while it runs.
+    recipient_count: int
+    sent_count: int
+    failed_count: int
+    skipped_count: int
+    undeliverable_count: int
+    unknown_count: int
+    scheduled_for: datetime | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    #: Who composed it and who scheduled it, denormalised onto the row so a list renders
+    #: without a join and a later rename cannot rewrite who sent forty thousand messages.
+    #: ``None`` for a campaign whose actor was not recorded, never for a missing operator.
+    created_by_admin_id: UUID | None
+    created_by_username: str | None
+    scheduled_by_admin_id: UUID | None
+    scheduled_by_username: str | None
+    #: The closed-vocabulary half of the reason. The operator's free text lives on
+    #: ``admin_audit_log``, which owns its 90-day clock, and is never copied here.
+    reason_code: AuditReasonCode | None
+    reason_ref: str | None
+    #: Why the RUN failed, as a symbolic token. Never a per-recipient outcome: a campaign in
+    #: which twelve messages were refused is ``COMPLETED`` with twelve failed rows.
+    error_code: str | None
+    #: How many language bodies are composed for it. A correlated ``COUNT``, so it stays
+    #: exact without a join that would multiply the page's rows.
+    body_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class BroadcastBodyView:
+    """One language's message: the text, the optional image and the optional button.
+
+    **Operator-authored copy, so it crosses whole.** Nothing here is a customer's words: the
+    body carries no name, no placeholder and no reveal (``BROADCAST_SPEC §6.1``), which is
+    what lets this view publish the text itself where :class:`BriefView` publishes a length.
+
+    ``media_file_id`` is published as a boolean and never as its value: it is the worker's
+    cache of what Telegram called our upload after the first send, it is meaningless to any
+    other bot token, and :attr:`media_storage_key` is the one an operator can actually fetch
+    the image back from. :class:`AssetView` publishes ``tg_file_id`` the same way.
+    """
+
+    id: UUID
+    broadcast_id: UUID
+    language: Language
+    text: str
+    #: Our object store's key for the operator's upload, or ``None`` for a text-only body.
+    #: A body WITH media is capped at ``BROADCAST_CAPTION_LENGTH`` by a database CHECK.
+    media_storage_key: str | None
+    has_media_file_id: bool
+    #: Both or neither, enforced by ``ck_broadcast_bodies_button_pair``.
+    button_label: str | None
+    button_url: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class BroadcastDetail:
+    """One campaign, its composed bodies and the progress its recipient rows report.
+
+    :attr:`segment` is the stored document verbatim — the answer to "who was this sent to?"
+    a year later, after the fields have been re-labelled and the operator who built it has
+    left. It is NOT re-evaluated: a recompiled segment answers "who would match now", which
+    on a campaign that has already gone out is a different and misleading question.
+    """
+
+    broadcast: BroadcastListItem
+    #: Ordered by language so two reads of one campaign compare equal.
+    bodies: tuple[BroadcastBodyView, ...]
+    #: The segment document as stored. Opaque here; ``hbd.admin.schemas`` owns its wire shape.
+    segment: dict[str, Any]
+    #: Counted from ``broadcast_recipients``, not from the campaign row's counters.
+    progress: BroadcastProgress
+
+
+@dataclass(frozen=True, slots=True)
+class BroadcastRecipientItem:
+    """One account's place in one campaign — a row of the recipient ledger.
+
+    **This is the only shape in the broadcast reads that names a person**, and it names them
+    exactly as ``/users`` already does: a Telegram id and nothing else. No handle, no first
+    name, no phone — the account holder's id is what ``db.admin.audience_lists`` argues may
+    be shown to this panel's sole operator under an audit row, and this view widens that by
+    nothing. The message is not repeated per row either; it is on
+    :class:`BroadcastBodyView`, once per language.
+
+    :attr:`telegram_user_id` is ``None`` for exactly one reason — ``/forget`` ran and
+    anonymised the row. The row itself SURVIVES, because a delivery record that vanished when
+    somebody exercised a right leaves "was this person sent that campaign?" unanswerable for
+    every other row in the campaign too.
+    """
+
+    id: UUID
+    broadcast_id: UUID
+    telegram_user_id: int | None
+    #: The account's language AT EXPANSION, snapshotted rather than joined — the body this
+    #: row was or will be sent is chosen from this column and not from the account's today.
+    language: Language
+    state: BroadcastRecipientState
+    attempts: int
+    #: A symbolic token, never an excerpt of a Telegram response.
+    error_code: str | None
+    #: When this row stopped moving, whatever stopped it. ``None`` while it is pending or
+    #: in flight; the SEND instant is this column narrowed by ``state == SENT``.
+    settled_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    @property
+    def is_erased(self) -> bool:
+        """``/forget`` anonymised this row. The delivery record is kept; the id is gone."""
+        return self.telegram_user_id is None
+
+
+# ---------------------------------------------------------------------------
+# Entitlements — the account, and the append-only movements that explain it
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class CreditAccountState:
+    """One ``credit_accounts`` row, as ``GET /users/{id}/credits`` reports it.
+
+    Separate from :class:`UserListItem`'s three credit columns rather than shared with them,
+    because the two answer different questions: the list row exists for every user and
+    carries ``None`` where there is no account, while this type exists only when the row
+    does — the endpoint's ``account`` is ``None`` for an account that was never opened, and
+    that absence is the answer rather than a missing field.
+
+    ``balance`` is a second representation of ``SUM(credit_ledger.delta)`` and both are on
+    the same response on purpose (``models/credit_account.py``'s module docstring argues why
+    the duplication is bought). An operator who sees them disagree has found the drift
+    ``credit_sql.verify_balances`` exists to detect, and the ledger page beside this object
+    is what lets them prove it without a database session.
+    """
+
+    telegram_user_id: int
+    balance: int
+    lifetime_granted: int
+    allowance_period_index: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class CreditLedgerItem:
+    """One movement of one account's credits — a row of ``GET /users/{id}/credits``.
+
+    **Every field here is machine-written and none of it is personal data.** The table holds
+    a Telegram id, two closed enums, three integers, a key this system built and a
+    subsystem name (``models/credit_ledger.py``'s docstring makes the same statement, which
+    is why the table is absent from ``tables_with_personal_data``). So there is nothing on
+    this view to mask and nothing that could be revealed — which is what lets the endpoint
+    sit on ``RECORDS_READ`` beside the row it explains rather than behind a reveal.
+
+    :attr:`idempotency_key` is published deliberately. It is the operator's only evidence
+    for "was this comped twice or once?" — the unique index on it is what makes a duplicate
+    impossible rather than unlikely — and the one shape that embeds an identifier,
+    ``grant:period:{telegram_user_id}:{index}``, embeds the value the caller already put in
+    the path and that every ``/users`` row already carries unmasked.
+    """
+
+    id: UUID
+    kind: CreditEntryKind
+    reason: CreditReason
+    #: Signed, and constrained to agree with :attr:`kind`: positive for a GRANT or REFUND,
+    #: negative for a DEBIT, exactly zero for a CONSUME (which settles a debit without
+    #: moving anything).
+    delta: int
+    #: The order this movement belongs to, where there is one. A period allowance and an
+    #: operator grant have none, and there is no foreign key — a ledger row must outlive the
+    #: order it refers to.
+    order_id: UUID | None
+    #: Which charge attempt for that order. Bumped by a refund, which is what makes a
+    #: refunded order chargeable again.
+    generation: int
+    idempotency_key: str
+    #: ``bot`` | ``pipeline`` | ``sweep`` | ``admin:{username}``, or ``None`` for a row whose
+    #: writer was not recorded. Diagnostic attribution and not an authorisation record: the
+    #: authoritative "who did this" is the audit log's row, which is why a truncated
+    #: 32-character username here is harmless.
+    actor: str | None
+    created_at: datetime
 
 
 # ---------------------------------------------------------------------------
@@ -541,6 +1193,130 @@ class NameAnalytics:
         return self.verified / self.attempts
 
 
+# ---------------------------------------------------------------------------
+# Vendor spend — the one surface where every quantity is nullable on purpose
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class VendorUsageRollup:
+    """One ``(vendor, operation, model_id)`` group of ``vendor_usage`` over a window.
+
+    **Every quantity below is ``None`` when nobody in the group measured that unit**, and
+    that is not defensive coding — it is what ``SUM()`` over a nullable column already
+    answers. ``vendor_usage`` declares no default on any quantity column precisely so this
+    stays free: a chat completion has no ``billed_characters``, a speech synthesis has no
+    tokens, and a group of either comes back ``None`` for the other rather than ``0``. A
+    zero here would say the vendor charged us for nothing; ``None`` says nobody counted.
+
+    ``cost_usd`` sums **only the rows that carry one**, so ``costed_calls`` travels beside
+    it: an operator reading "$4.10 over 900 calls" when nine of them were priced would be
+    reading a partial total as a complete one. Same rule as ``sampleCount`` beside a
+    percentile — the number that says how much evidence there is travels with the number
+    derived from it.
+
+    ``cost_source`` stays enum-typed here and ``is_cost_mixed`` carries the second fact
+    separately. Only the wire collapses the two into the string ``"mixed"``: a domain model
+    whose provenance field can hold a value no ``CostSource`` member has is one every later
+    reader has to special-case.
+    """
+
+    vendor: Vendor
+    operation: VendorOperation
+    #: The vendor's own model id. ``None`` groups every call made before a model was named.
+    model_id: str | None
+    calls: int
+    successes: int
+    failures: int
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    total_tokens: int | None
+    billed_characters: int | None
+    audio_ms: int | None
+    #: Summed over the priced rows alone. ``None`` when no call in the group was priced.
+    cost_usd: float | None
+    #: ``None`` when nothing in the group carries a cost; otherwise the one source every
+    #: priced row agreed on, with :attr:`is_cost_mixed` saying whether they agreed at all.
+    cost_source: CostSource | None
+    #: True when the priced rows in this group do not share one provenance.
+    is_cost_mixed: bool
+    #: How many of ``calls`` carried a cost. Never inferred from ``cost_usd`` being set.
+    costed_calls: int
+    avg_latency_ms: int | None
+    max_latency_ms: int | None
+
+    @property
+    def success_rate(self) -> float | None:
+        """``None`` when the group is empty: no denominator, no rate — never ``0.0``."""
+        if self.calls <= 0:
+            return None
+        return self.successes / self.calls
+
+
+@dataclass(frozen=True, slots=True)
+class VendorUsageTotals:
+    """Every vendor call in the window, collapsed to one row — the hero figure's source.
+
+    A strict aggregate of the same population :class:`VendorUsageRollup` groups, computed by
+    the database in its own query rather than folded from the groups: summing a tuple of
+    already-``None`` quantities in Python is how "nobody measured" turns into ``0`` on the
+    one tile an operator reads first.
+    """
+
+    calls: int
+    successes: int
+    failures: int
+    cost_usd: float | None
+    costed_calls: int
+    #: How the priced calls in the window arrived at their figure, and whether they agreed.
+    #: The hero spend tile was the ONE cost number on the screen that could not say — the
+    #: per-group rollup has carried provenance from the start — so a total that is mostly
+    #: arithmetic against a placeholder rate looked exactly like one a vendor reported.
+    cost_source: CostSource | None
+    is_cost_mixed: bool
+    total_tokens: int | None
+    billed_characters: int | None
+    audio_ms: int | None
+    avg_latency_ms: int | None
+
+    @property
+    def success_rate(self) -> float | None:
+        """``None`` over an empty window. An empty window has no success rate."""
+        if self.calls <= 0:
+            return None
+        return self.successes / self.calls
+
+
+@dataclass(frozen=True, slots=True)
+class VendorUsagePerDay:
+    """One vendor's spend on one UTC day. A day with no calls is ABSENT from the series.
+
+    Absent rather than zero-filled, for the reason :class:`OrdersPerDay` states: a zero bar
+    on a day this deployment made no calls is a measurement nobody took, and here it would
+    be a measurement about money.
+    """
+
+    day: date
+    vendor: Vendor
+    calls: int
+    cost_usd: float | None
+    costed_calls: int
+
+
+@dataclass(frozen=True, slots=True)
+class VendorErrorCount:
+    """One error code's share of ONE vendor's failures in the window.
+
+    Per vendor rather than global, because the question the panel asks is "what is going
+    wrong with this vendor" and a share computed against every vendor's failures answers a
+    different one. ``share`` is therefore over that vendor's failures alone.
+    """
+
+    vendor: Vendor
+    #: ``None`` groups every failure whose writer recorded no code.
+    error_code: str | None
+    count: int
+    share: float
+
+
 @dataclass(frozen=True, slots=True)
 class ReadCapabilities:
     """What this deployment's data can honestly answer, for ``/ops/capabilities``.
@@ -562,3 +1338,867 @@ class ReadCapabilities:
     is_payment_ledger: bool
     #: Always false until an order-event table exists; the timeline says "inferred".
     is_state_transition_log: bool
+    #: Any ``vendor_usage`` row at all. A ROW probe, not a ``has_table`` one: a deployment
+    #: whose migration landed but whose worker has never written is honestly not
+    #: instrumented, and the panel says so rather than drawing an empty chart.
+    is_vendor_usage: bool
+    #: Any ``vendor_usage`` row carrying a cost. Separate from the flag above because the
+    #: two absences have different remedies: nothing recorded means instrument the worker,
+    #: recorded-but-unpriced means configure a rate. One flag could not tell them apart.
+    is_vendor_cost: bool
+    #: Any ``plan_purchases`` row. A ROW probe for the same reason the two above are: the
+    #: migration ships with the panel, so ``has_table`` would report every deployment as
+    #: revenue-instrumented on the day it lands.
+    is_plan_revenue: bool
+    #: Any ``topup_purchases`` row. Two flags rather than one because the absences have
+    #: different remedies — no plan has ever been sold here, against no top-up AMOUNT has
+    #: ever been recorded here, which is true of every deployment's whole history up to the
+    #: revision that created the table. The second is the state the SPA must render as "sold
+    #: before amounts were recorded" rather than as an empty chart.
+    is_topup_revenue: bool
+    #: Any ``bot_membership_events`` row. False means the handler has not seen a block yet,
+    #: so a churn count of zero is "nothing observed" and not "nobody left".
+    is_churn_instrumented: bool
+    #: Any ``vendor_balances`` row. False means the poller has never run in this deployment,
+    #: which is a different screen from "the poller ran and the vendor refused".
+    is_vendor_balance: bool
+    #: Any ``user_activity_snapshots`` row. The historical DAU series exists only from the
+    #: first night the snapshot job ran; before that there is no history to draw.
+    is_activity_history: bool
+
+
+# ---------------------------------------------------------------------------
+# The dashboard's aggregate shapes
+#
+# Every quantity that CAN be unmeasured is ``| None`` with no default, at this layer as
+# well as at the column. A dataclass default of ``0`` undoes at the boundary exactly what
+# the schema's null-never-zero rule bought: ``generation_attempts.cost_usd DEFAULT 0.0`` is
+# the cautionary tale, and ``_as_int``/``_as_float`` in ``vendor_usage.py`` exist to keep a
+# ``SUM`` over an empty group from arriving here as anything but ``None``.
+#
+# No shape below holds a rate. Not one. A quotient's two operands travel together and the
+# division happens in ``hbd.admin.schemas.overview``, where the wire type REFUSES to be
+# constructed without its denominator. A dataclass property returning a float would have to
+# answer something for a zero denominator, and every answer to that is a lie an operator
+# would act on.
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class Trend:
+    """A count over a window and the same count over the window immediately before it.
+
+    ``previous`` is ``None`` — never ``0`` — whenever the request supplied no lower bound,
+    because an open-below range has no length and therefore no predecessor. Zero would
+    claim the preceding period was measured and empty, which is the reading that turns
+    "we do not know" into "growth from nothing".
+    """
+
+    current: int
+    previous: int | None
+
+    @property
+    def change_ratio(self) -> float | None:
+        """``(current - previous) / previous``, or ``None`` when that is undefined.
+
+        ``None`` for an unmeasured previous window AND for a previous window of zero.
+        Growth from nothing is not "+100%": the quotient has no denominator, and a panel
+        that printed one would be inventing the only number on the card an operator reads.
+        """
+        if self.previous is None or self.previous == 0:
+            return None
+        return (self.current - self.previous) / self.previous
+
+
+@dataclass(frozen=True, slots=True)
+class BucketPoint:
+    """One bucket of a time series: the database's own key, and that key parsed.
+
+    ``bucket`` is the raw ``YYYY-MM-DD`` or ``YYYY-MM-DDTHH`` text
+    :class:`~hbd.db.admin.sql.UtcDay`/:class:`~hbd.db.admin.sql.UtcHour` produced, kept so
+    the wire carries the same string the grouping used. ``started_at`` is that key as an
+    aware instant, parsed once here so neither the serializer nor the week/month fold has to
+    re-parse it — and so the fold has a real ``datetime`` to group on rather than a prefix
+    of a string.
+    """
+
+    bucket: str
+    started_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class DeliveredPerBucket:
+    """Songs that SHIPPED in one bucket. Buckets with no delivery are absent."""
+
+    bucket: str
+    started_at: datetime
+    delivered: int
+
+
+@dataclass(frozen=True, slots=True)
+class NewAccountsPerBucket:
+    """Accounts first seen in one bucket. Buckets with no sign-up are absent."""
+
+    bucket: str
+    started_at: datetime
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class AccountTotals:
+    """Every account this deployment has, and the two ways one stops being reachable.
+
+    ``blocked`` is the operator's own bar (``users.is_blocked``); ``bot_blocked`` is the
+    CUSTOMER's, recorded from ``my_chat_member`` and from a delivery refusal
+    (``users.blocked_bot_at``). They are two columns and two numbers because they are two
+    different facts with two different remedies, and summing them would double-count an
+    account that is both.
+    """
+
+    total: int
+    blocked: int
+    bot_blocked: int
+    total_trend: Trend
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveAccounts:
+    """DAU / WAU / MAU as of one instant, nested: every ``day`` is also in ``month``.
+
+    ``as_of`` travels with them because all three are cutoffs measured backwards from it;
+    without it the three numbers are counts against a clock the reader cannot see.
+    """
+
+    day: int
+    week: int
+    month: int
+    as_of: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class ChurnCounts:
+    """Customers who blocked the bot in a window, and those who came back.
+
+    Counted from ``bot_membership_events``, which records PASSAGES, so a customer who left
+    and returned inside one window appears in both numbers. That is deliberate: the gauge of
+    who is blocked right now is ``AccountTotals.bot_blocked``, and this pair is the flow.
+    """
+
+    blocked: Trend
+    unblocked: Trend
+
+
+@dataclass(frozen=True, slots=True)
+class OrderFunnel:
+    """Survivors at each state for one created-at cohort. Never passages.
+
+    ``capabilities.is_state_transition_log`` is false and there is no order-event table, so
+    an order that passed through ``AUTHORIZED`` and then failed retains no record of the
+    passage. Every number here is therefore where orders ARE now, not where they went.
+
+    There is deliberately no ``abandoned`` count: drafts are DELETED outright at the
+    abandoned-draft cutoff, so any such number would decay towards zero as the window
+    lengthens and read as "nobody abandons any more". The ``DRAFT`` survivor count is
+    published instead and the caption belongs to the SPA.
+    """
+
+    created: int
+    paid: int
+    by_state: tuple[OrderStateTotal, ...]
+
+
+class RevenueSource(StrEnum):
+    """Which receipts table a revenue row came from.
+
+    Two tables and not one because a plan and a top-up are different products sold under
+    different terms; they share a column vocabulary so a revenue read is a clean union, and
+    this member is what keeps the union from collapsing into an unattributable total.
+    """
+
+    PLAN = "plan"
+    TOPUP = "topup"
+
+
+@dataclass(frozen=True, slots=True)
+class RevenueBucket:
+    """Sales recorded in one UTC bucket, at the finest grain the receipts carry.
+
+    ``product`` is a ``str`` and not an enum on purpose: the two sources carry members of
+    two different enums (``PlanKind``, ``TopupKind``) into one series, and a union type on
+    the wire would force every consumer to know which enum a given row's value came from.
+    Rendered raw, never humanised, exactly as ``VendorUsageRollup.model_id`` is.
+
+    ``currency`` and ``provider`` are part of the key and are NEVER collapsed. Summing
+    across currencies produces a figure in an invented unit; collapsing providers lets a
+    stub-rail sale — ``StubCheckoutProvider`` reports every charge paid having contacted
+    nobody — be read as settled money.
+    """
+
+    bucket: str
+    started_at: datetime
+    source: RevenueSource
+    product: str
+    currency: str
+    provider: str
+    sales: int
+    amount_minor: int
+
+
+@dataclass(frozen=True, slots=True)
+class RevenueTotal:
+    """:class:`RevenueBucket` without the bucket — one window, one row per key."""
+
+    source: RevenueSource
+    product: str
+    currency: str
+    provider: str
+    sales: int
+    amount_minor: int
+
+
+@dataclass(frozen=True, slots=True)
+class CurrencyAmount:
+    """A money total that carries its unit. There is no scalar money anywhere on this surface."""
+
+    currency: str
+    amount_minor: int
+
+
+@dataclass(frozen=True, slots=True)
+class PlanLiability:
+    """What the plans still running owe, measured in SONGS and never valued in soʻm.
+
+    Valuing an unconsumed song means dividing ``amount_minor`` by ``songs_included``, which
+    is an accounting ALLOCATION policy nobody in this codebase has chosen. So this shape
+    publishes measured song counts and the measured ``SUM(amount_minor)`` of plans still
+    running, and refuses the pro-rata figure: a number that looks measured and is really a
+    policy is worse than no number.
+
+    ``live_holders`` is ``COUNT(DISTINCT telegram_user_id)`` and therefore does NOT count
+    the erased — ``/forget`` nulls the column and ``COUNT(DISTINCT)`` skips NULLs — so it
+    understates by exactly the number of customers who exercised a right.
+    ``live_anonymised_plans`` is what makes that visible, and is the reason the holder count
+    is not returned alone. ``live_plans`` can also exceed ``live_holders`` before any
+    erasure: a renewal bought before the previous plan lapsed leaves two current rows, and
+    liability is carried by rows.
+
+    The three song totals are ``int | None`` rather than ``int`` because they come from
+    ``SUM(CASE … ELSE NULL)`` over a partition that may be empty. ``None`` means "no plan is
+    in this partition" and ``0`` means "plans are, and they owe nothing" — two different
+    screens, which is the null-never-zero rule applied to an aggregate.
+    """
+
+    as_of: datetime
+    live_plans: int
+    live_holders: int
+    live_anonymised_plans: int
+    live_plans_with_songs_left: int
+    unconsumed_songs: int | None
+    live_amounts: tuple[CurrencyAmount, ...]
+    ended_plans: int
+    breakage_songs: int | None
+    expiring_within_days: int
+    expiring_plans: int
+    expiring_songs_left: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class PlanUtilisationBucket:
+    """One tenth of the songs-used-over-songs-included distribution, for ENDED plans.
+
+    A ``count`` of ``0`` is an empty BIN and not an absent measurement, so all ten are
+    always returned: a histogram with holes in it is unreadable. Whether the distribution is
+    worth drawing at all is answered by ``PlanLiability.ended_plans`` beside it — breakage
+    is not measurable before the clock stops, and a running plan's ratio is not final.
+    """
+
+    lower: float
+    upper: float
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class UnpricedTopups:
+    """The population sold before amounts were recorded, counted and never priced.
+
+    ``_fulfil_single`` used to write only a ``credit_ledger`` GRANT under
+    ``reason=TOPUP_PURCHASE`` — no amount, no currency, no provider — so that money is gone
+    and cannot be recovered. Back-pricing it at ``single_song_price_minor`` would price
+    history at a value read at QUERY time, moving every historical figure the next time the
+    price moves. So the count travels beside the money on the wire, exactly as
+    ``costed_calls`` travels beside ``cost_usd`` and for the same reason.
+    """
+
+    unpriced: int
+    priced: int
+
+
+@dataclass(frozen=True, slots=True)
+class VendorSpendPerBucket:
+    """One vendor's calls and priced spend in one bucket."""
+
+    bucket: str
+    started_at: datetime
+    vendor: Vendor
+    calls: int
+    cost_usd: float | None
+    costed_calls: int
+
+
+@dataclass(frozen=True, slots=True)
+class VendorSpendSplit:
+    """Where the money went: one ``(vendor, operation)`` slice of the window.
+
+    Ordered by ``calls`` and never by ``cost_usd`` — a nullable sort key puts NULLs first on
+    Postgres and last on SQLite, so a cost ordering returns one row order in production and
+    another in the suite meant to be checking it.
+    """
+
+    vendor: Vendor
+    operation: VendorOperation
+    calls: int
+    cost_usd: float | None
+    costed_calls: int
+    cost_source: CostSource | None
+    is_cost_mixed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CostPerDeliveredSong:
+    """The numerator and both denominators of the unit-economics figure. Never the quotient.
+
+    The cost can be ``None`` while ``delivered_orders`` is positive — calls recorded, no
+    rate configured — so a ratio computed here would have to invent something for that case.
+    The division happens in the wire layer, in a type that cannot be constructed without
+    both operands.
+
+    ``attributed_orders`` is how many delivered orders had ANY vendor call attributed to
+    them, and it is not ``delivered_orders``: an order rendered before the usage ledger
+    existed carries no calls at all, and the gap between the two numbers is what says the
+    cost covers part of the cohort.
+    """
+
+    cost_usd: float | None
+    costed_calls: int
+    calls: int
+    attributed_orders: int
+    delivered_orders: int
+    cost_source: CostSource | None
+    is_cost_mixed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class UnattributedSpendPerBucket:
+    """Spend on real work that reached no order — the leak the cost-per-song ratio misses."""
+
+    bucket: str
+    started_at: datetime
+    cost_usd: float | None
+    costed_calls: int
+    calls: int
+
+
+@dataclass(frozen=True, slots=True)
+class OperationLatency:
+    """Nearest-rank p50/p95 of ``latency_ms`` for ONE vendor operation.
+
+    Three counts and not one: ``calls`` is every call in the window, ``measured_calls`` is
+    how many recorded a latency at all, and ``sample_count`` is what the percentiles were
+    taken over. They can differ, and a percentile whose sample size is invisible is a
+    measurement of the system rather than of three calls.
+    """
+
+    operation: VendorOperation
+    calls: int
+    measured_calls: int
+    sample_count: int
+    p50_ms: int | None
+    p95_ms: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class FakeCallGuard:
+    """How many of the window's vendor calls came from a fake-provider run.
+
+    The one reader in this package that opts INTO ``is_fake`` rows. Every other number on
+    the finance surface excludes them structurally, and this pair is what tells the operator
+    that exclusion happened rather than leaving a demo run silently invisible.
+    """
+
+    fake_calls: int
+    total_calls: int
+
+
+@dataclass(frozen=True, slots=True)
+class VendorBalanceState:
+    """One row of the cached ``vendor_balances`` table, read and never fetched.
+
+    **The admin process makes no outbound call and holds no vendor key.** The poller lives
+    in the ARQ worker and writes here; this layer reads what it wrote. That boundary is the
+    reason this shape carries ``checked_at`` and ``fetched_at`` as two separate clocks: the
+    first is when we last ASKED, the second is when the numbers below it were last actually
+    ANSWERED, and after an outage they diverge while the balance stays at its last known
+    value. A single "as of" would make a stale figure look fresh.
+    """
+
+    vendor: Vendor
+    is_fallback: bool
+    provider: str
+    balance_unit: BalanceUnit
+    balance_remaining: float | None
+    balance_total: float | None
+    balance_used: float | None
+    is_unbounded: bool | None
+    quota_resets_at: datetime | None
+    quota_reset_hint: str | None
+    plan_tier: str | None
+    subscription_status: str | None
+    songs_remaining: int | None
+    per_song_rate: float | None
+    estimate_basis: BalanceEstimateBasis | None
+    fetched_at: datetime | None
+    checked_at: datetime
+    is_last_poll_ok: bool
+    http_status: int | None
+    error_code: str | None
+    consecutive_failures: int
+
+
+# ---------------------------------------------------------------------------
+# The second dashboard cut: renewal, audience, unit economics, provenance
+#
+# Same rules as the block above, and two additions the shapes here are the first to need.
+#
+# **A derived quotient is a ``@property`` returning ``float | None``, never a constructor
+# argument.** ``Trend.change_ratio`` established the form and every quotient below follows
+# it: the operands are the measurement, the ratio is arithmetic over them, and a ratio
+# passed IN could disagree with the numbers printed beside it — a per-song cost computed
+# against one denominator in SQL and rendered next to another on the card is the exact
+# failure. ``None`` and not ``0.0`` whenever the denominator is zero or the numerator
+# unmeasured, which is the same refusal ``change_ratio`` makes and for the same reason.
+#
+# **Two shapes here carry identity on purpose.** :class:`TopGenerator` and
+# :class:`RecentSubscriber` hold ``telegram_user_id`` and the profile's handle and first
+# name, which no other view in this package does. They are served on ``RECORDS_READ`` and
+# audited, they are NOT part of the ``DASHBOARD_READ`` surface, and the reveal / step-up
+# machinery they sit beside is untouched and still load-bearing for the screens that use
+# it. The recipient's name is a different subject entirely and stays out: nothing below
+# reads ``briefs.recipient_name_display`` or ``name_records.grapheme``.
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class SubscriptionChurn:
+    """Renewal over the starter plan: of the plans that ENDED, how many were bought again.
+
+    The starter plan (twelve songs, thirty days, :attr:`~hbd.db.enums.PlanKind.STARTER`) is
+    the only subscription-shaped product this deployment sells, so it is the only thing
+    "churn" can mean on the revenue side. ``ChurnCounts`` is the other churn on this
+    surface and measures something else entirely — passages through
+    ``bot_membership_events``, i.e. customers leaving the BOT — and the two must never be
+    read as one number.
+
+    **A RUNNING plan is not in the denominator.** Its outcome is not final: the holder has
+    not declined to renew, they simply have not reached the decision yet, and counting them
+    would put every new customer in the lapsed column for thirty days. This is the same
+    argument :func:`~hbd.db.admin.plan_purchases.plan_utilisation` makes for restricting the
+    utilisation histogram to ended plans, and it has the same consequence — the figure is
+    late by up to the plan length and is honest rather than early.
+
+    **A renewal is INFERRED, because there is no renewal event.** Nothing in the schema
+    records "this purchase replaced that one": ``plan_purchases`` rows are independent
+    receipts, and :func:`hbd.db.fulfilment.write_plan_sale` refuses to write a second row
+    while a plan is current — it hands back the running row instead — so a renewal can only
+    ever appear as a LATER row for the same ``telegram_user_id``. That inference is what
+    this shape publishes, and it is why the two counts are named ``renewed`` / ``lapsed``
+    rather than anything that implies a link the data does not hold.
+
+    ``anonymised_ended`` is the honesty column. ``/forget`` nulls ``telegram_user_id`` on
+    the receipt (``hbd.db.credit_erasure.forget_account`` — the row survives, the identity
+    does not), and a plan with no identity cannot be followed to a later purchase by
+    anybody, including this read. Those rows are IN ``ended_plans`` because they really did
+    end, and they can never be in ``renewed`` — nor in ``lapsed``, which counts only the
+    identified endings, so the three arms partition the denominator exactly. Publishing the
+    count beside the pair is what keeps an exercised right from reading as a wave of lapses,
+    exactly as ``PlanLiability.live_anonymised_plans`` does for the liability count.
+    """
+
+    #: Plans whose ``plan_ends_at`` fell inside the window. The denominator, and the only
+    #: population whose renewal decision has actually been made.
+    ended_plans: int
+    #: Ended plans whose holder has a LATER ``plan_purchases`` row. Never includes an
+    #: anonymised row, which has no holder to follow.
+    renewed: int
+    #: Ended plans with an IDENTIFIED holder and no later row. **The anonymised endings are
+    #: NOT in here** — they are their own arm below, so the three counts partition the
+    #: denominator exactly: ``renewed + lapsed + anonymised_ended == ended_plans``, on every
+    #: window, asserted by ``tests/test_db/test_plan_churn.py``. Folding them in would state
+    #: that an erased customer did not come back, when the truth is that nobody can tell.
+    #: The consequence is that :attr:`rate` is a FLOOR on real churn rather than a ceiling,
+    #: understated by at most :attr:`anonymised_ended` endings.
+    lapsed: int
+    #: How many of :attr:`ended_plans` carry ``telegram_user_id IS NULL``. The exact width of
+    #: the blind spot ABOVE :attr:`lapsed` — published beside it rather than folded into it,
+    #: and never a correction applied to it.
+    anonymised_ended: int
+
+    @property
+    def rate(self) -> float | None:
+        """``lapsed / ended_plans``, or ``None`` when no plan ended in the window.
+
+        ``None`` and never ``0.0``: a window in which nothing ended has no churn rate, and
+        "0% churn" is the single most flattering lie this panel could tell — it reads as
+        perfect retention on precisely the deployments too young to have measured any.
+
+        A FLOOR, not a ceiling. The numerator excludes the anonymised endings (see
+        :attr:`lapsed`), so the real lapse rate is this figure plus at most
+        ``anonymised_ended / ended_plans``. Render the counts beside it.
+        """
+        if self.ended_plans <= 0:
+            return None
+        return self.lapsed / self.ended_plans
+
+
+@dataclass(frozen=True, slots=True)
+class LanguageMix:
+    """How many accounts read the BOT in one language. One entry per ``users.ui_language``.
+
+    **This is the interface language and NOT the song's.** ``users.ui_language`` is what the
+    customer reads the bot in; ``briefs.output_language`` is what the song is SUNG in, and
+    :class:`hbd.contracts.Language`'s own docstring states the two are chosen independently
+    — a customer can drive the bot in Russian and order a song in Uzbek Latin, and many do.
+    Labelling this chart "song language" would therefore not be a loose caption but a
+    different measurement.
+
+    ``ui_language`` is ``NOT NULL DEFAULT uz_latn`` (``models/user.py``), so every account
+    lands in exactly one entry and no bucket is missing — but the default is also why the
+    UZ_LATN entry is an over-count of *choice*: ``ensure_user`` refreshes the column only
+    when the writer actually knows the answer (``is_language_authoritative``), so an account
+    created by an order alone sits at the default without anybody having picked it. The
+    number is a true count of what the bot WILL SPEAK, and not a survey result.
+    """
+
+    language: Language
+    accounts: int
+
+
+@dataclass(frozen=True, slots=True)
+class LanguageMixTotals:
+    """:class:`LanguageMix` entries with the denominator they are shares of.
+
+    The denominator is carried explicitly rather than left to be summed in the SPA, for the
+    reason the block comment above gives: a share whose denominator was reconstructed by the
+    reader is a share the reader can reconstruct WRONGLY — a filtered or truncated
+    ``languages`` tuple would silently renormalise to 100% of whatever survived. It also
+    keeps the shape honest if a later language is ever added to
+    :class:`~hbd.contracts.Language` and no account has chosen it yet.
+    """
+
+    #: Largest first. A language no account uses is ABSENT rather than present at zero:
+    #: nobody reading the bot in English is not a measurement of English.
+    languages: tuple[LanguageMix, ...]
+    #: Every account counted, which — because ``ui_language`` is ``NOT NULL`` — equals the
+    #: sum of the entries above. Published anyway; see the class docstring.
+    accounts: int
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityPoint:
+    """One night's DAU / WAU / MAU, from ``user_activity_snapshots``. The history of
+    :class:`ActiveAccounts`.
+
+    **The three counts are NESTED CUTOFFS on one population, not three disjoint buckets.**
+    Every account in ``day`` is in ``week`` and every account in ``week`` is in ``month``
+    (``day ⊆ week ⊆ month``), because all three come from one ``last_seen_at`` predicate
+    evaluated at one instant. They may therefore be drawn as three lines and never stacked,
+    never summed, and never added to a total: a stacked area chart of these three would
+    triple-count everybody active today, and the resulting top line would be a number no
+    query can produce.
+
+    A day the snapshot job did not run has NO row and this series has no point for it —
+    zero-filling would report that nobody used the bot that day, a fabricated measurement
+    wearing a chart line. The table's own docstring argues that at length, and it is also
+    why the series cannot be back-filled: ``users.last_seen_at`` is a gauge that was
+    overwritten, so history exists only from the first night the job ran.
+    """
+
+    #: The database's own bucket key, ``YYYY-MM-DD``, kept as text exactly as
+    #: :class:`BucketPoint` keeps it — the string the grouping used travels to the wire.
+    bucket: str
+    #: That key as an aware instant, parsed once here.
+    started_at: datetime
+    #: ``active_24h_accounts``. Named ``day`` to match :class:`ActiveAccounts`, whose tiles
+    #: this series is the history of; the COLUMN keeps its honest ``active_24h_accounts``
+    #: name because a rolling 24-hour count is not a calendar-day DAU.
+    day: int
+    #: ``active_7d_accounts``.
+    week: int
+    #: ``active_30d_accounts``. Bounded by deployment age for the first thirty days, which
+    #: is a ramp that looks like growth and is not.
+    month: int
+
+
+@dataclass(frozen=True, slots=True)
+class TopGenerator:
+    """One customer on the identified top-generators list, ranked by songs DELIVERED.
+
+    **This view intentionally carries identity**, and it is one of exactly two in this
+    package that do. The owner is the sole operator of this panel and has decided that an
+    account holder's Telegram identity may be shown to them directly, with an AUDIT ENTRY
+    rather than a reveal gate. So it is served on ``RECORDS_READ`` — the permission the
+    ``/users`` records screen already stands on — from its own route, which writes an audit
+    row the way every other record read does. It is **not** part of the ``DASHBOARD_READ``
+    surface, and that separation is the whole of what keeps the dashboard's blanket
+    exemption from masking true: every other aggregate in this package remains
+    personal-data-free, so nothing about this decision reaches them.
+
+    The reveal / step-up machinery is untouched by that decision and stays load-bearing:
+    free text, media and phone numbers are still ``POST /reveal`` alone. **The recipient's
+    name is not here and must not be added.** The decision covers the ACCOUNT HOLDER — the
+    person who pays and whom an operator answers to — not the third party a song is about,
+    who never consented to anything and whose name ``briefs.recipient_name_display`` holds
+    behind the masking serializer.
+
+    ``delivered_songs`` and ``orders_created`` are two numbers because the gap between them
+    is the whole story of a heavy user: somebody with forty orders and three deliveries is
+    not a top generator, they are a support case.
+    """
+
+    #: Present on every row, and never ``None``: ``orders.telegram_user_id`` is ``NOT NULL``
+    #: and the ranking is keyed to it, so there is no anonymous row to render here the way
+    #: there is on :class:`RecentSubscriber`.
+    #:
+    #: **An erased customer is NOT excluded from this list, and a reader must not assume
+    #: they are.** ``/forget`` reaches the receipts (``plan_purchases``, ``topup_purchases``,
+    #: ``credit_ledger``, ``bot_membership_events``, ``payment_intents``), deletes the
+    #: ``user_profiles`` row and keeps the ``users`` row on purpose — an operator's block
+    #: must outlast a data-subject request. It does not touch ``orders`` at all: there is no
+    #: per-user order erasure, only the time-based sweep in ``hbd.db.purge``
+    #: (``purge_user`` is planned and does not exist — ``ADMIN_PANEL_PLAN`` §9.3). So an
+    #: account that sent ``/forget`` keeps ranking here, under this id, with
+    #: :attr:`telegram_username` and :attr:`first_name` ``None``, until its orders age out.
+    #: That id is the same one ``GET /api/users`` already publishes from the surviving
+    #: ``users`` row, so this list discloses nothing that screen does not — but it is a
+    #: state to render, not a row this read filters away.
+    telegram_user_id: int
+    #: Telegram's ``@handle`` WITHOUT the ``@``, from ``user_profiles``. ``None`` when the
+    #: account has none (Telegram does not require one) or has no profile row at all.
+    telegram_username: str | None
+    first_name: str | None
+    #: Orders whose ``delivered_at`` fell in the read's window — every delivery ever, when
+    #: there is no window. The ranking key.
+    delivered_songs: int
+    #: Orders this account CREATED in the SAME window, on ``created_at`` — not the lifetime
+    #: count. A lifetime number under a caption naming a week would be read as a number
+    #: about that week; :func:`~hbd.db.admin.audience_lists.top_generators` argues it and
+    #: ``tests/test_db/test_audience_lists.py`` pins it. Two consequences, neither a bug:
+    #: the pair is **not** a conversion rate (an order created before the window and
+    #: delivered inside it is in :attr:`delivered_songs` only), and this can legitimately be
+    #: ``0`` beside a positive delivery count — a measurement, not a missing number.
+    orders_created: int
+    #: The language the BOT speaks to them in — see :class:`LanguageMix`; not the song's.
+    ui_language: Language
+    #: ``users.created_at``, i.e. FIRST CONTACT and not the first order — the same
+    #: distinction :attr:`UserListItem.account_created_at` documents.
+    first_seen_at: datetime
+    #: ``MAX(orders.delivered_at)``. ``None`` for an account with orders but no delivery,
+    #: which is exactly the support case above and must not render as a date.
+    last_delivered_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class RecentSubscriber:
+    """One recent starter-plan purchase, with the buyer's identity and what they have left.
+
+    Identified for the reason :class:`TopGenerator` states, on the same ``RECORDS_READ``
+    route, audited the same way, and outside ``DASHBOARD_READ`` in the same way. The
+    recipient's name is likewise absent and stays absent.
+
+    **``is_stub_rail`` travels with the money, always.**
+    :class:`~hbd.checkout.StubCheckoutProvider` stamps ``is_paid=True`` having contacted
+    nobody and settled nothing (``provider == "stub"``), so a stub sale is
+    indistinguishable from a real one on every column except this one. Collapsing it — or
+    summing these amounts across providers — turns a demo run into revenue on a screen
+    somebody makes decisions from. ``currency`` is part of the key for the same reason and
+    is never summed across: a total in two currencies is a figure in an invented unit.
+
+    **An EXPIRED plan with songs left is BREAKAGE, not headroom.** ``songs_included`` minus
+    ``songs_used`` is money the customer paid and will not now receive value for; on a plan
+    still running the same subtraction is an obligation this deployment still owes. The two
+    are the same arithmetic and opposite facts, so :attr:`plan_ends_at` has to be read
+    against the clock before the remainder means anything, and the two states must render
+    differently — the finance surface already keeps them apart as
+    ``PlanLiability.breakage_songs`` and ``PlanLiability.unconsumed_songs``.
+    """
+
+    #: ``None`` after ``/forget``: ``hbd.db.credit_erasure.forget_account`` nulls it and
+    #: keeps the receipt, because "was this customer charged for songs they never got?"
+    #: must stay answerable. A ``None`` here is a lawful erasure and never a missing write,
+    #: and the row is rendered rather than dropped — a purge is a state, not an error.
+    telegram_user_id: int | None
+    #: From ``user_profiles``, and therefore ``None`` for a purged account whose profile row
+    #: was deleted outright as well as for an account that simply has no handle.
+    telegram_username: str | None
+    first_name: str | None
+    plan: PlanKind
+    #: Minor units (UZS tiyin) — the unit the rail quotes, never converted here.
+    amount_minor: int
+    #: ISO-4217. Part of the key; see the class docstring.
+    currency: str
+    #: The rail that answered the charge, raw, as ``plan_purchases.provider`` stored it.
+    provider: str
+    #: ``provider == hbd.checkout.STUB_PROVIDER_NAME``. Derived at the read and carried on
+    #: the row so no later layer has to know the constant to stay honest.
+    is_stub_rail: bool
+    #: ``plan_purchases.created_at`` — when the charge was recorded.
+    purchased_at: datetime
+    #: The BUSINESS clock, and deliberately not named ``*_expires_at``: no sweep reads it
+    #: and no purge acts on it (``models/plan_purchase.py`` argues the naming).
+    plan_ends_at: datetime
+    #: Stored on the receipt rather than read from settings, so a package change tomorrow
+    #: cannot retroactively shrink a plan somebody already paid for.
+    songs_included: int
+    #: Minted one at a time by ``credits._mint_plan_song``. A refund does not move it back.
+    songs_used: int
+
+
+@dataclass(frozen=True, slots=True)
+class VendorCostPerSong:
+    """One vendor's cut of the cost-per-delivered-song figure, and its coverage.
+
+    :class:`CostPerDeliveredSong` answers "what does a song cost"; this answers "and who
+    charged us for it", which is the only version of the number an operator can act on —
+    the remedy for an expensive song is a different model or a different vendor, and the
+    aggregate names neither.
+
+    **The gap between :attr:`attributed_orders` and :attr:`delivered_orders` is the
+    COVERAGE of this figure and must be published beside it.** They are two different
+    counts: the first is how many delivered orders have any call from THIS vendor
+    attributed to them, the second is every delivered order in the window. An order rendered
+    before the usage ledger existed carries no calls at all; an order that never needed this
+    vendor carries none of its calls. Both widen the gap, and an average taken over the
+    covered orders and rendered against the full cohort reads as a complete figure when it
+    describes a fraction — which is the same error ``costed_calls`` exists to prevent one
+    level down, at the price of one number instead of two.
+
+    ``cost_usd`` is ``None`` — never ``0.0`` — when no call from this vendor in the window
+    carried a cost. See :class:`CostProvenance`: a vendor-reported zero and an unpriced call
+    are different facts, and this shape must not merge them.
+    """
+
+    vendor: Vendor
+    #: Summed over the priced rows alone. ``None`` when nothing in the window was priced.
+    cost_usd: float | None
+    #: Every delivered order in the window — the cohort the figure is ABOUT.
+    delivered_orders: int
+    #: How many of them carry a call from this vendor — the cohort the figure is FROM.
+    attributed_orders: int
+
+    @property
+    def cost_per_song_usd(self) -> float | None:
+        """``cost_usd / delivered_orders``, or ``None`` when that is undefined.
+
+        Over ``delivered_orders`` and not ``attributed_orders``, deliberately: the question
+        is what a shipped song costs, and dividing by the covered subset would report the
+        cost of the orders we happen to have instrumented — a figure that IMPROVES when
+        instrumentation gets worse. Read it with :attr:`attributed_orders` beside it, which
+        is what says how much of the cohort the numerator actually covers.
+
+        ``None`` for an unpriced vendor and ``None`` for a window with no delivery. A
+        ``0.0`` for either would put a free song on the card.
+        """
+        if self.cost_usd is None or self.delivered_orders <= 0:
+            return None
+        return self.cost_usd / self.delivered_orders
+
+
+@dataclass(frozen=True, slots=True)
+class VendorUnitsPerSong:
+    """What one delivered song CONSUMES from one vendor, in that vendor's own units.
+
+    The unit analogue of :class:`VendorCostPerSong`, and the reason it is a separate shape:
+    money has one axis and these do not.
+
+    **THE THREE UNIT FAMILIES DO NOT SHARE AN AXIS.** Tokens, billed characters and
+    milliseconds of audio are three incommensurable quantities, so each is a SEPARATE ROW
+    on any table and a separate chart — never three series on one pair of axes, never
+    summed, never totalled into a "units" column. A chat completion has no
+    ``billed_characters`` and a speech synthesis has no tokens; each is ``None`` for the
+    families nobody measured, which is what ``vendor_usage`` already answers by declaring no
+    default on any quantity column. A ``0`` would say the vendor charged us for nothing.
+
+    **``total_tokens`` is a CONSUMPTION measure and never a remaining balance.** It counts
+    what was spent, it only ever grows, and no reading of it says anything about what is
+    left — the remaining side is ``vendor_balances`` (:class:`VendorBalanceState`), a
+    different table with a different clock, polled by the worker. A tile that put a token
+    count under a "remaining" heading would be reporting spend as headroom.
+    """
+
+    vendor: Vendor
+    #: Prompt plus completion, summed over the priced-or-not rows that recorded it.
+    total_tokens: int | None
+    billed_characters: int | None
+    audio_ms: int | None
+    #: The denominator of all three averages: every delivered order in the window. The
+    #: coverage caveat :class:`VendorCostPerSong` states applies here unchanged.
+    delivered_orders: int
+
+    @property
+    def tokens_per_song(self) -> float | None:
+        """``total_tokens / delivered_orders``. ``None`` when either is absent or zero."""
+        if self.total_tokens is None or self.delivered_orders <= 0:
+            return None
+        return self.total_tokens / self.delivered_orders
+
+    @property
+    def characters_per_song(self) -> float | None:
+        """``billed_characters / delivered_orders``. Its own row on its own axis."""
+        if self.billed_characters is None or self.delivered_orders <= 0:
+            return None
+        return self.billed_characters / self.delivered_orders
+
+    @property
+    def audio_ms_per_song(self) -> float | None:
+        """``audio_ms / delivered_orders``, still in milliseconds. Never seconds here: the
+        column is milliseconds and a unit conversion at this layer is a conversion the wire
+        schema cannot see happening."""
+        if self.audio_ms is None or self.delivered_orders <= 0:
+            return None
+        return self.audio_ms / self.delivered_orders
+
+
+@dataclass(frozen=True, slots=True)
+class CostProvenance:
+    """How the window's money numbers were ARRIVED AT: one row per ``cost_source``.
+
+    Every existing reader on this surface collapses provenance to a MIN/MAX
+    ``is_cost_mixed`` boolean — :class:`VendorUsageRollup`, :class:`VendorUsageTotals`,
+    :class:`VendorSpendSplit` and :class:`CostPerDeliveredSong` all publish one
+    :class:`~hbd.contracts.CostSource` and a "they disagreed" flag — so on the wire today
+    the actual MIX is not reconstructible: an operator can be told the figure is mixed but
+    never that nine-tenths of it is arithmetic against a rate somebody typed into an
+    environment variable. This shape is the breakdown that boolean summarises, and it exists
+    so a spend total can be read with its evidence.
+
+    **A ``None`` source is its OWN bucket and means NOT PRICED — it is not a zero and not an
+    absence of data about the calls.** The calls happened and were recorded; no cost could
+    be computed for them, because no rate is configured and the vendor reported nothing.
+    ``cost_usd`` for that bucket is therefore ``None`` while ``calls`` is positive, and that
+    combination is the point of the row.
+
+    **"0 reported" and "not priced" must never render the same, and the case is real rather
+    than theoretical.** OpenRouter's LLM leg typically reports ``usage.cost`` as a genuine
+    ``0.0`` on a ``:free`` model — ``_reported_cost`` KEEPS that zero deliberately
+    (``src/hbd/providers/llm/openai_compat.py:329`` and its helper), because it is the
+    vendor telling us the call was free and it reconciles against an invoice line of zero.
+    That lands here as :attr:`~hbd.contracts.CostSource.VENDOR_REPORTED` with
+    ``cost_usd == 0.0``: MEASURED, and worth showing as such. A rate-card-only vendor with
+    no configured rate lands in the ``None`` bucket with ``cost_usd is None``: UNMEASURED.
+    One says "this cost nothing", the other says "nobody could say" — collapsing them is how
+    a deployment concludes its rendering pipeline is free.
+    """
+
+    #: ``None`` is a real member of this grouping and means "no cost could be computed for
+    #: these calls", never "these calls cost nothing".
+    cost_source: CostSource | None
+    #: Calls in this provenance bucket. Always a measured count, in every bucket.
+    calls: int
+    #: Their summed cost. ``None`` in the unpriced bucket by construction; ``0.0`` is a
+    #: legitimate value in the ``VENDOR_REPORTED`` bucket and means the vendor said zero.
+    cost_usd: float | None

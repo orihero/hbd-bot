@@ -45,6 +45,35 @@ describe("stepUpTargetOf", () => {
     expect(stepUpTargetOf(failure({ details: { permission: "reveal.personal_data" } }))).toBeNull();
   });
 
+  /**
+   * `credit.grant` is its own action rather than a reuse of `user.block`, and its subject is
+   * the TELEGRAM ID as a bare decimal string — the first subject on this surface that is not a
+   * UUID. Both facts have to survive: an action the list does not carry is treated as a
+   * refusal with no remedy, and a re-formatted subject is a permanent, undebuggable 403.
+   */
+  it("recognises credit.grant, whose subject is a Telegram id rather than a UUID", () => {
+    const target = stepUpTargetOf(
+      failure({
+        endpoint: "POST /api/users/{telegram_user_id}/credits/grant",
+        details: { stepUpAction: "credit.grant", subjectId: "770000123" },
+      }),
+    );
+
+    expect(target).toEqual({ action: "credit.grant", subjectId: "770000123" });
+    // Not the same grant as a block on the same customer: a step-up taken to bar an abuser
+    // must not authorise minting them spendable credit.
+    expect(
+      isSameTarget(
+        { action: "credit.grant", subjectId: "770000123" },
+        { action: "user.block", subjectId: "770000123" },
+      ),
+    ).toBe(false);
+  });
+
+  it("gives credit.grant the ordinary grace window, not the zero-grace one", () => {
+    expect(grantWindowS("credit.grant", 300)).toBe(300);
+  });
+
   it("is null for an action this build has never heard of", () => {
     expect(
       stepUpTargetOf(failure({ details: { stepUpAction: "quantum.audit", subjectId: ORDER } })),

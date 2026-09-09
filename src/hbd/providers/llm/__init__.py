@@ -7,10 +7,13 @@ Everything a caller needs:
     provider = build_llm_provider(settings)
     result = await write_kit(provider, brief, personas, LlmTaskSettings.from_settings(settings))
 
-Two promises hold across every entry point here. Nothing raises out of a task or an
-adapter — failure is an ``Err`` carrying a typed ``HbdError``. And nothing returns data
+Three promises hold across every entry point here. Nothing raises out of a task or an
+adapter — failure is an ``Err`` carrying a typed ``HbdError``. Nothing returns data
 that has not been validated against a pydantic schema, however malformed the model's
-answer was.
+answer was. And every vendor call, successful or not, records exactly one
+``hbd.usage.VendorUsage`` through the sink its adapter was built with — the LLM leg is
+where the money goes, and until that seam existed nothing in this system could say how
+much of it.
 """
 
 from __future__ import annotations
@@ -21,6 +24,7 @@ from hbd.providers.llm.intake import build_intake_request, map_intake_payload, n
 from hbd.providers.llm.json_schema import to_gemini_schema, to_openai_strict_schema
 from hbd.providers.llm.openai_compat import OpenAiCompatLlmProvider
 from hbd.providers.llm.parsing import parse_model_json
+from hbd.providers.llm.pricing import TokenPricing
 from hbd.providers.llm.prompt_loader import language_guide, load_prompt, render_prompt
 from hbd.providers.llm.retry import generate_with_retry
 from hbd.providers.llm.schemas import (
@@ -50,6 +54,7 @@ __all__ = [
     "generate_with_retry",
     # Data
     "LlmTaskSettings",
+    "TokenPricing",
     "PersonaBrief",
     "IntakeDraft",
     "IntakePayload",

@@ -296,6 +296,41 @@ async def test_the_mirrored_similarity_threshold_is_published_when_the_deploymen
     assert body["adminNameMatchMinSimilarity"] == 0.72
 
 
+async def test_the_mirrored_settlement_grace_is_published_and_null_when_unset(
+    fake_redis: FakeRedis, rate_limits: MemoryRateLimits
+) -> None:
+    """The second mirrored value, and the reason it has to be visible here.
+
+    ``inFlightRenderCount`` on ``/users/{id}`` is counted against this grace, and the number
+    it produces is the only one on that screen that explains a refusal. When the deployment
+    has not published the worker's grace the panel counts against the shipped default, which
+    can disagree with the gate — so an operator holding an unexplained refusal needs to be
+    able to see which of the two clocks produced the count.
+    """
+    # Arrange
+    async with (
+        open_container(make_settings(), fake_redis, rate_limits) as unset_container,
+        open_client(unset_container) as unset_client,
+    ):
+        await signed_in(unset_container, unset_client, role=AdminRole.VIEWER)
+        unpublished = (await unset_client.get(CONFIG_PATH)).json()
+
+    async with (
+        open_container(
+            make_settings(admin_settlement_grace_s=300), fake_redis, rate_limits
+        ) as container,
+        open_client(container) as client,
+    ):
+        await signed_in(container, client, role=AdminRole.VIEWER)
+
+        # Act
+        body = (await client.get(CONFIG_PATH)).json()
+
+    # Assert
+    assert unpublished["adminSettlementGraceS"] is None
+    assert body["adminSettlementGraceS"] == 300
+
+
 async def test_the_reported_configuration_is_the_one_the_process_is_bound_to(
     container: AdminContainer, client: httpx.AsyncClient
 ) -> None:

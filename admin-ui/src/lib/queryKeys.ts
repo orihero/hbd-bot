@@ -16,10 +16,13 @@ import type {
   AuditQuery,
   GenerationsQuery,
   OrderAttemptsQuery,
+  OrderStateCountsQuery,
   OrdersQuery,
   PageQuery,
   RetentionQuery,
+  UserCreditsQuery,
   UsersQuery,
+  VendorUsageQuery,
   WindowQuery,
 } from "@/api";
 
@@ -48,9 +51,34 @@ export const queryKeys = {
     nameAnalytics: (window: WindowQuery) => ["metrics", "name-analytics", window] as const,
   },
 
+  /**
+   * `/vendors`' three reads.
+   *
+   * Its own namespace rather than three more entries under `metrics`, because the screen's
+   * three queries share ONE filter object and are invalidated together: a namespace prefix
+   * is what lets `invalidateQueries({queryKey: queryKeys.vendors.all})` refresh the rollup,
+   * the daily series and the failure mix as a set. Splitting them across `metrics` would
+   * mean invalidating the orders-by-day chart to refresh a spend table.
+   *
+   * The query object goes in as-is, `vendor` array and all — TanStack hashes it stably.
+   */
+  vendors: {
+    all: ["vendors"] as const,
+    usage: (query: VendorUsageQuery) => ["vendors", "usage", query] as const,
+    byDay: (query: VendorUsageQuery) => ["vendors", "by-day", query] as const,
+    errors: (query: VendorUsageQuery) => ["vendors", "errors", query] as const,
+  },
+
   orders: {
     all: ["orders"] as const,
     list: (query: OrdersQuery) => ["orders", "list", query] as const,
+    /**
+     * The filtered aggregate behind the distribution bar. Keyed on the list's filters MINUS
+     * paging (`OrderStateCountsQuery` is `OrdersQuery` without `PageQuery`), so turning a page
+     * does not refetch an aggregate that does not depend on the page — and so the bar keeps
+     * describing the whole filtered set rather than the fifty rows on screen.
+     */
+    stateCounts: (query: OrderStateCountsQuery) => ["orders", "state-counts", query] as const,
     detail: (orderId: string) => ["orders", "detail", orderId] as const,
     attempts: (orderId: string, query: OrderAttemptsQuery) =>
       ["orders", "detail", orderId, "attempts", query] as const,
@@ -65,6 +93,16 @@ export const queryKeys = {
     detail: (telegramUserId: number) => ["users", "detail", telegramUserId] as const,
     orders: (telegramUserId: number, query: PageQuery) =>
       ["users", "detail", telegramUserId, "orders", query] as const,
+    /**
+     * The balance and the ledger — ONE key, because they are one response.
+     *
+     * Under `users.detail` so that a grant can invalidate `queryKeys.users.detail(id)` and
+     * catch this too: `creditsProjected` on the detail and `account.balance` here both move on
+     * a grant, and a screen that refreshed one without the other would show the pair the whole
+     * feature exists to compare disagreeing with itself.
+     */
+    credits: (telegramUserId: number, query: UserCreditsQuery) =>
+      ["users", "detail", telegramUserId, "credits", query] as const,
     /** Redis-backed and never 404s, so it is cached separately from the user detail — a
      *  stuck customer has wizard state and no user row at all. */
     wizardState: (telegramUserId: number) =>

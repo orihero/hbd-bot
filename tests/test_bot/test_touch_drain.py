@@ -31,22 +31,43 @@ MOMENT = datetime(2026, 3, 21, 9, 0, 0, tzinfo=UTC)
 
 
 def touch(
-    *, telegram_user_id: int = USER_ID, at: datetime = MOMENT, language: Language = Language.EN
+    *,
+    telegram_user_id: int = USER_ID,
+    at: datetime = MOMENT,
+    language: Language | None = Language.EN,
 ) -> UserTouch:
+    """One liveness ping. ``language=None`` is a first-class value, not a missing argument.
+
+    ``UserTouch.ui_language`` is ``Language | None`` because ``gate._decide`` now offers what
+    the customer actually CHOSE rather than what the bot would speak to them in. Before that,
+    the gate passed ``resolve_language(state)``, which answers the fallback whenever there is
+    no draft — so for sixty seconds after any ``state.clear()`` the drain stamped UZ_LATN over
+    a Russian speaker's real choice, and Settings appeared to forget itself. Keeping the
+    default a concrete language here means every pre-existing row in this file still asserts
+    what it always asserted, and only the tests that care about the absence pass ``None``.
+    """
     return UserTouch(telegram_user_id=telegram_user_id, ui_language=language, at=at)
 
 
 class RecordingTouchStore:
-    """Records every upsert the drain actually performs. Can be told to fail, or to hang."""
+    """Records every upsert the drain actually performs. Can be told to fail, or to hang.
+
+    ``written`` carries ``Language | None`` rather than ``Language`` because the ``None`` a
+    not-yet-onboarded customer produces has to reach the store as ``None``: that is the value
+    ``db.credits.touch`` reads to decide whether to write the column at all. A fake that
+    narrowed it would type-check while making the one case the widening exists for
+    unassertable — and ``mypy --strict`` runs over ``tests``, so a narrow parameter here also
+    stops this class satisfying ``gate.TouchWriter`` (parameter types are contravariant).
+    """
 
     def __init__(self, *, failure: StorageError | None = None) -> None:
-        self.written: list[tuple[int, Language]] = []
+        self.written: list[tuple[int, Language | None]] = []
         self.failure = failure
         self.explode = False
         #: Set to a real event to make every write wait for it — a wedged database.
         self.gate: asyncio.Event | None = None
 
-    async def touch(self, telegram_user_id: int, *, ui_language: Language) -> Result[None]:
+    async def touch(self, telegram_user_id: int, *, ui_language: Language | None) -> Result[None]:
         if self.gate is not None:
             await self.gate.wait()
         if self.explode:
@@ -133,6 +154,71 @@ async def test_the_drain_writes_what_it_is_handed() -> None:
     assert store.written == [(USER_ID, Language.EN)]
 
 
+async def test_a_touch_with_no_chosen_language_is_still_queued_and_written() -> None:
+    """A touch that says nobody has chosen a language yet must be carried, not dropped.
+
+    It is the ONLY kind of touch a customer produces before they answer the onboarding
+    language question — and it is the touch that creates their ``users`` row, which is the
+    row an operator blocks them by. A drain that skipped it (or a fake that could not carry
+    a ``None``) would leave exactly the pre-onboarding population unblockable, with a green
+    suite: every other test in this file offers a concrete language.
+
+    The ``None`` survives all the way to the store rather than being resolved to a default
+    on the way, because ``db.credits.touch`` is what decides between "write the column" and
+    "leave it alone", and it can only decide that if it is told the truth.
+    """
+    # Arrange
+    store = RecordingTouchStore()
+    queue = TouchQueue()
+    drain = TouchDrain(store, queue)
+
+    # Act
+    queue.offer(touch(language=None))
+    written = await drain.drain_pending()
+
+    # Assert
+    assert written == 1
+    assert store.written == [(USER_ID, None)]
+
+
+async def test_a_none_touch_and_a_real_touch_in_one_bucket_do_not_silently_swap() -> None:
+    """The per-minute dedupe keys on the ACCOUNT, so the first touch of a minute wins.
+
+    Pinned rather than fixed. ``TouchDrain._write`` remembers ``account -> minute``, not
+    ``account -> (minute, language)``, so a ``None`` touch arriving first suppresses a real
+    language offered in the same sixty seconds. The tempting "fix" is to key the memo on the
+    language too, which would restore an upsert per tap for anyone who switches language —
+    the exact cost the coalescing exists to remove.
+
+    It is harmless, and this test is where that claim is written down so nobody has to
+    rediscover it: ``UserProfileStore.record_language`` writes ``users.ui_language`` through
+    ``users_sql.ensure_user(is_language_authoritative=True)`` the moment a customer chooses,
+    and never through this queue. The drain is a refresher of a column somebody else owns,
+    so the worst case here is that the refresh is a minute late — never that a choice is
+    lost, and never that it is overwritten.
+    """
+    # Arrange — the same account, the same minute, the ``None`` first.
+    store = RecordingTouchStore()
+    queue = TouchQueue()
+    drain = TouchDrain(store, queue)
+
+    # Act
+    queue.offer(touch(language=None))
+    queue.offer(touch(at=MOMENT + timedelta(seconds=30), language=Language.RU))
+    written = await drain.drain_pending()
+
+    # Assert — one write, and it is the first one; the RU touch was coalesced away, not
+    # rewritten as UZ_LATN and not written as a second row.
+    assert written == 1
+    assert store.written == [(USER_ID, None)]
+
+    # Assert — and the next minute carries the real choice through, so "late" is the whole
+    # of the loss.
+    queue.offer(touch(at=MOMENT + timedelta(seconds=61), language=Language.RU))
+    await drain.drain_pending()
+    assert store.written == [(USER_ID, None), (USER_ID, Language.RU)]
+
+
 async def test_a_minute_of_taps_becomes_one_upsert() -> None:
     """Coalescing is what makes the queue affordable at all.
 
@@ -217,7 +303,9 @@ async def test_a_store_that_raises_during_the_shutdown_drain_still_writes_the_re
 
     # Arrange — the first write blows up, the rest are perfectly writable.
     class _ExplodesOnce(RecordingTouchStore):
-        async def touch(self, telegram_user_id: int, *, ui_language: Language) -> Result[None]:
+        async def touch(
+            self, telegram_user_id: int, *, ui_language: Language | None
+        ) -> Result[None]:
             if telegram_user_id == 1:
                 raise RuntimeError("the store is on fire")
             return await super().touch(telegram_user_id, ui_language=ui_language)

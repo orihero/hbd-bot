@@ -14,6 +14,17 @@ That purpose shapes two choices:
   average the real words and exponentiate. When it reports nothing we say so with a
   documented neutral value rather than fabricating certainty. The re-roll decision is made
   on string similarity elsewhere — this number is diagnostic.
+
+**This leg reports its calls and its latency and refuses to report a cost.** ElevenLabs
+bills Scribe by the minute of audio; the only quantity this system measures is the size of
+the buffer it uploaded, and bytes multiplied by an assumed bitrate is a fabricated number
+wearing an invoice's authority — a variable-bitrate MP3, an Opus stream and a WAV of the
+same clip differ by an order of magnitude. So every :class:`~hbd.usage.VendorUsage` record
+from here carries ``cost_usd=None`` and ``cost_source=None``, and the vendor panel prints
+"not priced" for transcription until something in the pipeline can measure a duration.
+``audio_ms`` is ``None`` for the same reason: the documented Scribe response carries no
+duration field, and reading one out of a field name we guessed would be the same lie by a
+different route. ``request_bytes`` is recorded, because that one we actually know.
 """
 
 from __future__ import annotations
@@ -21,6 +32,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
+from time import perf_counter
 from typing import Final
 
 import httpx
@@ -32,17 +44,21 @@ from hbd.contracts import (
     ProviderHealth,
     Result,
     Transcript,
+    Vendor,
+    VendorOperation,
     err,
     ok,
 )
-from hbd.errors import ValidationError
+from hbd.errors import HbdError, ValidationError
 from hbd.logging import get_logger
+from hbd.providers.tts.elevenlabs import health_usage
 from hbd.providers.tts.elevenlabs_api import (
     API_KEY_HEADER,
     DEFAULT_HEALTH_TIMEOUT_S,
     subscription_health,
 )
-from hbd.providers.tts.transport import parse_json_body, send_request, utc_now
+from hbd.providers.tts.transport import http_status_of, parse_json_body, send_request, utc_now
+from hbd.usage import LOGGING_USAGE_SINK, UsageSink, VendorUsage
 
 __all__ = [
     "ElevenLabsScribe",
@@ -72,6 +88,13 @@ UNREPORTED_CONFIDENCE: Final[float] = 0.5
 #: A word's log-probability below this is treated as zero confidence rather than underflowing.
 _MIN_LOGPROB: Final[float] = -20.0
 _WORD_ENTRY_TYPE: Final[str] = "word"
+
+_MS_PER_S: Final[int] = 1_000
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((perf_counter() - started) * _MS_PER_S)
+
 
 _FIELD_MODEL_ID: Final[str] = "model_id"
 _FIELD_LANGUAGE: Final[str] = "language_code"
@@ -199,10 +222,12 @@ class ElevenLabsScribe:
         health_timeout_s: float = DEFAULT_HEALTH_TIMEOUT_S,
         client: httpx.AsyncClient | None = None,
         clock: Callable[[], datetime] = utc_now,
+        usage: UsageSink = LOGGING_USAGE_SINK,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._model_id = model_id
+        self._usage = usage
         self._health_timeout_s = health_timeout_s
         self._clock = clock
         self._owns_client = client is None
@@ -238,6 +263,7 @@ class ElevenLabsScribe:
             "keyterm_count": len(terms),
             "audio_bytes": len(audio),
         }
+        started = perf_counter()
         response = await send_request(
             self._client,
             provider=self.name,
@@ -250,12 +276,33 @@ class ElevenLabsScribe:
             context=context,
         )
         if isinstance(response, Err):
+            await self._record(
+                is_success=False,
+                request_bytes=len(audio),
+                latency_ms=_elapsed_ms(started),
+                error=response.error,
+            )
             return response
 
         parsed = parse_json_body(response.value, ScribePayload, provider=self.name, context=context)
         if isinstance(parsed, Err):
+            await self._record(
+                is_success=False,
+                request_bytes=len(audio),
+                latency_ms=_elapsed_ms(started),
+                http_status=response.value.status_code,
+                response_bytes=len(response.value.content),
+                error=parsed.error,
+            )
             return parsed
 
+        await self._record(
+            is_success=True,
+            request_bytes=len(audio),
+            latency_ms=_elapsed_ms(started),
+            http_status=response.value.status_code,
+            response_bytes=len(response.value.content),
+        )
         payload = parsed.value
         transcript = Transcript(
             text=payload.text,
@@ -276,7 +323,8 @@ class ElevenLabsScribe:
         return ok(transcript)
 
     async def health(self) -> Result[ProviderHealth]:
-        return await subscription_health(
+        started = perf_counter()
+        probe = await subscription_health(
             self._client,
             provider=self.name,
             base_url=self._base_url,
@@ -284,8 +332,47 @@ class ElevenLabsScribe:
             timeout_s=self._health_timeout_s,
             clock=self._clock,
         )
+        await self._usage.record(
+            health_usage(probe, provider=self.name, latency_ms=_elapsed_ms(started))
+        )
+        return probe
 
     # -- internals ----------------------------------------------------------
+    async def _record(
+        self,
+        *,
+        is_success: bool,
+        request_bytes: int,
+        latency_ms: int,
+        http_status: int | None = None,
+        response_bytes: int | None = None,
+        error: HbdError | None = None,
+    ) -> None:
+        """One record per transcription call, priced at nothing on every path.
+
+        ``cost_usd`` and ``cost_source`` are not parameters and never will be: see the
+        module docstring on why an audio duration this system never measured must not be
+        reconstructed from a byte count.
+        """
+        await self._usage.record(
+            VendorUsage(
+                vendor=Vendor.ELEVENLABS,
+                operation=VendorOperation.TRANSCRIPTION,
+                provider=self.name,
+                is_success=is_success,
+                model_id=self._model_id,
+                http_status=(
+                    http_status
+                    if http_status is not None
+                    else (http_status_of(error) if error is not None else None)
+                ),
+                error_code=error.error_code.value if error is not None else None,
+                latency_ms=latency_ms,
+                request_bytes=request_bytes,
+                response_bytes=response_bytes,
+            )
+        )
+
     def _form(self, *, language: Language, keyterms: list[str]) -> dict[str, object]:
         """Multipart fields beside the audio part. Diarisation is off: one voice, one name."""
         form: dict[str, object] = {

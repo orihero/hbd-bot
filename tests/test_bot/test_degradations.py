@@ -1,4 +1,12 @@
-"""The unhappy paths that must degrade quietly instead of failing loudly."""
+"""The unhappy paths that must degrade quietly instead of failing loudly.
+
+Every ``BotDeps`` built here carries a ``FakeProfiles`` because this module imports the
+walkers, and the walkers now drive the real onboarding screens. A dispatcher with no profile
+store fails open (C1-5), so ``/start`` goes straight to the menu and the walker's first
+language press matches no handler — which would turn every degradation assertion below into
+the same "that session expired", the one failure this file is least able to tell apart from a
+real degradation. ``test_walker_preconditions.py`` checks that statically.
+"""
 
 from __future__ import annotations
 
@@ -29,6 +37,7 @@ from hbd.pipeline.outcome import PipelineGap
 from tests.conftest import make_asset
 from tests.test_bot.conftest import (
     CHAT_ID,
+    FakeProfiles,
     RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
@@ -114,6 +123,7 @@ async def test_a_screen_that_cannot_be_edited_is_sent_as_a_new_message(
             settings=settings,
             submitter=RecordingSubmitter(),
             content=RecordingContentWriter(),
+            profiles=FakeProfiles(),
         ),
         storage=MemoryStorage(),
     )
@@ -236,6 +246,7 @@ async def test_a_payment_provider_error_is_shown_in_the_user_s_language(
             submitter=submitter,
             content=RecordingContentWriter(),
             payment=FailingPaymentProvider(),
+            profiles=FakeProfiles(),
         ),
         storage=MemoryStorage(),
     )
@@ -256,7 +267,12 @@ async def test_the_wizard_survives_a_second_run_in_the_same_chat(
     # Arrange
     submitter = RecordingSubmitter()
     dispatcher = build_dispatcher(
-        BotDeps(settings=settings, submitter=submitter, content=RecordingContentWriter()),
+        BotDeps(
+            settings=settings,
+            submitter=submitter,
+            content=RecordingContentWriter(),
+            profiles=FakeProfiles(),
+        ),
         storage=MemoryStorage(),
     )
 

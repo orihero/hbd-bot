@@ -3,6 +3,13 @@
 Every step is driven the way a user drives it: an update goes in, and the next tap uses
 callback data taken from the keyboard the bot actually drew. A routing bug, a state bug or
 a keyboard that offers a button nobody handles all fail these tests.
+
+The walkers live here and fourteen other modules import them, which is why they drive the
+REAL onboarding screens rather than seeding a profile row. The wizard is no longer reachable
+from ``/start``: a person the bot has never met is asked which language to speak and then for
+their number, and only then does 🎵 exist. Driving those two screens from the walkers means a
+regression in the onboarding gate fails in every module that walks, instead of in the one
+file that happened to test onboarding directly.
 """
 
 from __future__ import annotations
@@ -37,6 +44,7 @@ from tests.test_bot.conftest import (
     RecordingSubmitter,
     buttons,
     callback_update,
+    contact_update,
     message_update,
 )
 
@@ -52,10 +60,42 @@ async def send(dispatcher: Dispatcher, bot: Bot, text: str) -> None:
     await dispatcher.feed_update(bot, message_update(text))
 
 
-async def walk_to_name(dispatcher: Dispatcher, bot: Bot) -> None:
-    """/start through to the name prompt, in English."""
+async def tap(dispatcher: Dispatcher, bot: Bot, key: str, language: Language) -> None:
+    """Press a REPLY-keyboard button. There is no distinct update type for one.
+
+    Telegram sends a reply-keyboard tap as an ordinary text message whose text is the label,
+    which is exactly why ``MENU_LABELS`` is computed over all four languages and why the
+    free-text steps have to guard against it: from the wire, a customer typing
+    "🎵 Make a song" and a customer pressing it are the same update.
+    """
+    await send(dispatcher, bot, translate(key, language))
+
+
+async def complete_onboarding(
+    dispatcher: Dispatcher, bot: Bot, *, language: Language = Language.EN
+) -> None:
+    """/start through first contact to the main menu, in ``language``.
+
+    This is what the three walkers gained and it is the migration's whole cost. With
+    ``deps.profiles`` wired the wizard is no longer reachable from ``/start``: a person with
+    no profile row is asked their language, then their number, and only then does 🎵 exist.
+    Driving that here rather than seeding a row is deliberate — the walkers are the only place
+    the onboarding screens are exercised by every one of the fourteen modules that import them,
+    so a regression in the gate fails everywhere instead of in one file.
+
+    The contact is fed as a raw update rather than through :func:`send`, because the answer to
+    the second screen is a ``Contact`` and not text: a typed number is unattributable, and
+    ``handle_contact_shared`` refuses one for the same reason it refuses a forwarded card.
+    """
     await send(dispatcher, bot, "/start")
-    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack())
+    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=language).pack())
+    await dispatcher.feed_update(bot, contact_update())
+
+
+async def walk_to_name(dispatcher: Dispatcher, bot: Bot) -> None:
+    """/start, onboarding, then through to the name prompt, in English."""
+    await complete_onboarding(dispatcher, bot, language=Language.EN)
+    await tap(dispatcher, bot, "menu.generate", Language.EN)
     await press(dispatcher, bot, OccasionCB(value=Occasion.BIRTHDAY).pack())
     await press(dispatcher, bot, GenreCB(value=Genre.UZBEK_POP).pack())
     await press(dispatcher, bot, VocalGenderCB(value=VoiceGender.FEMALE).pack())
@@ -86,17 +126,31 @@ async def walk_to_confirm(dispatcher: Dispatcher, bot: Bot) -> None:
     await approve_lyrics(dispatcher, bot)
 
 
-async def test_start_offers_every_supported_interface_language(
+async def test_first_contact_offers_every_supported_interface_language(
     dispatcher: Dispatcher, bot: Bot, session: RecordingSession
 ) -> None:
+    """Every language on the first screen, and NOT ONE navigation button beside them.
+
+    The offer has to be complete because this screen is drawn in a language that is only a
+    guess — the operator's configured default — so somebody who reads none of the sentence
+    finds their own language by its endonym or not at all.
+
+    The Cancel assertion is C0-6's, and it is here rather than only in ``test_screens.py``
+    because this is the screen as the DISPATCHER actually draws it. ``_with_nav`` appends
+    ``NavAction.CANCEL`` unconditionally, so ``is_back_enabled=False`` alone would leave a
+    ✖️ Cancel here — a button that reaches ``navigation.handle_cancel`` and answers
+    "Cancelled — nothing was made, and nothing was kept" to a customer who has not started
+    anything and has never seen this bot before.
+    """
     # Arrange / Act
     await send(dispatcher, bot, "/start")
 
     # Assert
     screen = session.last_screen
-    offered = {data for _, data in buttons(screen.reply_markup) if data.startswith("lang:ui")}
-    assert len(offered) == len(Language)
-    assert translate("start.choose_ui_language", Language.UZ_LATN) in screen.text
+    offered = {data for _, data in buttons(screen.reply_markup)}
+    assert len({data for data in offered if data.startswith("lang:ui")}) == len(Language)
+    assert translate("onboarding.language.prompt", Language.UZ_LATN) in screen.text
+    assert NavCB(action=NavAction.CANCEL).pack() not in offered
 
 
 async def test_wizard_reaches_the_name_step_in_the_chosen_interface_language(
@@ -305,8 +359,8 @@ async def test_note_longer_than_the_limit_is_rejected_without_losing_the_step(
     dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
 ) -> None:
     # Arrange
-    await send(dispatcher, bot, "/start")
-    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack())
+    await complete_onboarding(dispatcher, bot, language=Language.EN)
+    await tap(dispatcher, bot, "menu.generate", Language.EN)
     await press(dispatcher, bot, OccasionCB(value=Occasion.BIRTHDAY).pack())
     await press(dispatcher, bot, GenreCB(value=Genre.POP).pack())
     await press(dispatcher, bot, VocalGenderCB(value=VoiceGender.MALE).pack())
@@ -351,8 +405,8 @@ async def test_a_command_at_the_note_step_is_never_stored_as_the_note(
     dispatcher: Dispatcher, bot: Bot, state: FSMContext, session: RecordingSession
 ) -> None:
     # Arrange — at the note step, one answer short of the name
-    await send(dispatcher, bot, "/start")
-    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack())
+    await complete_onboarding(dispatcher, bot, language=Language.EN)
+    await tap(dispatcher, bot, "menu.generate", Language.EN)
     await press(dispatcher, bot, OccasionCB(value=Occasion.BIRTHDAY).pack())
     await press(dispatcher, bot, GenreCB(value=Genre.POP).pack())
     await press(dispatcher, bot, VocalGenderCB(value=VoiceGender.MALE).pack())
@@ -395,8 +449,8 @@ async def test_skip_leaves_the_note_empty(
     dispatcher: Dispatcher, bot: Bot, submitter: RecordingSubmitter
 ) -> None:
     # Arrange
-    await send(dispatcher, bot, "/start")
-    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack())
+    await complete_onboarding(dispatcher, bot, language=Language.EN)
+    await tap(dispatcher, bot, "menu.generate", Language.EN)
     await press(dispatcher, bot, OccasionCB(value=Occasion.CUSTOM).pack())
     await press(dispatcher, bot, GenreCB(value=Genre.ROCK).pack())
     await press(dispatcher, bot, VocalGenderCB(value=VoiceGender.DUET).pack())

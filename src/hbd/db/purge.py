@@ -20,14 +20,90 @@ Operator free text      ``admin_audit_log.reason_text``, nulled         90 days
 Audited actions         ``admin_audit_log`` rows, deleted outright      730 days
 Admin sessions          ``admin_sessions`` rows, deleted outright       12 h
 Sweep records           ``purge_runs``, deleted outright                12 months
+Vendor call telemetry   ``vendor_usage``, deleted outright              13 months
+Bot membership events   ``bot_membership_events``, deleted outright     13 months
+Payment RPC journal     ``payme_rpc_log``, deleted outright             90 days
+Terminal unpaid intents ``payment_intents`` not ``paid``, deleted       13 months
+Broadcast delivery log  ``broadcast_recipients``, deleted outright     13 months
 ======================  ==============================================  ==========
 
-The last row is not customer data — it is this job's own audit trail, swept by the same
-run so the bookkeeping cannot outgrow the thing it books. The three admin rows above it
-live in :mod:`hbd.db.purge_admin`, because they are the only sweeps that have to know
+The last six rows are not customer data. ``purge_runs`` is this job's own audit trail,
+swept by the same run so the bookkeeping cannot outgrow the thing it books; ``vendor_usage``
+is the vendor-spend telemetry the admin panel's Vendors screen reads, kept on a cutoff
+rather than a clock because it holds nothing about anybody (see
+:data:`VENDOR_USAGE_RETENTION_DAYS`); ``bot_membership_events`` is the churn transition log
+(revision 0017), kept on a cutoff for the same reason and NOT on a clock — the identity it
+carries comes off through ``/forget``'s anonymisation arm rather than on any schedule, and
+the cutoff bounds how long an account id sits there as defence in depth beside that arm,
+never as a substitute for it (see :data:`BOT_MEMBERSHIP_RETENTION_DAYS`). The next two
+arrived with the redirect payment rail (revision 0023) and are cutoffs for the same
+reason again: ``payme_rpc_log`` is the journal of inbound calls from the rail and holds
+no telegram id, no request body and no header at all (see
+:data:`PAYME_RPC_LOG_RETENTION_DAYS`), while ``payment_intents`` is swept only where it
+is TERMINAL AND UNPAID — a ``paid`` intent is never deleted, because it is the join
+between a rail-side transaction and the receipt it paid for and the rail may still ask
+us about it (see :data:`PAYMENT_INTENT_RETENTION_DAYS`). The last arrived with the
+broadcast tables (revision 0024) and is ``bot_membership_events``' shape exactly:
+``broadcast_recipients`` carries a ``telegram_user_id``, so the identity comes off it
+through ``/forget``'s anonymisation arm rather than on any schedule, and this cutoff
+bounds how long an account id sits there as defence in depth beside that arm, never as a
+substitute for it (see :data:`BROADCAST_RECIPIENT_RETENTION_DAYS`).
+
+**THREE TABLES ADDED BY THE DASHBOARD WORK ARE DELIBERATELY UNSWEPT, and their absence from
+the table above is a decision rather than an oversight** — the same standing instruction the
+``user_profiles`` paragraph below carries, and for the same reason: an unswept table nobody
+argued about is how a retention gap starts.
+
+* ``user_activity_snapshots`` (0018). One row per UTC day of aggregate counts, so growth is
+  365 rows a year and there is nothing to bound; the long history IS the product, and a
+  cutoff would delete exactly the year-over-year comparison the table exists to make
+  possible. No column is keyed to an account, so there is no personal data to be obliged to
+  delete.
+* ``vendor_balances`` (0019). Bounded BY CONSTRUCTION: its primary key is a five-member enum
+  crossed with a boolean, so it holds at most ten rows ever and rows are UPDATEd in place
+  rather than appended. A cutoff here would be a scheduled no-op over a three-row table and a
+  ``purge_runs`` counter that is permanently zero. The history a cache discards is not lost:
+  every probe also writes a ``vendor_usage`` row with ``operation=HEALTH``, which the
+  400-day cutoff above already covers.
+* ``topup_purchases`` (0020). A RECEIPT, on the same footing as ``plan_purchases`` and
+  ``credit_ledger`` — it answers "was this customer charged for a song they never got?"
+  months after the recipient's name, the note and the audio are lawfully gone, and an audit
+  trail that deletes itself on a schedule cannot answer a dispute about the period it just
+  erased. Erased by ANONYMISATION on request, never by a clock.
+* ``payme_transactions`` (0023). A FOURTH table on ``topup_purchases``' argument, and the
+  strongest instance of it: this is what the payment RAIL says it charged, which is the
+  only record that can answer "they say they took 7 000 soʼm from this card; did we ever
+  grant anything for it?" long after the recipient's name, the customer's note and the
+  audio are lawfully gone. The rail can also ask us about ANY transaction it has ever
+  created, over an arbitrary period, through its statement call — so a row deleted on a
+  schedule is a real payment we would have to answer "never existed" about, which is the
+  one answer that loses a customer their dispute. It holds no telegram id at all: the
+  person is reachable from it only by joining through ``payment_intents``, which is
+  exactly the join ``/forget`` breaks. Growth is one row per payment actually attempted,
+  bounded by the business rather than by a sweep.
+
+Do not add a sweep for any of the four without first re-opening its classification in
+``tests/test_db/test_privacy_constraints.py``, where each one's exemption is written down.
+
+The three admin rows above them live in
+:mod:`hbd.db.purge_admin`, because they are the only sweeps that have to know
 about Postgres privileges: §12.4 revokes ``UPDATE``/``DELETE`` on ``admin_audit_log`` from
 the application role, so on a two-role deployment they go through the ``SECURITY DEFINER``
 functions migration 0007 installs.
+
+**The one personal-data table this job does not sweep is ``user_profiles``**, and its
+absence from the table above is deliberate. It carries no ``expires_at`` column because the
+contact record has no dormancy clock: it is held while the account exists and deleted
+outright by ``/forget`` (:func:`hbd.db.user_profiles.erase_profile`, which also hands the
+caller the avatar's object key so the bytes go with the row).
+``tests/test_db/test_audit_retention.py`` therefore passes over it by construction — both
+``_clocks_in_the_schema`` and ``_clocks_read_by_a_sweep`` select on a column name ending in
+``expires_at`` — and the guard that DOES cover it is
+``tests/test_db/test_privacy_constraints.py``'s ``tables_erased_on_request`` set. Do not
+add a sweep here without first moving that table out of that set: a table swept on a clock
+AND named as erased on request means the two mechanisms disagree about the same data, and
+the way that failure shows up is a number the customer was told is theirs to erase quietly
+outliving the erasure, or vanishing without one.
 
 Two design choices worth stating, because both look like mistakes until you see why:
 
@@ -79,15 +155,22 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from hbd.contracts import OrderState, Result
 from hbd.db.credits import settle_stale_debits
+from hbd.db.enums import PaymentIntentState
 from hbd.db.guard import run_guarded
 from hbd.db.models.admin_audit import AdminAuditRow
 from hbd.db.models.admin_session import AdminSessionRow
 from hbd.db.models.asset import AssetRow
+from hbd.db.models.bot_membership_event import BotMembershipEventRow
 from hbd.db.models.brief import BriefRow
+from hbd.db.models.broadcast_recipient import BroadcastRecipientRow
+from hbd.db.models.chat_message import ChatMessageRow
 from hbd.db.models.generation_attempt import GenerationAttemptRow
 from hbd.db.models.name_record import NameRecordRow
 from hbd.db.models.order import OrderRow
+from hbd.db.models.payme_rpc_log import PaymeRpcLogRow
+from hbd.db.models.payment_intent import PaymentIntentRow
 from hbd.db.models.purge_run import PurgeRunRow
+from hbd.db.models.vendor_usage import VendorUsageRow
 from hbd.db.purge_admin import (
     admin_sessions_due,
     audit_reasons_due,
@@ -107,6 +190,11 @@ __all__ = [
     "purge_expired",
     "DEFAULT_PURGE_BATCH_SIZE",
     "PURGE_RUN_RETENTION_DAYS",
+    "VENDOR_USAGE_RETENTION_DAYS",
+    "BOT_MEMBERSHIP_RETENTION_DAYS",
+    "PAYME_RPC_LOG_RETENTION_DAYS",
+    "PAYMENT_INTENT_RETENTION_DAYS",
+    "BROADCAST_RECIPIENT_RETENTION_DAYS",
     "rows_past_expiry_statements",
 ]
 
@@ -121,6 +209,108 @@ DEFAULT_PURGE_BATCH_SIZE: int = 500
 #: table that holds no personal data, so making it configurable would add a knob whose only
 #: possible effect is to lose operational history.
 PURGE_RUN_RETENTION_DAYS: Final[int] = 365
+
+#: How long ``vendor_usage`` rows are kept. Thirteen months, not twelve, so a year-over-year
+#: comparison — "is this March dearer than last March?" — still has last March to compare
+#: against on the day it is asked.
+#:
+#: Outside ``RetentionPolicy`` for the same reason as the constant above, and it is worth
+#: being explicit about why, because this table's exclusion is the stronger claim: every
+#: column on ``vendor_usage`` is a closed enum, an integer, a machine id or a bounded error
+#: code, so there is no text about a person anywhere in it and no published customer
+#: commitment to tune. It is a cutoff that bounds an internal telemetry table's growth, not a
+#: legal clock — which is also why no column on that table is named ``*_expires_at``: that
+#: suffix is reserved for retention clocks and obliges a sweep BY NAME in
+#: ``tests/test_db/test_audit_retention.py``.
+VENDOR_USAGE_RETENTION_DAYS: Final[int] = 400
+
+#: How long ``bot_membership_events`` rows are kept. Thirteen months, and for a reason the
+#: constant above only half shares: a year-over-year CHURN comparison — "did we lose more
+#: customers this March than last?" — needs last March to still be there on the day it is
+#: asked, and unlike vendor spend there is no invoice anywhere else that could answer it.
+#:
+#: Outside ``RetentionPolicy`` for :data:`PURGE_RUN_RETENTION_DAYS`' stated reason: the
+#: policy holds periods for CUSTOMER data, every one of which is a published legal
+#: commitment an operator may tune, and a knob on this one could only ever lose operational
+#: history. It is a CUTOFF on ``at`` rather than a per-row clock, which is why no column on
+#: that table is named ``*_expires_at`` — that suffix obliges a sweep BY NAME in
+#: ``tests/test_db/test_audit_retention.py`` and would claim a legal schedule this table does
+#: not have.
+#:
+#: **This cutoff is not the erasure route, and must never be mistaken for one.** Unlike
+#: ``vendor_usage``, that table carries a ``telegram_user_id``, and the way a customer's
+#: identity leaves it is ``/forget``'s anonymisation arm, which nulls the id in place and
+#: keeps the row so the day counts survive. The cutoff bounds how long an id can sit there
+#: at all, which is defence in depth beside that arm rather than a substitute for it.
+BOT_MEMBERSHIP_RETENTION_DAYS: Final[int] = 400
+
+
+#: How long ``payme_rpc_log`` rows are kept. Ninety days, and deliberately the SHORTEST bound
+#: in this module, against 400 for the two telemetry tables above.
+#:
+#: The questions this journal answers are asked DURING an incident and in the fortnight after
+#: it — "which four of those eleven calls did we refuse, and with what code?" — and a
+#: certification dispute still open after a quarter will not be settled by a row in it. The
+#: money questions are answered by ``payme_transactions``, which is on no bound at all.
+#:
+#: A CUTOFF on ``at``, not a per-row clock, and outside ``RetentionPolicy`` for
+#: :data:`PURGE_RUN_RETENTION_DAYS`' stated reason: that policy holds periods for CUSTOMER
+#: data, every one of which is a published legal commitment an operator may tune. This table
+#: holds none — no telegram id, no request body, no header, so every column is a method name,
+#: an opaque reference, a machine id, an integer or the address of PAYME's own server — which
+#: is exactly ``vendor_usage``'s argument. That is also why no column on it is named
+#: ``*_expires_at``: the suffix obliges a sweep BY NAME in
+#: ``tests/test_db/test_audit_retention.py`` and would claim a legal schedule this table does
+#: not have.
+PAYME_RPC_LOG_RETENTION_DAYS: Final[int] = 90
+
+#: How long a TERMINAL UNPAID ``payment_intents`` row is kept. Thirteen months, matching the
+#: two cutoffs above so that a year-over-year funnel comparison — "did more people abandon the
+#: payment page this March than last?" — still has last March to compare against.
+#:
+#: **The predicate is narrow on purpose, and the narrowness is the whole decision.** It sweeps
+#: ``state IN ('cancelled', 'expired')`` and nothing else. A ``paid`` intent is NEVER deleted:
+#: it is the join between a rail-side transaction and the receipt and credit grant written in
+#: the same commit, and the rail may still ask about that transaction through its statement
+#: call, which means a purged row turns a real payment into one we would answer "never
+#: existed" about. A ``pending`` or ``awaiting`` intent is not swept either, because it is
+#: live — expiry moves it to ``expired`` first, which is a different operation with a
+#: different clock (``valid_until``, a BUSINESS clock) and belongs to the payment gateway
+#: rather than to this job.
+#:
+#: A CUTOFF on ``created_at``, not a per-row clock, for :data:`VENDOR_USAGE_RETENTION_DAYS`'
+#: reason: it bounds the growth of a table that gets a row every time anybody opens a payment
+#: page, most of which are never paid. Like ``bot_membership_events`` and unlike
+#: ``vendor_usage`` it CAN carry a ``telegram_user_id``, and the way that id leaves is
+#: ``/forget``'s anonymisation arm in :mod:`hbd.db.credit_erasure` — this cutoff is defence in
+#: depth beside it and never a substitute for it.
+PAYMENT_INTENT_RETENTION_DAYS: Final[int] = 400
+
+#: How long a ``broadcast_recipients`` row is kept. Thirteen months, matching the three
+#: cutoffs above so that a year-over-year campaign comparison — "did last spring's
+#: announcement reach more people than this one?" — still has last spring to compare against
+#: on the day it is asked. Nothing else can answer it: the counters on ``broadcasts`` are a
+#: rollup of these rows, and a campaign whose ledger has aged out keeps its totals while
+#: losing the ability to say WHICH sends failed and why.
+#:
+#: **This is the fastest-growing table in the schema**, one row per account per campaign, so
+#: it is the one where an unbounded log would actually cost something: a weekly send to forty
+#: thousand accounts is two million rows a year on its own.
+#:
+#: A CUTOFF on ``created_at`` — the instant the audience was materialised — and not a per-row
+#: clock, for :data:`VENDOR_USAGE_RETENTION_DAYS`' stated reason: it bounds a log's growth
+#: rather than keeping a published legal promise, so it is outside ``RetentionPolicy``, where
+#: every period is a customer commitment an operator may tune. Which is also why no column on
+#: that table is named ``*_expires_at``: that suffix obliges a sweep BY NAME in
+#: ``tests/test_db/test_audit_retention.py`` and would claim a legal schedule this table does
+#: not have.
+#:
+#: **This cutoff is not the erasure route, and must never be mistaken for one** — the same
+#: warning :data:`BOT_MEMBERSHIP_RETENTION_DAYS` carries, and for the same reason. These rows
+#: hold a ``telegram_user_id``, and the way a customer's identity leaves them is ``/forget``'s
+#: anonymisation arm in :mod:`hbd.db.credit_erasure`, which nulls the id in place and keeps
+#: the row so a completed campaign's arithmetic does not change retroactively.
+BROADCAST_RECIPIENT_RETENTION_DAYS: Final[int] = 400
 
 
 class PurgeReport(BaseModel):
@@ -150,6 +340,27 @@ class PurgeReport(BaseModel):
     #: IP addresses; the sweep existed and had no caller until this pass.
     admin_sessions_deleted: int = Field(default=0, ge=0)
     purge_runs_deleted: int = Field(default=0, ge=0)
+    #: ``vendor_usage`` rows past the 400-day cutoff. Counted like every other sweep — a
+    #: sweep whose number is not reported is a backlog the panel renders as zero.
+    vendor_usage_deleted: int = Field(default=0, ge=0)
+    #: ``bot_membership_events`` rows past the 400-day cutoff. Counted like every other
+    #: sweep, and worth one line on why it is a sweep at all: the churn SERIES lives in that
+    #: table, so this number is the only thing that says how much of it has aged out.
+    membership_events_deleted: int = Field(default=0, ge=0)
+    chat_bodies_purged: int = Field(default=0, ge=0)
+    chat_messages_deleted: int = Field(default=0, ge=0)
+    #: ``payme_rpc_log`` rows past the 90-day cutoff. Counted like every other sweep — a
+    #: sweep whose number is not reported is a backlog the panel renders as zero.
+    payme_rpc_rows_deleted: int = Field(default=0, ge=0)
+    #: TERMINAL UNPAID ``payment_intents`` past the 400-day cutoff. Counted separately from
+    #: everything else here because it is the one number that says how many payment pages
+    #: were opened and abandoned — a funnel fact as much as a housekeeping one.
+    payment_intents_deleted: int = Field(default=0, ge=0)
+    #: ``broadcast_recipients`` rows past the 400-day cutoff. Counted like every other sweep,
+    #: and this is the count most likely to be the one that matters: the table takes a row per
+    #: account per campaign, so a sweep that quietly stops keeping up shows here as a small
+    #: number beside a large backlog long before it shows anywhere else.
+    broadcast_recipients_deleted: int = Field(default=0, ge=0)
     #: Open credit debits the sweep closed — refunded, or consumed when the kit was already
     #: rendered. Not a retention clock and not personal data; it rides this run because this
     #: is the transaction the worker already schedules. Deliberately NOT added to
@@ -173,6 +384,13 @@ class PurgeReport(BaseModel):
             self.audit_rows_deleted,
             self.admin_sessions_deleted,
             self.purge_runs_deleted,
+            self.vendor_usage_deleted,
+            self.membership_events_deleted,
+            self.chat_bodies_purged,
+            self.chat_messages_deleted,
+            self.payme_rpc_rows_deleted,
+            self.payment_intents_deleted,
+            self.broadcast_recipients_deleted,
             self.stale_debits_settled,
         )
 
@@ -269,6 +487,25 @@ async def _purge(
         runs = await _purge_purge_runs(
             session, cutoff=now - timedelta(days=PURGE_RUN_RETENTION_DAYS), limit=batch_size
         )
+        vendor_usage = await _purge_vendor_usage(
+            session, cutoff=now - timedelta(days=VENDOR_USAGE_RETENTION_DAYS), limit=batch_size
+        )
+        membership_events = await _purge_membership_events(
+            session, cutoff=now - timedelta(days=BOT_MEMBERSHIP_RETENTION_DAYS), limit=batch_size
+        )
+        chat_bodies = await _purge_chat_bodies(session, now=now, limit=batch_size)
+        chat_messages = await _purge_chat_messages(session, now=now, limit=batch_size)
+        payme_rpc_rows = await _purge_payme_rpc_log(
+            session, cutoff=now - timedelta(days=PAYME_RPC_LOG_RETENTION_DAYS), limit=batch_size
+        )
+        intents = await _purge_terminal_intents(
+            session, cutoff=now - timedelta(days=PAYMENT_INTENT_RETENTION_DAYS), limit=batch_size
+        )
+        recipients = await _purge_broadcast_recipients(
+            session,
+            cutoff=now - timedelta(days=BROADCAST_RECIPIENT_RETENTION_DAYS),
+            limit=batch_size,
+        )
         # Last, and inside the same transaction: it writes ledger rows rather than deleting
         # anything, so a purge that fails half way must take these back with it.
         debits = await settle_stale_debits(session, now=now, limit=batch_size, policy=entitlements)
@@ -288,6 +525,13 @@ async def _purge(
         audit_rows_deleted=audit_rows,
         admin_sessions_deleted=admin_sessions,
         purge_runs_deleted=runs,
+        vendor_usage_deleted=vendor_usage,
+        membership_events_deleted=membership_events,
+        chat_bodies_purged=chat_bodies,
+        chat_messages_deleted=chat_messages,
+        payme_rpc_rows_deleted=payme_rpc_rows,
+        payment_intents_deleted=intents,
+        broadcast_recipients_deleted=recipients,
         stale_debits_settled=debits,
     )
     # A purge that runs and does nothing is as important to see as one that deletes 40k
@@ -355,6 +599,100 @@ def _purge_runs_due(cutoff: datetime) -> sa.ColumnElement[bool]:
     return PurgeRunRow.ran_at <= cutoff
 
 
+def _vendor_usage_due(cutoff: datetime) -> sa.ColumnElement[bool]:
+    """Telemetry rows written before ``cutoff``.
+
+    On ``created_at``, not on an ``*_expires_at`` column, and that is the whole difference
+    between this and the clocks above: a retention clock is stamped per row by its writer
+    from a published policy, while this is a cutoff applied at sweep time to a table holding
+    no personal data. Naming a column ``expires_at`` there would enlist ``vendor_usage`` in
+    ``test_audit_retention.py``'s clock inventory and claim a legal schedule this table does
+    not have.
+    """
+    return VendorUsageRow.created_at <= cutoff
+
+
+def _membership_events_due(cutoff: datetime) -> sa.ColumnElement[bool]:
+    """Churn transitions observed before ``cutoff``.
+
+    On ``at`` — the instant the transition happened — and not on an ``*_expires_at`` column,
+    for the same reason :func:`_vendor_usage_due` is on ``created_at``: this is a cutoff
+    applied at sweep time to bound a log's growth, not a per-row clock stamped by a writer
+    from a published policy. The difference from ``vendor_usage`` worth naming is that these
+    rows CAN carry a ``telegram_user_id``, and the way that id leaves is ``/forget``'s
+    anonymisation, not this predicate.
+    """
+    return BotMembershipEventRow.at <= cutoff
+
+
+def _payme_rpc_log_due(cutoff: datetime) -> sa.ColumnElement[bool]:
+    """Inbound rail calls journalled before ``cutoff``.
+
+    On ``at`` — the instant the call was answered — and not on an ``*_expires_at`` column,
+    for the reason :func:`_vendor_usage_due` is on ``created_at``: this is a cutoff applied
+    at sweep time to bound a journal's growth, not a per-row clock stamped by a writer from
+    a published policy. The claim is stronger here than it is for ``vendor_usage``, because
+    that table merely happens to hold no telegram id while this one is DESIGNED to hold no
+    identifier of a person at all — no id, no request body, no header.
+    """
+    return PaymeRpcLogRow.at <= cutoff
+
+
+def _terminal_intents_due(cutoff: datetime) -> sa.ColumnElement[bool]:
+    """Payment intents opened before ``cutoff`` that ended without money changing hands.
+
+    Two terms, and the second is the whole point. On ``created_at`` for
+    :func:`_vendor_usage_due`'s reason — bounded growth, not a legal clock — AND on a
+    terminal-unpaid state, because **a ``paid`` intent must never be deleted**: it is the
+    join between a rail-side transaction and the receipt and credit grant written in the
+    same commit, and the rail may still ask about that transaction through its statement
+    call. A purged row would turn a real payment into one we answer "never existed" about.
+
+    ``pending`` and ``awaiting`` are excluded because they are LIVE. Expiry moves a lapsed
+    ``pending`` intent to ``expired`` first — a different operation, on ``valid_until``,
+    which is a business clock owned by the payment gateway and not by this job — and an
+    ``awaiting`` intent is one the rail is charging a card against right now.
+
+    The states are spelled as enum members rather than literals because this is application
+    code and the enum is the single definition; the CHECK constraints in revision 0023 spell
+    the same values literally, and that asymmetry is deliberate — DDL outlives the class.
+    """
+    return sa.and_(
+        PaymentIntentRow.created_at <= cutoff,
+        PaymentIntentRow.state.in_((PaymentIntentState.CANCELLED, PaymentIntentState.EXPIRED)),
+    )
+
+
+def _broadcast_recipients_due(cutoff: datetime) -> sa.ColumnElement[bool]:
+    """Delivery rows materialised before ``cutoff``.
+
+    On ``created_at`` — the instant the audience was frozen — and not on an ``*_expires_at``
+    column, for the reason :func:`_vendor_usage_due` is on ``created_at``: this is a cutoff
+    applied at sweep time to bound a log's growth, not a per-row clock stamped by a writer
+    from a published policy. The state is deliberately NOT part of the predicate, unlike
+    :func:`_terminal_intents_due`: a row still ``PENDING`` after thirteen months belongs to a
+    campaign nobody is going to finish, and excluding it would leave exactly the abandoned
+    expansion this cutoff exists to bound.
+
+    The difference from ``vendor_usage`` worth naming is the one
+    :func:`_membership_events_due` names: these rows CAN carry a ``telegram_user_id``, and
+    the way that id leaves is ``/forget``'s anonymisation, not this predicate.
+    """
+    return BroadcastRecipientRow.created_at <= cutoff
+
+
+def _chat_bodies_due(now: datetime) -> sa.ColumnElement[bool]:
+    return sa.and_(
+        ChatMessageRow.text_expires_at <= now,
+        ChatMessageRow.body.is_not(None),
+        ChatMessageRow.body_purged_at.is_(None),
+    )
+
+
+def _chat_messages_due(now: datetime) -> sa.ColumnElement[bool]:
+    return ChatMessageRow.expires_at <= now
+
+
 def rows_past_expiry_statements(
     *,
     now: datetime,
@@ -392,6 +730,49 @@ def rows_past_expiry_statements(
         (
             "purge_runs_deleted",
             _count_of(PurgeRunRow, _purge_runs_due(now - timedelta(days=PURGE_RUN_RETENTION_DAYS))),
+        ),
+        (
+            "vendor_usage_deleted",
+            _count_of(
+                VendorUsageRow,
+                _vendor_usage_due(now - timedelta(days=VENDOR_USAGE_RETENTION_DAYS)),
+            ),
+        ),
+        (
+            "membership_events_deleted",
+            _count_of(
+                BotMembershipEventRow,
+                _membership_events_due(now - timedelta(days=BOT_MEMBERSHIP_RETENTION_DAYS)),
+            ),
+        ),
+        (
+            "chat_bodies_purged",
+            _count_of(ChatMessageRow, _chat_bodies_due(now)),
+        ),
+        (
+            "chat_messages_deleted",
+            _count_of(ChatMessageRow, _chat_messages_due(now)),
+        ),
+        (
+            "payme_rpc_rows_deleted",
+            _count_of(
+                PaymeRpcLogRow,
+                _payme_rpc_log_due(now - timedelta(days=PAYME_RPC_LOG_RETENTION_DAYS)),
+            ),
+        ),
+        (
+            "payment_intents_deleted",
+            _count_of(
+                PaymentIntentRow,
+                _terminal_intents_due(now - timedelta(days=PAYMENT_INTENT_RETENTION_DAYS)),
+            ),
+        ),
+        (
+            "broadcast_recipients_deleted",
+            _count_of(
+                BroadcastRecipientRow,
+                _broadcast_recipients_due(now - timedelta(days=BROADCAST_RECIPIENT_RETENTION_DAYS)),
+            ),
         ),
     )
 
@@ -667,4 +1048,181 @@ async def _purge_purge_runs(session: AsyncSession, *, cutoff: datetime, limit: i
     if not due:
         return 0
     await session.execute(sa.delete(PurgeRunRow).where(PurgeRunRow.id.in_(due)))
+    return len(due)
+
+
+async def _purge_vendor_usage(session: AsyncSession, *, cutoff: datetime, limit: int) -> int:
+    """Delete vendor telemetry older than ``cutoff``. Bounded growth, not a legal clock.
+
+    One row is written per vendor call, which on a busy order is half a dozen, so this table
+    grows faster than anything else the sweep touches and would eventually cost more to store
+    than the orders it accounts for. Thirteen months is the shortest window that still
+    answers "is this month dearer than the same month last year", which is most of what an
+    operator opens the Vendors screen to find out.
+
+    Nothing personal is deleted here — see :data:`VENDOR_USAGE_RETENTION_DAYS` — so unlike
+    the identity sweeps there is no proof-of-purge column to stamp and nothing to null in
+    place: the row goes whole.
+    """
+    due = await _ids_due(
+        session,
+        sa.select(VendorUsageRow.id)
+        .where(_vendor_usage_due(cutoff))
+        .order_by(VendorUsageRow.created_at)
+        .limit(limit),
+    )
+    if not due:
+        return 0
+    await session.execute(sa.delete(VendorUsageRow).where(VendorUsageRow.id.in_(due)))
+    return len(due)
+
+
+async def _purge_membership_events(session: AsyncSession, *, cutoff: datetime, limit: int) -> int:
+    """Delete churn transitions older than ``cutoff``. Bounded growth, not a legal clock.
+
+    Thirteen months is the shortest window that still answers "did we lose more customers
+    this March than last March", which is the whole reason the transition log exists rather
+    than the denormalised ``users.blocked_bot_at`` gauge alone.
+
+    Nothing here is nulled in place, unlike the identity sweeps: the row goes whole. The
+    ``telegram_user_id`` these rows can carry is removed on request by
+    ``hbd.db.credit_erasure.forget_account``'s anonymisation arm — see
+    :data:`BOT_MEMBERSHIP_RETENTION_DAYS` — and this cutoff bounds how long one can sit here
+    at all rather than standing in for that.
+    """
+    due = await _ids_due(
+        session,
+        sa.select(BotMembershipEventRow.id)
+        .where(_membership_events_due(cutoff))
+        .order_by(BotMembershipEventRow.at)
+        .limit(limit),
+    )
+    if not due:
+        return 0
+    await session.execute(sa.delete(BotMembershipEventRow).where(BotMembershipEventRow.id.in_(due)))
+    return len(due)
+
+
+async def _purge_payme_rpc_log(session: AsyncSession, *, cutoff: datetime, limit: int) -> int:
+    """Delete rail-call journal rows older than ``cutoff``. Bounded growth, not a legal clock.
+
+    Ninety days rather than the thirteen months every other cutoff here uses, because this
+    journal answers incident questions rather than historical ones — see
+    :data:`PAYME_RPC_LOG_RETENTION_DAYS`. It is also the fastest-growing table on the payment
+    path: the rail resends every call it does not get a clean answer to, so a single stuck
+    transaction can write dozens of rows on its own.
+
+    Nothing personal is deleted here — the table holds no telegram id, no request body and no
+    header — so unlike the identity sweeps there is no proof-of-purge column to stamp and
+    nothing to null in place: the row goes whole.
+    """
+    due = await _ids_due(
+        session,
+        sa.select(PaymeRpcLogRow.id)
+        .where(_payme_rpc_log_due(cutoff))
+        .order_by(PaymeRpcLogRow.at)
+        .limit(limit),
+    )
+    if not due:
+        return 0
+    await session.execute(sa.delete(PaymeRpcLogRow).where(PaymeRpcLogRow.id.in_(due)))
+    return len(due)
+
+
+async def _purge_terminal_intents(session: AsyncSession, *, cutoff: datetime, limit: int) -> int:
+    """Delete abandoned payment intents older than ``cutoff``. **Never a paid one.**
+
+    The predicate is :func:`_terminal_intents_due`, which carries the argument: a ``paid``
+    intent is the join between a rail-side transaction and the receipt it paid for, and the
+    rail may still ask about that transaction, so deleting one would make us answer "that
+    payment never existed" about money somebody really paid. Only ``cancelled`` and
+    ``expired`` rows — payment pages that were opened and never paid — are swept.
+
+    ``payme_transactions`` is on NO bound at all and is deliberately untouched by this sweep
+    or any other; see the module docstring. The rows deleted here therefore never have a
+    transaction pointing at them: a transaction exists only where the rail created one, which
+    moves the intent to ``awaiting`` and then to ``paid`` or back to ``pending``, and an
+    intent that reached ``paid`` is excluded above. A ``cancelled`` intent CAN have a
+    cancelled transaction behind it, and the transaction outliving the intent is the intended
+    asymmetry rather than an oversight — the money record survives the offer record, exactly
+    as a receipt survives a quote.
+
+    The row goes whole: there is nothing personal to null in place, because ``/forget`` has
+    already nulled the only column that could be, months or years earlier.
+    """
+    due = await _ids_due(
+        session,
+        sa.select(PaymentIntentRow.id)
+        .where(_terminal_intents_due(cutoff))
+        .order_by(PaymentIntentRow.created_at)
+        .limit(limit),
+    )
+    if not due:
+        return 0
+    await session.execute(sa.delete(PaymentIntentRow).where(PaymentIntentRow.id.in_(due)))
+    return len(due)
+
+
+async def _purge_broadcast_recipients(
+    session: AsyncSession, *, cutoff: datetime, limit: int
+) -> int:
+    """Delete delivery rows older than ``cutoff``. Bounded growth, not a legal clock.
+
+    Thirteen months for :data:`BROADCAST_RECIPIENT_RETENTION_DAYS`' stated reason, and this
+    is the sweep whose ``batch_size`` bound earns its keep: one campaign can write forty
+    thousand rows in an afternoon, so an unbounded DELETE here would take a lock on the
+    largest table in the schema.
+
+    The row goes whole, unlike the identity sweeps: there is nothing left to null in place,
+    because ``/forget`` has already nulled the only column that could be — see
+    :func:`hbd.db.credit_erasure.forget_account`, which is the erasure route this cutoff
+    stands beside rather than replaces. The ``broadcasts`` parent is deliberately untouched:
+    its six counters are the campaign's arithmetic and they must not change retroactively
+    because the ledger behind them aged out.
+    """
+    due = await _ids_due(
+        session,
+        sa.select(BroadcastRecipientRow.id)
+        .where(_broadcast_recipients_due(cutoff))
+        .order_by(BroadcastRecipientRow.created_at)
+        .limit(limit),
+    )
+    if not due:
+        return 0
+    await session.execute(sa.delete(BroadcastRecipientRow).where(BroadcastRecipientRow.id.in_(due)))
+    return len(due)
+
+
+async def _purge_chat_bodies(session: AsyncSession, *, now: datetime, limit: int) -> int:
+    """Null personal text on chat lines past text_expires_at, stamping body_purged_at."""
+    due = await _ids_due(
+        session,
+        sa.select(ChatMessageRow.id)
+        .where(_chat_bodies_due(now))
+        .order_by(ChatMessageRow.text_expires_at)
+        .limit(limit),
+    )
+    if not due:
+        return 0
+    statement = (
+        sa.update(ChatMessageRow)
+        .where(ChatMessageRow.id.in_(due))
+        .values(body=None, body_purged_at=now)
+    )
+    await session.execute(statement)
+    return len(due)
+
+
+async def _purge_chat_messages(session: AsyncSession, *, now: datetime, limit: int) -> int:
+    """Delete the chat message metadata skeleton past expires_at."""
+    due = await _ids_due(
+        session,
+        sa.select(ChatMessageRow.id)
+        .where(_chat_messages_due(now))
+        .order_by(ChatMessageRow.expires_at)
+        .limit(limit),
+    )
+    if not due:
+        return 0
+    await session.execute(sa.delete(ChatMessageRow).where(ChatMessageRow.id.in_(due)))
     return len(due)

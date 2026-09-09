@@ -97,8 +97,8 @@ export function FilterBar({
  *
  * The `×` used to be `--fg-2` behind a contrast waiver. It is `--ink-muted` now: it is a small
  * mark next to words that already say "remove filter …", so it never needed to be the dimmest
- * thing on screen, and at 4.70:1 worst case it is legible without a policed token or a waiver
- * entry.
+ * thing on screen, and at 4.73:1 worst case (across all four cells) it is legible without a
+ * policed token or a waiver entry.
  *
  * Hover swaps the whole GROUND to `--error-tint` and takes the `×` to `--error`, rather than
  * reddening the `×` alone on the brand tint. Both readings pass, but only this one is

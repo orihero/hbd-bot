@@ -9,6 +9,12 @@ ffprobe will actually parse.
 
 The fake still runs ``guard_plan``, so a plan that would be rejected by the vendor is
 rejected here too, at test speed and for free.
+
+It also **records its usage**, with ``is_fake=True`` and no cost. A demo run that wrote no
+rows at all would be indistinguishable from a deployment nobody instrumented, which is the
+one confusion the vendor panel exists to prevent; a demo run that wrote priced rows would
+be worse still. So the calls are visible, the flag excludes them from spend, and
+``vendor=FAKE`` keeps them out of every real vendor's total.
 """
 
 from __future__ import annotations
@@ -25,11 +31,14 @@ from hbd.contracts import (
     ProviderHealth,
     RenderedAudio,
     Result,
+    Vendor,
+    VendorOperation,
     err,
     ok,
 )
 from hbd.errors import HbdError, ValidationError
 from hbd.providers.music.payload import guard_plan
+from hbd.usage import LOGGING_USAGE_SINK, UsageSink, VendorUsage
 
 __all__ = [
     "FakeMusicProvider",
@@ -104,10 +113,12 @@ class FakeMusicProvider:
         clip_duration_s: float = DEFAULT_FAKE_CLIP_S,
         failure: HbdError | None = None,
         health_state: HealthState = HealthState.HEALTHY,
+        usage: UsageSink = LOGGING_USAGE_SINK,
     ) -> None:
         self._clip_duration_s = clip_duration_s
         self._failure = failure
         self._health_state = health_state
+        self._usage = usage
         self._calls: list[FakeCall] = []
         self._render_count = 0
 
@@ -115,6 +126,30 @@ class FakeMusicProvider:
     def calls(self) -> tuple[FakeCall, ...]:
         """Recorded calls, oldest first. A snapshot — mutating it changes nothing."""
         return tuple(self._calls)
+
+    async def _record(
+        self,
+        *,
+        operation: VendorOperation,
+        is_success: bool,
+        plan: CompositionPlan,
+        audio: RenderedAudio | None = None,
+        error: HbdError | None = None,
+    ) -> None:
+        """Recorded, flagged fake, and never priced. No socket was opened to cost money."""
+        await self._usage.record(
+            VendorUsage(
+                vendor=Vendor.FAKE,
+                operation=operation,
+                provider=self.name,
+                is_success=is_success,
+                model_id=None,
+                is_fake=True,
+                error_code=error.error_code.value if error is not None else None,
+                audio_ms=plan.total_duration_ms if audio is not None else None,
+                response_bytes=len(audio.data) if audio is not None else None,
+            )
+        )
 
     def _render(self, plan: CompositionPlan) -> RenderedAudio:
         self._render_count += 1
@@ -137,10 +172,22 @@ class FakeMusicProvider:
         )
         guarded = guard_plan(plan)
         if isinstance(guarded, Err):
+            # A plan this adapter refused never became a call, so it is not one to record —
+            # the same line the live adapter draws around ``guard_plan``.
             return guarded
         if self._failure is not None:
+            await self._record(
+                operation=VendorOperation.MUSIC_COMPOSE,
+                is_success=False,
+                plan=plan,
+                error=self._failure,
+            )
             return err(self._failure)
-        return ok(self._render(plan))
+        audio = self._render(plan)
+        await self._record(
+            operation=VendorOperation.MUSIC_COMPOSE, is_success=True, plan=plan, audio=audio
+        )
+        return ok(audio)
 
     async def inpaint(
         self,
@@ -172,10 +219,29 @@ class FakeMusicProvider:
         if isinstance(guarded, Err):
             return guarded
         if self._failure is not None:
+            await self._record(
+                operation=VendorOperation.MUSIC_INPAINT,
+                is_success=False,
+                plan=plan,
+                error=self._failure,
+            )
             return err(self._failure)
-        return ok(self._render(plan))
+        audio = self._render(plan)
+        await self._record(
+            operation=VendorOperation.MUSIC_INPAINT, is_success=True, plan=plan, audio=audio
+        )
+        return ok(audio)
 
     async def health(self) -> Result[ProviderHealth]:
+        await self._usage.record(
+            VendorUsage(
+                vendor=Vendor.FAKE,
+                operation=VendorOperation.HEALTH,
+                provider=self.name,
+                is_success=self._health_state is not HealthState.UNAVAILABLE,
+                is_fake=True,
+            )
+        )
         return ok(
             ProviderHealth(
                 name=self.name,

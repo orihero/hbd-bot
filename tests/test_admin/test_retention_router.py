@@ -156,6 +156,8 @@ async def test_the_response_carries_each_sweeps_own_count_and_the_run_metadata(
             audit_rows_deleted=10,
             admin_sessions_deleted=11,
             purge_runs_deleted=8,
+            vendor_usage_deleted=12,
+            membership_events_deleted=13,
         ),
         trigger=PurgeTrigger.MANUAL,
         duration_ms=1234,
@@ -180,8 +182,23 @@ async def test_the_response_carries_each_sweeps_own_count_and_the_run_metadata(
         "auditRowsDeleted": 10,
         "adminSessionsDeleted": 11,
         "purgeRunsDeleted": 8,
+        "vendorUsageDeleted": 12,
+        # Revision 0017's churn transition log, swept on the same 400-day cutoff shape as
+        # ``vendor_usage``. Present here because the endpoint publishes one number per
+        # sweep and never a total: a clock the panel cannot see is a backlog it reports as
+        # zero.
+        "membershipEventsDeleted": 13,
+        "chatBodiesPurged": 0,
+        "chatMessagesDeleted": 0,
+        # Revision 0023's two payment-rail cutoffs, here for the identical reason: the
+        # endpoint publishes one number per sweep and never a total.
+        "paymeRpcRowsDeleted": 0,
+        "paymentIntentsDeleted": 0,
+        # Revision 0024's delivery ledger, on the same 400-day cutoff shape, and the one an
+        # operator has most reason to watch: the table takes a row per account per campaign.
+        "broadcastRecipientsDeleted": 0,
     }
-    assert run["totalRowsAffected"] == 66
+    assert run["totalRowsAffected"] == 91
     assert run["trigger"] == "manual"
     assert run["triggeredByUsername"] == "owner"
     assert run["durationMs"] == 1234
@@ -421,6 +438,13 @@ async def test_an_empty_database_reports_no_backlog_rather_than_omitting_a_clock
         "auditRowsDeleted",
         "adminSessionsDeleted",
         "purgeRunsDeleted",
+        "vendorUsageDeleted",
+        "membershipEventsDeleted",
+        "chatBodiesPurged",
+        "chatMessagesDeleted",
+        "paymeRpcRowsDeleted",
+        "paymentIntentsDeleted",
+        "broadcastRecipientsDeleted",
     }
     assert set(body["rowsPastExpiry"].values()) == {0}
 

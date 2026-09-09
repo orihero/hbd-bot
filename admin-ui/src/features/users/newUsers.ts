@@ -12,9 +12,11 @@
  *    `userViewSchema` says so: "there is no signup event to date an account from". So this
  *    is "accounts that became real", not "people who opened the bot" — the same reason
  *    §11.2 refuses to head the list's date column "last seen".
- *  - **The window is closed at both ends.** `/api/users` rejects a half window with a 422
- *    ("from and to are one window; give both or neither"), and a `to` recomputed per
- *    request would widen the filter between page one and page two.
+ *  - **The window is closed at both ends.** Not because `/api/users` rejects a half one —
+ *    it accepts a lone bound now and closes the open end at the instant it was served — but
+ *    because an end recomputed per request is a DIFFERENT end per request, and this series
+ *    is bucketed by day: two pages closed at two instants can land a row in two buckets or
+ *    none. One pinned `to` is what makes the thirty buckets add up.
  *  - **A truncated page yields no series at all.** Users come back newest account first, so
  *    a partial page covers the most recent days and silently drops the older ones — a
  *    sparkline built from it would show a cliff that is an artefact of the page size. When

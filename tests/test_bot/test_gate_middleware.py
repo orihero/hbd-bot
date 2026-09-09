@@ -45,6 +45,7 @@ from hbd.errors import StorageError
 from tests.test_bot.conftest import (
     CHAT_ID,
     FIXED_MOMENT,
+    FakeProfiles,
     RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
@@ -82,7 +83,7 @@ class ExplodingEntitlements:
         self.calls += 1
         raise RuntimeError("the meter is on fire")
 
-    async def touch(self, telegram_user_id: int, *, ui_language: Language) -> Result[None]:
+    async def touch(self, telegram_user_id: int, *, ui_language: Language | None) -> Result[None]:
         raise RuntimeError("the meter is on fire")
 
 
@@ -99,6 +100,13 @@ def wire(
     deliberately PARTIAL: they implement only ``balance_for`` and ``touch``, which is
     everything the gate is permitted to call. A fake that satisfied the whole
     ``EntitlementStore`` would let a future gate start charging without a test noticing.
+
+    ``profiles`` is a real (empty) :class:`~tests.test_bot.conftest.FakeProfiles` and not
+    ``None``, because this module imports the walkers and the walkers now drive the two
+    onboarding screens. With ``profiles=None`` ``onboarding.load_identity`` fails open and
+    treats everybody as onboarded, so every walk here would take a branch that ships to
+    nobody — and the throttle and block-wall assertions below would be counting the messages
+    of a bot none of these customers can actually reach.
     """
     return BotDeps(
         settings=settings,
@@ -106,6 +114,7 @@ def wire(
         content=RecordingContentWriter(),
         clock=clock,
         entitlements=entitlements,  # type: ignore[arg-type]
+        profiles=FakeProfiles(),
     )
 
 
@@ -143,12 +152,16 @@ async def test_a_blocked_account_s_message_never_reaches_a_handler(
     submitter: RecordingSubmitter,
     clock: Callable[[], datetime],
 ) -> None:
-    """Including an account that never confirmed an order.
+    """Including an account that has no ``users`` row at all.
 
-    That is the case a rowcount-checked ``UPDATE users SET is_blocked`` would silently miss:
-    ``repository._ensure_user`` only writes a row when an order is created, so most people
-    the bot has spoken to have no row at all. The gate asks the meter about the *account*,
-    not about a row it assumes exists — and the touch drain is what gives that account a row.
+    That is the case a rowcount-checked ``UPDATE users SET is_blocked`` would silently miss.
+    There are exactly three writers of that table and none of them has run for this customer:
+    ``db.users_sql.ensure_user`` called from ``repository._create_order``, which needs a
+    confirmed order; the same function called from ``SqlUserProfiles.record_language``, which
+    needs the language question to have been answered; and ``credits.touch``, which is the
+    drain this gate feeds. Somebody who has just opened the chat has done none of the three.
+    The gate therefore asks the meter about the *account*, not about a row it assumes exists
+    — and the touch drain is what gives that account its row.
     """
     # Arrange
     credits = FakeEntitlements(is_blocked=True)
@@ -159,8 +172,10 @@ async def test_a_blocked_account_s_message_never_reaches_a_handler(
     # Act
     await send(dispatcher, bot, "/start")
 
-    # Assert — the welcome screen never went up, and the refusal did
-    assert translate("start.choose_ui_language", FALLBACK_LANGUAGE) not in texts(session)
+    # Assert — the first screen never went up, and the refusal did. The key named here MUST be
+    # one the catalogues actually define: ``translate`` degrades a missing key to the key
+    # itself, so a stale name in a ``not in`` assertion passes for ever while testing nothing.
+    assert translate("onboarding.language.prompt", FALLBACK_LANGUAGE) not in texts(session)
     assert BLOCKED_TEXTS & set(texts(session))
     assert credits.reads == [None]
 

@@ -48,6 +48,8 @@ function pulseFixture(overrides: Partial<PulseView> = {}): PulseView {
       isChatCapture: false,
       isPaymentLedger: false,
       isStateTransitionLog: false,
+      isVendorUsage: false,
+      isVendorCost: false,
     },
     ...overrides,
   };
@@ -153,6 +155,60 @@ describe("LiveScreen", () => {
 
     const cost = screen.getByText("cost telemetry").closest("[data-capability]");
     expect(cost).toHaveTextContent(NOT_INSTRUMENTED_LABEL);
+  });
+
+  it("names the two vendor absences separately — a missing writer is not a missing rate", () => {
+    // Arrange: the shipped default, in which neither probe is satisfied.
+    renderLive([{ day: "2026-09-02", total: 20, delivered: 18, failed: 1, paid: 19 }]);
+
+    // Act: read both rows of the capability ledger.
+    const usage = screen.getByText("vendor usage").closest("[data-capability]");
+    const rates = screen.getByText("vendor cost rates").closest("[data-capability]");
+
+    // Assert: two rows, two different remedies. "no rate configured" is not "not
+    // instrumented" — one asks for a deploy, the other for a setting.
+    expect(usage).toHaveAttribute("data-enabled", "false");
+    expect(usage).toHaveTextContent(NOT_INSTRUMENTED_LABEL);
+    expect(rates).toHaveAttribute("data-enabled", "false");
+    expect(rates).toHaveTextContent("no rate configured");
+  });
+
+  it("lights the vendor-usage row on its own when rows exist but nothing is priced", () => {
+    // Arrange: the state a deployment lands in the day the writer ships and before any rate
+    // is set — the one a single boolean could not express.
+    const client = makeTestQueryClient();
+    client.setQueryData(
+      queryKeys.ops.pulse(),
+      pulseFixture({
+        capabilities: {
+          isCostTelemetry: false,
+          isLatencyTelemetry: false,
+          isAssetStorageKeyRecorded: false,
+          isChatCapture: false,
+          isPaymentLedger: false,
+          isStateTransitionLog: false,
+          isVendorUsage: true,
+          isVendorCost: false,
+        },
+      }),
+    );
+    client.setQueryData(queryKeys.metrics.ordersByDay(rollingWindow(NOW)), []);
+    client.setQueryData(queryKeys.orders.list(LIVE_ORDERS_QUERY), {
+      items: [],
+      meta: { nextCursor: null, total: null, isTotalExact: null },
+    });
+
+    // Act.
+    renderWithProviders(<LiveScreen />, { client });
+
+    // Assert: instrumented, and still unpriced — and the unpriced row says which.
+    expect(screen.getByText("vendor usage").closest("[data-capability]")).toHaveAttribute(
+      "data-enabled",
+      "true",
+    );
+    const rates = screen.getByText("vendor cost rates").closest("[data-capability]");
+    expect(rates).toHaveAttribute("data-enabled", "false");
+    expect(rates).toHaveTextContent("no rate configured");
   });
 
   it("renders the failure mix with tri-state retryability", () => {

@@ -1,0 +1,42 @@
+# The ARQ worker: every generation job, and every operational action the admin panel queues.
+# This is the process that spends money, and the only one besides the bot that holds a
+# vendor credential. Same /etc/hbd/bot.env as the bot — they are one configuration.
+#
+# It shells out to ffmpeg, so PrivateDevices and MemoryDenyWriteExecute are the limit of
+# what can be locked down here without breaking the audio pipeline.
+
+[Unit]
+Description=HBD Bot — ARQ worker
+Documentation=file:///srv/hbd/deploy/README.md
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+Requires=redis-server.service
+
+[Service]
+Type=simple
+User=hbd
+Group=hbd
+WorkingDirectory=/srv/hbd
+Environment=HBD_ENV_FILE=/etc/hbd/bot.env
+ExecStart=/srv/hbd/.venv/bin/python -m arq hbd.worker.WorkerSettings
+Restart=always
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/srv/hbd/var
+
+[Install]
+WantedBy=multi-user.target

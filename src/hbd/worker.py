@@ -7,6 +7,16 @@ connection: the container, the provider pools and the bot session are all create
 
 The worker owns a ``Bot`` of its own. It never polls — it only sends — because progress
 edits and the finished kit have to reach the customer from the process that produced them.
+
+**That ``Bot`` is now also how a customer learns their PAYMENT landed, and the reason is a
+boundary rather than a convenience.** The Payme Merchant API endpoint runs as a fourth
+process (``hbd-payme.service``) holding exactly one credential — the cashbox key — and no
+Telegram token at all, which is the whole point of it being separate: the key's blast radius
+is "mints credits", not "impersonates us". So the settlement that happens over there enqueues
+:func:`hbd.runtime.payme_jobs.notify_payment_settled` and this process, which already holds a
+send-only ``Bot``, says the sentence. The same asymmetry the vendor-balance poll relies on,
+pointed the other way: there the worker holds a credential the panel must not, here it holds
+one the gateway must not.
 """
 
 from __future__ import annotations

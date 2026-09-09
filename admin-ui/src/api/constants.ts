@@ -65,10 +65,18 @@ export const MAX_ADMIN_ACCOUNTS = 500;
  * Field bounds — the models
  * -------------------------------------------------------------------------- */
 
+/**
+ * `q` longer than this is a 422 from the server, not a narrower list — see
+ * `MAX_SEARCH_CHARS` in `hbd/db/admin/sql.py`, where 64 is chosen as longer than any
+ * correlation id (32) or telegram id (19 digits). Cap the INPUT with it so a pasted
+ * paragraph is truncated in the box the operator can see, rather than rejected wholesale.
+ */
+export const MAX_SEARCH_CHARS = 64;
+
 export const MAX_CORRELATION_ID_CHARS = 128;
 export const MAX_ERROR_CODE_CHARS = 48;
 export const MAX_PROVIDER_CHARS = 64;
-export const MIN_PASSWORD_CHARS = 12;
+export const MIN_PASSWORD_CHARS = 8;
 export const MAX_PASSWORD_CHARS = 256;
 export const MAX_USERNAME_CHARS = 64;
 export const MAX_SUBJECT_ID_CHARS = 96;

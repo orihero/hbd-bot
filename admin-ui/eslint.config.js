@@ -101,23 +101,25 @@ const NAME_SAFETY_RULES = [
  * and painted characters in 41 more. Both tokens are gone. Two of the four replacements are
  * still policed, and the numbers below are MEASURED against the new palette:
  *
- *   `--ink-mark` is 3.52:1 at its worst and 4.49:1 at its best in the light palette, and
- *   3.58:1 / 6.22:1 in dark, over the full ground set (five surfaces plus the nine tints
- *   composited over the card and over the page ground). It therefore clears WCAG 1.4.11's
+ *   `--ink-mark` is 3.65:1 at its worst and 4.49:1 at its best in light, and 3.56:1 / 6.76:1
+ *   in dark, over the full ground set (five surfaces plus all nine tints composited over
+ *   every one of those surfaces) and across all FOUR cells — `gogo` and `planiq`, light and
+ *   dark. It therefore clears WCAG 1.4.11's
  *   3:1 for a graphic everywhere, and never clears 1.4.3's 4.5:1 for text taken worst-case —
  *   which is the only way a surface-agnostic component can be measured, because it does not
  *   know which ground it was dropped onto. It is a MARK colour: an aria-hidden glyph beside
  *   words that already say it, a legend swatch, a scrollbar thumb.
  *
- *   `--ink-rule` is 1.75:1 to 2.23:1 in light and 1.55:1 to 2.71:1 in dark. That is under
- *   1.4.3's 4.5:1 for text AND under 1.4.11's 3:1 for a meaningful graphic, so — unlike
+ *   `--ink-rule` is 1.81:1 to 2.23:1 in light and 1.55:1 to 2.94:1 in dark, again across all
+ *   four cells. That is under 1.4.3's 4.5:1 for text AND under 1.4.11's 3:1 for a meaningful
+ *   graphic, so — unlike
  *   `--ink-mark` — it cannot even be waived down to a glyph. It may paint a rule, a hairline
  *   or an INACTIVE control, the two cases WCAG itself puts outside the requirement, and
  *   nothing else.
  *
  * So `--ink-mark` paints glyphs and marks, `--ink-rule` paints rules and dead controls, and
- * every muted LABEL is `--ink-muted`, which clears 4.5:1 on every ground of both palettes
- * (4.70:1 at its worst). This rule is the fast half of the guard; the measuring half is
+ * every muted LABEL is `--ink-muted`, which clears 4.5:1 on every ground of every cell
+ * (4.73:1 at its worst). This rule is the fast half of the guard; the measuring half is
  * `src/styles/tokenContrast.test.ts`, which scans `src/` and fails with the real ratio. A
  * genuine mark or rule needs BOTH an `eslint-disable-next-line` here and a justified entry in
  * that file's `MARK_WAIVERS` / `RULE_WAIVERS`, whose claim is checked against the source.
@@ -127,15 +129,27 @@ const NAME_SAFETY_RULES = [
  * real consumer, not a hypothetical one, and the scan in `tokenContrast.test.ts` reads
  * `src/**\/*.css` as well so that it is measured and waived where the measuring is done.
  */
+/*
+ * The ratios in the two messages below are MEASURED, and they have been stale before: the
+ * numbers that shipped here said 3.52/4.49 light and 3.58/6.22 dark, none of which was true
+ * of the tree they were written against and none of which had ever covered `planiq`. A lint
+ * message stating four wrong ratios is the same defect as an annotation stating one — worse,
+ * because this is the text a developer reads at the exact moment they are being told not to
+ * paint prose with a mark colour. The authority is `tokens.css`'s own annotations and
+ * `src/styles/tokenContrast.test.ts`, which recompute on every run; these are the global
+ * extremes across all four cells, and the pointer is here so the next reader recomputes
+ * rather than trusts.
+ */
 const INK_MARK_MESSAGE =
-  "--ink-mark is 3.52:1 at worst and 4.49:1 at best in light (3.58:1 / 6.22:1 in dark) — it " +
-  "clears WCAG 1.4.11's 3:1 for a graphic and never 1.4.3's 4.5:1 for text, taken worst-case " +
-  "across both palettes. Use --ink-muted for anything an operator reads. If this really is a " +
-  "glyph or a mark, waive it here AND add it to MARK_WAIVERS in " +
-  "src/styles/tokenContrast.test.ts.";
+  "--ink-mark is 3.56:1 at worst and 6.76:1 at best, taken across all four cells (gogo and " +
+  "planiq, light and dark) over its full ground set — it clears WCAG 1.4.11's 3:1 for a " +
+  "graphic and never 1.4.3's 4.5:1 for text, which is the only way a surface-agnostic " +
+  "component can be measured. Use --ink-muted for anything an operator reads. If this really " +
+  "is a glyph or a mark, waive it here AND add it to MARK_WAIVERS in " +
+  "src/styles/tokenContrast.test.ts, where the number is recomputed rather than quoted.";
 
 const INK_RULE_MESSAGE =
-  "--ink-rule is 1.75:1 to 2.23:1 in light and 1.55:1 to 2.71:1 in dark — under WCAG 1.4.3's " +
+  "--ink-rule is 1.55:1 to 2.94:1 taken across all four cells — under WCAG 1.4.3's " +
   "4.5:1 for text and under 1.4.11's 3:1 for a graphic, so it clears no bar at all. Use " +
   "--ink-muted for anything an operator reads. It is legitimate ONLY for a rule, a hairline " +
   "or an inactive control, which needs a waiver here AND a justified entry in RULE_WAIVERS " +
@@ -293,6 +307,39 @@ export default tseslint.config(
       "@typescript-eslint/no-unsafe-call": "off",
       "@typescript-eslint/no-unsafe-return": "off",
       "@typescript-eslint/no-non-null-assertion": "off",
+    },
+  },
+  {
+    /*
+     * The token toolchain: the three `.mts` modules `tokenContrast.test.ts` and
+     * `tools/annotate-tokens.mts` share, plus the tool itself.
+     *
+     * They need their own block for a dull reason and are given the strict rules for a real
+     * one. The dull reason: every `files` pattern above ends in `.ts`/`.tsx`, and `.mts`
+     * matches neither — without this block the arithmetic, the ROLES table and the generator
+     * that rewrites `tokens.css` would all be invisible to `npm run lint`, which is a poor
+     * place for the contrast contract's data to live unlinted. `tools/` is in
+     * `tsconfig.json`'s `include` so that type-aware linting has a program to ask.
+     *
+     * `globals.node` because the generator is a CLI, not a browser module. The contrast fence
+     * is deliberately NOT extended here, for the same reason `tokenContrast.test.ts` is exempt
+     * from it: these files have to NAME `--ink-mark` and `--ink-rule` to declare what they are
+     * for. Naming them is the job; painting with them is what the fence forbids, and neither
+     * of these files paints anything.
+ *
+ * That exemption is only safe because the MEASURING half covers what this half cannot:
+ * `tokenContrast.test.ts`'s source walk reads `.mts` as well as `.ts`/`.tsx`/`.css`, so a
+ * `var(--ink-mark)` written into one of these modules is still measured at the bar its usage
+ * earns. It is the same split as `index.css`'s scrollbar thumb, which ESLint also cannot see.
+     */
+    files: ["src/styles/*.mts", "tools/**/*.mts"],
+    extends: [js.configs.recommended, ...tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      globals: globals.node,
+      parserOptions: {
+        project: ["./tsconfig.json"],
+        tsconfigRootDir: import.meta.dirname,
+      },
     },
   },
   {

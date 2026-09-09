@@ -193,8 +193,10 @@ export function NameStrategiesScreen(): ReactElement {
       >
         <TimeRangePicker
           value={{ from: value.from, to: value.to }}
-          /* The picker emits both bounds or neither by construction, which is what this API
-             requires: every windowed route 422s on half a window. */
+          /* The picker emits both bounds or neither by construction. Not a requirement any
+             more — every windowed route accepts a lone bound now, and `windowParams` sends
+             one — but a preset pinned to two fixed instants is what makes this screen's URL
+             mean the same population to whoever it is pasted to. */
           onChange={(next: TimeRange) => {
             patch({ from: next.from, to: next.to });
           }}

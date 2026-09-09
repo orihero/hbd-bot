@@ -199,6 +199,69 @@ export function formatCostUsd(
   return `$${costUsd.toFixed(4)}`;
 }
 
+/**
+ * What an unpriced figure says. Not `$0.00`, and not "not instrumented" either — the call
+ * WAS recorded; nothing in this deployment knows what it costs.
+ *
+ * **Two functions here bottom out in this one string** — `formatSpendUsd` with `isPriced`
+ * false, and `costSourceLabel` with a `null` source — and both are true of the same row at
+ * the same time, because the database will not let a cost exist without a source. A caller
+ * that renders the money and its provenance side by side must therefore print ONE of them
+ * for an unpriced row: `/vendors` shipped with both, and every speech group read "not priced
+ * not priced". See `VendorsScreen`'s cost column for the shape that fixes it — the value
+ * carries the absence, the provenance chip is omitted when there is no provenance to report.
+ */
+export const NOT_PRICED_LABEL = "not priced";
+
+/**
+ * `$12.34`, or "not priced", or `—`.
+ *
+ * The aggregate twin of `formatCostUsd`, and the two differ on purpose in both arguments:
+ *
+ *  - **Two decimals, not four.** A sum over a window is money an operator compares against
+ *    an invoice, and `$12.3400` reads as a precision the estimate legs do not have.
+ *    `formatCostUsd`'s four decimals stay exactly as they are for a SINGLE call, where the
+ *    third and fourth digits are the whole figure.
+ *  - **`isPriced`, not `isInstrumented`.** They are different absences and they arrive from
+ *    different probes. A vendor call can be fully recorded — latency, tokens, status — and
+ *    still carry no cost, because no rate is configured for that leg. "not instrumented"
+ *    would be a false claim about the row.
+ *
+ * `null` with `isPriced` true is the third case and renders `EMPTY_VALUE`: this deployment
+ * prices *something*, and it does not price THIS. Never `$0.00` — a zero here would say the
+ * vendor did the work for free.
+ */
+export function formatSpendUsd(costUsd: number | null | undefined, isPriced: boolean): string {
+  if (!isPriced) return NOT_PRICED_LABEL;
+  if (costUsd === null || costUsd === undefined || !Number.isFinite(costUsd)) return EMPTY_VALUE;
+  return `$${costUsd.toFixed(2)}`;
+}
+
+/**
+ * How a cost figure was arrived at, in an operator's words rather than the wire's.
+ *
+ * The word is rendered BESIDE the money and never instead of it, because the four sources
+ * are four different strengths of claim about the same `$`: a vendor-reported figure is what
+ * we will be billed, a derived one is our arithmetic over the vendor's own counts, and an
+ * estimate is our arithmetic over a quantity we chose ourselves — a requested duration, a
+ * character count we guessed. `"mixed"` says a group's legs were priced more than one way,
+ * which is a fact about the total and not a defect in it.
+ *
+ * Takes a bare `string` rather than `CostSource` so it can label a value that has already
+ * been widened by a rollup or a fixture; an unrecognised member falls through to the same
+ * answer as `null`, which is the honest one — we do not know what this cost.
+ *
+ * `null` in returns `NOT_PRICED_LABEL`, which is also what `formatSpendUsd` returns for the
+ * same row — so do not render both. That constant's note says which one to keep.
+ */
+export function costSourceLabel(source: string | null): string {
+  if (source === "vendor_reported") return "vendor-reported";
+  if (source === "derived") return "derived";
+  if (source === "estimated") return "estimated";
+  if (source === "mixed") return "mixed";
+  return NOT_PRICED_LABEL;
+}
+
 /** The same rule for `latencyMs`. */
 export function formatLatencyMs(
   latencyMs: number | null | undefined,
@@ -207,6 +270,18 @@ export function formatLatencyMs(
   if (!isInstrumented) return "not instrumented";
   return formatDurationMs(latencyMs);
 }
+
+/** The latency classification band (< 1s fast, 1-5s neutral, 5-15s slow, > 15s critical). */
+export type LatencyBand = "fast" | "neutral" | "slow" | "critical" | "unknown";
+
+export function latencyBand(ms: number | null | undefined): LatencyBand {
+  if (ms === null || ms === undefined || !Number.isFinite(ms)) return "unknown";
+  if (ms < 1_000) return "fast";
+  if (ms <= 5_000) return "neutral";
+  if (ms <= 15_000) return "slow";
+  return "critical";
+}
+
 
 /**
  * `1.4 MB`.

@@ -37,13 +37,23 @@
  * affordance still reads destructive because the hue carries it, not because it is the only
  * button in the row wearing a colour.
  *
- * ## Measured, both palettes, every pair this file can paint
+ * ## Measured, both themes of `gogo`, every pair this file can paint
+ *
+ * "Both palettes" until PQ2a, when `data-palette` became a second axis and the word stopped
+ * meaning "theme". The table below is the `gogo` palette, which is still the default and still
+ * what an operator sees; `planiq` re-points three of these tokens and its own figures live
+ * beside its block in `tokens.css`. The two that move most are worth stating here, because they
+ * are the pair this file paints: `--ink-on-brand` on `--brand-solid` is **16.12:1** there
+ * (black on PlanIQ's green, not white on magenta), and that green's own contrast against the
+ * page falls to **1.21:1**, which is why `primary` acquires a `--brand-solid-edge` ring in PQ5
+ * — a button with no boundary of its own is not a button.
  *
  * WCAG 1.4.3 wants 4.5:1 for text. Every ratio below was computed from the hexes in
  * `tokens.css`, not estimated:
  *
  *   pair                                  light    dark
- *   --ink-on-brand on --brand-solid        4.95     4.95  (--brand-solid is theme-invariant)
+ *   --ink-on-brand on --brand-solid        4.95     4.95  (--brand-solid is theme-invariant
+ *                                                          within gogo; planiq is 16.12)
  *   --brand on --brand-tint                4.82     4.60
  *   --error on --error-tint                4.71     4.64
  *   --ink-muted on --surface               5.76     7.72  (quiet, on the page ground)
@@ -89,7 +99,9 @@ const BUTTON_BASE = [
 export const buttonVariants = cva(BUTTON_BASE, {
   variants: {
     variant: {
-      /* The one action a view is for. Gogo's `--primary` verbatim under white at 4.95:1. */
+      /* The one action a view is for. In `gogo`, Gogo's `--primary` verbatim under white at
+         4.95:1; in `planiq`, PlanIQ Primary/700 under black at 16.12:1. Both pairs are
+         measured — the classes name the ROLE, so the palette decides the colour. */
       primary: "bg-brand-solid text-ink-on-brand hover:shadow-md-darker",
       /* THE idiom: a tint of the hue with the hue as the label. Also the SELECTED segment. */
       secondary: "bg-brand-tint text-brand hover:shadow-2xs-darker",

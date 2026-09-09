@@ -113,6 +113,15 @@ class Permission(StrEnum):
     ORDER_RETRY = "order.retry"
     ORDER_FORCE_DELIVER = "order.force_deliver"
     USER_BLOCK = "user.block"
+    #: The role half of ``USER_BLOCK``'s ``W+S`` cell — see the matrix note beside it.
+    USER_BLOCK_WRITE = "user.block.write"
+    CREDIT_GRANT = "credit.grant"
+    #: The role half of ``CREDIT_GRANT``'s ``W+S`` cell, for the same reason.
+    CREDIT_GRANT_WRITE = "credit.grant.write"
+    BROADCAST_READ = "broadcast.read"
+    #: The role half of ``BROADCAST_SEND``'s ``W+S`` cell — see the matrix note beside it.
+    BROADCAST_WRITE = "broadcast.write"
+    BROADCAST_SEND = "broadcast.send"
     MODERATION_REVEAL = "moderation.reveal"
     MODERATION_DECIDE = "moderation.decide"
     RETENTION_SWEEP = "retention.sweep"
@@ -139,6 +148,15 @@ class StepUpAction(StrEnum):
     REVEAL = "reveal"
     ORDER_FORCE_DELIVER = "order.force_deliver"
     USER_BLOCK = "user.block"
+    #: Its own action rather than a reuse of ``USER_BLOCK``: a step-up collected to bar an
+    #: abuser must not also authorise minting them spendable credit, which is exactly the
+    #: confused deputy the scope exists to close.
+    CREDIT_GRANT = "credit.grant"
+    #: Its own action for the reason ``CREDIT_GRANT`` is: a step-up collected to comp one
+    #: customer must not also authorise a message to every customer. It is the only action
+    #: here whose subject is not a person — the scope is a campaign id — and that is what
+    #: makes reusing another one wrong twice over.
+    BROADCAST_SEND = "broadcast.send"
     MODERATION_DECIDE = "moderation.decide"
     USER_PURGE = "user.purge"
     CONFIG_WRITE = "config.write"
@@ -286,6 +304,125 @@ RBAC_MATRIX: Final[Mapping[Permission, Mapping[AdminRole, Grant]]] = MappingProx
         Permission.ORDER_RETRY: _row(admin=_W, owner=_W),
         Permission.ORDER_FORCE_DELIVER: _row(admin=_WS, owner=_WS),
         Permission.USER_BLOCK: _row(admin=_WS, owner=_WS),
+        # ── The FOURTH place this table splits a §12.2 row, and the first where the row ──
+        # ── is a WRITE. Read the REVEAL_MEDIA note above first; the mechanism is the ────
+        # ── same one and the failure it avoids is identical. ───────────────────────────
+        #
+        # §12.2 row 13 is ``Block / unblock a user | — | — | W+S | W+S`` and §6.8 lines
+        # 904-905 give both endpoints as ``O +S``. Declared as one cell on the router it
+        # makes ``POST /users/{id}/block`` unreachable by everybody: the router guard is
+        # :func:`check_role`, which holds no subject and therefore no grant, so it answers
+        # ``STEP_UP_REQUIRED`` to a ``W+S`` cell for ever — an ADMIN who has just completed
+        # a correctly-scoped ``user.block:<telegram id>`` step-up still gets 403, and it
+        # looks right, because ``STEP_UP_REQUIRED`` is what the matrix predicts.
+        #
+        # So USER_BLOCK_WRITE is the ROLE half — exactly USER_BLOCK's two roles with the
+        # step-up removed — and it is what the two routes declare at the router.
+        # USER_BLOCK keeps the ``W+S`` cell and is what the HANDLER enforces on the Telegram
+        # id it has read, through ``deps.enforce_step_up(StepUpAction.USER_BLOCK, …)``.
+        # Both run on every request; neither is decorative and neither is sufficient alone.
+        #
+        # A general ``records.write`` was the alternative to a new row, and its cells would
+        # be identical today (ADMIN, OWNER, ``W``). It was rejected, and NOT added: §12.2
+        # has no such row, so a permission invented to be the foil for this argument would
+        # be a cell in the matrix that no route declares and no plan section can source.
+        # The argument stands without it — identical today is not the same decision: "may
+        # edit a record" and "may bar an account from the product" are two questions, and
+        # one permission answering both means the day somebody widens the first they have
+        # quietly widened blocking too.
+        Permission.USER_BLOCK_WRITE: _row(admin=_W, owner=_W),
+        # ── §12.2 has NO row for issuing credits, so this pair is a ruling rather than a ──
+        # ── transcription. ``AuditAction.CREDIT_GRANT`` has existed since the entitlement ──
+        # ── ledger shipped (``db/enums.py:212``) with nothing able to write it. ──────────
+        #
+        # Leaving it uncelled was not an option: a permission the matrix has no row for
+        # denies every role (:func:`grant_for` answers ``None``), so the route would be dead
+        # at OWNER and the audit member would stay unreachable.
+        #
+        # **ADMIN and OWNER, not OWNER alone.** A comp is the routine end of a support
+        # ticket — "the render failed twice, give them another go" — and an action only the
+        # owner can take is one the owner is woken up to take, which is how a shared login
+        # gets made.
+        #
+        # **What actually bounds a bad ADMIN here, stated exactly.** It is DETECTION, not a
+        # ceiling: every grant lands on the append-only ledger with
+        # ``actor="admin:<username>"`` and §12.4's audit row names the operator, the reason
+        # code and the subject, so "who comped how much this month" is a ``SUM`` over an
+        # indexed filter. ``schemas.credits.MAX_GRANT_CREDITS`` caps ONE CALL and nothing
+        # else: the grace below is not zero, so one re-authentication authorises every grant
+        # to that account until it expires, and there is no per-actor, per-account or
+        # per-day cumulative ceiling anywhere on this path — unlike ``POST /reveal``, whose
+        # ``charge_reveal_budget`` does hold a rolling total. Sequential calls inside one
+        # window therefore mint an unbounded number of credits, visibly. That asymmetry is a
+        # deliberate reading of the two actions — a reveal discloses a customer's data and
+        # cannot be taken back, while a grant is fully described by rows nobody can delete
+        # and is answered by reading them — and it is written here rather than left implied,
+        # because a note claiming a bound the code does not enforce is worse than no note.
+        # A cumulative ceiling in the reveal budget's shape is the change to make if this
+        # deployment decides detection is not enough.
+        #
+        # **``W+S`` and not a bare ``W``.** This is the only action in the panel that ISSUES
+        # VALUE — a credit is one render, which is real vendor spend. T2 (session theft) and
+        # T8 (CSRF) both end at "a live cookie can do whatever the cookie can do without
+        # re-authenticating", and §12.1 T2 answers that with step-up for "every reveal,
+        # purge, force-deliver, block and config commit". Minting spendable credit belongs
+        # in that company more than a block does: a block is undone by pressing the other
+        # button, and a spent credit is not undone at all.
+        #
+        # **NOT ``FRESH``.** §12.1 T2's grace-0 pair is purge and config commit, and both
+        # are there because they are irreversible across a customer's whole record or across
+        # the fleet. A grant is one bounded number on one account, fully described by a row
+        # nobody can delete, so holding it to a zero-second window would make the ordinary
+        # comp a two-request dance against a threat the audit row already covers.
+        Permission.CREDIT_GRANT: _row(admin=_WS, owner=_WS),
+        # The role half, for the reason USER_BLOCK_WRITE above states at length.
+        Permission.CREDIT_GRANT_WRITE: _row(admin=_W, owner=_W),
+        # ── §12.2 has NO row for messaging customers either, so these three are a ruling ──
+        # ── in the shape the CREDIT_GRANT pair above is. BROADCAST_SPEC §3.1 is the ──────
+        # ── source; read the USER_BLOCK_WRITE note first for the split mechanism. ───────
+        #
+        # **Why the read is ``M`` at every role, including VIEWER.** A campaign record is a
+        # title, a segment document, a state and four counters — operator-facing text and
+        # arithmetic, no customer in it. A VIEWER who can see that 40 000 people were
+        # messaged on Tuesday but not who sent it is the reader this panel exists for, and
+        # the alternative — hiding the campaign list from the role whose whole job is
+        # looking — makes "what went out?" a question only the people who sent it can
+        # answer. ``_M`` and not ``_R``: the recipient list is masked at the response
+        # boundary for everyone (§6.1), so there is nothing here for an ``R`` cell to
+        # unmask.
+        #
+        # **ADMIN and OWNER for the write, not OWNER alone.** Composing and revising a
+        # draft is ordinary operational work — a service notice about an outage is written
+        # by whoever is awake — and an action only the owner can take is an action the owner
+        # gets woken up for, which is how a shared login gets made.
+        #
+        # **``W+S`` on the send, and it is the pair's whole point.** This is the only action
+        # in the panel that reaches EVERY customer at once, and it is the least reversible
+        # thing the panel can do: a block is undone by pressing the other button, a credit
+        # is described by a row nobody can delete, and a message that has left Telegram
+        # cannot be recalled, corrected or unread. §12.1 T2 answers "a live cookie can do
+        # whatever the cookie can do" with a step-up for every irreversible write, and this
+        # one belongs in that company more than a block does.
+        #
+        # **NOT ``FRESH``.** The grace-0 pair is purge and config commit, both irreversible
+        # across a customer's whole record or across the fleet. A schedule is bounded by the
+        # audience the operator has just seen counted, it is auditable before it happens
+        # (the INTENT row) and after (the OUTCOME row), and it is pausable mid-flight — so
+        # holding it to a zero-second window would make the ordinary service notice a
+        # two-request dance against a threat those two rows already cover.
+        #
+        # The split is the USER_BLOCK_WRITE one exactly: ``check_role`` holds no subject and
+        # therefore no grant, so a lone ``W+S`` cell on the router answers STEP_UP_REQUIRED
+        # to an ADMIN holding a live ``broadcast.send:<campaign>`` grant for ever.
+        # BROADCAST_WRITE is the ROLE half the write routes declare; BROADCAST_SEND keeps
+        # the ``W+S`` cell and is what ``POST /broadcasts/{id}/schedule`` and
+        # ``/test-send`` enforce in the handler, on the campaign id they have read. Pause,
+        # resume and cancel take the role half alone and no step-up: each one only STOPS
+        # messages going out, and a control that makes stopping harder than starting is
+        # the wrong way round.
+        Permission.BROADCAST_READ: _row(viewer=_M, support=_M, admin=_M, owner=_M),
+        Permission.BROADCAST_WRITE: _row(admin=_W, owner=_W),
+        Permission.BROADCAST_SEND: _row(admin=_WS, owner=_WS),
         Permission.MODERATION_REVEAL: _row(admin=_AS, owner=_AS),
         Permission.MODERATION_DECIDE: _row(admin=_WS, owner=_WS),
         Permission.RETENTION_SWEEP: _row(admin=_W, owner=_W),
@@ -342,6 +479,8 @@ STEP_UP_ACTIONS: Final[Mapping[Permission, StepUpAction]] = MappingProxyType(
         Permission.MODERATION_REVEAL: StepUpAction.REVEAL,
         Permission.ORDER_FORCE_DELIVER: StepUpAction.ORDER_FORCE_DELIVER,
         Permission.USER_BLOCK: StepUpAction.USER_BLOCK,
+        Permission.CREDIT_GRANT: StepUpAction.CREDIT_GRANT,
+        Permission.BROADCAST_SEND: StepUpAction.BROADCAST_SEND,
         Permission.MODERATION_DECIDE: StepUpAction.MODERATION_DECIDE,
         Permission.USER_PURGE: StepUpAction.USER_PURGE,
         Permission.CONFIG_WRITE: StepUpAction.CONFIG_WRITE,

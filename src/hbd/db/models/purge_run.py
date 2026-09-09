@@ -85,6 +85,43 @@ class PurgeRunRow(Base):
     audit_rows_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
     admin_sessions_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
     purge_runs_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: ``vendor_usage`` rows past the 400-day cutoff. Not a retention clock over personal
+    #: data — that table holds none — but bounded growth on the same footing as this one,
+    #: and counted here for the same reason every other sweep is: a sweep whose count is
+    #: not stored is a sweep the panel reports as zero.
+    vendor_usage_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: ``bot_membership_events`` rows past the 400-day cutoff. Same footing and same reason
+    #: as ``vendor_usage_deleted`` above: not a retention clock over personal data — that
+    #: table is anonymised on request rather than swept for identity — but bounded growth on
+    #: an internal transition log, counted here because a sweep whose count is not stored is
+    #: a backlog the panel reports as zero.
+    membership_events_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    chat_bodies_purged: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    chat_messages_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: ``payme_rpc_log`` rows past the 90-day cutoff (revision 0023). Same footing and same
+    #: reason as ``vendor_usage_deleted`` above — bounded growth on a table holding no
+    #: personal data, not a retention clock — with one difference worth naming: those rows
+    #: are written by requests arriving from the public internet, so this number is also the
+    #: cheapest measure of how much inbound traffic the payment gateway actually took in the
+    #: last quarter. A sweep whose count is not stored is a backlog the panel reports as zero.
+    payme_rpc_rows_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: TERMINAL UNPAID ``payment_intents`` past the 400-day cutoff (revision 0023) —
+    #: ``cancelled`` and ``expired`` only. A ``paid`` intent is never swept: it is the join
+    #: between a rail-side transaction and the receipt it paid for, and the rail may still
+    #: ask us about it. Counted separately from every other number here because it is the one
+    #: that says how many payment pages were opened and abandoned, which is a funnel fact as
+    #: much as a housekeeping one.
+    payment_intents_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: ``broadcast_recipients`` rows past their cutoff. Same footing and same reason as
+    #: ``membership_events_deleted`` above — an internal delivery ledger anonymised on request
+    #: rather than swept for identity, bounded here so it does not grow without limit — with
+    #: one difference that makes this the number to watch: it is the fastest-growing table in
+    #: the schema, one row per account per campaign, so a sweep that silently stops keeping up
+    #: shows here as a small figure beside a large backlog long before it shows anywhere else.
+    #: A sweep whose count is not stored is a backlog the panel reports as zero.
+    broadcast_recipients_deleted: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, default=0
+    )
 
     # -- bytes --------------------------------------------------------------
     #: Keys ``purge_expired`` handed back, i.e. rows whose objects are now orphaned.

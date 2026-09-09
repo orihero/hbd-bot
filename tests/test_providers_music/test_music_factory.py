@@ -3,6 +3,12 @@
 ``music_max_concurrency`` and ``music_usd_per_minute`` are now real, bounded ``Settings``
 fields, so the factory reads them directly and the *config layer* is where a nonsense value
 is refused. These tests assert both halves of that: the wiring here, and the refusal there.
+
+They also pin what counts as nonsense, because the two fields disagree about zero. A
+ceiling of zero is a semaphore that never opens; a RATE of zero is an operator saying no
+music rate is configured, which the adapter answers with a NULL cost rather than a free
+render. Only one of the two may be refused at startup, and a test that refused both would
+have taken the one honest way of leaving music unpriced away from the operator.
 """
 
 from __future__ import annotations
@@ -12,12 +18,14 @@ from typing import Any
 import pytest
 
 from hbd.config import Settings
+from hbd.contracts import CostSource
 from hbd.errors import ConfigError
 from hbd.providers.music.elevenlabs import (
     DEFAULT_MUSIC_MAX_CONCURRENCY,
     SCALE_TIER_MAX_CONCURRENCY,
 )
 from hbd.providers.music.factory import build_music_provider
+from tests.test_providers_music.conftest import simple_plan
 
 
 def _reconfigured(settings: Settings, **extra: Any) -> Settings:
@@ -69,11 +77,42 @@ def test_a_nonsense_ceiling_is_refused_by_config_not_the_factory(
         _reconfigured(settings, music_max_concurrency=bad_value)
 
 
-@pytest.mark.parametrize("bad_value", [0, -1.0, "cheap"])
+# 0 is deliberately absent here and asserted as ACCEPTED below: it is the only way an
+# operator can say "I do not know the music rate", which every other cost leg says by
+# shipping 0.0, and a rate that cannot be zero is a rate somebody is forced to invent.
+@pytest.mark.parametrize("bad_value", [-1.0, "cheap"])
 def test_a_nonsense_rate_is_refused_by_config(settings: Settings, bad_value: Any) -> None:
     # Arrange / Act / Assert
     with pytest.raises(ValueError):
         _reconfigured(settings, music_usd_per_minute=bad_value)
+
+
+def test_a_zero_rate_is_accepted_and_reaches_the_provider(settings: Settings) -> None:
+    # Arrange — the deployment that would rather record no price than a placeholder one.
+    unpriced = _reconfigured(settings, music_usd_per_minute=0.0)
+
+    # Act
+    provider = build_music_provider(unpriced)
+
+    # Assert — it arrives unaltered, and the adapter reads it as "not priced": no cost and
+    # no provenance, which is what keeps SUM(cost_usd) honest for this deployment.
+    assert provider._usd_per_minute == 0.0
+    assert provider._estimated_cost(simple_plan()) == (None, None)
+
+
+def test_the_shipped_rate_prices_a_render_and_says_the_figure_is_estimated(
+    settings: Settings,
+) -> None:
+    # Arrange — nothing configured. This is the out-of-the-box deployment, and music is the
+    # one leg it prices: the panel's "nothing is priced yet" state is NOT what it ships in.
+    provider = build_music_provider(settings)
+
+    # Act
+    cost, source = provider._estimated_cost(simple_plan())
+
+    # Assert — a real figure from a placeholder rate, wearing the label that says so.
+    assert cost is not None and cost > 0
+    assert source is CostSource.ESTIMATED
 
 
 def test_load_settings_reports_a_bad_ceiling_as_a_config_error(

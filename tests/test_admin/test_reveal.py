@@ -53,11 +53,21 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 import sqlalchemy as sa
+from pydantic import ValidationError
 
 from hbd.admin.container import AdminContainer
 from hbd.admin.errors import AdminErrorCode
 from hbd.admin.routers.reveal import REVEAL_PATH
-from hbd.admin.schemas.reveal import FIELD_SHAPES, RevealField, RevealShape
+from hbd.admin.routers.users import USER_BLOCK_PATH
+from hbd.admin.schemas.actions import ReasonedRequest, UserBlockRequest
+from hbd.admin.schemas.reveal import (
+    FIELD_SHAPES,
+    FIELD_SUBJECTS,
+    RevealField,
+    RevealRequest,
+    RevealShape,
+    RevealSubjectType,
+)
 from hbd.admin.security.budget import (
     MAX_RECORDS_PER_REVEAL,
     RevealBudgetScope,
@@ -68,10 +78,12 @@ from hbd.admin.services import reveal as reveal_service
 # ``_FIELD_NAME_PATTERN`` is imported rather than restated: a copied regex would drift, and
 # it would drift in the direction of passing here while the audit boundary refused.
 from hbd.db.admin.audit import _FIELD_NAME_PATTERN as AUDIT_FIELD_NAME_PATTERN
+from hbd.db.admin.audit import SUBJECT_TYPES
 from hbd.db.admin.audit import append as audit_append
 from hbd.db.base import utc_now
 from hbd.db.enums import AdminRole, AuditAction, AuditReasonCode
 from hbd.db.models.admin_audit import AdminAuditRow, AuditOutcome
+from hbd.db.models.user_profile import UserProfileRow
 from hbd.errors import ErrorCode
 from tests.test_admin.conftest import (
     NOW,
@@ -114,6 +126,17 @@ _NAMES: Final[tuple[tuple[str, str, tuple[int, ...]], ...]] = (
 #: everywhere except here.
 _NOTE: Final[str] = "Oʻktam akasi bilan togʻda — sanʼat haqida gapiradi."
 _TRANSCRIPT: Final[str] = "Gʻulom, tugʻilgan kuningiz bilan"
+
+#: The contact record the four ``user_profiles`` fields reveal. The number is Uzbek and the
+#: names carry U+02BB, so the byte-exactness rule this file is built around covers the second
+#: table as well as the first — a normalising layer added on the profile path would otherwise
+#: have no test looking at it.
+_PHONE: Final[str] = "+998901234542"
+_USERNAME: Final[str] = "gulomjon"
+_FIRST_NAME: Final[str] = "Gʻulom"
+_LAST_NAME: Final[str] = "Oʻktamov"
+#: Every one of them, as the substrings a leak would show up as.
+_PROFILE_PLAINTEXTS: Final[tuple[str, ...]] = (_PHONE, _USERNAME, _FIRST_NAME, _LAST_NAME)
 
 _BUDGET_LOGGER: Final[str] = "hbd.admin.security.budget"
 #: ``admin_reveal_records_per_hour`` has ``ge=10``, so this is the tightest hour an operator
@@ -273,6 +296,32 @@ async def seed_transcript_order(panel: Panel, *, takes: int) -> UUID:
         return order.id
 
 
+async def seed_reveal_profile(panel: Panel, *, telegram_user_id: int = 55_000_004) -> UUID:
+    """One customer with a contact record, returning the ``users.id`` a reveal is keyed on.
+
+    The Telegram id is returned by nobody on purpose: the caller that wants it has it
+    already, and a helper handing back both invites the test that posts the wrong one and
+    then asserts on a 403 it cannot explain. The four values seeded here are the four
+    columns ``PROFILE_COLUMNS`` names, so a reveal that returned three of them fails on the
+    fourth rather than on a shape.
+    """
+    async with panel.container.session_factory.begin() as session:
+        user = await seed_user(session, telegram_user_id=telegram_user_id)
+        session.add(
+            UserProfileRow(
+                user_id=user.id,
+                telegram_user_id=telegram_user_id,
+                phone_e164=_PHONE,
+                telegram_username=_USERNAME,
+                first_name=_FIRST_NAME,
+                last_name=_LAST_NAME,
+                phone_shared_at=NOW,
+                onboarded_at=NOW,
+            )
+        )
+        return user.id
+
+
 async def audit_rows(container: AdminContainer, action: AuditAction) -> list[AdminAuditRow]:
     """Every row for one action, oldest first."""
     async with container.session_factory.begin() as db:
@@ -294,13 +343,70 @@ def test_every_reveal_field_has_a_column_behind_it() -> None:
     # would answer ``null`` instead, and ``null`` on this endpoint means "purged".
 
     # Act
-    covered = set(reveal_service.BRIEF_COLUMNS) | set(reveal_service.ATTEMPT_COLUMNS)
+    covered = (
+        set(reveal_service.BRIEF_COLUMNS)
+        | set(reveal_service.ATTEMPT_COLUMNS)
+        | set(reveal_service.PROFILE_COLUMNS)
+    )
 
     # Assert — exactly, in both directions, and each field's shape agrees with the table it
     # is in: a ``briefs`` column is one record, an attempt column is a page of them.
     assert covered == set(RevealField) == set(FIELD_SHAPES)
     assert {FIELD_SHAPES[f] for f in reveal_service.BRIEF_COLUMNS} == {RevealShape.SINGLE}
     assert {FIELD_SHAPES[f] for f in reveal_service.ATTEMPT_COLUMNS} == {RevealShape.PAGED}
+    assert {FIELD_SHAPES[f] for f in reveal_service.PROFILE_COLUMNS} == {RevealShape.SINGLE}
+
+
+def test_no_field_appears_in_two_column_tables() -> None:
+    # Arrange — the shape no longer decides which table is read, and this is the assertion
+    # that keeps the decision unambiguous. Every ``user_profiles`` column is SINGLE and so is
+    # every ``briefs`` column, so ``read_records`` branches on the SUBJECT first and falls
+    # through to the shape only afterwards. A field sitting in two maps would make that
+    # branch answer differently depending on which arm ran — and the arms are keyed by two
+    # different id spaces, a ``users.id`` and an ``orders.id``, that happen not to collide.
+    # The failure would be one customer's note returned under another customer's grant, with
+    # every shape assertion above still green, because the shape would be right.
+    tables = (
+        set(reveal_service.BRIEF_COLUMNS),
+        set(reveal_service.ATTEMPT_COLUMNS),
+        set(reveal_service.PROFILE_COLUMNS),
+    )
+
+    # Act
+    total = sum(len(table) for table in tables)
+
+    # Assert — pairwise disjoint, stated as a count so the failure names the size of the
+    # overlap rather than only that one exists.
+    assert total == len(set().union(*tables))
+    for first, second in ((0, 1), (0, 2), (1, 2)):
+        assert tables[first] & tables[second] == set(), (first, second)
+
+
+def test_every_field_belongs_to_the_subject_whose_table_holds_it() -> None:
+    # Arrange — ``FIELD_SUBJECTS`` refuses a mixed request at the boundary and the branch in
+    # ``read_records`` refuses it again at the read, but neither of them checks that the two
+    # halves agree. If ``user_profiles.phone_e164`` were declared an ORDER field, a perfectly
+    # well-formed request would pass the validator and then be read out of ``briefs``, which
+    # has no such column, as a 500 on the one route that must answer carefully.
+
+    # Act / Assert — the declaration and the table that actually holds the column.
+    for field in reveal_service.PROFILE_COLUMNS:
+        assert FIELD_SUBJECTS[field] is RevealSubjectType.USER, field
+    for field in (*reveal_service.BRIEF_COLUMNS, *reveal_service.ATTEMPT_COLUMNS):
+        assert FIELD_SUBJECTS[field] is RevealSubjectType.ORDER, field
+    assert set(FIELD_SUBJECTS) == set(RevealField)
+
+
+def test_the_user_subject_type_is_a_name_the_audit_log_accepts() -> None:
+    # Arrange — ``audit.SUBJECT_TYPES`` is the closed vocabulary the column accepts, and
+    # ``audit_sink`` SWALLOWS a refusal and retries the row with ``subject_id=None, ip=None``.
+    # A subject type outside it would therefore ship a 200 whose audit row cannot be
+    # attributed to the customer it was about — invisible to every test that reads only the
+    # response body, and the exact failure ``field_names`` has its own test for above.
+
+    # Act / Assert
+    assert RevealSubjectType.USER.value in SUBJECT_TYPES
+    assert {subject.value for subject in RevealSubjectType} <= SUBJECT_TYPES
 
 
 def test_every_reveal_field_is_a_name_the_audit_log_will_store() -> None:
@@ -613,6 +719,307 @@ async def test_a_reveal_of_an_order_that_does_not_exist_is_404_and_still_audited
     # column.
     assert rows[1].record_count is None
     assert rows[1].error_code == ErrorCode.NOT_FOUND.value
+
+
+# ---------------------------------------------------------------------------
+# The user subject — one endpoint, a second table, and the id space that must not slip
+# ---------------------------------------------------------------------------
+async def test_a_user_reveal_returns_the_four_contact_columns(panel: Panel) -> None:
+    # Arrange — the phone, the handle and the two names are masked on every wire the panel
+    # serves, at every role including OWNER, so this endpoint is the only way an operator
+    # reaches them and the only place they are asserted to be reachable at all. A masking
+    # bug that emptied the columns would otherwise look exactly like correct redaction.
+    user_id = await seed_reveal_profile(panel)
+    await signed_in(panel)
+    assert (await step_up(panel, subject=user_id)).status_code == 200
+
+    # Act
+    response = await post_reveal(
+        panel,
+        subject=user_id,
+        fields=[field.value for field in reveal_service.PROFILE_COLUMNS],
+        subjectType=RevealSubjectType.USER.value,
+    )
+
+    # Assert — byte-exact, for the reason the U+02BB section below states at length: this is
+    # the one route where the whole string is supposed to cross, so a stray ``.normalize()``
+    # here destroys the datum rather than merely leaking it.
+    assert response.status_code == 200
+    body = response.json()
+    assert body["recordCount"] == 1
+    assert body["records"][0]["fields"] == {
+        RevealField.USER_PHONE_E164.value: _PHONE,
+        RevealField.USER_TELEGRAM_USERNAME.value: _USERNAME,
+        RevealField.USER_FIRST_NAME.value: _FIRST_NAME,
+        RevealField.USER_LAST_NAME.value: _LAST_NAME,
+    }
+    assert body["records"][0]["recordId"] == str(user_id)
+
+
+async def test_a_user_reveal_takes_the_users_uuid_and_not_the_telegram_id(panel: Panel) -> None:
+    # Arrange — the id space is the whole reason ``user_profiles`` is keyed on ``users.id``:
+    # ``RevealRequest.subjectId`` is a UUID and the step-up scope is ``reveal:<str(uuid)>``,
+    # compared whole and byte-exact. A Telegram integer on one side of that comparison is a
+    # STEP_UP_SCOPE_MISMATCH nobody can debug from the 403, so the boundary refuses it as a
+    # 422 about the field instead — before any grant is consulted and before anything is
+    # charged.
+    telegram_user_id = 55_000_014
+    user_id = await seed_reveal_profile(panel, telegram_user_id=telegram_user_id)
+    await signed_in(panel)
+    assert (await step_up(panel, subject=user_id)).status_code == 200
+    fields = [RevealField.USER_PHONE_E164.value]
+
+    # Act — the same request twice, differing only in which id names the subject.
+    with_telegram_id = await panel.http.post(
+        REVEAL_PATH,
+        json={
+            "subjectType": RevealSubjectType.USER.value,
+            "subjectId": telegram_user_id,
+            "fields": fields,
+            "reasonCode": AuditReasonCode.SUPPORT_INVESTIGATION.value,
+        },
+        headers=csrf_headers(panel.http),
+    )
+    with_user_id = await post_reveal(
+        panel,
+        subject=user_id,
+        fields=fields,
+        subjectType=RevealSubjectType.USER.value,
+    )
+
+    # Assert
+    assert with_telegram_id.status_code == 422
+    assert _PHONE not in with_telegram_id.text
+    assert with_user_id.status_code == 200
+    assert with_user_id.json()["records"][0]["fields"] == {
+        RevealField.USER_PHONE_E164.value: _PHONE
+    }
+
+
+async def test_a_user_subject_that_has_no_profile_row_is_a_404_and_not_an_empty_record(
+    panel: Panel,
+) -> None:
+    # Arrange — ``/forget`` DELETEs the row (PD-3) and there is no purge stamp on this table,
+    # so an erased customer must be a 404. The alternative — a record whose four fields are
+    # ``null`` — would collide with the one meaning ``null`` already carries here: "the
+    # customer never gave us that datum". An operator cannot be left unable to tell "we
+    # erased this on request" from "they never shared a surname".
+    missing = uuid4()
+    await signed_in(panel)
+    assert (await step_up(panel, subject=missing)).status_code == 200
+
+    # Act
+    response = await post_reveal(
+        panel,
+        subject=missing,
+        fields=[RevealField.USER_PHONE_E164.value],
+        subjectType=RevealSubjectType.USER.value,
+    )
+
+    # Assert — and audited, like every other reveal that found nothing.
+    assert response.status_code == 404
+    rows = await audit_rows(panel.container, AuditAction.REVEAL_PERSONAL)
+    assert [row.outcome for row in rows] == [AuditOutcome.OK, AuditOutcome.ERROR]
+    assert rows[0].subject_type == RevealSubjectType.USER.value
+
+
+async def test_mixing_a_user_field_with_an_order_field_is_the_fourth_refusal(
+    panel: Panel,
+) -> None:
+    # Arrange — the refusal ``RevealRequest._one_shape`` gained for exactly this change. Both
+    # fields are SINGLE, so the shape check that catches every other mixed request passes,
+    # and without the subject check the request would reach ``read_records`` carrying a
+    # ``users.id`` for a read out of ``briefs``. Two id spaces that happen not to collide is
+    # all that would stand between that and one customer's note under another's grant.
+    user_id = await seed_reveal_profile(panel, telegram_user_id=55_000_015)
+    await signed_in(panel)
+    assert (await step_up(panel, subject=user_id)).status_code == 200
+
+    # Act
+    response = await post_reveal(
+        panel,
+        subject=user_id,
+        fields=[RevealField.USER_PHONE_E164.value, RevealField.NOTE.value],
+        subjectType=RevealSubjectType.USER.value,
+    )
+
+    # Assert — a 422 at the boundary, never a 500 and never a partial read, and nothing
+    # charged or audited because the refusal happens before either.
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == ErrorCode.INVALID_INPUT.value
+    assert response.json()["error"]["details"]["fields"] == ["body"]
+    for plaintext in _PROFILE_PLAINTEXTS:
+        assert plaintext not in response.text
+    assert await audit_rows(panel.container, AuditAction.REVEAL_PERSONAL) == []
+
+    # Assert — the envelope deliberately reports the failing LOCATION and not the validator's
+    # sentence (a reveal's error body is one nobody has masked), so the message that names
+    # the offending field is asserted against the model itself. Without this half, a
+    # validator that refused every user reveal for the wrong reason would pass above.
+    with pytest.raises(ValidationError, match=RevealField.NOTE.value):
+        RevealRequest(
+            subject_type=RevealSubjectType.USER,
+            subject_id=user_id,
+            fields=(RevealField.USER_PHONE_E164, RevealField.NOTE),
+            reason_code=AuditReasonCode.SUPPORT_INVESTIGATION,
+        )
+
+
+async def test_a_user_reveal_writes_an_audit_row_with_subject_type_user(panel: Panel) -> None:
+    # Arrange — §12.4: the row records *that* ``user_profiles.phone_e164`` was revealed and
+    # never what it said. The subject type is what makes an audit search for "everything ever
+    # read about this customer" possible at all; with ``order`` on the row, a reveal keyed on
+    # a ``users.id`` would file itself under an order id that does not exist.
+    #
+    # The subject ID is asserted as the TELEGRAM id and not the ``users.id`` the request
+    # carried: see ``test_a_reveal_and_a_block_of_one_customer_share_a_subject_id`` below for
+    # the whole of that argument.
+    user_id = await seed_reveal_profile(panel, telegram_user_id=55_000_016)
+    username = await signed_in(panel)
+    assert (await step_up(panel, subject=user_id)).status_code == 200
+
+    # Act
+    response = await post_reveal(
+        panel,
+        subject=user_id,
+        fields=[RevealField.USER_PHONE_E164.value, RevealField.USER_FIRST_NAME.value],
+        subjectType=RevealSubjectType.USER.value,
+        reason_code=AuditReasonCode.CUSTOMER_REQUEST.value,
+    )
+
+    # Assert
+    assert response.status_code == 200
+    rows = await audit_rows(panel.container, AuditAction.REVEAL_PERSONAL)
+    assert len(rows) == 1
+    assert rows[0].subject_type == RevealSubjectType.USER.value
+    assert rows[0].subject_id == "55000016"
+    assert rows[0].actor_username == username
+    assert rows[0].field_names == [
+        RevealField.USER_PHONE_E164.value,
+        RevealField.USER_FIRST_NAME.value,
+    ]
+    assert rows[0].record_count == 1
+    assert rows[0].reason_code is AuditReasonCode.CUSTOMER_REQUEST
+    # §12.4: never a personal-data value. The number was revealed; the row must not carry it.
+    for plaintext in _PROFILE_PLAINTEXTS:
+        assert plaintext not in repr(tuple(rows[0].__dict__.values()))
+
+
+async def test_a_reveal_and_a_block_of_one_customer_share_a_subject_id(panel: Panel) -> None:
+    """``subject_type="user"`` must mean one id space, or ``/audit`` answers half a question.
+
+    ``users.py::_block_entry`` and ``credits.py::_grant_entry`` file under the Telegram id —
+    the only identifier either route holds. A reveal arrives with the ``users.id`` its
+    step-up scope is compared byte-exact against. Filed as-is, the two spellings split one
+    customer's trail in two, and neither
+    ``GET /api/audit?subjectType=user&subjectId=<telegram id>`` nor the query with the UUID
+    carries any signal that the other half exists — so a DSAR or an abuse investigation gets
+    half the answer and reads it as the whole one. The step-up keeps the UUID; only the
+    audit row is translated.
+    """
+    # Arrange — one customer, one operator who may both reveal and block.
+    telegram_user_id = 55_000_017
+    user_id = await seed_reveal_profile(panel, telegram_user_id=telegram_user_id)
+    await signed_in(panel, role=AdminRole.ADMIN)
+
+    # Act — a reveal scoped to the UUID, then a block scoped to the Telegram id.
+    assert (await step_up(panel, subject=user_id)).status_code == 200
+    revealed = await post_reveal(
+        panel,
+        subject=user_id,
+        fields=[RevealField.USER_PHONE_E164.value],
+        subjectType=RevealSubjectType.USER.value,
+    )
+    blocked = await panel.http.post(
+        "/api/auth/step-up",
+        json={
+            "password": PASSWORD,
+            "scope": "user.block",
+            "subjectId": str(telegram_user_id),
+        },
+        headers=csrf_headers(panel.http),
+    )
+    assert blocked.status_code == 200
+    action = await panel.http.post(
+        USER_BLOCK_PATH.format(telegram_user_id=telegram_user_id),
+        json={"reasonCode": AuditReasonCode.ABUSE_REPORT.value},
+        headers=csrf_headers(panel.http),
+    )
+
+    # Assert
+    assert revealed.status_code == 200
+    assert action.status_code == 200
+    rows = await audit_rows(panel.container, AuditAction.REVEAL_PERSONAL) + await audit_rows(
+        panel.container, AuditAction.USER_BLOCK
+    )
+    assert len(rows) == 2
+    assert {row.subject_type for row in rows} == {RevealSubjectType.USER.value}
+    assert {row.subject_id for row in rows} == {str(telegram_user_id)}
+
+
+async def test_a_user_reveal_with_no_users_row_audits_under_the_id_it_was_given(
+    panel: Panel,
+) -> None:
+    """The fallback: an audit row that lost its subject is worse than one under the UUID.
+
+    Reachable only if a ``user_profiles`` row outlived its ``users`` row, which the schema
+    does not allow — but the translation must not answer ``None`` for a subject column that
+    then gets dropped by ``audit_sink``'s retry. The reveal itself 404s a moment later
+    either way.
+    """
+    # Arrange
+    request = RevealRequest(
+        subject_type=RevealSubjectType.USER,
+        subject_id=uuid4(),
+        fields=(RevealField.USER_PHONE_E164,),
+        reason_code=AuditReasonCode.SUPPORT_INVESTIGATION,
+    )
+    plan = reveal_service.plan_reveal(request)
+
+    # Act
+    async with panel.container.session_factory.begin() as db:
+        resolved = await reveal_service.audit_subject_id(db, plan)
+
+    # Assert
+    assert resolved == str(request.subject_id)
+
+
+# ---------------------------------------------------------------------------
+# One reason trio, one scrubber
+# ---------------------------------------------------------------------------
+def test_the_reveal_body_inherits_the_reason_trio_rather_than_restating_it() -> None:
+    # Arrange — ``ReasonedRequest`` exists so an action added next quarter inherits the
+    # mandatory reasonCode, the validated reasonRef and the scrubbed reasonText. While this
+    # model restated all three, that claim was false and nothing compared the two: one
+    # column, one 90-day sweep, cleaned differently depending on which endpoint wrote it.
+
+    # Act / Assert
+    assert issubclass(RevealRequest, ReasonedRequest)
+    assert "reason_text" not in RevealRequest.__annotations__
+    assert "reason_code" not in RevealRequest.__annotations__
+    assert "reason_ref" not in RevealRequest.__annotations__
+
+
+@pytest.mark.parametrize("control", ["\x00", "\n", "\r", "\t", "\x7f"])
+def test_one_control_character_set_scrubs_both_bodies(control: str) -> None:
+    # Arrange — the two models must agree character for character, because
+    # ``admin_audit_log.reason_text`` is one column. Asserted as equality between the two
+    # results rather than against a literal, so widening ``CONTROL_CHARACTERS`` keeps them
+    # in step instead of quietly splitting them.
+    text = f"ticket{control}42"
+
+    # Act
+    revealed = RevealRequest(
+        subject_type=RevealSubjectType.USER,
+        subject_id=uuid4(),
+        fields=(RevealField.USER_PHONE_E164,),
+        reason_code=AuditReasonCode.SUPPORT_INVESTIGATION,
+        reason_text=text,
+    )
+    blocked = UserBlockRequest(reason_code=AuditReasonCode.SUPPORT_INVESTIGATION, reason_text=text)
+
+    # Assert
+    assert revealed.reason_text == blocked.reason_text == "ticket42"
 
 
 # ---------------------------------------------------------------------------

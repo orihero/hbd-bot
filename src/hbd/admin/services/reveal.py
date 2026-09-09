@@ -82,15 +82,19 @@ from hbd.db.models.admin_audit import ACTOR_USERNAME_LENGTH, AuditOutcome
 from hbd.db.models.brief import BriefRow
 from hbd.db.models.generation_attempt import GenerationAttemptRow
 from hbd.db.models.order import OrderRow
+from hbd.db.models.user import UserRow
+from hbd.db.models.user_profile import UserProfileRow
 from hbd.errors import ErrorCode
 from hbd.logging import get_logger
 
 __all__ = [
     "BRIEF_COLUMNS",
     "ATTEMPT_COLUMNS",
+    "PROFILE_COLUMNS",
     "RevealPlan",
     "RevealResult",
     "plan_reveal",
+    "audit_subject_id",
     "reveal_entry",
     "record_reveal",
     "read_records",
@@ -118,6 +122,17 @@ BRIEF_COLUMNS: Final[Mapping[RevealField, str]] = {
 ATTEMPT_COLUMNS: Final[Mapping[RevealField, str]] = {
     RevealField.STT_TRANSCRIPT: "stt_transcript",
     RevealField.NAME_CANDIDATE_TEXT: "name_candidate_text",
+}
+
+#: The ``user_profiles`` columns each user-subject field reads. Same table-not-a-chain-of-ifs
+#: rule as its two siblings: a field with no source here raises rather than answering
+#: ``null``, which on this endpoint means "the column is NULL" and is a fact about the
+#: customer rather than a fact about our code.
+PROFILE_COLUMNS: Final[Mapping[RevealField, str]] = {
+    RevealField.USER_PHONE_E164: "phone_e164",
+    RevealField.USER_FIRST_NAME: "first_name",
+    RevealField.USER_LAST_NAME: "last_name",
+    RevealField.USER_TELEGRAM_USERNAME: "telegram_username",
 }
 
 
@@ -184,10 +199,48 @@ def plan_reveal(body: RevealRequest) -> RevealPlan:
     )
 
 
+async def audit_subject_id(db: AsyncSession, plan: RevealPlan) -> str:
+    """The id ``admin_audit_log`` files this subject under — **one id space per subject type**.
+
+    ``subject_type="user"`` rows are written by three paths in this package, and they must
+    agree on what a "user" is keyed by or the log answers half a question and reads like the
+    whole one. ``users.py::_block_entry`` and ``credits.py::_grant_entry`` file under the
+    **Telegram id**, because that is the only identifier those two routes ever hold — the
+    block writer and the credit ledger are both keyed on it, and neither has a ``users.id``
+    to use. A reveal arrives with the opposite half: ``RevealRequest.subject_id`` is the
+    ``user_profiles`` primary key, for the byte-exact step-up comparison the request model's
+    docstring argues at length. Filed as-is, ``GET /audit?subjectType=user&subjectId=…``
+    returns the blocks and the grants for one customer and silently omits every reveal of
+    their phone number, or the reveals and neither action, with nothing in either answer
+    saying a second key exists. A DSAR or an abuse investigation then gets half the trail.
+
+    So the reveal is translated **here and only here**: one indexed lookup on ``users.id``,
+    and the step-up keeps the UUID it is compared against. ``None`` — a ``user_profiles``
+    row whose ``users`` row is gone — falls back to the UUID rather than dropping the
+    subject: the read below is about to 404 anyway, and an audit row that lost its subject
+    is worse than one filed under the only id we still have.
+    """
+    if plan.subject_type is not RevealSubjectType.USER:
+        return plan.subject_id
+    telegram_user_id: int | None = await db.scalar(
+        sa.select(UserRow.telegram_user_id).where(UserRow.id == plan.subject_uuid)
+    )
+    return plan.subject_id if telegram_user_id is None else str(telegram_user_id)
+
+
 def reveal_entry(
-    admin: CurrentAdmin, *, body: RevealRequest, plan: RevealPlan, records_charged: int
+    admin: CurrentAdmin,
+    *,
+    body: RevealRequest,
+    plan: RevealPlan,
+    records_charged: int,
+    subject_id: str,
 ) -> AuditEntry:
     """The ``REVEAL_PERSONAL`` row §12.3 requires, with the columns a reveal actually fills.
+
+    ``subject_id`` is a parameter rather than ``plan.subject_id`` because the audit log's id
+    space and the step-up's are not the same for every subject type; :func:`audit_subject_id`
+    owns that translation and says why.
 
     ``audit_sink.auth_entry`` cannot be reused: it hardcodes ``subject_type="admin"`` and
     ``reason_code=ROUTINE_OPS`` and carries no ``record_count``, ``reason_ref`` or
@@ -210,7 +263,7 @@ def reveal_entry(
         actor_username=admin.username[:ACTOR_USERNAME_LENGTH],
         actor_role=admin.role,
         subject_type=plan.subject_type.value,
-        subject_id=plan.subject_id,
+        subject_id=subject_id,
         field_names=tuple(field.value for field in plan.fields),
         record_count=records_charged,
         reason_code=body.reason_code,
@@ -287,12 +340,24 @@ async def record_reveal_outcome(
 async def read_records(db: AsyncSession, plan: RevealPlan) -> RevealResult:
     """The read itself. Runs **after** the charge and the audit row, never before.
 
+    **The subject is tested before the shape, and the order is load-bearing.** Every
+    ``user_profiles`` column is ``SINGLE``, exactly like every ``briefs`` column, so a shape
+    test alone routes a phone reveal into :func:`_read_brief` keyed by a ``users.id`` — and
+    the shape assertion in ``test_reveal.py`` passes while it happens, because the shape *is*
+    right. Two id spaces that happen not to collide are all that stands between that and a
+    disclosure of one customer's note under another customer's grant.
+    ``schemas.reveal.FIELD_SUBJECTS`` refuses the mixed request at the boundary; this branch
+    is the second half of the same rule, at the read, so a body that somehow reached here
+    without passing the validator still cannot read the wrong table.
+
     Reads the columns directly rather than going through :mod:`hbd.admin.schemas.orders`:
     that module's whole contract is that it masks, at every role, with no unmasked variant —
     "a ``to_view(..., is_unmasked=True)`` parameter would be an argument that exists to be
     passed ``True`` by the first caller who finds masking inconvenient". So the one path
     that must not mask does not touch it.
     """
+    if plan.subject_type is RevealSubjectType.USER:
+        return await _read_user_profile(db, plan)
     if plan.shape is RevealShape.SINGLE:
         return await _read_brief(db, plan)
     return await _read_attempts(db, plan)
@@ -337,9 +402,10 @@ def _code_of(exc: ProblemError) -> str:
 def _not_found(plan: RevealPlan) -> ProblemError:
     """404 from the pipeline taxonomy — ``AdminErrorCode`` has no member for it, by design.
 
-    Names the order id and nothing else: a UUID the caller just sent is not a disclosure,
-    and every other thing the handler knows about this subject is exactly what the reveal
-    was refused.
+    Names the subject's own id and nothing else — ``no order with id …`` or ``no user with
+    id …``, from the plan's own subject type: a UUID the caller just sent back to them is
+    not a disclosure, and every other thing the handler knows about this subject is exactly
+    what the reveal was refused.
     """
     return ProblemError(
         AdminProblem(
@@ -358,6 +424,35 @@ def _value(row: object, attribute: str) -> JsonValue:
     here would be a second place for the shape to be decided.
     """
     return cast("JsonValue", getattr(row, attribute))
+
+
+async def _read_user_profile(db: AsyncSession, plan: RevealPlan) -> RevealResult:
+    """One customer's contact record, keyed on ``users.id``.
+
+    **Keyed on ``users.id`` and never on the Telegram id**, and that is why the table is
+    shaped the way it is: ``RevealRequest.subject_id`` is a ``UUID``, the step-up scope is
+    ``reveal:<str(uuid)>`` compared whole and byte-exact, and putting a Telegram integer on
+    one side of that comparison would be a ``STEP_UP_SCOPE_MISMATCH`` nobody can debug from
+    the 403. ``user_profiles.user_id`` is the primary key, so this is one indexed lookup and
+    no join.
+
+    ``identity_purged_at`` and ``text_purged_at`` are both ``None`` here, and the absence is
+    the design rather than an omission. ``briefs`` nulls its identity columns in place on a
+    clock, so "no name" and "name erased on 2026-05-14" are different facts a stamp has to
+    separate. ``user_profiles`` has no clock (PD-2) and ``/forget`` deletes the row outright
+    (PD-3), so an erased customer is a **404** and a ``null`` in ``fields`` means one thing
+    only: the customer never gave us that datum.
+    """
+    statement = sa.select(UserProfileRow).where(UserProfileRow.user_id == plan.subject_uuid)
+    profile = (await db.execute(statement)).scalars().first()
+    if profile is None:
+        raise _not_found(plan)
+    record = RevealedRecord(
+        record_id=profile.user_id,
+        created_at=profile.created_at,
+        fields={field.value: _value(profile, PROFILE_COLUMNS[field]) for field in plan.fields},
+    )
+    return RevealResult(records=(record,), next_cursor=None)
 
 
 async def _read_brief(db: AsyncSession, plan: RevealPlan) -> RevealResult:

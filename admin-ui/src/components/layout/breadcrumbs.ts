@@ -44,6 +44,7 @@ const SEGMENT_LABELS: Readonly<Record<string, string>> = {
   users: "Users",
   generations: "Generations",
   names: "Name strategies",
+  vendors: "Vendors",
   assets: "Assets",
   audit: "Audit",
   retention: "Retention",

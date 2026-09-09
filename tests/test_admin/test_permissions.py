@@ -99,6 +99,30 @@ _PLAN_MATRIX: Final[Mapping[Permission, tuple[str | None, str | None, str | None
     Permission.ORDER_RETRY: (None, None, _W, _W),
     Permission.ORDER_FORCE_DELIVER: (None, None, _WS, _WS),
     Permission.USER_BLOCK: (None, None, _WS, _WS),
+    # The role half of the row above, transcribed by the same ruling that split the two
+    # reveal rows: a ``W+S`` cell decided by ``check_role`` is a permanent 403 for every
+    # role, because a router guard holds no subject and therefore no grant to weigh. So
+    # ``POST /users/{id}/block`` and ``/unblock`` declare this cell — USER_BLOCK's own two
+    # roles with the ``+S`` removed — and their handlers enforce USER_BLOCK on the Telegram
+    # id they have read. §12.2 has one row; the code has two, and neither is reachable
+    # without the other.
+    Permission.USER_BLOCK_WRITE: (None, None, _W, _W),
+    # NOT in §12.2 at all. ``AuditAction.CREDIT_GRANT`` shipped with the entitlement ledger
+    # and §12.2 predates ``credit_accounts``, so the cell is a ruling rather than a
+    # transcription; ``permissions.py`` carries the argument for ADMIN+OWNER, for ``+S`` and
+    # for it not being ``fresh``. The pair is split for the reason the pair above is.
+    Permission.CREDIT_GRANT: (None, None, _WS, _WS),
+    Permission.CREDIT_GRANT_WRITE: (None, None, _W, _W),
+    # Also NOT in §12.2 — a ruling in the shape of the pair above, transcribed from
+    # BROADCAST_SPEC §3.1. The read is ``M`` at every role because a campaign record holds
+    # no customer data (a title, a segment, counters) and a VIEWER who cannot see what went
+    # out cannot review it; the recipient list is masked at the response boundary for
+    # everyone, so there is nothing here for an ``R`` cell to unmask. The write pair is split
+    # for the reason the two above are, and ``permissions.py`` argues the ``+S`` on the send:
+    # it is the one action that reaches every customer at once and the one nothing can undo.
+    Permission.BROADCAST_READ: (_M, _M, _M, _M),
+    Permission.BROADCAST_WRITE: (None, None, _W, _W),
+    Permission.BROADCAST_SEND: (None, None, _WS, _WS),
     Permission.MODERATION_REVEAL: (None, None, _AS, _AS),
     Permission.MODERATION_DECIDE: (None, None, _WS, _WS),
     Permission.RETENTION_SWEEP: (None, None, _W, _W),

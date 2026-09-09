@@ -62,7 +62,12 @@ from hbd.admin.schemas.reveal import (
     RevealResponse,
 )
 from hbd.admin.security.permissions import Permission, StepUpAction
-from hbd.admin.services.reveal import perform_reveal, plan_reveal, reveal_entry
+from hbd.admin.services.reveal import (
+    audit_subject_id,
+    perform_reveal,
+    plan_reveal,
+    reveal_entry,
+)
 from hbd.db.base import utc_now
 
 __all__ = ["REVEAL_PATH", "build_reveal_router"]
@@ -106,7 +111,17 @@ def build_reveal_router() -> APIRouter:
             conversation_count=plan.conversations_charged,
             now=now,
         )
-        entry = reveal_entry(admin, body=body, plan=plan, records_charged=decision.records_charged)
+        entry = reveal_entry(
+            admin,
+            body=body,
+            plan=plan,
+            records_charged=decision.records_charged,
+            # Read before the audit row is built, and it is the ONE place the reveal's
+            # ``users.id`` becomes the Telegram id the block and the grant file under —
+            # otherwise ``/audit?subjectType=user`` answers half this customer's trail and
+            # reads like the whole of it. See :func:`audit_subject_id`.
+            subject_id=await audit_subject_id(db, plan),
+        )
         result = await perform_reveal(db, container, entry=entry, plan=plan, now=now)
         return RevealResponse(
             subject_type=plan.subject_type,

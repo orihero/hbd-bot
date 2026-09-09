@@ -75,6 +75,13 @@ export const ROUTE_ENTRIES: readonly RouteEntry[] = [
     label: "Name strategies",
     keywords: ["bake-off", "verification", "candidate order"],
   },
+  {
+    name: "vendors",
+    label: "Vendors",
+    /* An operator hunting a bill types the money word, not ours: "spend" and "cost" both
+       land here, and so do the two vendor names that actually appear in the rollup. */
+    keywords: ["vendor", "spend", "cost", "usage", "tokens", "elevenlabs", "openrouter"],
+  },
   { name: "assets", label: "Assets", keywords: ["audio", "expiring", "storage"] },
   { name: "audit", label: "Audit", keywords: ["log", "reveals", "chain"] },
   { name: "retention", label: "Retention", keywords: ["purge", "sweep", "clocks"] },

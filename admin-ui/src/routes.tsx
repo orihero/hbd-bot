@@ -48,6 +48,7 @@ export const ROUTES = {
   userDetail: "/users/:telegramUserId",
   generations: "/generations",
   nameStrategies: "/generations/names",
+  vendors: "/vendors",
   assets: "/assets",
   audit: "/audit",
   retention: "/retention",
@@ -68,6 +69,7 @@ export const href = {
   user: (telegramUserId: number): string => `/users/${encodeURIComponent(String(telegramUserId))}`,
   generations: (): string => ROUTES.generations,
   nameStrategies: (): string => ROUTES.nameStrategies,
+  vendors: (): string => ROUTES.vendors,
   assets: (): string => ROUTES.assets,
   audit: (): string => ROUTES.audit,
   retention: (): string => ROUTES.retention,
@@ -98,6 +100,10 @@ export const routeObjects: RouteObject[] = [
         lazy: () => import("@/features/generations/NameStrategiesScreen"),
       },
       { path: "generations", lazy: () => import("@/features/generations/GenerationsScreen") },
+      // Literal, and declared ahead of any future `:vendorId` sibling for the same reason
+      // `generations/names` is: React Router ranks literals higher, but relying on that
+      // silently is how `/vendors` starts resolving as a vendor id.
+      { path: "vendors", lazy: () => import("@/features/vendors/VendorsScreen") },
       { path: "assets", lazy: () => import("@/features/assets/AssetsScreen") },
       { path: "audit", lazy: () => import("@/features/audit/AuditScreen") },
       { path: "retention", lazy: () => import("@/features/retention/RetentionScreen") },

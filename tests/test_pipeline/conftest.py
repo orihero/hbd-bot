@@ -376,14 +376,26 @@ class FakePaymentProvider:
 
 
 class FakeAudioPostProcessor:
-    """Copies bytes around with a marker suffix. Stands in for ffmpeg."""
+    """Copies bytes around with a marker suffix. Stands in for ffmpeg.
+
+    It satisfies ``hbd.contracts.AudioPostProcessor`` structurally, and mypy --strict over
+    ``tests`` is what actually keeps it in step with the protocol: a method added there and
+    forgotten here fails typecheck at the ``post=`` call site rather than passing every test
+    while the real adapter and the fake describe different objects.
+    """
 
     def __init__(self) -> None:
         self.should_fail_normalize = False
         self.should_fail_voice_note = False
         self.should_fail_probe = False
+        self.should_fail_brand = False
         self.normalized: list[Path] = []
         self.voice_notes: list[Path] = []
+        #: Every ``brand`` call, as ``(destination, cover, tags)``. Recorded rather than
+        #: merely counted because the watermark leak guard asserts on the TAGS — that the
+        #: handle reached the file and never the lyric — and there is no other place the
+        #: values the real ffmpeg pass would have written can be observed.
+        self.branded: list[tuple[Path, Path | None, tuple[tuple[str, str], ...]]] = []
 
     async def probe(self, source: Path) -> Result[AudioProbe]:
         if self.should_fail_probe:
@@ -411,6 +423,21 @@ class FakeAudioPostProcessor:
             return err(StorageError("fake opus transcode refused"))
         destination.write_bytes(source.read_bytes() + b"|opus")
         self.voice_notes.append(destination)
+        return ok(destination)
+
+    async def brand(
+        self,
+        source: Path,
+        *,
+        destination: Path,
+        cover: Path | None,
+        tags: tuple[tuple[str, str], ...],
+    ) -> Result[Path]:
+        """Append a marker, and remember exactly what the real mux would have written."""
+        if self.should_fail_brand:
+            return err(StorageError("fake branding pass refused"))
+        destination.write_bytes(source.read_bytes() + b"|brand")
+        self.branded.append((destination, cover, tags))
         return ok(destination)
 
 

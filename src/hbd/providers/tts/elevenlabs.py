@@ -14,26 +14,46 @@ future model gains the feature, flipping the flag is the whole change.
 What v3 *does* offer is bracketed audio tags — ``[excited]``, ``[warmly]`` — which is how a
 persona's mood is expressed. Unknown moods are dropped rather than injected, because an
 unrecognised bracket is read aloud as words.
+
+**Every call is measured.** One :class:`~hbd.usage.VendorUsage` record leaves this adapter
+on every return path that reached the vendor — success, transport failure, rejected status
+and unusable body alike — because a leg that only reports its successes makes a vendor that
+is failing look cheap. A ``prepare_speech`` rejection is the one return that records
+nothing, and correctly so: no request was sent, so there is no vendor call to describe.
+
+The cost on that record is honest about which half of the arithmetic came from the vendor.
+``billed_characters`` is the vendor's own ``character-cost`` header when it offers one and
+our count of the submitted string when it does not, and :class:`BilledCharacters` carries
+that distinction to :meth:`CharacterPricing.cost_for` so the row reads ``DERIVED`` in the
+first case and ``ESTIMATED`` in the second. With no rate configured — the shipped default —
+both cost fields are ``None`` and the panel says "not priced" instead of "$0.00".
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from datetime import datetime
+from time import perf_counter
 from typing import Any, Final
 
 import httpx
 
 from hbd.contracts import (
+    CostSource,
     Err,
+    HealthState,
     Language,
     ProviderHealth,
     RenderedAudio,
     Result,
     SpeechRequest,
+    Vendor,
+    VendorOperation,
     VoiceDescriptor,
     ok,
 )
+from hbd.errors import HbdError
 from hbd.logging import get_logger
 from hbd.providers.tts.elevenlabs_api import (
     API_KEY_HEADER,
@@ -50,15 +70,18 @@ from hbd.providers.tts.metering import (
 )
 from hbd.providers.tts.preparation import prepare_speech
 from hbd.providers.tts.registry import VoiceRegistry, default_registry
-from hbd.providers.tts.transport import read_audio_body, send_request, utc_now
+from hbd.providers.tts.transport import http_status_of, read_audio_body, send_request, utc_now
+from hbd.usage import LOGGING_USAGE_SINK, UsageSink, VendorUsage
 
 __all__ = [
     "ElevenLabsTts",
+    "BilledCharacters",
     "PROVIDER_NAME",
     "SUPPORTED_LANGUAGES",
     "SPEECH_PATH_TEMPLATE",
     "DEFAULT_OUTPUT_FORMAT",
     "DEFAULT_VOICE_SETTINGS",
+    "health_usage",
     "mime_for_output_format",
 ]
 
@@ -104,6 +127,16 @@ _MIME_BY_FORMAT_PREFIX: Final[Mapping[str, str]] = {
 }
 _FALLBACK_MIME: Final[str] = "application/octet-stream"
 
+_MS_PER_S: Final[int] = 1_000
+
+#: What ``RenderedAudio.cost_usd`` shows for a call we have no rate for. The model requires
+#: a float, so the "unpriced" fact cannot survive in it; :class:`VendorUsage` keeps ``None``.
+_UNPRICED_RENDERED_COST_USD: Final[float] = 0.0
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((perf_counter() - started) * _MS_PER_S)
+
 
 def mime_for_output_format(output_format: str) -> str:
     """Best-effort MIME for a vendor format string such as ``mp3_44100_128``."""
@@ -119,11 +152,26 @@ def _first_header(headers: httpx.Headers, names: tuple[str, ...]) -> str | None:
     return None
 
 
-def _billed_characters(headers: httpx.Headers, *, submitted: str) -> int:
+@dataclass(frozen=True, slots=True)
+class BilledCharacters:
+    """A character count and, inseparably, where it came from.
+
+    The two travel together because the provenance of the *count* decides the provenance of
+    the *cost*: multiplying our rate by the vendor's own billed figure is ``DERIVED``, while
+    multiplying our rate by our own ``len()`` is ``ESTIMATED`` on both factors. Collapsing
+    this to a bare ``int`` is what would let the second quietly claim to be the first.
+    """
+
+    count: int
+    #: True when the vendor's ``character-cost`` header supplied ``count``.
+    is_vendor_counted: bool
+
+
+def _billed_characters(headers: httpx.Headers, *, submitted: str) -> BilledCharacters:
     """What we will be charged for: the vendor's count when offered, else our own."""
     reported = _first_header(headers, _CHARACTER_COST_HEADERS)
     if reported is None:
-        return len(submitted)
+        return BilledCharacters(count=len(submitted), is_vendor_counted=False)
     try:
         parsed = int(reported)
     except ValueError:
@@ -131,8 +179,43 @@ def _billed_characters(headers: httpx.Headers, *, submitted: str) -> int:
             "vendor reported a non-numeric character cost; counting the submitted text",
             extra={"provider": PROVIDER_NAME, "reported": reported},
         )
-        return len(submitted)
-    return max(parsed, 0)
+        return BilledCharacters(count=len(submitted), is_vendor_counted=False)
+    return BilledCharacters(count=max(parsed, 0), is_vendor_counted=True)
+
+
+def health_usage(probe: Result[ProviderHealth], *, provider: str, latency_ms: int) -> VendorUsage:
+    """One measured record for a subscription probe. Never priced.
+
+    Both ElevenLabs adapters probe the same account through the same
+    ``elevenlabs_api.subscription_health``, so they read its outcome the same way here
+    rather than in two places that would eventually disagree — the same argument that put
+    the probe itself in one module.
+
+    ``subscription_health`` deliberately converts a vendor outage into a *reading* rather
+    than a failure, so the HTTP status is only recoverable from the error side and stays
+    ``None`` on the reading side. ``is_success`` therefore says whether the account came
+    back usable: an ``Err`` (our credentials were rejected) and an ``UNAVAILABLE`` reading
+    are both calls an operator would count against the vendor, and a probe is never priced,
+    so no reading of it can ever be mistaken for spend.
+    """
+    if isinstance(probe, Err):
+        error: HbdError = probe.error
+        return VendorUsage(
+            vendor=Vendor.ELEVENLABS,
+            operation=VendorOperation.HEALTH,
+            provider=provider,
+            is_success=False,
+            latency_ms=latency_ms,
+            http_status=http_status_of(error),
+            error_code=error.error_code.value,
+        )
+    return VendorUsage(
+        vendor=Vendor.ELEVENLABS,
+        operation=VendorOperation.HEALTH,
+        provider=provider,
+        is_success=probe.value.state is not HealthState.UNAVAILABLE,
+        latency_ms=latency_ms,
+    )
 
 
 class ElevenLabsTts:
@@ -158,6 +241,7 @@ class ElevenLabsTts:
         health_timeout_s: float = DEFAULT_HEALTH_TIMEOUT_S,
         client: httpx.AsyncClient | None = None,
         clock: Callable[[], datetime] = utc_now,
+        usage: UsageSink = LOGGING_USAGE_SINK,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
@@ -165,6 +249,7 @@ class ElevenLabsTts:
         self._output_format = output_format
         self._registry = (registry or default_registry()).restricted_to(SUPPORTED_LANGUAGES)
         self._pricing = pricing or CharacterPricing()
+        self._usage = usage
         self._voice_settings = dict(voice_settings or DEFAULT_VOICE_SETTINGS)
         self._chars_per_second = chars_per_second
         self._health_timeout_s = health_timeout_s
@@ -192,6 +277,7 @@ class ElevenLabsTts:
         speech = prepared.value
 
         submitted, is_mood_applied = self._with_mood(speech.text, speech.mood)
+        started = perf_counter()
         response = await send_request(
             self._client,
             provider=self.name,
@@ -212,19 +298,51 @@ class ElevenLabsTts:
             },
         )
         if isinstance(response, Err):
+            await self._record_failure(response.error, latency_ms=_elapsed_ms(started))
             return response
 
         audio = read_audio_body(
             response.value, provider=self.name, context={"persona_id": speech.entry.persona_id}
         )
         if isinstance(audio, Err):
+            # A 200 whose body is not audio: the call happened, the status was fine and we
+            # still have nothing to speak. Recorded as a failure with the vendor's status,
+            # so "the vendor answered 200 with rubbish" is visible rather than invisible.
+            await self._record_failure(
+                audio.error,
+                latency_ms=_elapsed_ms(started),
+                http_status=response.value.status_code,
+                response_bytes=len(response.value.content),
+            )
             return audio
 
+        data = audio.value
+        billed = _billed_characters(response.value.headers, submitted=submitted)
+        cost_usd, cost_source = self._pricing.cost_for(
+            billed.count, is_vendor_counted=billed.is_vendor_counted
+        )
+        await self._usage.record(
+            VendorUsage(
+                vendor=Vendor.ELEVENLABS,
+                operation=VendorOperation.SPEECH_SYNTHESIS,
+                provider=self.name,
+                is_success=True,
+                model_id=self._model_id,
+                http_status=response.value.status_code,
+                latency_ms=_elapsed_ms(started),
+                billed_characters=billed.count,
+                response_bytes=len(data),
+                cost_usd=cost_usd,
+                cost_source=cost_source,
+            )
+        )
         return ok(
             self._rendered(
-                audio.value,
+                data,
                 headers=response.value.headers,
-                submitted=submitted,
+                billed=billed,
+                cost_usd=cost_usd,
+                cost_source=cost_source,
                 spoken=speech.spoken_text,
                 persona_id=speech.entry.persona_id,
                 is_mood_applied=is_mood_applied,
@@ -237,7 +355,8 @@ class ElevenLabsTts:
         return ok(self._registry.descriptors())
 
     async def health(self) -> Result[ProviderHealth]:
-        return await subscription_health(
+        started = perf_counter()
+        probe = await subscription_health(
             self._client,
             provider=self.name,
             base_url=self._base_url,
@@ -245,8 +364,41 @@ class ElevenLabsTts:
             timeout_s=self._health_timeout_s,
             clock=self._clock,
         )
+        await self._usage.record(
+            health_usage(probe, provider=self.name, latency_ms=_elapsed_ms(started))
+        )
+        return probe
 
     # -- internals ----------------------------------------------------------
+    async def _record_failure(
+        self,
+        error: HbdError,
+        *,
+        latency_ms: int,
+        http_status: int | None = None,
+        response_bytes: int | None = None,
+    ) -> None:
+        """One record for a call that did not produce audio. No cost, no character count.
+
+        Neither quantity is knowable here and neither may be invented: a rejected request
+        was not billed, and writing the length of the text we *tried* to speak into
+        ``billed_characters`` would put characters nobody was charged for into a column an
+        operator reconciles against an invoice.
+        """
+        await self._usage.record(
+            VendorUsage(
+                vendor=Vendor.ELEVENLABS,
+                operation=VendorOperation.SPEECH_SYNTHESIS,
+                provider=self.name,
+                is_success=False,
+                model_id=self._model_id,
+                http_status=http_status if http_status is not None else http_status_of(error),
+                error_code=error.error_code.value,
+                latency_ms=latency_ms,
+                response_bytes=response_bytes,
+            )
+        )
+
     def _with_mood(self, text: str, mood: str | None) -> tuple[str, bool]:
         if mood is None:
             return (text, False)
@@ -276,22 +428,31 @@ class ElevenLabsTts:
         data: bytes,
         *,
         headers: httpx.Headers,
-        submitted: str,
+        billed: BilledCharacters,
+        cost_usd: float | None,
+        cost_source: CostSource | None,
         spoken: str,
         persona_id: str,
         is_mood_applied: bool,
         is_name_applied: bool,
     ) -> RenderedAudio:
-        characters = _billed_characters(headers, submitted=submitted)
-        cost_usd, cost_source = self._pricing.cost_for(characters)
+        """The audio as the pipeline wants it. Note the deliberate cost asymmetry.
+
+        ``RenderedAudio.cost_usd`` is a non-optional ``float`` and ``cost_source`` a
+        non-optional enum — a shape that predates this work and cannot express "no rate is
+        configured" — so an unpriced call becomes ``0.0``/``ESTIMATED`` here. The
+        :class:`VendorUsage` record written by ``synthesize`` keeps the truthful ``None``
+        for both, and it is that record, never this field, that the spend panel sums.
+        """
         _LOG.info(
             "speech rendered",
             extra={
                 "provider": self.name,
                 "persona_id": persona_id,
-                "billed_characters": characters,
+                "billed_characters": billed.count,
+                "is_vendor_counted": billed.is_vendor_counted,
                 "cost_usd": cost_usd,
-                "cost_source": cost_source.value,
+                "cost_source": cost_source.value if cost_source is not None else None,
                 "is_mood_applied": is_mood_applied,
                 "is_name_applied": is_name_applied,
                 "bytes": len(data),
@@ -302,6 +463,6 @@ class ElevenLabsTts:
             mime=mime_for_output_format(self._output_format),
             duration_s=estimate_speech_duration_s(spoken, chars_per_second=self._chars_per_second),
             remote_id=_first_header(headers, _REQUEST_ID_HEADERS),
-            cost_usd=cost_usd,
-            cost_source=cost_source,
+            cost_usd=cost_usd if cost_usd is not None else _UNPRICED_RENDERED_COST_USD,
+            cost_source=cost_source if cost_source is not None else CostSource.ESTIMATED,
         )

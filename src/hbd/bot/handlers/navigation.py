@@ -18,7 +18,14 @@ of scope for this build; telling the customer something untrue is not.
 
 The last two handlers are not navigation in the wizard sense at all — they are the way OUT
 of a screen that ends a flow. Start over and Make another both perform the same clean-slate
-reset ``/start`` performs, through the same helper, so the three cannot drift apart.
+reset that 🎵 Make a song on the persistent menu performs, through the same helper
+(``common.reset_to_welcome``), so the three cannot drift apart.
+
+It used to be ``/start`` named in that sentence, and it is worth saying why it no longer is:
+``/start`` shows the MENU now. A returning customer who has already told us their language
+and their number must not be asked either question again to reach the thing they came for,
+so the command that used to begin a wizard begins nothing — 🎵 does. The helper, its
+signature and its semantics are unchanged; only which three doors open onto it.
 """
 
 from __future__ import annotations

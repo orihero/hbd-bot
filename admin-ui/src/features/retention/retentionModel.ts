@@ -1,7 +1,7 @@
 /**
- * The eleven clocks a retention sweep runs, as data.
+ * The twelve clocks a retention sweep runs, as data.
  *
- * `SweepCounts` is a flat object of eleven integers and it is reported twice: once as
+ * `SweepCounts` is a flat object of twelve integers and it is reported twice: once as
  * `rowsPastExpiry` (counted LIVE, right now, not read off any run) and once inside each
  * `PurgeRunView.counts` (what that run actually deleted). Rendering them as a table of
  * clocks rather than as two blobs of numbers is what lets an operator answer the question
@@ -45,6 +45,7 @@ export const SWEEP_CLOCKS: readonly SweepClock[] = [
   { key: "auditRowsDeleted", label: "audit rows", clock: "audit log · 730 days" },
   { key: "adminSessionsDeleted", label: "admin sessions", clock: "session expiry" },
   { key: "purgeRunsDeleted", label: "purge run records", clock: "the run history's own clock" },
+  { key: "vendorUsageDeleted", label: "vendor call records", clock: "vendor usage · 400 days" },
 ];
 
 /**

@@ -43,6 +43,16 @@ __all__ = [
     "MIN_AUDIO_RANGE_MS",
     "SongReference",
     "CostSource",
+    "Vendor",
+    "VendorOperation",
+    "UsageTask",
+    "BalanceUnit",
+    "BalanceEstimateBasis",
+    "BotMembershipEvent",
+    "BotBlockSource",
+    "BroadcastKind",
+    "BroadcastState",
+    "BroadcastRecipientState",
     "HealthState",
     # Result
     "Ok",
@@ -139,8 +149,42 @@ class Script(StrEnum):
 
 
 class Occasion(StrEnum):
+    """What the song is FOR. Declaration order is the order the wizard draws them in.
+
+    The list is the offer, not a taxonomy: every member has to be a reason somebody
+    actually opens this bot with, because the occasion is the first question asked and a
+    customer who finds nothing that fits presses ``CUSTOM`` and tells the writer nothing.
+    That is why the three-member version was widened — birthday, anniversary and "something
+    else" sent everyone who wanted a roast, an apology or a song for a two-year-old down the
+    escape hatch, and ``OCCASION_BRIEFS`` turned all of them into "a personal celebration".
+
+    ``CUSTOM`` stays LAST and stays the escape hatch. ``keyboards.OWN_LYRICS_SITS_ABOVE``
+    is pinned to it, so a member added after it would silently move the
+    "I will write the words myself" button; add new occasions ABOVE it.
+
+    Values are what the database stores, so they are renamed only with a migration —
+    ``briefs.occasion`` is a plain ``VARCHAR(32)`` with no CHECK constraint (see
+    ``db.base.enum_type``), which is why ADDING a member needs no migration at all.
+    """
+
     BIRTHDAY = "birthday"
+    #: A declaration of love or a thank-you said out loud — Bro.Hit's "Признание".
+    LOVE = "love"
+    #: For somebody having a hard time: encouragement, not celebration.
+    SUPPORT = "support"
+    #: A good-natured roast. The writer is told to keep it affectionate; the shared rules
+    #: in ``pipeline.prompts`` still forbid anything cruel.
+    PRANK = "prank"
+    #: A calendar holiday (New Year, 8 March, a professional day) rather than a personal one.
+    HOLIDAY = "holiday"
+    WEDDING = "wedding"
     ANNIVERSARY = "anniversary"
+    #: A song for a child, which is a register instruction as much as an occasion.
+    KIDS = "kids"
+    #: No reason at all, which is a reason. Kept distinct from ``CUSTOM``: this one says
+    #: "nothing to celebrate, just sing", while ``CUSTOM`` says "something you have not
+    #: listed".
+    NO_OCCASION = "no_occasion"
     CUSTOM = "custom"
 
 
@@ -227,6 +271,223 @@ class CostSource(StrEnum):
     VENDOR_REPORTED = "vendor_reported"
     DERIVED = "derived"
     ESTIMATED = "estimated"
+
+
+class Vendor(StrEnum):
+    """Who was billed for one call, at the granularity an invoice arrives at.
+
+    Coarser than the adapter name on purpose. ``vendor_usage.provider`` records which
+    adapter made the call (``elevenlabs_music`` vs ``elevenlabs_tts``) and both roll up to
+    ``ELEVENLABS`` here, because one invoice arrives from ElevenLabs and an operator
+    reconciling it needs the total, not three of them.
+
+    ``OPENAI_COMPATIBLE`` is the honest member for a self-hosted or third-party
+    OpenAI-shaped endpoint that is not OpenRouter: the wire protocol is the same, the
+    billing relationship is not, and ``usage.cost`` is an OpenRouter extension nobody else
+    returns. ``FAKE`` exists so a ``HBD_USE_FAKE_PROVIDERS`` run is RECORDED and visibly
+    excluded rather than invisible — ``vendor_usage.is_fake`` carries the same fact on the
+    row, and a demo that wrote no rows at all would be indistinguishable from a deployment
+    nobody instrumented.
+
+    This lives here and not in ``hbd.db.enums`` because a provider adapter records usage
+    and a provider adapter must never import ``hbd.db``.
+    """
+
+    ELEVENLABS = "elevenlabs"
+    OPENROUTER = "openrouter"
+    GEMINI = "gemini"
+    OPENAI_COMPATIBLE = "openai_compatible"
+    FAKE = "fake"
+
+
+class VendorOperation(StrEnum):
+    """What the vendor was ASKED to do — the unit a rate card is quoted in.
+
+    Split finer than :class:`Vendor` because that is where the money is: ElevenLabs bills
+    music by the rendered minute, speech by the character and transcription by the minute of
+    audio, so a single "elevenlabs" total would mix three units and be reconcilable against
+    nothing.
+
+    ``HEALTH`` is a member rather than an omission. A quota probe is a real call with real
+    latency and a real HTTP status, and dropping it would make the failure rate of a vendor
+    that is down look better than it is — but it is never priced, so a probe can never be
+    read as spend.
+    """
+
+    MUSIC_COMPOSE = "music_compose"
+    MUSIC_INPAINT = "music_inpaint"
+    SPEECH_SYNTHESIS = "speech_synthesis"
+    TRANSCRIPTION = "transcription"
+    CHAT_COMPLETION = "chat_completion"
+    HEALTH = "health"
+
+
+class UsageTask(StrEnum):
+    """What the call was FOR, in product terms rather than pipeline terms.
+
+    Deliberately not ``PipelineStage``. This enum is stamped on a row by an adapter that
+    must not know a pipeline exists, so the stage-to-task mapping lives once in
+    ``hbd.pipeline.orchestrator`` and the vendor layer never imports ``hbd.pipeline``.
+
+    ``LYRICS_PREVIEW`` is separate from ``LYRICS`` for the same reason: the wizard writes a
+    draft lyric BEFORE an order row exists, so those calls carry a task and no ``order_id``.
+    Folding them into ``LYRICS`` would hide the one class of spend that has no order to
+    charge it to, which is exactly the spend an operator wants to see.
+    """
+
+    MODERATION = "moderation"
+    LYRICS = "lyrics"
+    LYRICS_PREVIEW = "lyrics_preview"
+    GREETING_SCRIPTS = "greeting_scripts"
+    SONG = "song"
+    NAME_VERIFICATION = "name_verification"
+    GREETING_SPEECH = "greeting_speech"
+
+
+class BalanceUnit(StrEnum):
+    """What a ``vendor_balances`` row's quantities are counted in.
+
+    A balance with no unit is unreadable in the same way a cost with no
+    :class:`CostSource` is: "4 312 remaining" is a fortune in dollars and an afternoon in
+    ElevenLabs characters, and the two vendors this system polls report in one each. It
+    lives beside :class:`Vendor` rather than in ``hbd.db.enums`` for that class's stated
+    reason — the probe that reads a vendor's own body is a provider-shaped module, and a
+    provider must never import ``hbd.db``.
+    """
+
+    USD = "usd"
+    CHARACTERS = "characters"
+
+
+class BalanceEstimateBasis(StrEnum):
+    """How a "songs remaining" estimate was arrived at — and therefore how far to trust it.
+
+    The same discipline :class:`CostSource` applies to a dollar figure, applied to a
+    division. ``TRAILING_SPEND_USD`` divides a measured USD balance by measured USD spend
+    per delivered song. ``TRAILING_TTS_CHARACTERS`` divides a character balance by the
+    characters TTS billed us per delivered song — and its NAME carries the bias, because
+    ElevenLabs music renders draw on the same credit pool while writing ``audio_ms`` rather
+    than ``billed_characters``, so that divisor undercounts and the estimate is an UPPER
+    BOUND. A tile that renders the number without the basis is rendering a guess as a fact,
+    which is why ``ck_vendor_balances_estimate_carries_its_basis`` makes the two inseparable
+    in the database rather than in a convention.
+    """
+
+    TRAILING_SPEND_USD = "trailing_spend_usd"
+    TRAILING_TTS_CHARACTERS = "trailing_tts_characters"
+
+
+class BotMembershipEvent(StrEnum):
+    """A transition in whether a CUSTOMER can be messaged — never the operator's bar.
+
+    ``users.is_blocked`` has the customer as the OBJECT ("an operator barred this account").
+    These have the customer as the SUBJECT: they record the customer blocking, or
+    unblocking, the bot. The two are separate cards on the dashboard, they are never OR-ed,
+    and neither is derived from the other.
+
+    "Membership" is Telegram's own word for the fact (``my_chat_member`` /
+    ``ChatMemberUpdated``) and is used deliberately in place of "block", which in this
+    schema already means the operator's bar.
+    """
+
+    BLOCKED = "blocked"
+    UNBLOCKED = "unblocked"
+
+
+class BotBlockSource(StrEnum):
+    """Where a :class:`BotMembershipEvent` was observed, because the two are not equal.
+
+    ``MEMBERSHIP_UPDATE`` is Telegram telling us, on its own ``my_chat_member`` update, at
+    the instant it happened. ``DELIVERY_REFUSAL`` is a send that came back
+    ``TelegramForbiddenError``, which tells us only that the block had ALREADY happened by
+    then. Recording which is which is the same provenance discipline
+    ``vendor_usage.cost_source`` applies to money: an instant inferred from a refusal is a
+    weaker fact than one the vendor stamped, and a reader must be able to tell them apart.
+
+    The second source is not redundant. ``run_polling`` calls
+    ``delete_webhook(drop_pending_updates=True)`` on every start, so every membership update
+    that arrived while the bot was down is discarded permanently and Telegram never resends
+    it — the delivery refusal is the only source that survives a deploy window.
+    """
+
+    MEMBERSHIP_UPDATE = "membership_update"
+    DELIVERY_REFUSAL = "delivery_refusal"
+
+
+class BroadcastKind(StrEnum):
+    """What a campaign IS, declared at composition and frozen for the run.
+
+    ``SERVICE`` is a message the product owes the customer — an outage, a price change, a
+    song about to be deleted. ``MARKETING`` is a message the product wants to send them.
+    The two are one column and never one predicate: the eligibility rule they select is the
+    difference between a notice a customer cannot reasonably refuse and a promotion they
+    must have agreed to, and collapsing them would make the day someone widens the first a
+    day they quietly widened the second.
+
+    Marketing consent is not built in this phase, so today the kind is recorded and
+    ``MARKETING`` is gated by a settings flag alone. It is declared here rather than when
+    consent lands because the kind is a property of the campaign a reader needs a year from
+    now, and a column added later cannot answer "what was that message?" about the ones
+    already sent.
+    """
+
+    SERVICE = "service"
+    MARKETING = "marketing"
+
+
+class BroadcastState(StrEnum):
+    """Where a campaign is in its one run. ``COMPLETED``/``CANCELLED``/``FAILED`` terminate.
+
+    ``DRAFT -> EXPANDING -> READY -> SENDING -> COMPLETED``, with ``PAUSED`` the only state
+    that goes back (to ``SENDING``, on resume). ``EXPANDING`` and ``READY`` are separate
+    because materialising the audience is a resumable multi-chunk job: a campaign whose rows
+    are half-written must be distinguishable from one whose audience is frozen and complete,
+    or a crash mid-expansion resumes as a send to whoever happened to be inserted.
+
+    ``FAILED`` grades the RUN, never the recipients. A campaign in which 12 of 40 000
+    messages were refused is ``COMPLETED`` — the per-account outcome lives on the recipient
+    row, and rolling those two facts into one column is how "did it go out?" stops having an
+    answer.
+    """
+
+    DRAFT = "draft"
+    EXPANDING = "expanding"
+    READY = "ready"
+    SENDING = "sending"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
+class BroadcastRecipientState(StrEnum):
+    """One account's outcome in one campaign — the ledger a replayed job is settled against.
+
+    Every send job is replayed on every deploy (ARQ retries, SIGTERM cancels), so this
+    column and not the job is the record of who has been messaged. ``SENDING`` is written
+    and committed BEFORE the message leaves, which is what makes the claim exclusive.
+
+    **``UNKNOWN`` is the deliberate hole.** A row left in ``SENDING`` by a killed job may or
+    may not have reached Telegram, and it is never retried: the sweep ages it to ``UNKNOWN``,
+    where it counts as neither sent nor failed and the panel shows it as its own number.
+    Messaging a customer twice is worse than an unresolved three in forty thousand, and a
+    counter that quietly rounded the hole away would hide exactly the case an operator needs
+    to see.
+
+    The two skips are not one. ``SKIPPED_BLOCKED`` covers both directions of a block — the
+    operator's bar and the customer's own — because neither is a delivery attempt;
+    ``UNDELIVERABLE`` is Telegram saying the chat is gone. A skipped row is inserted rather
+    than filtered out, so the funnel from audience to messages is arithmetic in the table
+    instead of a filter someone has to remember.
+    """
+
+    PENDING = "pending"
+    SENDING = "sending"
+    SENT = "sent"
+    FAILED = "failed"
+    SKIPPED_BLOCKED = "skipped_blocked"
+    UNDELIVERABLE = "undeliverable"
+    UNKNOWN = "unknown"
 
 
 class HealthState(StrEnum):
@@ -827,6 +1088,30 @@ class AudioPostProcessor(Protocol):
 
     async def to_voice_note(self, source: Path, *, destination: Path) -> Result[Path]:
         """Transcode to OGG/libopus mono. ``sendVoice`` renders anything else as a file."""
+        ...
+
+    async def brand(
+        self,
+        source: Path,
+        *,
+        destination: Path,
+        cover: Path | None,
+        tags: tuple[tuple[str, str], ...],
+    ) -> Result[Path]:
+        """Attach the cover picture and write the metadata tags, without re-encoding.
+
+        **Best-effort, and the only method here whose failure the caller is expected to
+        ignore.** A watermark is worth less than the song: on ``Err`` the caller ships the
+        unbranded file it already had, exactly as it ships a raw render when loudness
+        normalisation fails. That is why this is a separate protocol method rather than a
+        step inside :meth:`normalize_loudness` — folding it in would make a lost tag cost
+        the customer their mastering.
+
+        ``tags`` is an ordered tuple of ``(key, value)`` pairs and not a mapping because
+        each pair becomes two argv elements, and argv is ordered. ``cover`` may be ``None``
+        when the picture could not be drawn; the implementation must then write the tags
+        alone rather than refusing the whole pass.
+        """
         ...
 
 

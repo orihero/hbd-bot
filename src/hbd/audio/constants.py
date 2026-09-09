@@ -23,6 +23,8 @@ __all__ = [
     "INTERMEDIATE_SUFFIX",
     "FFMPEG_COMMON_ARGS",
     "OUTPUT_HYGIENE_ARGS",
+    "BRAND_HYGIENE_ARGS",
+    "ID3V2_VERSION",
     "NULL_MUXER",
     "NULL_SINK",
     "VOICE_NOTE_SUFFIX",
@@ -82,6 +84,22 @@ FFMPEG_COMMON_ARGS: Final[tuple[str, ...]] = ("-hide_banner", "-nostdin", "-y")
 #: one, and it breaks a wav mux); ``-map_metadata -1`` keeps vendor tags out of a customer
 #: deliverable.
 OUTPUT_HYGIENE_ARGS: Final[tuple[str, ...]] = ("-vn", "-map_metadata", "-1")
+#: The same hygiene, MINUS the ``-vn``, for the one pass that attaches a cover picture.
+#: This is not a stylistic duplicate of the tuple above: in an mp3 an attached picture IS a
+#: video stream, so ``-vn`` would drop the very thing the branding pass exists to add — and
+#: it would do it silently, exit zero, and produce a perfectly valid file with no artwork.
+#: The nastiest part is that nothing downstream can tell: the mux succeeded, the tags are
+#: there, and only a human looking at a phone's lock screen ever finds out. Kept as its own
+#: constant so a future edit to ``OUTPUT_HYGIENE_ARGS`` cannot reintroduce the bug by
+#: accident, and so the ``-map_metadata -1`` half stays shared in intent: vendor tags must
+#: not survive into a customer deliverable, whichever pass writes the file.
+BRAND_HYGIENE_ARGS: Final[tuple[str, ...]] = ("-map_metadata", "-1")
+#: Which ID3 revision the branding pass writes. ffmpeg defaults to ID3v2.4, which Telegram's
+#: own audio-metadata reader and a large share of Android players parse incompletely or not
+#: at all — the tags are present in the file and invisible everywhere it matters. 2.3 is the
+#: revision every player has read reliably for twenty years, and nothing we write needs a
+#: 2.4 frame.
+ID3V2_VERSION: Final[str] = "3"
 #: The analysis pass produces no file: it decodes to nothing and prints its report.
 NULL_MUXER: Final[str] = "null"
 NULL_SINK: Final[str] = "-"

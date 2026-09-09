@@ -44,13 +44,15 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 
 from hbd.admin.deps import API_PREFIX, Db, require_permission
-from hbd.admin.errors import AdminProblem, ProblemError, unwrap
+from hbd.admin.errors import AdminProblem, ProblemError
 from hbd.admin.schemas.orders import AttemptsPage, AttemptWireView, to_attempt_view
 from hbd.admin.schemas.page import Paging, page_meta
 from hbd.admin.security.permissions import Permission
+from hbd.admin.window import resolve_window
 from hbd.contracts import NameStrategy
 from hbd.db.admin.attempts import AttemptFilters, count_attempts, get_attempt, list_attempts
-from hbd.db.admin.sql import TimeWindow, time_window
+from hbd.db.admin.sql import TimeWindow
+from hbd.db.base import utc_now
 from hbd.db.enums import GenerationKind
 from hbd.db.models.generation_attempt import ERROR_CODE_LENGTH, PROVIDER_LENGTH
 from hbd.errors import ErrorCode
@@ -61,35 +63,22 @@ GENERATIONS_PATH: Final[str] = f"{API_PREFIX}/generations"
 ATTEMPT_PATH: Final[str] = f"{GENERATIONS_PATH}/{{attempt_id}}"
 
 
-def _invalid(message: str) -> ProblemError:
-    """422 in the pipeline taxonomy — the code the rest of the system already uses for this."""
-    return ProblemError(AdminProblem(code=ErrorCode.INVALID_INPUT, message=message))
-
-
-def _aware(name: str, value: datetime | None) -> datetime | None:
-    """Refuse a naive instant (§6.1): the column is ``timestamptz`` and would raise anyway."""
-    if value is not None and value.tzinfo is None:
-        raise _invalid(f"{name} must carry a UTC offset, e.g. 2026-08-30T12:00:00Z")
-    return value
-
-
 def _window(since: datetime | None, until: datetime | None) -> TimeWindow | None:
-    """``from`` and ``to`` are a pair — both, or neither.
+    """``from``/``to`` as one half-open interval, either end open.
 
-    A one-sided window has to invent its missing bound and both candidates are a lie about
-    what was asked for. The epoch is a bound nobody typed, and ``now`` is re-evaluated on
-    every request — so a keyset walk down a ``?from=`` result would quietly widen its own
-    filter between page one and page two, which is the drift the opaque cursor exists to
-    prevent. Refusing the half-window costs a caller one extra parameter and costs nobody a
-    page of rows that silently changed shape underneath them.
+    ``?from=`` alone once refused, on the argument that ``now`` is re-evaluated per request
+    and a keyset walk would widen its own filter between pages. That argument was wrong about
+    where the pinning happens: the opaque cursor carries ``(created_at, id)``, so page two
+    resumes strictly *before* page one's last row no matter where the upper bound moved to.
+    The clock still comes from this module's globals rather than from
+    :func:`~hbd.admin.window.resolve_window`, which is this package's uniform per-module
+    seam for moving time in a test. It is uniform rather than universally exercised: the
+    suite's only such patch is ``monkeypatch.setattr(assets_router, "utc_now", ...)``
+    (``tests/test_admin/test_asset_stream.py:205``) and it reaches ``assets`` alone, so
+    nothing here goes red today if the clock moves — the adapter keeps the seam in the same
+    place on every router instead.
     """
-    start = _aware("from", since)
-    end = _aware("to", until)
-    if start is None and end is None:
-        return None
-    if start is None or end is None:
-        raise _invalid("from and to are a pair: send both bounds of the window, or neither")
-    return unwrap(time_window(start, end))
+    return resolve_window(since, until, now=utc_now())
 
 
 def build_query(

@@ -5,6 +5,14 @@ retention clock, is not reachable by ``hbd.db.purge`` and is not reachable by a 
 erasure. Anything that reaches stdout is outside every promise the product makes about how
 long it keeps a recipient's name, so what may reach stdout is asserted here rather than
 reviewed by eye.
+
+Redaction has exactly one exception, and it is asserted from both sides. The secret matcher
+looks for the substring ``token``, which swallowed ``prompt_tokens`` / ``completion_tokens``
+/ ``total_tokens`` and left the ``vendor.usage`` line — the fallback copy of a measurement
+when the ``vendor_usage`` insert fails — with no measurement on it. The carve-out is a
+closed set of three literal names holding a real ``int``, so the tests below check that the
+three counters survive, that those same names holding anything else do not, and that no
+other ``token``-ish name has quietly joined them.
 """
 
 from __future__ import annotations
@@ -16,6 +24,22 @@ from typing import Final
 import pytest
 
 from hbd.logging import REDACTED, configure_logging, redact
+
+#: The three names the redactor deliberately lets through, and the only three.
+_USAGE_COUNTERS: Final[tuple[str, ...]] = ("prompt_tokens", "completion_tokens", "total_tokens")
+
+#: Names that merely contain the word and are NOT counters. ``x_total_tokens`` and
+#: ``total_tokens_used`` are here because the carve-out is a literal set, not a pattern:
+#: if either of them ever survives, the exception has become a substring rule of its own.
+_NOT_COUNTERS: Final[tuple[str, ...]] = (
+    "token",
+    "access_token",
+    "refresh_token",
+    "bot_token",
+    "api_token",
+    "x_total_tokens",
+    "total_tokens_used",
+)
 
 #: Shaped like the ones this project actually holds. None is a live credential.
 _POSTGRES_DSN: Final[str] = "postgresql+asyncpg://hbd:s3cr3t-pw@db.internal:5432/hbd"
@@ -72,7 +96,23 @@ def test_a_dsn_keeps_its_host_and_loses_its_password() -> None:
 
 
 @pytest.mark.parametrize(
-    "key", ["database_url", "redis_url", "audit_dsn", "connection_string", "conn_str", "hmac_key"]
+    "key",
+    [
+        "database_url",
+        "redis_url",
+        "audit_dsn",
+        "connection_string",
+        "conn_str",
+        "hmac_key",
+        "api_key",
+        "openrouter_api_key",
+        "secret",
+        "password",
+        "passwd",
+        "authorization",
+        "credential",
+        "private_key",
+    ],
 )
 def test_a_field_whose_name_looks_like_a_credential_is_masked_whatever_it_holds(key: str) -> None:
     # Act
@@ -92,6 +132,74 @@ def test_redaction_returns_a_new_mapping_and_leaves_the_original_intact() -> Non
     # Assert
     assert original == {"database_url": _POSTGRES_DSN, "order_id": 7}
     assert masked == {"database_url": REDACTED, "order_id": 7}
+
+
+# ---------------------------------------------------------------------------
+# The token-counter carve-out
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("key", _USAGE_COUNTERS)
+def test_a_token_count_survives_redaction_because_the_usage_line_is_the_fallback_copy(
+    key: str,
+) -> None:
+    # Arrange — the ``vendor.usage`` line is what an operator still has when the
+    # ``vendor_usage`` insert fails, and these three are the only quantities the
+    # chat-completion leg measures at all.
+    payload = {key: 1_234, "cost_usd": 0.000123}
+
+    # Act
+    masked = redact(payload)
+
+    # Assert — an integer count, not the mask and not a stringified one.
+    assert masked == {key: 1_234, "cost_usd": 0.000123}
+    assert isinstance(masked[key], int)
+
+
+@pytest.mark.parametrize("key", _USAGE_COUNTERS)
+@pytest.mark.parametrize(
+    "value",
+    ["sk-or-v1-0123456789abcdef0123456789abcdef0123", "200", None, 12.5, True, ["1", "2"]],
+    ids=["a key", "a numeric string", "a null", "a float", "a bool", "a list"],
+)
+def test_a_counter_name_holding_anything_but_an_integer_is_still_masked(
+    key: str, value: object
+) -> None:
+    # Arrange / Act — the carve-out is a name AND a type. Without the type half, landing a
+    # string in a field called total_tokens would be a way through the secret matcher.
+    masked = redact({key: value})
+
+    # Assert
+    assert masked == {key: REDACTED}
+
+
+@pytest.mark.parametrize("key", _NOT_COUNTERS)
+def test_a_name_that_merely_contains_the_word_token_is_still_masked(key: str) -> None:
+    # Arrange / Act — an integer, so only the name can decide. The allow-list is a closed
+    # set of three literals; anything else keeps the substring rule it always had.
+    masked = redact({key: 1_234})
+
+    # Assert
+    assert masked == {key: REDACTED}
+
+
+def test_the_carve_out_reaches_a_counter_nested_inside_the_formatters_context_object() -> None:
+    # Arrange — this is the real shape: log_usage passes one flat extra dict, and the
+    # formatter redacts it as ``context``.
+    extras = {
+        "vendor": "openrouter",
+        "prompt_tokens": 140,
+        "completion_tokens": 60,
+        "total_tokens": 200,
+        "api_key": _OPENROUTER_KEY,
+    }
+
+    # Act
+    masked = redact({"context": extras})
+
+    # Assert — the measurement reaches the log line and the credential does not.
+    assert masked["context"]["total_tokens"] == 200
+    assert masked["context"]["prompt_tokens"] == 140
+    assert masked["context"]["completion_tokens"] == 60
+    assert masked["context"]["api_key"] == REDACTED
 
 
 # ---------------------------------------------------------------------------

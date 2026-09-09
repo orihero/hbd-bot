@@ -28,6 +28,11 @@ import {
  * `recipient_name_display` and `_raw` are two different strings on the same brief — the
  * normalised one the pipeline used and the one the customer actually typed — and an operator
  * chasing a failed verification wants to know which is which before spending a record on it.
+ *
+ * The `user_profiles` labels say whose name it is, for the same reason. A user's detail screen
+ * shows the CUSTOMER's own Telegram name a few hundred pixels from the RECIPIENT's name on their
+ * orders, and a checkbox that said only "first name" would be an operator spending a step-up and
+ * an audit row to unmask the wrong person's.
  */
 export const REVEAL_FIELD_LABELS: Readonly<Record<RevealField, string>> = {
   "briefs.recipient_name_display": "recipient name, as displayed",
@@ -38,6 +43,10 @@ export const REVEAL_FIELD_LABELS: Readonly<Record<RevealField, string>> = {
   "briefs.approved_lyrics": "approved lyrics",
   "generation_attempts.stt_transcript": "voice-note transcripts",
   "generation_attempts.name_candidate_text": "name candidates, as heard",
+  "user_profiles.phone_e164": "phone number",
+  "user_profiles.first_name": "first name, as Telegram has it",
+  "user_profiles.last_name": "last name, as Telegram has it",
+  "user_profiles.telegram_username": "@username",
 };
 
 /** One line under each checkbox saying what an operator is about to unmask. */
@@ -55,6 +64,15 @@ export const REVEAL_FIELD_HINTS: Readonly<Record<RevealField, string>> = {
     "What speech-to-text heard, one record per take. Paged and charged per page.",
   "generation_attempts.name_candidate_text":
     "The name text each attempt proposed, one record per take. Paged and charged per page.",
+  "user_profiles.phone_e164":
+    "The E.164 number the customer shared once, with the Telegram contact button. Masked to its " +
+    "last two digits everywhere else. Kept while the account exists; /forget deletes it.",
+  "user_profiles.first_name":
+    "Not the recipient's name — the customer's own, taken from their Telegram contact.",
+  "user_profiles.last_name": "Often absent: Telegram does not require one.",
+  "user_profiles.telegram_username":
+    "Without the “@”. It is a handle the customer chose and can change; it is not a stable " +
+    "identifier.",
 };
 
 /**
@@ -85,6 +103,30 @@ export const BRIEF_REVEAL_FIELDS: readonly RevealField[] = [
 export const ATTEMPT_REVEAL_FIELDS: readonly RevealField[] = [
   "generation_attempts.stt_transcript",
   "generation_attempts.name_candidate_text",
+];
+
+/**
+ * The customer's own contact details — one record between them, whichever are ticked.
+ *
+ * All four columns are `RevealShape.SINGLE` on one `user_profiles` row, which is 1:1 with the
+ * account, so `records_authorised` is `1` however many are named: ticking all four costs exactly
+ * what ticking the phone costs, and an operator who reveals the number now and the username in a
+ * minute pays twice and writes two audit rows. The group is also why every `RevealField` is still
+ * offered exactly once — the test beside this file asserts that, and a group holding only the
+ * phone would fail it.
+ *
+ * The AVATAR is not in here and is not a reveal at all (PD-1): it is an ordinary `records.read`
+ * route with no step-up, no budget unit and no audit row, so there is nothing for this list to
+ * charge for. Do not add a media field to it.
+ *
+ * There is no retention clock on any of these columns and this group is not where that is said —
+ * `RevealedRecords` says it, on the result, where an operator is looking at the value.
+ */
+export const USER_PROFILE_REVEAL_FIELDS: readonly RevealField[] = [
+  "user_profiles.phone_e164",
+  "user_profiles.first_name",
+  "user_profiles.last_name",
+  "user_profiles.telegram_username",
 ];
 
 /**

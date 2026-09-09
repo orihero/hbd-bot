@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "The hbd admin console SPA. Node lives here and nowhere else (plan §11.1).",
+  "description": "[DEPRECATED in favor of admin-dashboard] The legacy Gogo admin console SPA.",
   "engines": {
     "node": ">=20.19"
   },
@@ -13,6 +13,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "//tokens": "Recompute every measured comment in tokens.css. `tokens:check` is the CI half and fails on any drift; `tokens:annotate` is the local half and rewrites the measured spans in place. `tsx` rather than a bare node entry because package.json declares node >=20.19 and native type-stripping is only default from 23.6 — a .mjs shim importing a .mts module would work on a dev machine and break CI on the declared floor.",
+    "tokens:check": "tsx tools/annotate-tokens.mts --check",
+    "tokens:annotate": "tsx tools/annotate-tokens.mts --write",
     "test": "vitest run",
     "test:watch": "vitest",
     "coverage": "vitest run --coverage",
@@ -75,6 +78,7 @@
     "postcss": "^8.4.49",
     "tailwindcss": "~3.4.17",
     "tailwindcss-animate": "^1.0.7",
+    "tsx": "^4.23.13",
     "typescript": "~5.6.3",
     "typescript-eslint": "^8.18.1",
     "vite": "^6.0.5",

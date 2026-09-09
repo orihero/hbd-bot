@@ -50,9 +50,23 @@ GENRE_BRIEFS: Final[dict[Genre, str]] = {
     Genre.JAZZ_LOUNGE: "smooth lounge jazz, swung and relaxed",
 }
 
+#: One noun phrase per occasion, read straight into "Write ... lyrics for {phrase}." and
+#: into the greeting prompt beside it, so each one has to survive both sentences.
+#:
+#: Every member of the enum appears here and a ``KeyError`` is the only outcome for one
+#: that does not — deliberately, rather than a ``.get`` with a bland default: the whole
+#: point of widening ``Occasion`` was that "a personal celebration" was being sung over a
+#: roast and a get-well song alike.
 OCCASION_BRIEFS: Final[dict[Occasion, str]] = {
     Occasion.BIRTHDAY: "a birthday",
+    Occasion.LOVE: "a heartfelt declaration of love or gratitude",
+    Occasion.SUPPORT: "encouraging someone who is going through a hard time",
+    Occasion.PRANK: "an affectionate, funny roast of the recipient",
+    Occasion.HOLIDAY: "a holiday celebration",
+    Occasion.WEDDING: "a wedding",
     Occasion.ANNIVERSARY: "an anniversary",
+    Occasion.KIDS: "a child, so keep the words simple, playful and easy to sing along to",
+    Occasion.NO_OCCASION: "no particular occasion at all, just to make someone smile today",
     Occasion.CUSTOM: "a personal celebration",
 }
 

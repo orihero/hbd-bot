@@ -35,6 +35,7 @@
 import {
   Activity,
   ClipboardList,
+  Coins,
   CreditCard,
   Flag,
   MessageSquare,
@@ -79,6 +80,19 @@ export const PRIMARY_NAV: readonly NavItem[] = [
   { key: "orders", label: "Orders", route: "orders", icon: ClipboardList },
   { key: "users", label: "Users", route: "users", icon: Users },
   { key: "generations", label: "Generations", route: "generations", icon: Sparkles },
+  /*
+   * An ELEVENTH item §11.2's transcription does not have, and the one addition to the rail
+   * this file allows itself — because `/vendors` is not a screen the plan forgot to list, it
+   * is a screen for a table the plan predates. It sits after Generations because that is the
+   * question it continues: Generations asks what the pipeline attempted, Vendors asks what
+   * those attempts asked of a third party and what it cost.
+   *
+   * No `permission` field, deliberately: the routes behind it are guarded by
+   * `DASHBOARD_READ`, which all four roles hold (§12.3 classes costs and latencies as
+   * always-visible non-personal data). An item every role can reach needs no gate, and a
+   * gate naming a permission nobody lacks is one a reader has to disprove.
+   */
+  { key: "vendors", label: "Vendors", route: "vendors", icon: Coins },
   { key: "assets", label: "Assets", route: "assets", icon: Music },
   { key: "chat", label: "Chat", route: null, icon: MessageSquare, notYet: "phase 3" },
   { key: "payments", label: "Payments", route: null, icon: CreditCard, notYet: "phase 3" },

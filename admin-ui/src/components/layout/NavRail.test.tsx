@@ -23,13 +23,14 @@ function labels(): string[] {
 describe("order", () => {
   it("is exactly §11.2's, for an OWNER who sees everything", () => {
     renderWithProviders(<NavRail />, { me: meFixture("owner") });
-    // Live · Orders · Users · Generations · Assets · Chat · Payments · Moderation
-    // ─── Config · Audit · Admins
+    // Live · Orders · Users · Generations · Vendors · Assets · Chat · Payments
+    // ─── Moderation ─── Config · Audit · Admins
     expect(labels().map((text) => text.replace("phase 3", "").trim())).toEqual([
       "Live",
       "Orders",
       "Users",
       "Generations",
+      "Vendors",
       "Assets",
       "Chat",
       "Payments",

@@ -50,8 +50,23 @@ __all__ = [
 _LOG = get_logger(__name__)
 
 #: FSM-data key holding the id of the order this session is waiting on. Its PRESENCE is the
-#: signal that a song is being made; ``hbd.bot.draft.DRAFT_KEY`` is the only other key in
-#: this dict, so neither can collide with the other.
+#: signal that a song is being made.
+#:
+#: **The whole of the FSM data dict, named, because this comment used to claim there were two
+#: keys in it and there are five.** They are: this one; :data:`PROGRESS_MESSAGE_ID_KEY`
+#: below, which ``handlers.commands.handle_forget`` writes back when it re-parks an order;
+#: ``hbd.bot.draft.DRAFT_KEY``, the wizard session itself; and ``draft.UI_LANGUAGE_KEY`` and
+#: ``draft.ONBOARDED_KEY``, added by onboarding. Five distinct string constants, each
+#: declared exactly once and imported everywhere else, which is what makes "they cannot
+#: collide" a property of the code rather than of somebody having counted correctly.
+#:
+#: **The last two are not session state and do not die with a session.**
+#: ``handlers.common.clear_keeping_identity`` reads them, clears, and writes them back — so
+#: a cancellation, an expiry, a credit refusal or a finished flow leaves the customer's
+#: language and the fact that they have already given us a number intact. They are identity;
+#: everything above them is one run through the wizard. The single exception is
+#: ``commands.handle_forget``, whose bare ``state.clear()`` takes the identity too, because
+#: returning the account to first-contact state is precisely what that command promises.
 ORDER_ID_KEY: Final[str] = "order_id"
 
 #: FSM-data key holding the message the worker is editing its progress frames into. Kept

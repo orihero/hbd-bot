@@ -45,6 +45,7 @@ from hbd.db.models import Base
 from hbd.lyric_budget import LyricBudgetPolicy
 from tests.test_bot.conftest import (
     USER_ID,
+    FakeProfiles,
     RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
@@ -113,13 +114,24 @@ def metered_deps(
     content: RecordingContentWriter,
     budget_clock: MovableClock,
     budget: SqlLyricBudget,
+    profiles: FakeProfiles,
 ) -> BotDeps:
+    """The shared dependencies with the budget wired — and the profile store still wired.
+
+    ``profiles`` is taken from the shared fixture rather than constructed here, so that this
+    module's dispatcher differs from the suite's in exactly one respect: the budget. Dropping
+    it would not fail as "no store": ``walk_to_lyrics`` drives the real onboarding screens, the
+    onboarding router would fail open, the walker's language press would match no handler, and
+    every refusal assertion below would compare English copy against a screen rendered in the
+    operator's default language — a failure that reads as a locale bug in the budget copy.
+    """
     return BotDeps(
         settings=settings,
         submitter=submitter,
         content=content,
         clock=budget_clock,
         lyric_budget=budget,
+        profiles=profiles,
     )
 
 

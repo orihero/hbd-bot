@@ -214,12 +214,14 @@ _CSRF_CODES: Final[dict[CsrfDecision, AdminErrorCode]] = {
 }
 
 
-def enforce_csrf(request: Request, *, stored_token: str | None, expected_origin: str) -> None:
+def enforce_csrf(
+    request: Request, *, stored_token: str | None, accepted_origins: frozenset[str]
+) -> None:
     """Raise unless every CSRF layer passes. Safe methods return without inspecting anything."""
     decision = verify_csrf_request(
         method=request.method,
         origin=request.headers.get("origin"),
-        expected_origin=expected_origin,
+        accepted_origins=accepted_origins,
         header_token=request.headers.get("x-csrf-token"),
         stored_token=stored_token,
     )
@@ -321,7 +323,7 @@ async def get_current_admin(request: Request, db: Db, container: Container) -> C
     snapshot, user = proven.snapshot, proven.user
     settings = container.settings
     enforce_csrf(
-        request, stored_token=snapshot.csrf_token, expected_origin=settings.admin_public_origin
+        request, stored_token=snapshot.csrf_token, accepted_origins=settings.accepted_origins
     )
     _enforce_password_rotation(request, must_change_password=user.must_change_password)
     client_ip = resolve_request_ip(request, container)

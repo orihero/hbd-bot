@@ -26,12 +26,13 @@ from hbd.config import Settings
 from hbd.contracts import Language
 from hbd.db.retention import DEFAULT_RETENTION_POLICY
 from tests.test_bot.conftest import (
+    FakeProfiles,
     RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
     callback_update,
 )
-from tests.test_bot.test_wizard_flow import send, walk_to_name
+from tests.test_bot.test_wizard_flow import complete_onboarding, send, tap, walk_to_name
 
 
 def test_build_bot_defaults_to_html_parse_mode(settings: Settings) -> None:
@@ -73,7 +74,10 @@ def test_the_dispatcher_serialises_one_chat_s_updates(settings: Settings) -> Non
     """
     # Arrange
     deps = BotDeps(
-        settings=settings, submitter=RecordingSubmitter(), content=RecordingContentWriter()
+        settings=settings,
+        submitter=RecordingSubmitter(),
+        content=RecordingContentWriter(),
+        profiles=FakeProfiles(),
     )
 
     # Act
@@ -99,7 +103,10 @@ def test_production_locks_in_redis_so_the_lock_spans_processes(settings: Setting
 def test_build_dispatcher_exposes_the_dependencies_to_handlers(settings: Settings) -> None:
     # Arrange
     deps = BotDeps(
-        settings=settings, submitter=RecordingSubmitter(), content=RecordingContentWriter()
+        settings=settings,
+        submitter=RecordingSubmitter(),
+        content=RecordingContentWriter(),
+        profiles=FakeProfiles(),
     )
 
     # Act
@@ -112,7 +119,10 @@ def test_build_dispatcher_exposes_the_dependencies_to_handlers(settings: Setting
 def test_two_dispatchers_can_be_built_in_one_process(settings: Settings) -> None:
     # Arrange
     deps = BotDeps(
-        settings=settings, submitter=RecordingSubmitter(), content=RecordingContentWriter()
+        settings=settings,
+        submitter=RecordingSubmitter(),
+        content=RecordingContentWriter(),
+        profiles=FakeProfiles(),
     )
 
     # Act
@@ -132,7 +142,10 @@ def test_commands_are_routed_before_the_free_text_steps(settings: Settings) -> N
     """
     # Arrange
     deps = BotDeps(
-        settings=settings, submitter=RecordingSubmitter(), content=RecordingContentWriter()
+        settings=settings,
+        submitter=RecordingSubmitter(),
+        content=RecordingContentWriter(),
+        profiles=FakeProfiles(),
     )
 
     # Act
@@ -144,38 +157,78 @@ def test_commands_are_routed_before_the_free_text_steps(settings: Settings) -> N
     assert "commands" in names, "the command router is not wired into the tree"
     assert names.index("commands") < names.index("questions")
     assert names[-1] == "fallback", "the catch-all must stay last"
+    # The onboarding catch-all is what blocks the wizard, so it must beat every step router;
+    # a reply-keyboard LABEL is free text, so ``menu`` must beat the free-text steps too.
+    # Neither may beat ``submitting``: it claims every update in ``Wizard.submitting``, and
+    # a menu tap that escaped it would clear ``ORDER_ID_KEY`` and let the next ``/cancel``
+    # say "nothing was made" about a song that then arrives. CONTRACTS §4 resolves that at
+    # the ROUTER level (``~StateFilter(Wizard.submitting)`` on both observers) rather than
+    # by reordering, because ``navigation`` must keep answering Cancel.
+    assert names.index("start") < names.index("onboarding") < names.index("menu")
+    assert names.index("menu") < names.index("navigation") < names.index("questions")
+    # ``membership`` is first and its position is the ONE in this list that is not
+    # load-bearing: it registers on ``my_chat_member``, a third observer neither of the two
+    # this ordering is about, so it can neither swallow an update from the ladder nor be
+    # swallowed by it. It is pinned anyway, because a router that silently stopped being
+    # included is exactly how the churn numbers would stop rising with nothing to see.
+    assert names == [
+        "membership",
+        "commands",
+        "start",
+        "onboarding",
+        "menu",
+        "navigation",
+        "questions",
+        "name",
+        "lyrics",
+        "confirm",
+        "checkout",
+        "submitting",
+        "fallback",
+    ]
 
 
-async def test_a_stray_message_with_no_session_gets_the_welcome_screen(
+async def test_a_stray_message_with_no_session_gets_the_first_contact_screen(
     dispatcher: Dispatcher, bot: Bot, session: RecordingSession
 ) -> None:
     """Text with no session at all is almost always first contact, not an expiry.
 
     Someone who typed "hello?" before they found ``/start`` has no session to have expired,
     so telling them one did is untrue and leaves them nowhere. They get the screen they
-    were trying to reach.
+    were trying to reach — which is now the onboarding language question rather than the
+    wizard's old first step, because answering a stranger with the occasion picker would
+    quietly skip both onboarding questions and leave us with no number to deliver to.
     """
     # Arrange / Act
     await send(dispatcher, bot, "hello?")
 
     # Assert
     screen = session.last_screen
-    assert translate("start.choose_ui_language", Language.UZ_LATN) in screen.text
+    assert translate("onboarding.language.prompt", Language.UZ_LATN) in screen.text
     assert screen.reply_markup is not None
 
 
 async def test_a_stray_message_mid_wizard_points_at_the_buttons(
     dispatcher: Dispatcher, bot: Bot, session: RecordingSession
 ) -> None:
+    """Typed text on a button-only wizard step, from a customer already past onboarding.
+
+    Driven through the real onboarding rather than from a bare ``/start``, because that
+    distinction is now the whole point: text at ``Onboarding.language`` is answered by the
+    onboarding router re-drawing its own question, and only text at a ``Wizard.*`` step
+    reaches the fallback's "use the buttons". Starting from ``/start`` would silently assert
+    the first thing while claiming to test the second.
+    """
     # Arrange
-    await send(dispatcher, bot, "/start")
+    await complete_onboarding(dispatcher, bot, language=Language.EN)
+    await tap(dispatcher, bot, "menu.generate", Language.EN)
     session.clear()
 
     # Act — typing where a button is expected
-    await send(dispatcher, bot, "English please")
+    await send(dispatcher, bot, "an anniversary please")
 
     # Assert
-    assert session.last_screen.text == translate("wizard.use_buttons", Language.UZ_LATN)
+    assert session.last_screen.text == translate("wizard.use_buttons", Language.EN)
 
 
 async def test_a_stale_button_is_answered_rather_than_left_spinning(

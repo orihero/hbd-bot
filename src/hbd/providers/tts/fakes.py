@@ -14,6 +14,13 @@ silent MP3 stream, because every decoder skips an ID3v2 tag by its declared leng
 earlier revision returned the marker alone; it satisfied every unit test in this package
 and then failed the first time the pipeline handed it to ffmpeg — ``to_voice_note`` is a
 hard failure, so a whole kit died on a fake that only looked like audio to its own tests.
+
+**The fakes measure themselves too**, with ``vendor=FAKE``, ``is_fake=True`` and no cost.
+A ``HBD_USE_FAKE_PROVIDERS`` run that recorded nothing would look exactly like a deployment
+where the worker was never instrumented, and telling those two apart is the whole point of
+the vendor panel's capability flags. Nothing here is priced or timed: there is no vendor,
+so there is no spend and no vendor latency, and inventing either would be a fabricated
+number in the one place this design refuses them.
 """
 
 from __future__ import annotations
@@ -33,6 +40,8 @@ from hbd.contracts import (
     Result,
     SpeechRequest,
     Transcript,
+    Vendor,
+    VendorOperation,
     VoiceDescriptor,
     err,
     ok,
@@ -46,6 +55,7 @@ from hbd.providers.tts.markup import apply_name
 from hbd.providers.tts.metering import estimate_speech_duration_s
 from hbd.providers.tts.registry import VoiceRegistry, default_registry
 from hbd.providers.tts.transport import utc_now
+from hbd.usage import LOGGING_USAGE_SINK, UsageSink, VendorUsage
 
 __all__ = [
     "FAKE_AUDIO_MAGIC",
@@ -172,6 +182,34 @@ class TranscriptionCall:
     timeout_s: float
 
 
+def _fake_usage(
+    *,
+    operation: VendorOperation,
+    provider: str,
+    is_success: bool,
+    error: HbdError | None = None,
+    request_bytes: int | None = None,
+    response_bytes: int | None = None,
+) -> VendorUsage:
+    """The record a fake writes: what it did, and nothing it did not measure.
+
+    ``cost_usd``, ``latency_ms`` and ``billed_characters`` are absent by construction and
+    not by oversight. No vendor was contacted, so no money was spent, no round trip was
+    timed and nothing was billed per character — and a fake that reported plausible-looking
+    figures for those would be the most convincing fabricated number in the system.
+    """
+    return VendorUsage(
+        vendor=Vendor.FAKE,
+        operation=operation,
+        provider=provider,
+        is_success=is_success,
+        is_fake=True,
+        error_code=error.error_code.value if error is not None else None,
+        request_bytes=request_bytes,
+        response_bytes=response_bytes,
+    )
+
+
 class _Failing:
     """Shared failure script: fail every call, or only the first, or never."""
 
@@ -203,6 +241,7 @@ class FakeTtsProvider:
         mime: str = _DEFAULT_MIME,
         cost_usd: float = 0.0,
         clock: Callable[[], datetime] = utc_now,
+        usage: UsageSink = LOGGING_USAGE_SINK,
     ) -> None:
         self.name = name
         base = registry or default_registry()
@@ -210,6 +249,7 @@ class FakeTtsProvider:
         self._languages = frozenset(languages if languages is not None else base.languages)
         self._mime = mime
         self._cost_usd = cost_usd
+        self._usage = usage
         self._clock = clock
         self._failures = _Failing(error, is_persistent=is_persistent_failure)
         self._calls: list[SynthesisCall] = []
@@ -227,6 +267,7 @@ class FakeTtsProvider:
         )
         failure = self._failures.next_error()
         if failure is not None:
+            await self._record(is_success=False, error=failure)
             return err(failure)
         if request.language not in self._languages:
             return err(
@@ -245,14 +286,16 @@ class FakeTtsProvider:
 
         spoken = _substitute_name(request)
         duration_s = estimate_speech_duration_s(spoken)
+        data = encode_fake_audio(
+            spoken,
+            persona_id=request.persona_id,
+            language=request.language,
+            duration_s=duration_s,
+        )
+        await self._record(is_success=True, response_bytes=len(data))
         return ok(
             RenderedAudio(
-                data=encode_fake_audio(
-                    spoken,
-                    persona_id=request.persona_id,
-                    language=request.language,
-                    duration_s=duration_s,
-                ),
+                data=data,
                 mime=self._mime,
                 duration_s=duration_s,
                 cost_usd=self._cost_usd,
@@ -264,7 +307,28 @@ class FakeTtsProvider:
         return ok(self._registry.descriptors())
 
     async def health(self) -> Result[ProviderHealth]:
+        await self._usage.record(
+            _fake_usage(operation=VendorOperation.HEALTH, provider=self.name, is_success=True)
+        )
         return ok(ProviderHealth(name=self.name, state=HealthState.HEALTHY, as_of=self._clock()))
+
+    # -- internals ----------------------------------------------------------
+    async def _record(
+        self,
+        *,
+        is_success: bool,
+        error: HbdError | None = None,
+        response_bytes: int | None = None,
+    ) -> None:
+        await self._usage.record(
+            _fake_usage(
+                operation=VendorOperation.SPEECH_SYNTHESIS,
+                provider=self.name,
+                is_success=is_success,
+                error=error,
+                response_bytes=response_bytes,
+            )
+        )
 
 
 class FakeSttProvider:
@@ -280,11 +344,13 @@ class FakeSttProvider:
         error: HbdError | None = None,
         is_persistent_failure: bool = True,
         clock: Callable[[], datetime] = utc_now,
+        usage: UsageSink = LOGGING_USAGE_SINK,
     ) -> None:
         self.name = name
         self._transcript = transcript
         self._queue = list(transcripts)
         self._confidence = confidence
+        self._usage = usage
         self._clock = clock
         self._failures = _Failing(error, is_persistent=is_persistent_failure)
         self._calls: list[TranscriptionCall] = []
@@ -313,6 +379,7 @@ class FakeSttProvider:
         )
         failure = self._failures.next_error()
         if failure is not None:
+            await self._record(is_success=False, request_bytes=len(audio), error=failure)
             return err(failure)
         if not audio:
             return err(
@@ -320,6 +387,7 @@ class FakeSttProvider:
                     "cannot transcribe an empty audio payload", context={"provider": self.name}
                 )
             )
+        await self._record(is_success=True, request_bytes=len(audio))
         return ok(
             Transcript(
                 text=self._heard(audio),
@@ -329,9 +397,29 @@ class FakeSttProvider:
         )
 
     async def health(self) -> Result[ProviderHealth]:
+        await self._usage.record(
+            _fake_usage(operation=VendorOperation.HEALTH, provider=self.name, is_success=True)
+        )
         return ok(ProviderHealth(name=self.name, state=HealthState.HEALTHY, as_of=self._clock()))
 
     # -- internals ----------------------------------------------------------
+    async def _record(
+        self,
+        *,
+        is_success: bool,
+        request_bytes: int,
+        error: HbdError | None = None,
+    ) -> None:
+        await self._usage.record(
+            _fake_usage(
+                operation=VendorOperation.TRANSCRIPTION,
+                provider=self.name,
+                is_success=is_success,
+                error=error,
+                request_bytes=request_bytes,
+            )
+        )
+
     def _heard(self, audio: bytes) -> str:
         """A scripted line wins; otherwise decode our own render; otherwise hear nothing."""
         if self._queue:

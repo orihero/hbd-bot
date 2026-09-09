@@ -51,8 +51,8 @@ from hbd.db.models.asset import AssetRow
 from hbd.db.models.brief import BriefRow
 from hbd.db.models.generation_attempt import GenerationAttemptRow
 from hbd.db.models.order import FAILED_REASON_LENGTH, OrderRow
-from hbd.db.models.user import UserRow
 from hbd.db.retention import DEFAULT_RETENTION_POLICY, RetentionClass, RetentionPolicy
+from hbd.db.users_sql import ensure_user
 from hbd.storage import archive_key
 
 __all__ = ["SqlKitRepository", "MAX_ORDER_HISTORY"]
@@ -137,9 +137,27 @@ class SqlKitRepository:
 
     # -- implementations ----------------------------------------------------
     async def _create_order(self, order: Order) -> Order:
+        """Write the order, its brief, and the ``users`` row the order hangs off.
+
+        The ``users`` writer is :func:`hbd.db.users_sql.ensure_user` and no longer a private
+        helper in this module: onboarding has to create that row several screens before an
+        order exists, and the bot must be able to reach the writer without importing a kit
+        repository it has no business holding. This call site's behaviour is unchanged —
+        ``is_language_authoritative=False`` reproduces the old helper's existing-row branch,
+        which moved ``last_seen_at`` and deliberately never touched ``ui_language``.
+        """
         now = self._clock()
         async with self._sessions.begin() as session:
-            user_id = await _ensure_user(session, order, now=now)
+            user_id = await ensure_user(
+                session,
+                telegram_user_id=order.telegram_user_id,
+                ui_language=order.brief.ui_language,
+                # An order says the account is alive; it says nothing about which language
+                # the customer READS in. Passing True here would let every brief stamp over
+                # a settings choice — the defect ``hbd.bot.gate`` names at gate.py:124-128.
+                is_language_authoritative=False,
+                now=now,
+            )
             session.add(
                 OrderRow(
                     id=order.id,
@@ -308,32 +326,6 @@ def _bounded_failed_reason(reason: str | None) -> str | None:
 # ---------------------------------------------------------------------------
 # Session-level helpers. Free functions: they need a session, not a repository.
 # ---------------------------------------------------------------------------
-async def _ensure_user(session: AsyncSession, order: Order, *, now: datetime) -> UUID:
-    """Find or create the user row. Returns its id.
-
-    A user is created by whichever order arrives first; there is no separate sign-up.
-    """
-    existing = (
-        await session.execute(
-            sa.select(UserRow).where(UserRow.telegram_user_id == order.telegram_user_id)
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        existing.last_seen_at = now
-        return existing.id
-    user = UserRow(
-        id=uuid4(),
-        telegram_user_id=order.telegram_user_id,
-        ui_language=order.brief.ui_language,
-        last_seen_at=now,
-        created_at=now,
-        updated_at=now,
-    )
-    session.add(user)
-    await session.flush()
-    return user.id
-
-
 async def _load_order(session: AsyncSession, order_id: UUID) -> tuple[OrderRow, BriefRow]:
     """Load an order with its brief, or raise the standard not-found error."""
     row = (

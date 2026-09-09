@@ -69,8 +69,10 @@ from hbd.bot.handlers.balance import show_confirm
 from hbd.bot.handlers.common import (
     COMMAND_PREFIX,
     Event,
+    clear_keeping_identity,
     error_text,
     expire,
+    is_menu_label,
     present,
     read_draft,
     say,
@@ -86,9 +88,10 @@ from hbd.bot.keyboards import (
 from hbd.bot.lyrics_entry import parse_typed_lyrics
 from hbd.bot.screens import Screen
 from hbd.bot.states import Wizard, WizardStep, next_step, state_for
-from hbd.contracts import Err, LyricDraft, Result
+from hbd.contracts import Err, LyricDraft, Result, UsageTask
 from hbd.logging import get_logger
 from hbd.lyric_budget import LyricBudgetVerdict
+from hbd.usage import usage_scope
 
 __all__ = [
     "build_router",
@@ -203,7 +206,15 @@ async def enter_lyrics_step(
             lyrics_writing_keyboard(language),
         ),
     )
-    written = await deps.content.write_lyrics(brief)
+    # The only vendor spend in the product that has no order to charge it to, and the scope
+    # says so out loud: a task, and ``order_id`` deliberately left None. The order row does
+    # not exist yet — the customer has not confirmed anything — so every candidate id here
+    # would be invented, and an invented id is worse than a null: it would attach real spend
+    # to an order that never appears, or to one that does and did not pay for this call.
+    # LYRICS_PREVIEW rather than LYRICS keeps that unattributable spend visible as its own
+    # line instead of hidden inside the worker's lyric total.
+    with usage_scope(task=UsageTask.LYRICS_PREVIEW):
+        written = await deps.content.write_lyrics(brief)
     if await state.get_state() != Wizard.submitting.state:
         _LOG.info("the session left the write before it finished; dropping the result")
         return
@@ -339,7 +350,18 @@ async def _refuse_for_today(
         await say(event, text)
         await show_step(event, state, draft, WizardStep.LYRICS)
         return
-    await state.clear()
+    # ``clear_keeping_identity``, not a bare clear. This is a refusal the customer will come
+    # back from — tomorrow, when the budget resets — and it is not a session they chose to
+    # end, so the two identity keys (which language to speak, whether we have already asked
+    # for a number) have no business dying with the draft. A bare clear here answered the
+    # refusal in Russian and then greeted them in Uzbek Latin the moment they tapped the
+    # button underneath it, and on a deployment with no profile store that loss would be
+    # permanent. The other five sites, so the list stays derivable with
+    # ``grep -rn "state.clear()" src``: ``common.finish_with``, ``common.reset_to_welcome``,
+    # the entitlement refusal in ``handlers.confirm``, the end of onboarding, and
+    # ``commands.handle_forget`` — which keeps a BARE clear, because returning the account
+    # to first-contact state is exactly what it is for.
+    await clear_keeping_identity(state)
     await present(event, Screen(text=text, markup=start_over_keyboard(language)))
 
 
@@ -440,14 +462,28 @@ async def handle_typed_lyrics(message: Message, state: FSMContext) -> None:
     leading slash; only the twenty-character minimum rejected any of them, and by accident.
     Re-showing the step puts the preview and its buttons back rather than leaving the chat
     silent after a command that visibly did nothing.
+
+    The menu guard beside it is the same shape with a sharper edge here than anywhere else
+    in the wizard: this is the one step whose text is passed to a vendor to be sung
+    VERBATIM. A command is at least short enough to trip the twenty-character floor by
+    luck; "⚙️ Sozlamalar\\n🎫 Limitim" pasted twice over is not, and nothing downstream would
+    question it — the preview would show it, the customer would approve what they thought
+    was a mis-send, and the studio would sing it.
+
+    As at the note and name steps, the router order (``menu`` above every step router) is
+    the real defence and this is the second brace, kept because that order is one line in
+    ``handlers/__init__``.
     """
     draft = await read_draft(state)
     if draft is None:
         await expire(message, state)
         return
     text = (message.text or "").strip()
-    if text.startswith(COMMAND_PREFIX):
-        _LOG.info("command-shaped text at the lyrics step; not stored", extra={"length": len(text)})
+    if text.startswith(COMMAND_PREFIX) or is_menu_label(text):
+        _LOG.info(
+            "command- or menu-shaped text at the lyrics step; not stored",
+            extra={"length": len(text)},
+        )
         await show_step(message, state, draft, WizardStep.LYRICS)
         return
     recipient = draft.recipient

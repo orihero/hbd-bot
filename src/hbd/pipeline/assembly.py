@@ -5,7 +5,10 @@ this file can hold the fiddly part: which failures are fatal and which are gaps.
 
 The rule this file encodes: **the song and the lyric are the kit; the greetings are
 best-effort.** A greeting that will not transcode is recorded and skipped. Only losing the
-song, the sheet, or every last greeting can fail an order.
+song, the sheet, or every last greeting can fail an order. The watermark cover art is one
+step further down that scale again: it is not even a gap, because a kit without one is a
+complete kit, so :func:`~hbd.pipeline.assets.cover_asset` returns ``None`` and the ledger
+records nothing.
 """
 
 from __future__ import annotations
@@ -29,7 +32,13 @@ from hbd.contracts import (
 )
 from hbd.errors import PipelineError, ValidationError
 from hbd.logging import get_logger
-from hbd.pipeline.assets import archive_assets, greeting_asset, lyric_sheet_asset, song_asset
+from hbd.pipeline.assets import (
+    archive_assets,
+    cover_asset,
+    greeting_asset,
+    lyric_sheet_asset,
+    song_asset,
+)
 from hbd.pipeline.events import PipelineStage
 from hbd.pipeline.greetings import GreetingBatch
 from hbd.pipeline.name_stage import SongRender
@@ -118,12 +127,19 @@ async def assemble_kit(
 ) -> Result[Kit]:
     """Post-process every rendered asset and bind them into one deliverable."""
     workspace = order_workspace(workspace_root, order_id)
+    # The cover comes FIRST because the song's branding pass muxes it in, and that pass is
+    # part of building the song asset. A cover that could not be drawn is ``None`` and
+    # changes nothing else: the tags are still written, the kit is still complete, and
+    # ``Kit.cover`` has always been optional.
+    cover = await cover_asset(workspace=workspace)
     rendered_song = await song_asset(
         song.audio,
         workspace=workspace,
         post=post,
         settings=settings,
         name_candidate=song.candidate,
+        title=lyrics.title,
+        cover=cover.path if cover is not None else None,
     )
     if isinstance(rendered_song, Err):
         return rendered_song
@@ -155,6 +171,9 @@ async def assemble_kit(
             greetings=voice_notes,
             lyric_sheet=sheet.value,
             lyrics=lyrics,
+            # ``Kit`` is frozen, so the cover has to arrive at construction; there is no
+            # later point at which one could be attached.
+            cover=cover,
             name_verdicts=song.verdicts,
         )
     )

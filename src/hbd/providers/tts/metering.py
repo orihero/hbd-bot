@@ -2,9 +2,22 @@
 
 Speech vendors bill per character — ElevenLabs in USD-denominated credits, others in their
 own currency. None returns a price with the audio, so a rate has to come from somewhere. It
-comes from the caller: :class:`CharacterPricing` is injected, defaults to "unpriced",
-and reports ``CostSource.ESTIMATED`` rather than inventing a number. There is no
-exchange rate or price list hardcoded in this package.
+comes from the caller: :class:`CharacterPricing` is injected and defaults to "unpriced".
+There is no exchange rate or price list hardcoded in this package.
+
+An unpriced call has **no** cost, and :meth:`CharacterPricing.cost_for` says so by
+returning ``(None, None)``. It used to return ``(0.0, ESTIMATED)``, which is the exact lie
+the vendor-usage work exists to remove: a zero dollars figure and an unknown dollars figure
+are different facts, and summing a column of defaulted zeroes reads as "this vendor cost us
+nothing" when the truth is "nobody configured a rate". ``elevenlabs_usd_per_character``
+ships at ``0.0``, so out of the box every speech row carries a NULL cost and the panel says
+"not priced" rather than "$0.00".
+
+Provenance is likewise not a constant. A priced call is ``DERIVED`` when the character
+count came from the vendor's own ``character-cost`` header — arithmetic over a number the
+vendor billed — and ``ESTIMATED`` when we fell back to counting the submitted string
+ourselves, because then both halves of the product are ours. The caller knows which
+happened and must say so; there is no default for ``is_vendor_counted`` for that reason.
 
 Duration is likewise unknowable without decoding the audio, and this package must not
 shell out to ffmpeg. We return a documented estimate; ``AudioPostProcessor.probe``
@@ -43,8 +56,8 @@ class CharacterPricing:
     ``rate_per_character`` is expressed in ``units``; ``units_per_usd`` converts them.
     For a USD-denominated vendor leave ``units_per_usd`` at 1.0; for one that bills in
     another currency pass that currency's per-USD rate. A zero rate means "we were not
-    told the price" and yields ``CostSource.ESTIMATED`` with a cost of zero — never a
-    fabricated figure.
+    told the price", and the answer to "what did that cost" is then ``None`` — not zero,
+    and never a fabricated figure.
     """
 
     rate_per_character: float = 0.0
@@ -66,17 +79,28 @@ class CharacterPricing:
     def is_priced(self) -> bool:
         return self.rate_per_character > 0.0
 
-    def cost_for(self, character_count: int) -> tuple[float, CostSource]:
-        """Return ``(cost_usd, source)`` for a billed character count."""
+    def cost_for(
+        self, character_count: int, *, is_vendor_counted: bool
+    ) -> tuple[float, CostSource] | tuple[None, None]:
+        """``(cost_usd, source)`` for a billed character count, or ``(None, None)``.
+
+        ``is_vendor_counted`` is where the count came from, not where the rate came from:
+        pass ``True`` when the vendor's ``character-cost`` header supplied it (the product
+        is then arithmetic over a vendor-reported quantity, so ``DERIVED``) and ``False``
+        when we counted the submitted string ourselves (``ESTIMATED``). It is keyword-only
+        and has no default because a caller that has not thought about it would otherwise
+        silently claim the stronger provenance.
+        """
         if character_count < 0:
             raise ConfigError(
                 f"character_count must be >= 0, got {character_count}",
                 context={"character_count": character_count},
             )
         if not self.is_priced:
-            return (0.0, CostSource.ESTIMATED)
+            return (None, None)
         units = character_count * self.rate_per_character
-        return (round(units / self.units_per_usd, _USD_ROUNDING_PLACES), CostSource.DERIVED)
+        source = CostSource.DERIVED if is_vendor_counted else CostSource.ESTIMATED
+        return (round(units / self.units_per_usd, _USD_ROUNDING_PLACES), source)
 
     def units_for(self, character_count: int) -> float:
         """Cost in the vendor's own currency unit — what its invoice will show."""

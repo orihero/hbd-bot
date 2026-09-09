@@ -22,8 +22,6 @@ from aiogram.types import Message
 from hbd.bot.app import publish_commands
 from hbd.bot.callbacks import (
     GenreCB,
-    LanguageCB,
-    LanguageSlot,
     NavAction,
     NavCB,
     OccasionCB,
@@ -47,6 +45,7 @@ from hbd.db.retention import DEFAULT_RETENTION_POLICY
 from hbd.errors import StorageError
 from tests.test_bot.conftest import (
     USER_ID,
+    FakeProfiles,
     RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
@@ -55,8 +54,10 @@ from tests.test_bot.conftest import (
 from tests.test_bot.test_credit_gate import FakeEntitlements
 from tests.test_bot.test_wizard_flow import (
     UZBEK_TYPED,
+    complete_onboarding,
     press,
     send,
+    tap,
     walk_to_confirm,
     walk_to_name,
 )
@@ -69,9 +70,16 @@ CREDIT_RECORD_MARKER = "🧾"
 
 
 async def walk_to_note(dispatcher: Dispatcher, bot: Bot) -> None:
-    """/start through to the note prompt, in English — the free-text step under test."""
-    await send(dispatcher, bot, "/start")
-    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack())
+    """Onboarding, then 🎵, then through to the note prompt — the free-text step under test.
+
+    Kept local rather than folded into ``test_wizard_flow``'s walkers because it stops one step
+    SHORT of them: ``walk_to_name`` answers the note, and this file's subject is what happens
+    when a command arrives while the note is still unanswered. The onboarding preamble is
+    ``complete_onboarding``'s, not a second copy of it, so a change to either screen is one
+    edit and this walk cannot drift into testing a flow the product no longer has.
+    """
+    await complete_onboarding(dispatcher, bot, language=Language.EN)
+    await tap(dispatcher, bot, "menu.generate", Language.EN)
     await press(dispatcher, bot, OccasionCB(value=Occasion.BIRTHDAY).pack())
     await press(dispatcher, bot, GenreCB(value=Genre.UZBEK_POP).pack())
     await press(dispatcher, bot, VocalGenderCB(value=VoiceGender.FEMALE).pack())
@@ -90,10 +98,19 @@ def bound_message(text: str, bot: Bot) -> Message:
 
 
 def deps_with_contact(settings: Settings, contact: str) -> BotDeps:
+    """Dependencies whose ``/support`` answer names ``contact``, with a profile store wired.
+
+    The store matters even where the test never touches a profile: this module imports the
+    walkers, and a ``BotDeps`` without one makes the onboarding router fail open, so
+    ``complete_onboarding``'s language press matches no handler and the walk ends on "that
+    session expired" instead of on the note step. Enforced statically by
+    ``test_walker_preconditions.py`` so it cannot be dropped by a later edit.
+    """
     return BotDeps(
         settings=settings.model_copy(update={"support_contact": contact}),
         submitter=RecordingSubmitter(),
         content=RecordingContentWriter(),
+        profiles=FakeProfiles(),
     )
 
 
@@ -288,6 +305,48 @@ async def test_cancel_after_forget_still_refuses_to_claim_nothing_was_made(
     assert await state.get_state() == Wizard.submitting.state
 
 
+async def test_forget_mid_render_keeps_the_parked_order_and_the_onboarding_catch_all_lets_it_be(
+    dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
+) -> None:
+    """The regression C2-2 named, asserted end to end.
+
+    ``/forget`` deletes the profile row, so the customer is no longer onboarded — and it
+    re-parks ``Wizard.submitting`` with the order id, because ``privacy.forgotten`` promises in
+    the next sentence that the queued song survives. Those two facts are in tension, and this
+    is the update where they meet: the very next thing the customer sends arrives at a
+    dispatcher that now believes they have never been here.
+
+    If the onboarding catch-all could claim it, the language question would overwrite the park,
+    ``order_in_flight`` would go blind, and the following ``/cancel`` would answer "Cancelled —
+    nothing was made, and nothing was kept" about a song that then arrives. CONTRACTS §4 stops
+    it at the ROUTER level rather than with a guard inside the handler:
+    ``router.message.filter(~StateFilter(Wizard.submitting))`` on both new routers, on both
+    observers. Reordering could not have fixed it — ``navigation`` must keep answering Cancel,
+    and ``submitting`` sits below it.
+
+    Driven through the real dispatcher and NOT by calling ``handle_forget`` directly, because
+    the thing under test is which router claims the following update. A direct call proves
+    nothing about routing at all.
+    """
+    # Arrange — a song is at the studio, and then the customer erases themselves
+    await walk_to_confirm(dispatcher, bot)
+    await press(dispatcher, bot, NavCB(action=NavAction.CONFIRM).pack())
+    order_id = (await state.get_data())[ORDER_ID_KEY]
+    await send(dispatcher, bot, "/forget")
+    session.clear()
+
+    # Act — anything at all, from somebody the bot no longer has a profile row for
+    await send(dispatcher, bot, "is it ready?")
+
+    # Assert — the park survived, and the answer is about the song rather than about a language
+    data = await state.get_data()
+    assert await state.get_state() == Wizard.submitting.state
+    assert data[ORDER_ID_KEY] == order_id
+    texts = " ".join(getattr(call, "text", "") or "" for call in session.calls)
+    assert translate("wizard.still_in_studio", FALLBACK_LANGUAGE) in texts
+    assert translate("onboarding.language.prompt", FALLBACK_LANGUAGE) not in texts
+
+
 async def test_forget_confirms_in_the_language_that_was_chosen(
     dispatcher: Dispatcher,
     bot: Bot,
@@ -318,11 +377,20 @@ class _RefusingEraser(FakeEntitlements):
 def deps_with_meter(
     settings: Settings, credits: FakeEntitlements, *, is_enforced: bool = False
 ) -> BotDeps:
+    """Dependencies whose ledger is ``credits``, with a profile store wired.
+
+    ``profiles`` is a fresh EMPTY store for the same reason ``deps_with_contact`` carries one,
+    and it is emphatically NOT the store ``/forget`` is asserted against here: these tests call
+    ``handle_forget`` directly with a bound message, and what they pin is that the CREDIT record
+    is erased. The profile erasure is ``test_onboarding.py``'s to assert, against a store it
+    seeded and can therefore prove went empty.
+    """
     return BotDeps(
         settings=settings.model_copy(update={"credits_enforced": is_enforced}),
         submitter=RecordingSubmitter(),
         content=RecordingContentWriter(),
         entitlements=credits,
+        profiles=FakeProfiles(),
     )
 
 

@@ -179,7 +179,7 @@ async def _presented_session(
 def _enforce_origin(request: Request, settings: AdminSettings) -> None:
     """The only CSRF layer available before a session exists."""
     decision = verify_origin(
-        request.headers.get("origin"), expected_origin=settings.admin_public_origin
+        request.headers.get("origin"), accepted_origins=settings.accepted_origins
     )
     if decision is CsrfDecision.ALLOWED:
         return

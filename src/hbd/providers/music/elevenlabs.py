@@ -10,6 +10,16 @@ music renders on Starter/Creator/Pro and five on Scale, and exceeding it earns a
 costs a retry. The semaphore here holds this process to that ceiling regardless of how many
 ARQ workers pick up jobs at once.
 
+Two usage records leave this adapter per call and they are not duplicates of each other.
+The ``music.usage`` line is this leg's own rich account of a render — chunk count, output
+format, name chunk index, remote song id — and it is unchanged. The
+:class:`~hbd.usage.VendorUsage` record beside it is the uniform row every vendor in the
+system writes, and it is what the spend panel sums. Cost on that row is
+``CostSource.ESTIMATED`` and can never be anything else here: ``POST /v1/music`` returns
+audio and no price, the per-minute rate is ours, and the duration in the arithmetic is the
+duration we *asked* for rather than a render length the vendor confirmed. Calling that
+``DERIVED`` would claim a vendor-reported quantity we were never given.
+
 The name re-roll path is ``inpaint``, called directly by ``pipeline.name_stage``: it
 re-renders one chunk of the stored song, so a mispronounced name costs a chunk instead of a
 whole track. It works only while the vendor hands back a stored-song handle; without one the
@@ -36,10 +46,12 @@ from hbd.contracts import (
     ProviderHealth,
     RenderedAudio,
     Result,
+    Vendor,
+    VendorOperation,
     err,
     ok,
 )
-from hbd.errors import ProviderInvalidResponseError, ValidationError
+from hbd.errors import HbdError, ProviderInvalidResponseError, ValidationError
 from hbd.logging import get_logger
 from hbd.providers.music.failures import (
     describe_error_body,
@@ -59,6 +71,7 @@ from hbd.providers.music.usage import (
     estimate_cost_usd,
     log_usage,
 )
+from hbd.usage import LOGGING_USAGE_SINK, UsageSink, VendorUsage
 
 __all__ = [
     "ElevenLabsMusicProvider",
@@ -66,6 +79,7 @@ __all__ = [
     "DEFAULT_MUSIC_MAX_CONCURRENCY",
     "SCALE_TIER_MAX_CONCURRENCY",
     "SONG_ID_HEADERS",
+    "VENDOR_OPERATIONS",
 ]
 
 _logger = get_logger(__name__)
@@ -100,6 +114,16 @@ _OPERATION_COMPOSE: Final[str] = "compose"
 _OPERATION_INPAINT: Final[str] = "inpaint"
 _OPERATION_HEALTH: Final[str] = "health"
 
+#: This adapter's own operation strings mapped onto the shared vendor taxonomy. Two
+#: vocabularies rather than one because ``music.usage`` predates ``vendor_usage`` and its
+#: log line is grepped by the strings above; a rename would break every saved query for no
+#: gain. Compose and inpaint stay distinct here because they are billed differently — an
+#: inpaint re-renders one chunk, which is the whole reason the name re-roll is affordable.
+VENDOR_OPERATIONS: Final[Mapping[str, VendorOperation]] = {
+    _OPERATION_COMPOSE: VendorOperation.MUSIC_COMPOSE,
+    _OPERATION_INPAINT: VendorOperation.MUSIC_INPAINT,
+}
+
 _OUTCOME_OK: Final[str] = "ok"
 _OUTCOME_HTTP_ERROR: Final[str] = "http_error"
 _OUTCOME_TRANSPORT_ERROR: Final[str] = "transport_error"
@@ -112,6 +136,10 @@ _SERVER_ERROR_FLOOR: Final[int] = 500
 
 def _utc_now() -> datetime:
     return datetime.now(tz=UTC)
+
+
+def _elapsed_ms(started: float) -> int:
+    return int((perf_counter() - started) * _MS_PER_S)
 
 
 def mime_for_output_format(output_format: str) -> str:
@@ -145,11 +173,13 @@ class ElevenLabsMusicProvider:
         health_timeout_s: float = DEFAULT_HEALTH_TIMEOUT_S,
         client: httpx.AsyncClient | None = None,
         clock: Callable[[], datetime] = _utc_now,
+        usage: UsageSink = LOGGING_USAGE_SINK,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._model_id = model_id
         self._output_format = output_format
+        self._usage = usage
         self._usd_per_minute = usd_per_minute
         self._health_timeout_s = health_timeout_s
         self._clock = clock
@@ -217,28 +247,77 @@ class ElevenLabsMusicProvider:
         )
 
     async def health(self) -> Result[ProviderHealth]:
-        """Never reports a healthy vendor optimistically, and never raises."""
+        """Never reports a healthy vendor optimistically, and never raises.
+
+        The probe is recorded like any other call — ``operation=HEALTH``, never priced. A
+        quota probe costs nothing, so it can never be read as spend, but it has a real
+        status and a real latency and dropping it would flatter the failure rate of a
+        vendor that is down.
+        """
         url = f"{self._base_url}{SUBSCRIPTION_PATH}"
         headers = {API_KEY_HEADER: self._api_key, "accept": "application/json"}
+        started = perf_counter()
         try:
             response = await self._client.get(
                 url, headers=headers, timeout=httpx.Timeout(self._health_timeout_s)
             )
         except httpx.HTTPError as exc:
+            transport = map_transport_error(
+                exc,
+                provider=self.name,
+                operation=_OPERATION_HEALTH,
+                timeout_s=self._health_timeout_s,
+            )
+            await self._record_health(
+                is_success=False, elapsed_ms=_elapsed_ms(started), error=transport
+            )
             return ok(self._health_state(HealthState.UNAVAILABLE, detail=str(exc)))
 
-        if response.status_code in (401, 403):
-            return err(map_status_error(response, provider=self.name, operation=_OPERATION_HEALTH))
         if response.status_code >= _HTTP_ERROR_FLOOR:
+            failure = map_status_error(response, provider=self.name, operation=_OPERATION_HEALTH)
+            await self._record_health(
+                is_success=False,
+                elapsed_ms=_elapsed_ms(started),
+                http_status=response.status_code,
+                error=failure,
+            )
+            if response.status_code in (401, 403):
+                return err(failure)
             state = (
                 HealthState.UNAVAILABLE
                 if response.status_code >= _SERVER_ERROR_FLOOR
                 else HealthState.DEGRADED
             )
             return ok(self._health_state(state, detail=describe_error_body(response.content)))
+
+        await self._record_health(
+            is_success=True, elapsed_ms=_elapsed_ms(started), http_status=response.status_code
+        )
         return ok(self._health_from_body(response.content))
 
     # -- internals ----------------------------------------------------------
+    async def _record_health(
+        self,
+        *,
+        is_success: bool,
+        elapsed_ms: int,
+        http_status: int | None = None,
+        error: HbdError | None = None,
+    ) -> None:
+        """A probe, recorded. No cost parameter exists here, deliberately."""
+        await self._usage.record(
+            VendorUsage(
+                vendor=Vendor.ELEVENLABS,
+                operation=VendorOperation.HEALTH,
+                provider=self.name,
+                is_success=is_success,
+                model_id=self._model_id,
+                http_status=http_status,
+                error_code=error.error_code.value if error is not None else None,
+                latency_ms=elapsed_ms,
+            )
+        )
+
     def _health_state(
         self, state: HealthState, *, detail: str | None, quota_remaining: int | None = None
     ) -> ProviderHealth:
@@ -337,7 +416,24 @@ class ElevenLabsMusicProvider:
             )
         )
 
-    def _usage(
+    def _estimated_cost(
+        self, plan: CompositionPlan
+    ) -> tuple[float, CostSource] | tuple[None, None]:
+        """The render's estimated spend, or ``(None, None)`` when no rate is configured.
+
+        ``estimate_cost_usd`` answers ``0.0`` for an unpriced rate because
+        ``RenderedAudio.cost_usd`` is a non-optional float and has to show *something*. The
+        row must not repeat that: zero dollars and no rate card are different facts, and
+        only ``None`` keeps ``SUM()`` honest for a deployment that never set a rate.
+        """
+        if self._usd_per_minute <= 0 or plan.total_duration_ms <= 0:
+            return (None, None)
+        return (
+            estimate_cost_usd(plan.total_duration_ms, usd_per_minute=self._usd_per_minute),
+            CostSource.ESTIMATED,
+        )
+
+    def _music_usage(
         self,
         *,
         plan: CompositionPlan,
@@ -375,41 +471,76 @@ class ElevenLabsMusicProvider:
         idempotency_key: str,
         source_song_id: str | None = None,
     ) -> Result[RenderedAudio]:
-        """One vendor call, one usage line, one ``Result``. Never raises."""
+        """One vendor call, two usage records, one ``Result``. Never raises.
+
+        Both records leave on every return path — the rich ``music.usage`` line this leg has
+        always emitted, and the uniform ``vendor_usage`` row the spend panel reads. Only the
+        success path carries a cost and a duration: nothing was rendered on a failure, and
+        writing the milliseconds we asked for onto a call that returned no audio would put
+        billable time into a row the vendor never billed us for.
+        """
         started = perf_counter()
 
-        def elapsed_ms() -> int:
-            return int((perf_counter() - started) * _MS_PER_S)
-
-        def record(outcome: str, *, status: int | None, audio: RenderedAudio | None) -> None:
+        async def record(
+            outcome: str,
+            *,
+            status: int | None,
+            audio: RenderedAudio | None,
+            error: HbdError | None = None,
+        ) -> None:
+            elapsed = _elapsed_ms(started)
             log_usage(
                 _logger,
-                self._usage(
+                self._music_usage(
                     plan=plan,
                     operation=operation,
                     outcome=outcome,
-                    elapsed_ms=elapsed_ms(),
+                    elapsed_ms=elapsed,
                     http_status=status,
                     audio=audio,
                     source_song_id=source_song_id,
                 ),
+            )
+            cost_usd, cost_source = (
+                self._estimated_cost(plan) if audio is not None else (None, None)
+            )
+            await self._usage.record(
+                VendorUsage(
+                    vendor=Vendor.ELEVENLABS,
+                    operation=VENDOR_OPERATIONS[operation],
+                    provider=self.name,
+                    is_success=audio is not None,
+                    model_id=self._model_id,
+                    http_status=status,
+                    error_code=error.error_code.value if error is not None else None,
+                    latency_ms=elapsed,
+                    audio_ms=plan.total_duration_ms if audio is not None else None,
+                    response_bytes=len(audio.data) if audio is not None else None,
+                    cost_usd=cost_usd,
+                    cost_source=cost_source,
+                )
             )
 
         sent = await self._send(
             body, timeout_s=timeout_s, idempotency_key=idempotency_key, operation=operation
         )
         if isinstance(sent, Err):
-            record(_OUTCOME_TRANSPORT_ERROR, status=None, audio=None)
+            await record(_OUTCOME_TRANSPORT_ERROR, status=None, audio=None, error=sent.error)
             return sent
 
         response = sent.value
         if response.status_code >= _HTTP_ERROR_FLOOR:
-            record(_OUTCOME_HTTP_ERROR, status=response.status_code, audio=None)
-            return err(map_status_error(response, provider=self.name, operation=operation))
+            failure = map_status_error(response, provider=self.name, operation=operation)
+            await record(
+                _OUTCOME_HTTP_ERROR, status=response.status_code, audio=None, error=failure
+            )
+            return err(failure)
 
         audio = self._to_audio(response, plan=plan, operation=operation)
         if isinstance(audio, Err):
-            record(_OUTCOME_MALFORMED, status=response.status_code, audio=None)
+            await record(
+                _OUTCOME_MALFORMED, status=response.status_code, audio=None, error=audio.error
+            )
             return audio
-        record(_OUTCOME_OK, status=response.status_code, audio=audio.value)
+        await record(_OUTCOME_OK, status=response.status_code, audio=audio.value)
         return audio

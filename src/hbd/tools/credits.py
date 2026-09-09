@@ -24,7 +24,7 @@ than kept quiet.
 **Who did it is recorded where the schema can hold it.** ``--actor`` becomes
 ``admin:{name}`` in ``credit_ledger.actor``, which is a real column on a real row an
 auditor can read months later. A BLOCK has nowhere equivalent to go — ``users`` carries no
-actor column and ``docs/ADMIN_PANEL_PLAN.md`` §5.11 forbids DDL on it — so for that verb
+actor column and ``docs/product/ADMIN_PANEL_PLAN.md`` §5.11 forbids DDL on it — so for that verb
 the actor is written to the process log and nothing pretends otherwise. That is stated in
 ``--help`` too, because an operator should not have to read this docstring to find out
 which of their two actions is attributable.

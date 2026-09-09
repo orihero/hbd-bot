@@ -36,19 +36,34 @@ specifies, and the tail is the half that matters: an operator matching a support
 against a list needs a discriminator, and the leading digits of a Telegram id are close to
 constant within a cohort of accounts created around the same time, so masking the tail would
 leave a value that is both unusable and less private than it looks.
+
+**A phone number keeps its last two digits and no head at all**, which is a narrower rule
+than the Telegram id's and is not an inconsistency. The two values are asked different
+questions: an id is SEARCHED on, so its mask must discriminate one row from a page, while
+nothing in this API filters, sorts or routes on a number — the phone mask exists only to let
+an operator confirm a value they already have in front of them. The temptation to keep a
+readable ``+998`` head, on the grounds that a single-market product's dialling prefix is
+common knowledge, is refused in :func:`mask_phone` for the reason stated there: the column
+admits every E.164 number, so a fixed-width head hides the country code of a foreign number
+while publishing the first digits of its subscriber part — leaking exactly what it claims to
+protect, in the one case the operator cannot spot.
 """
 
 from __future__ import annotations
 
+import re
 import unicodedata
 from typing import Final
 
 __all__ = [
     "MASK",
+    "PHONE_VISIBLE_DIGITS",
     "TELEGRAM_ID_VISIBLE_DIGITS",
     "first_grapheme",
     "mask_name",
+    "mask_phone",
     "mask_telegram_user_id",
+    "mask_username",
 ]
 
 #: The elision. Three U+2022 BULLETs rather than ``***`` or ``...``: an asterisk reads as a
@@ -59,10 +74,29 @@ MASK: Final[str] = "•••"
 #: How many trailing digits of a Telegram id survive masking (§12.3's ``•••••123``).
 TELEGRAM_ID_VISIBLE_DIGITS: Final[int] = 3
 
-#: Fixed-width prefix for a masked id. Constant rather than proportional to the id's length,
-#: because a mask whose width tracks the value leaks the value's magnitude — and a Telegram
-#: id's digit count is a coarse account-age signal.
+#: How many trailing digits of a phone number survive masking. TWO, and the asymmetry with
+#: :data:`TELEGRAM_ID_VISIBLE_DIGITS` is deliberate rather than an oversight. A Telegram id
+#: is SEARCHED on — ``UserFilters`` has an exact filter for it and every ``/users/**`` route
+#: keys on it — so its mask has to carry enough of a discriminator to pick one row out of a
+#: page, and three trailing digits is that. Nothing in this API filters, sorts or routes on
+#: a phone number (``db/admin/users.py`` explains why it must not), so this mask's only job
+#: is to let an operator CONFIRM a number they already have in front of them from a support
+#: ticket. Two digits does that at one-in-a-hundred ambiguity; a third buys no capability
+#: and narrows a subscriber space by a further factor of ten.
+PHONE_VISIBLE_DIGITS: Final[int] = 2
+
+#: Fixed-width prefix for a masked id or number. Constant rather than proportional to the
+#: value's length, because a mask whose width tracks the value leaks the value's magnitude —
+#: a Telegram id's digit count is a coarse account-age signal, and a phone number's digit
+#: count is a country. Shared by :func:`mask_telegram_user_id` and :func:`mask_phone` so the
+#: two never drift into two elision widths on one row of the same table.
 _ID_MASK: Final[str] = "•" * 5
+
+#: An E.164 number and nothing else: a leading ``+``, a non-zero country digit, then 7 to 14
+#: more. The same shape ``hbd.user_profiles.normalise_phone`` admits, restated here because
+#: this module imports nothing from the bot's side of the house and a value that reaches a
+#: masker is untrusted on read like any other stored string.
+_E164_PATTERN: Final[re.Pattern[str]] = re.compile(r"^\+[1-9]\d{7,14}$")
 
 _ZERO_WIDTH_JOINER: Final[str] = "‍"
 #: Variation selectors 1–16 and the supplement, which choose a glyph and are never a cluster
@@ -147,6 +181,64 @@ def mask_name(name: str | None) -> str | None:
         return None
     head = first_grapheme(name.strip())
     return f"{head}{MASK}" if head else MASK
+
+
+def mask_username(username: str | None) -> str | None:
+    """``Gʻulom`` → ``@G•••``. A stored handle carries no ``@``; the display form does.
+
+    Routed through :func:`mask_name` rather than sliced here, because a second slicing
+    implementation in this module is exactly how ``Gʻulom`` eventually masks to ``G`` in one
+    of them and to ``Gʻ`` in the other. It also inherits the property that makes a masked
+    value a legitimate monogram source: :func:`first_grapheme` never normalises, and NFKC
+    folds U+02BB — correct Uzbek Latin orthography — into a plain apostrophe, so a handle
+    round-tripped through ``.normalize()`` anywhere on this path would hand the panel a
+    different letter than the customer has.
+
+    A leading ``@`` is stripped before masking and re-prefixed after, so a handle stored with
+    one and a handle stored without one mask identically — the panel must not show two shapes
+    for one fact because two writers disagreed about a sigil. Telegram handles are ASCII
+    today; the grapheme walk costs nothing and survives the day that stops being true.
+
+    ``None`` stays ``None`` for :func:`mask_name`'s reason: Telegram does not require a
+    handle, so its absence is a fact about the account rather than something withheld, and
+    ``@•••`` would send an operator to ``POST /reveal`` for a value nobody ever held.
+    """
+    if username is None:
+        return None
+    masked = mask_name(username.lstrip("@"))
+    return None if masked is None else f"@{masked}"
+
+
+def mask_phone(phone: str | None) -> str | None:
+    """``+998901234542`` → ``•••••42``. ``None`` stays ``None``.
+
+    **No country prefix survives, and that is the whole design.** The obvious alternative —
+    keep a fixed ``+998`` in the clear, on the grounds that a single-market product's dialling
+    prefix is a constant everybody shares — is wrong in the direction that matters, because
+    the column is not single-market. ``phone_e164`` is ``String(16)`` and the normaliser
+    admits ``^\\+[1-9]\\d{7,14}$``, so a Russian or Kazakh number is entirely expressible in
+    this market: ``mask_phone("+79161234567")`` under a fixed four-character head renders
+    ``+791•••••67``, which hides the country code (``+7``) and publishes the first two digits
+    of the subscriber number. A mask that leaks what it protects and protects what it does
+    not is worse than no mask, because the operator believes it.
+
+    The elision is the fixed-width :data:`_ID_MASK` rather than one bullet per hidden digit:
+    a mask whose width tracks the value leaks the value's length, and a phone number's digit
+    count is a country.
+
+    Anything that is not E.164 masks to the bare :data:`MASK` and is **never echoed**. A
+    value this function cannot parse is one it must not describe: the input is a stored
+    string, and a hand-written row or a future writer could put anything there.
+
+    ``None`` stays ``None`` because there is nothing to mask — the customer never shared a
+    number, or ``/forget`` deleted the row that held it. PD-3 puts no purge stamp on that
+    table, so the wire distinguishes the two through ``isProfilePresent`` and not here.
+    """
+    if phone is None:
+        return None
+    if _E164_PATTERN.fullmatch(phone) is None:
+        return MASK
+    return f"{_ID_MASK}{phone[-PHONE_VISIBLE_DIGITS:]}"
 
 
 def mask_telegram_user_id(telegram_user_id: int) -> str:

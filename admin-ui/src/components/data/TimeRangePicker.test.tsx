@@ -26,7 +26,12 @@ describe("TimeRangePicker", () => {
     expect(emitted?.to).toMatch(/Z$/);
   });
 
-  it("emits BOTH bounds — half a window is dropped by the API layer and filters nothing", () => {
+  // The old name for this said half a window "is dropped by the API layer and filters
+  // nothing". That premise died with `windowParams`, which now sends a lone bound, and with
+  // `resolve_window`, which accepts one. The ASSERTION is unchanged and still load-bearing:
+  // a preset is a rolling window, and a rolling window in a pasteable URL is a different set
+  // of rows for every reader and a widening filter across a keyset walk.
+  it("emits BOTH bounds — a preset must land in the URL as a fixed, reproducible pair", () => {
     const onChange = vi.fn();
     render(<TimeRangePicker value={{}} onChange={onChange} />);
     for (const preset of TIME_RANGE_PRESETS) {
@@ -34,7 +39,8 @@ describe("TimeRangePicker", () => {
       fireEvent.click(screen.getByRole("button", { name: new RegExp(preset.label) }));
       const emitted = onChange.mock.calls[0]?.[0] as TimeRange | undefined;
       expect(emitted?.from, `${preset.id} sent no lower bound`).toBeDefined();
-      expect(emitted?.to, `${preset.id} sent half a window`).toBeDefined();
+      expect(emitted?.to, `${preset.id} left its end open, so the URL is not reproducible`)
+        .toBeDefined();
     }
   });
 

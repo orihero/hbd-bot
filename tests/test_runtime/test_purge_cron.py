@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from dataclasses import replace
+from dataclasses import fields, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -145,9 +145,12 @@ def test_the_worker_registers_an_hourly_cron_that_fires_the_retention_sweep(
         settings=_settings(tmp_path), build_dependencies=_dependencies
     )
 
-    # Assert — one cron, pointing at the sweep, once an hour.
-    assert [job.coroutine for job in worker.cron_jobs] == [run_retention_sweep]
-    entry = worker.cron_jobs[0]
+    # Assert — the sweep is on the schedule, once an hour. Found BY NAME rather than by
+    # index: two more crons joined it when the dashboard instrumentation landed (the hourly
+    # vendor balance poll and the nightly activity snapshot), and this test is about the
+    # retention entry's own shape, not about how many entries happen to precede it.
+    assert run_retention_sweep in [job.coroutine for job in worker.cron_jobs]
+    entry = next(job for job in worker.cron_jobs if job.coroutine is run_retention_sweep)
     assert entry.name == RETENTION_JOB_NAME
     assert entry.minute == RETENTION_CRON_MINUTE
     # ``hour is None`` is arq's "every hour"; a number here would make it daily.
@@ -429,6 +432,11 @@ def test_a_container_without_a_session_factory_names_that_too() -> None:
         elevenlabs_api_key="k",
         llm_api_key="k",
     )
+    # No ``profiles=`` here, and that is the point of the test below: this is the only
+    # hand-written ``AppContainer(...)`` in the tree outside ``runtime.build_container``, so
+    # every field the onboarding change added had to be trailing and defaulted or this call —
+    # which is about a session factory and knows nothing about phone numbers — would have
+    # needed an edit in the same commit as the port.
     container = AppContainer(
         settings=settings,
         providers=None,
@@ -445,3 +453,25 @@ def test_a_container_without_a_session_factory_names_that_too() -> None:
     # Act / Assert
     with pytest.raises(Exception, match="without a session factory"):
         container.require_session_factory()
+
+
+def test_the_new_container_field_is_optional_at_every_construction_site() -> None:
+    """``profiles`` had to go LAST and had to default, and this is where that is a fact.
+
+    ``AppContainer`` is a frozen dataclass, so every construction is keyword-by-keyword and a
+    non-defaulted field inserted anywhere above the tail breaks every caller at once — the
+    hand-built container directly above, which is about a missing session factory, and the
+    thirty ``BotDeps(`` sites under ``tests/`` that know nothing about onboarding. The port
+    landed without touching any of them; asserting the shape here is what makes "it kept
+    compiling" a property of the design rather than a lucky ordering nobody wrote down.
+
+    The next field added in the middle of the signature fails HERE, in the file that documents
+    why the tail is the only safe place, instead of as thirty unrelated ``TypeError``s in a
+    suite that has nothing to say about containers.
+    """
+    # Arrange / Act
+    declared = {field.name: field for field in fields(AppContainer)}
+
+    # Assert: last in the signature, and optional when it gets there.
+    assert list(declared)[-1] == "profiles"
+    assert declared["profiles"].default is None

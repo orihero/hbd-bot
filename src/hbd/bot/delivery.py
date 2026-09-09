@@ -28,6 +28,26 @@ order reference support can act on, and it says plainly when the run left holes 
 it celebrates. The order the assets go out in is deliberate too: the song is sent FIRST so
 the audio the whole product exists for is never buried under paragraphs of text, and
 forwarding that one message is this product's only distribution — there is no link.
+
+**And because forwarding is the only distribution, every message that leaves here is
+watermarked.** That last sentence is the whole reason: a song that arrives in a third
+person's chat with nothing on it advertises nobody. So the audio caption carries
+``watermark.song``, the greeting captions and every part of the lyric sheet carry
+``watermark.invite``, ``sendAudio`` goes out with ``performer`` set to the handle and the
+generated cover as its thumbnail, and the two localised lines are computed ONCE per
+delivery rather than per asset so a multi-part sheet cannot end up half-marked.
+
+The watermark is composed onto the templates **in code**, never interpolated into them.
+``delivery.song_caption``, ``delivery.greeting_caption`` and the two lyric-sheet keys keep
+their placeholder sets exactly as they were, because ``tests/test_bot/test_i18n.py`` asserts
+placeholder-set equality across four catalogues in both directions and moving seven keys at
+once to gain a ``{handle}`` nobody translates buys nothing. It also keeps
+:func:`_split_for_telegram` a pure function of the lyric body, which is load-bearing: the
+part number it produces is the redelivery dedup key.
+
+The handle itself is :data:`hbd.watermark.WATERMARK_HANDLE`, a module constant rather than a
+setting, which is precisely what lets this module stay watermarked without ``deliver_kit``
+growing a ``Settings`` parameter that ``hbd.runtime.jobs`` would then have to thread through.
 """
 
 from __future__ import annotations
@@ -36,11 +56,11 @@ from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
 from uuid import UUID
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramAPIError
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
 from aiogram.types import FSInputFile
 
 from hbd.bot.i18n import escape_html, translate
@@ -50,18 +70,32 @@ from hbd.errors import DeliveryError
 from hbd.logging import get_logger
 from hbd.pipeline.events import PipelineStage
 from hbd.pipeline.outcome import PipelineGap
+from hbd.watermark import WATERMARK_HANDLE
 
 __all__ = [
     "deliver_kit",
     "DeliveryLedger",
+    "is_blocked_by_customer",
+    "BLOCKED_BY_CUSTOMER_KEY",
     "gap_message_key",
     "order_reference",
     "ORDER_REFERENCE_CHARS",
     "VOICE_NOTE_MIMES",
+    "MAX_CAPTION_CHARS",
     "MAX_MESSAGE_CHARS",
 ]
 
 _LOG = get_logger(__name__)
+
+#: The key :func:`deliver_kit` reports a customer's block under, in ``DeliveryError.context``.
+#: Named rather than spelled at both ends because the writer is here and the reader is in
+#: ``hbd.runtime.jobs``, and a typo in either would be a churn source that silently records
+#: nothing.
+BLOCKED_BY_CUSTOMER_KEY: Final[str] = "is_blocked_by_customer"
+
+#: What Telegram says in the ``Forbidden:`` description when the customer blocked the bot.
+#: Compared case-folded, and as a SUBSTRING because the description is prefixed.
+_BLOCKED_BY_USER_MESSAGE: Final[str] = "bot was blocked by the user"
 
 #: ``sendVoice`` accepts exactly these. Anything else becomes a file attachment.
 VOICE_NOTE_MIMES: Final[frozenset[str]] = frozenset(
@@ -70,6 +104,16 @@ VOICE_NOTE_MIMES: Final[frozenset[str]] = frozenset(
 
 #: Telegram's per-message limit. The lyric sheet is split on blank lines below it.
 MAX_MESSAGE_CHARS: Final[int] = 4_096
+
+#: Telegram's per-CAPTION limit, which is a quarter of the message limit above and is a
+#: different number for a different endpoint — ``sendAudio`` and ``sendVoice`` take a caption,
+#: not a message. Captions were never measured in this module at all before the watermark,
+#: and they got away with it: the only variable a caption carried was ``LyricDraft.title``,
+#: bounded at 120 characters by the contract, so the longest caption this module could
+#: produce was a couple of hundred characters and the ceiling was unreachable. Appending a
+#: localised watermark line is the first thing that added an unbudgeted term to that sum, so
+#: the first thing that made measuring it worth doing. It is a guard, not a working path.
+MAX_CAPTION_CHARS: Final[int] = 1_024
 
 #: How much of the order id the customer is asked to quote. Eight hex characters is short
 #: enough to read down a phone line and long enough that support can prefix-match one order
@@ -188,18 +232,64 @@ class DeliveryLedger:
 _DEFAULT_LEDGER: Final[DeliveryLedger] = DeliveryLedger()
 
 
-@dataclass(frozen=True, slots=True)
+def is_blocked_by_customer(exc: TelegramAPIError) -> bool:
+    """Whether this failure means the CUSTOMER blocked the bot, as opposed to anything else.
+
+    A structured fact, not a substring test on a log line. ``_log_failure`` builds
+    ``f"{label}:{type(exc).__name__}"``, which is a human-readable artefact for an operator
+    reading a log; a caller that parsed it for meaning would stop working silently the day
+    somebody reformats it. This function is the one place the classification lives, it has
+    its own test, and its answer travels in ``DeliveryError.context`` under
+    :data:`BLOCKED_BY_CUSTOMER_KEY`.
+
+    **``"user is deactivated"`` is the carve-out, and it is the whole point of the
+    predicate.** That is Telegram's other ``Forbidden``: a DELETED account. It is
+    undeliverable for a completely different reason, it is not churn anybody can ever win
+    back, and Telegram sends no ``my_chat_member`` update for it — so counting it as a block
+    would put a number on the Churn card that no second source would ever corroborate. The
+    honest answer there is to record nothing, and this returns ``False``.
+
+    The dependency on Telegram's wording is real and is accepted deliberately. If that string
+    is reworded, this source stops recording and the ``my_chat_member`` source keeps working
+    — so churn does not go to zero, it goes quietly incomplete for the blocks that happen
+    during a deploy window. The failure direction is "record nothing" rather than "record a
+    wrong fact", which is the only direction worth having. Do NOT widen this to every
+    ``TelegramForbiddenError`` to make it robust; that trades a known gap for an unknown lie.
+    """
+    if not isinstance(exc, TelegramForbiddenError):
+        return False
+    return _BLOCKED_BY_USER_MESSAGE in (exc.message or "").casefold()
+
+
+@dataclass(slots=True)
 class _Outbox:
-    """One order's view of a ledger, so the send helpers take two words instead of four."""
+    """One order's view of a ledger, so the send helpers take two words instead of four.
+
+    Mutable — deliberately, and it is the only mutable thing in this module. It already
+    threads every send helper, so it is the one place a fact observed at the bottom of the
+    call tree can be carried back up to :func:`deliver_kit` without giving four helpers a
+    second return value. :attr:`is_blocked_by_customer` is the only such fact, it is
+    write-once-true (nothing ever clears it), and this module still stores nothing anywhere
+    else: it REPORTS the block, and ``hbd.runtime.jobs`` is what writes it down.
+    """
 
     ledger: DeliveryLedger
     order_id: UUID
+    #: Set when any send was refused because the customer blocked the bot. Sticky: one
+    #: refused asset out of five is enough, and the four that were never attempted say
+    #: nothing to the contrary.
+    is_blocked_by_customer: bool = False
 
     def is_sent(self, key: str) -> bool:
         return self.ledger.is_sent(self.order_id, key)
 
     def mark(self, key: str) -> None:
         self.ledger.mark_sent(self.order_id, key)
+
+    def note_failure(self, exc: TelegramAPIError) -> None:
+        """Classify one send failure. Only ever raises the flag, never lowers it."""
+        if is_blocked_by_customer(exc):
+            self.is_blocked_by_customer = True
 
 
 async def deliver_kit(
@@ -215,19 +305,36 @@ async def deliver_kit(
 
     Anything ``ledger`` says already landed is skipped, so a retried job fills the holes
     the first pass left instead of sending the kit twice.
+
+    The two watermark lines are translated HERE, once, and handed down to the senders. Not
+    because it is cheaper — ``translate`` is a dict lookup — but because a multi-part lyric
+    sheet renders one of them four or five times, and a line each sender looked up for
+    itself is a line each sender can be edited to look up differently. One customer must
+    never receive a sheet whose first part invites them in English and whose third does not
+    invite them at all.
     """
     outbox = _Outbox(
         ledger=ledger if ledger is not None else _DEFAULT_LEDGER, order_id=kit.order_id
     )
     already_sent = len(outbox.ledger.sent_for(kit.order_id))
     failures: list[str] = []
+    song_mark = translate("watermark.song", language, handle=WATERMARK_HANDLE)
+    invite = translate("watermark.invite", language, handle=WATERMARK_HANDLE)
 
-    failures.extend(await _send_song(bot, chat_id=chat_id, kit=kit, language=language, out=outbox))
     failures.extend(
-        await _send_greetings(bot, chat_id=chat_id, kit=kit, language=language, out=outbox)
+        await _send_song(
+            bot, chat_id=chat_id, kit=kit, language=language, mark=song_mark, out=outbox
+        )
     )
     failures.extend(
-        await _send_lyric_sheet(bot, chat_id=chat_id, kit=kit, language=language, out=outbox)
+        await _send_greetings(
+            bot, chat_id=chat_id, kit=kit, language=language, mark=invite, out=outbox
+        )
+    )
+    failures.extend(
+        await _send_lyric_sheet(
+            bot, chat_id=chat_id, kit=kit, language=language, mark=invite, out=outbox
+        )
     )
     failures.extend(
         await _send_closing(bot, chat_id=chat_id, kit=kit, language=language, gaps=gaps, out=outbox)
@@ -242,6 +349,13 @@ async def deliver_kit(
                     "chat_id": chat_id,
                     "failures": failures,
                     "already_delivered": already_sent,
+                    # The one piece of this context a CALLER branches on rather than logs.
+                    # ``hbd.runtime.jobs._send_kit`` reads it to record the churn, which is
+                    # why it is a boolean under a named key and not a substring of
+                    # ``failures`` — those tokens are a log artefact and would break the
+                    # moment anybody reformatted them. This module still stores nothing: it
+                    # reports the fact and the worker writes it down.
+                    BLOCKED_BY_CUSTOMER_KEY: outbox.is_blocked_by_customer,
                 },
             )
         )
@@ -254,8 +368,35 @@ async def deliver_kit(
 
 
 async def _send_song(
-    bot: Bot, *, chat_id: int, kit: Kit, language: Language, out: _Outbox
+    bot: Bot, *, chat_id: int, kit: Kit, language: Language, mark: str, out: _Outbox
 ) -> tuple[str, ...]:
+    """The one message the whole product turns on, sent branded and — if refused — plain.
+
+    **The retry is the only defence here that actually runs in production.** ``performer``
+    and ``thumbnail`` are the two fields whose validity Telegram decides at SEND time and
+    nowhere else: a thumbnail that is not JPEG, is over 200 kB or is larger than 320 px on
+    a side comes back as a 400 ``TelegramBadRequest`` with the picture named in the
+    description, and the same call without it would have succeeded. Nothing in this process
+    can predict that — the cover is generated by a best-effort Pillow pass in another
+    package, ``FSInputFile`` reads the file lazily inside aiogram, and no in-process test
+    double raises the shape the real API returns. So the branded send is attempted once, and
+    on that 400 it is attempted again with both fields dropped. Losing a watermark is a
+    marketing cost; losing the song is the product.
+
+    **The retry is narrowed to ``TelegramBadRequest`` on purpose, and the shape of that
+    guard is a fixed defect.** It first read ``if failure is not None and branding``, which
+    is *always* true — :func:`_song_branding` never returns an empty mapping, ``performer``
+    is unconditional — so every hard failure cost two identical ``sendAudio`` calls where
+    the pre-watermark code made exactly one. A ``TelegramForbiddenError`` (the customer
+    blocked the bot) and a ``TelegramRetryAfter`` are the two that hurt: neither is caused
+    by the branding, so dropping it cannot help, and under a 429 the second call is the one
+    most likely to deepen the wait. Only a 400 describes a request Telegram parsed and
+    rejected on its contents, which is the only failure the stripped call can answer; every
+    other error is reported immediately, as it was before the branding existed.
+
+    Both attempts share the ledger key ``"song"``, and it is marked only after one of them
+    lands, so a retried ARQ job sees one delivered song rather than a second copy.
+    """
     key = "song"
     if out.is_sent(key):
         return ()
@@ -266,9 +407,67 @@ async def _send_song(
         if name is not None
         else translate("delivery.song_caption_noname", language, title=kit.lyrics.title)
     )
+    caption = _fit_caption(f"{caption}\n\n{mark}")
     missing = _missing_file(kit.song)
     if missing is not None:
         return (missing,)
+    branding = _song_branding(kit)
+    failure = await _send_song_once(bot, chat_id=chat_id, kit=kit, caption=caption, extra=branding)
+    if isinstance(failure, TelegramBadRequest):
+        _LOG.warning(
+            "Telegram rejected the branded song with a 400; retrying without the branding",
+            extra={
+                "order_id": str(kit.order_id),
+                "branding": sorted(branding),
+                "failure": repr(failure),
+            },
+        )
+        failure = await _send_song_once(bot, chat_id=chat_id, kit=kit, caption=caption, extra={})
+    if failure is not None:
+        return (_log_failure("song", kit, failure, out=out),)
+    out.mark(key)
+    return ()
+
+
+def _song_branding(kit: Kit) -> dict[str, Any]:
+    """The ``sendAudio`` fields that carry the watermark, omitted rather than passed as None.
+
+    ``performer`` is unconditional: aiogram has accepted it since 3.x and it is what a phone's
+    lock screen and every forwarded-audio preview show under the title, so it is the carrier
+    that survives the song leaving Telegram entirely.
+
+    ``thumbnail`` is conditional twice over. ``Kit.cover`` is optional because the cover is
+    generated best-effort and a render failure degrades to no picture; and even when the
+    asset exists the FILE may not, because ``FSInputFile`` opens it lazily inside aiogram's
+    multipart writer — long after this function returned — so a cover whose workspace was
+    swept between assembly and delivery would raise from the middle of the send rather than
+    return an ``Err``. Checking ``exists()`` here turns that into a plain unbranded song.
+
+    Built as a mapping of only the keys that apply rather than passing ``thumbnail=None``,
+    so the retry above can drop the whole thing by passing an empty one and the two call
+    sites stay identical in every other respect.
+
+    What it is NOT is a signal that there is anything to retry: this mapping is never empty,
+    because ``performer`` is unconditional. The retry guard once read ``and branding`` and
+    was therefore always true, which is how a blocked bot came to cost two ``sendAudio``
+    calls. Whether to retry is decided by the failure's shape, never by this return value.
+    """
+    branding: dict[str, Any] = {"performer": WATERMARK_HANDLE}
+    cover = kit.cover
+    if cover is not None and cover.path.exists():
+        branding["thumbnail"] = FSInputFile(cover.path)
+    return branding
+
+
+async def _send_song_once(
+    bot: Bot, *, chat_id: int, kit: Kit, caption: str, extra: Mapping[str, Any]
+) -> TelegramAPIError | None:
+    """One ``sendAudio`` attempt, returning the rejection instead of raising it.
+
+    Split out so the branded attempt and the plain retry are literally the same call with a
+    different ``extra``, and so the retry is not a second ``try`` nested inside an ``except``
+    where the original exception is still in scope and easy to log by accident.
+    """
     try:
         await bot.send_audio(
             chat_id=chat_id,
@@ -276,16 +475,22 @@ async def _send_song(
             caption=caption,
             title=kit.lyrics.title,
             duration=int(kit.song.duration_s),
+            **extra,
         )
     except TelegramAPIError as exc:
-        return (_log_failure("song", kit, exc),)
-    out.mark(key)
-    return ()
+        return exc
+    return None
 
 
 async def _send_greetings(
-    bot: Bot, *, chat_id: int, kit: Kit, language: Language, out: _Outbox
+    bot: Bot, *, chat_id: int, kit: Kit, language: Language, mark: str, out: _Outbox
 ) -> tuple[str, ...]:
+    """Every greeting, each marked in its caption because a voice note has nowhere else.
+
+    ``sendVoice`` takes no ``title``, no ``performer`` and no ``thumbnail`` — the fields the
+    song is branded with do not exist on this endpoint — so the caption is the only carrier
+    a greeting has, and a greeting is exactly as forwardable as the song.
+    """
     failures: list[str] = []
     total = len(kit.greetings)
     for index, greeting in enumerate(kit.greetings, start=1):
@@ -293,8 +498,9 @@ async def _send_greetings(
         if out.is_sent(key):
             continue
         caption = translate("delivery.greeting_caption", language, index=index, total=total)
+        caption = _fit_caption(f"{caption}\n\n{mark}")
         failure = await _send_one_greeting(
-            bot, chat_id=chat_id, kit=kit, greeting=greeting, caption=caption
+            bot, chat_id=chat_id, kit=kit, greeting=greeting, caption=caption, out=out
         )
         if failure is not None:
             failures.append(failure)
@@ -304,7 +510,7 @@ async def _send_greetings(
 
 
 async def _send_one_greeting(
-    bot: Bot, *, chat_id: int, kit: Kit, greeting: GeneratedAsset, caption: str
+    bot: Bot, *, chat_id: int, kit: Kit, greeting: GeneratedAsset, caption: str, out: _Outbox
 ) -> str | None:
     missing = _missing_file(greeting)
     if missing is not None:
@@ -329,12 +535,12 @@ async def _send_one_greeting(
             duration=int(greeting.duration_s),
         )
     except TelegramAPIError as exc:
-        return _log_failure(f"greeting:{greeting.persona_id}", kit, exc)
+        return _log_failure(f"greeting:{greeting.persona_id}", kit, exc, out=out)
     return None
 
 
 async def _send_lyric_sheet(
-    bot: Bot, *, chat_id: int, kit: Kit, language: Language, out: _Outbox
+    bot: Bot, *, chat_id: int, kit: Kit, language: Language, mark: str, out: _Outbox
 ) -> tuple[str, ...]:
     """The lyric sheet is text, not a file: it must be readable in the chat itself.
 
@@ -344,6 +550,19 @@ async def _send_lyric_sheet(
     lyric only has to pass about 2 050 escaped characters to split, well inside the 3 000
     ``lyrics_entry.MAX_LYRIC_CHARS`` allows. A single-part sheet keeps the plain heading:
     "1/1" on a message with nothing to compare it to is noise.
+
+    The mark goes above the heading AND below the body of EVERY part, not once on the first.
+    Parts are separate Telegram messages and a customer forwards messages, not sheets: the
+    third verse of somebody's song travels on its own, and if the invitation only rode on
+    part one then the part that actually got forwarded advertises nobody.
+
+    Composed after the template rather than inside :func:`_split_for_telegram`, which is left
+    alone on purpose. That function's budget is ``MAX_MESSAGE_CHARS // 2``, with the other
+    half reserved for the escaped heading it cannot see; two forty-character lines spend a
+    rounding error of that reserve. Far more importantly it must stay a pure function of the
+    lyric body, because the part number it produces is the ``lyric_sheet:{part}`` redelivery
+    key — change the budget and a retry after a deploy renumbers the parts, finds a key it
+    has not seen and sends a chunk the customer already has.
     """
     body = kit.lyrics.as_plain_text()
     chunks = _split_for_telegram(body)
@@ -365,10 +584,11 @@ async def _send_lyric_sheet(
                 total=total,
             )
         )
+        text = f"{mark}\n\n{text}\n\n{mark}"
         try:
             await bot.send_message(chat_id=chat_id, text=text)
         except TelegramAPIError as exc:
-            failures.append(_log_failure(f"lyric_sheet:part-{part}", kit, exc))
+            failures.append(_log_failure(f"lyric_sheet:part-{part}", kit, exc, out=out))
             continue
         out.mark(key)
     return tuple(failures)
@@ -388,6 +608,17 @@ async def _send_closing(
     A run with holes leads with ``delivery.done_degraded`` rather than burying the
     admission under a celebration — the product did not do what it promised, and the
     sentence that says so goes first.
+
+    The keyboard is ``post_delivery_keyboard``, which now also carries 🏠 Back to menu — this
+    is one of the places a flow ends, and until that row existed the only exits were a next
+    order and a complaint. What it deliberately does NOT do is re-send the main-menu reply
+    keyboard. That keyboard is ``is_persistent=True`` and therefore chat-level state that is
+    still on screen; and this function runs in the WORKER, whose ``language`` is
+    ``order.brief.ui_language`` (``runtime.jobs``) — the interface language captured when the
+    order was CONFIRMED. A customer who changed it in ⚙️ Settings while the song was being
+    made would have their menu silently re-pinned in the language they left, with no event
+    anywhere to explain it. The one place that keyboard is re-sent is the language change
+    itself, which is the only place its labels can go stale.
     """
     key = "closing"
     if out.is_sent(key):
@@ -410,7 +641,7 @@ async def _send_closing(
             reply_markup=post_delivery_keyboard(language),
         )
     except TelegramAPIError as exc:
-        return (_log_failure("closing", kit, exc),)
+        return (_log_failure("closing", kit, exc, out=out),)
     out.mark(key)
     return ()
 
@@ -437,10 +668,22 @@ def _missing_file(asset: GeneratedAsset) -> str | None:
     return f"{asset.kind.value}:missing-file"
 
 
-def _log_failure(label: str, kit: Kit, exc: TelegramAPIError) -> str:
+def _log_failure(label: str, kit: Kit, exc: TelegramAPIError, *, out: _Outbox) -> str:
+    """Log one rejected asset and return its failure token.
+
+    ``out`` is keyword-only and required so that no future send path can log a failure
+    without classifying it: every refusal in this module passes through here, which is what
+    makes ``out.is_blocked_by_customer`` complete rather than best-effort.
+    """
+    out.note_failure(exc)
     _LOG.error(
         "Telegram rejected an asset",
-        extra={"order_id": str(kit.order_id), "asset": label, "failure": repr(exc)},
+        extra={
+            "order_id": str(kit.order_id),
+            "asset": label,
+            "failure": repr(exc),
+            BLOCKED_BY_CUSTOMER_KEY: is_blocked_by_customer(exc),
+        },
     )
     return f"{label}:{type(exc).__name__}"
 
@@ -474,6 +717,52 @@ def _clip_to_escaped(text: str, budget: int) -> str:
             break
         kept.append(char)
     return "".join(kept)
+
+
+def _fit_caption(text: str) -> str:
+    """A composed caption, clipped at a LINE boundary if it would overrun the ceiling.
+
+    **Measured with plain ``len``, and deliberately NOT with :func:`_escaped_len`.** That
+    helper measures RAW text that ``translate`` has yet to escape, which is the sheet
+    splitter's problem and the exact opposite of this one: ``text`` here is already-rendered
+    HTML, so escaping it a second time charges ``&amp;amp;`` for an ampersand the customer
+    typed once. A 120-character title of ampersands — the contract's own ceiling — measures
+    3 000 that way and 660 truthfully, so the un-reachable guard fires on a caption that fits
+    five times over, and the character-level clip it then applies lands inside an ``&amp;``
+    and hands Telegram the broken entity the whole escaping apparatus exists to avoid. This
+    was found by the test below it, not by reasoning, which is why it is written down here.
+
+    ``len`` is itself an over-count, in the safe direction: Telegram applies the ceiling to
+    the caption AFTER parsing its entities away, so ``<b>`` costs three here and nothing
+    there. An over-count clips early; an under-count is a 400 that costs the customer the
+    song.
+
+    Whole lines and never mid-line, because every caption template in the four catalogues
+    keeps its markup inside one line — ``🎵 <b>{title}</b>``, then prose on the next — so a
+    line boundary is the coarsest cut that cannot orphan a ``<b>`` from its ``</b>`` and get
+    the message rejected for broken markup instead of for length.
+
+    Nothing reaches this today: the only variable a caption carries is a title the contract
+    bounds at 120 characters, and the paragraph above is what that bound is worth. It is here
+    because the watermark line is the first term in the sum that this module does not itself
+    bound, and because a caption Telegram rejects is indistinguishable, from the customer's
+    side, from one that was never written.
+    """
+    if len(text) <= MAX_CAPTION_CHARS:
+        return text
+    kept: list[str] = []
+    spent = 0
+    for line in text.split("\n"):
+        spent += len(line) + 1
+        if spent > MAX_CAPTION_CHARS:
+            break
+        kept.append(line)
+    if kept:
+        return "\n".join(kept)
+    # Not one whole line fits, so there is nothing to keep that is not a fragment. The LAST
+    # line is the watermark this function was added for: composed by us, plain, short, and
+    # the only part of a caption that is worth more than the part it advertises.
+    return text.rsplit("\n", maxsplit=1)[-1][:MAX_CAPTION_CHARS]
 
 
 def _split_for_telegram(body: str) -> tuple[str, ...]:

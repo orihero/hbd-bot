@@ -124,7 +124,28 @@ EXPECTED_DECISIONS: Final[
     Permission.REVEAL_MEDIA: (_NO, _SU, _SU, _SU),
     Permission.ORDER_RETRY: (_NO, _NO, _OK, _OK),
     Permission.ORDER_FORCE_DELIVER: (_NO, _NO, _SU, _SU),
+    # …and this is what a router guard would answer for it, which is why it is ``_SU``: no
+    # route declares this cell. ``POST /users/{id}/block`` and ``/unblock`` declare the role
+    # half below and enforce this one in the handler, on the Telegram id in the path.
     Permission.USER_BLOCK: (_NO, _NO, _SU, _SU),
+    # The role half the two block routes actually declare: ADMIN and OWNER reach the handler,
+    # VIEWER and SUPPORT are FORBIDDEN — a dead end the SPA must not turn into a
+    # re-authentication prompt, because no grant would ever help them.
+    Permission.USER_BLOCK_WRITE: (_NO, _NO, _OK, _OK),
+    # The pair §12.2 has no row for at all; ``permissions.py`` argues the cell. Same shape:
+    # the ``W+S`` half is enforced by ``POST /users/{id}/credits/grant``'s handler and the
+    # role half is what its router declares.
+    Permission.CREDIT_GRANT: (_NO, _NO, _SU, _SU),
+    Permission.CREDIT_GRANT_WRITE: (_NO, _NO, _OK, _OK),
+    # The broadcast trio (BROADCAST_SPEC §3.1). The read is allowed at every role — a
+    # campaign record carries no customer data and reviewing what went out is the VIEWER's
+    # whole job. The write pair is split like the two above it: BROADCAST_WRITE is what the
+    # write routes declare, and BROADCAST_SEND is the ``W+S`` cell
+    # ``POST /broadcasts/{id}/schedule`` enforces in the handler on the campaign id, which is
+    # why a router guard would answer ``_SU`` for it.
+    Permission.BROADCAST_READ: (_OK, _OK, _OK, _OK),
+    Permission.BROADCAST_WRITE: (_NO, _NO, _OK, _OK),
+    Permission.BROADCAST_SEND: (_NO, _NO, _SU, _SU),
     Permission.MODERATION_REVEAL: (_NO, _NO, _SU, _SU),
     Permission.MODERATION_DECIDE: (_NO, _NO, _SU, _SU),
     Permission.RETENTION_SWEEP: (_NO, _NO, _OK, _OK),
@@ -164,6 +185,7 @@ _IDENTIFIERS: Final[Mapping[str, object]] = {
     "asset_id": uuid4(),
     "attempt_id": uuid4(),
     "telegram_user_id": 770_000_123,
+    "broadcast_id": uuid4(),
 }
 
 

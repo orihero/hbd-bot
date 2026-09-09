@@ -28,10 +28,11 @@ __all__ = [
     "MAX_PASSWORD_CHARS",
 ]
 
-#: Long enough that argon2's cost is not the only thing standing between a leaked hash and a
-#: password. Not a composition rule: length beats classes, and a class rule pushes operators
-#: towards ``Password1!``.
-MIN_PASSWORD_CHARS: Final[int] = 12
+#: Not a composition rule: length beats classes, and a class rule pushes operators towards
+#: ``Password1!``. Lowered from 12 to 8 by product decision on 2026-09-04. At 8 the argon2
+#: parameters are doing most of the work against a leaked hash, so keep
+#: ``HBD_ADMIN_ARGON2_MEMORY_KIB`` high and leave the login throttle in place.
+MIN_PASSWORD_CHARS: Final[int] = 8
 #: Bounded well inside ``passwords.MAX_PASSWORD_BYTES`` so a long-but-legal password is
 #: rejected by the schema — cheaply, before a request — rather than by the hasher.
 MAX_PASSWORD_CHARS: Final[int] = 256

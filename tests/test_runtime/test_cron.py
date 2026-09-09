@@ -33,6 +33,12 @@ from hbd.entitlements import (
     derive_settlement_grace_s,
     resolve_entitlement_policy,
 )
+from hbd.runtime.broadcast_job import (
+    EXPAND_JOB_NAME,
+    SEND_JOB_NAME,
+    TEST_SEND_JOB_NAME,
+    sweep_due_broadcasts,
+)
 from hbd.runtime.container import build_container
 from hbd.runtime.jobs import build_kit_worker_settings
 from hbd.runtime.retention_job import run_retention_sweep
@@ -71,8 +77,17 @@ async def test_the_worker_cron_is_what_finally_closes_a_debit_nobody_settled(
     # Arrange — a real container, a real order that died terminally, and a real debit left
     # open because its job never came back to settle it. Everything from here is the code
     # the cron runs, unmocked.
+    #
+    # The allowance is set explicitly rather than inherited, because the SHIPPED value is now
+    # 0 — every recording is sold — and this test is not about the allowance. With 0 the
+    # account cannot afford the charge at all, the dark meter covers it with an
+    # ``unenforced_render`` grant, and the numbers below would be measuring that cover rather
+    # than the sweep. Three credits is the arrangement this test has always run on; it is
+    # named here instead of assumed.
     container = await build_container(
-        _settings(tmp_path), data_root=tmp_path / "var", with_providers=False
+        _settings(tmp_path, free_allowance_credits=3),
+        data_root=tmp_path / "var",
+        with_providers=False,
     )
     try:
         credits = container.credits
@@ -124,6 +139,32 @@ def test_the_sweep_has_a_cron_to_run_on_at_all(tmp_path: Path) -> None:
     assert run_retention_sweep in [job.coroutine for job in worker.cron_jobs]
 
 
+def test_the_broadcast_due_sweep_has_a_cron_to_run_on_at_all(tmp_path: Path) -> None:
+    # Arrange — the same assertion as above, for the job that has the most to lose from not
+    # being scheduled. The broadcast sweep is the ONLY thing that starts a campaign an
+    # operator scheduled for a future instant (the panel deliberately enqueues nothing for
+    # one) and the only thing that revives a chunk job a deploy cancelled mid-send. Without
+    # this entry both of those fail silently: a scheduled campaign simply never goes out, and
+    # a half-sent one sits at ``sending`` with rows claimed forever.
+    async def _dependencies() -> dict[str, Any]:
+        return {}
+
+    # Act
+    worker = build_kit_worker_settings(
+        settings=_settings(tmp_path), build_dependencies=_dependencies
+    )
+
+    # Assert — hosted, and registered in ``functions`` as well: arq dispatches a cron by
+    # NAME, so a schedule whose function is absent from that list has nothing behind it.
+    assert sweep_due_broadcasts in [job.coroutine for job in worker.cron_jobs]
+    assert sweep_due_broadcasts in worker.functions
+    # The three jobs the PANEL enqueues are registered too. Nothing else in this repository
+    # calls them, so a missing entry here would be a route that answers 200 with a job id
+    # that no process will ever run.
+    registered = {getattr(fn, "name", getattr(fn, "__name__", "")) for fn in worker.functions}
+    assert {EXPAND_JOB_NAME, SEND_JOB_NAME, TEST_SEND_JOB_NAME} <= registered
+
+
 # ---------------------------------------------------------------------------
 # The grace
 # ---------------------------------------------------------------------------
@@ -138,16 +179,22 @@ def test_the_shipped_queue_defaults_derive_the_shipped_grace() -> None:
     # Act
     resolved = resolve_entitlement_policy(settings)
 
-    # Assert — every number matches the shipped default. ``is_balance_enforced`` does NOT:
-    # it mirrors ``credits_enforced``, which ships False, while the default policy (used
-    # wherever no settings object is in hand — the data layer's own tests, the sweep's
-    # fallback) enforces. That asymmetry is the point of the flag, so it is asserted rather
-    # than papered over with an equality that would have to be relaxed.
+    # Assert — every number matches the shipped default except TWO, and both exceptions are
+    # the point rather than an inconvenience. ``is_balance_enforced`` mirrors
+    # ``credits_enforced``, which ships False; ``allowance_credits`` mirrors
+    # ``free_allowance_credits``, which ships 0 because the free half of the product is the
+    # lyric and every recording is sold. The default policy — used wherever no settings
+    # object is in hand: the data layer's own tests, the sweep's fallback, the admin panel —
+    # keeps enforcing and keeps its 3. Both are threaded from ``settings`` rather than
+    # hardcoded, so this stays a drift guard between config and policy and does not turn into
+    # a restatement of two literals.
     assert settings.settlement_grace_s is None
     assert not resolved.is_balance_enforced
     assert not settings.credits_enforced
     assert resolved == replace(
-        DEFAULT_ENTITLEMENT_POLICY, is_balance_enforced=settings.credits_enforced
+        DEFAULT_ENTITLEMENT_POLICY,
+        is_balance_enforced=settings.credits_enforced,
+        allowance_credits=settings.free_allowance_credits,
     )
     assert resolved.settlement_grace_s == derive_settlement_grace_s(
         job_timeout_s=settings.queue_job_timeout_s,

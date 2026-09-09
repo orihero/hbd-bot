@@ -12,6 +12,18 @@ import {
 
 const ANCHOR = Date.parse("2026-09-02T13:45:00Z");
 
+/**
+ * A `UserView` that exists only to carry an `accountCreatedAt` into the bucketer.
+ *
+ * `z.infer` makes every `.nullable()` field a REQUIRED property, so the nine contact-profile
+ * fields and the three credit ones have to be written out here even though
+ * `buildNewUserSeries` reads exactly one of them. The credit trio is `null` — no
+ * `credit_accounts` row, which is what a brand-new account looks like and is emphatically not
+ * a balance of `0`. They are all given their EMPTY values on purpose: this fixture must not become a
+ * second, quietly different description of what an onboarded customer looks like. The screen
+ * tests own that description, and a bucketer that ever started to care about a profile field
+ * would be a bug this file should fail on rather than accommodate.
+ */
 function makeUser(accountCreatedAt: string): UserView {
   return {
     id: "11111111-1111-4111-8111-111111111111",
@@ -24,6 +36,18 @@ function makeUser(accountCreatedAt: string): UserView {
     lastOrderAt: accountCreatedAt,
     orderCount: 1,
     paidOrderCount: 0,
+    isProfilePresent: false,
+    telegramUsernameMasked: null,
+    firstNameMasked: null,
+    lastNameMasked: null,
+    phoneMasked: null,
+    phoneSharedAt: null,
+    hasAvatar: false,
+    avatarUrl: null,
+    avatarFetchedAt: null,
+    creditBalance: null,
+    lifetimeCreditsGranted: null,
+    allowancePeriod: null,
   };
 }
 
@@ -43,8 +67,9 @@ describe("newUserWindow", () => {
   });
 
   it("closes the window rather than leaving `to` open", () => {
-    // `/api/users` 422s a half window, and a `to` that means "now" would widen the filter
-    // between keyset pages.
+    // Not because `/api/users` refuses a half window — it accepts one and closes the open
+    // end itself — but because it would close it at a DIFFERENT instant per request, and a
+    // series bucketed by day cannot have its last bucket move between pages.
     const window = newUserWindow(ANCHOR);
     expect(window.to).toBe("2026-09-02T13:45:00.000Z");
     expect(window.to.endsWith("Z")).toBe(true);

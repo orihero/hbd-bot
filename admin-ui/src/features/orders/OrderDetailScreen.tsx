@@ -29,26 +29,34 @@
  * again, and a 3 s tick on a finished order is a request per operator per second for
  * nothing.
  *
- * The attempts and assets tabs read the SUB-COLLECTION endpoints
- * (`/orders/{id}/attempts`, `/orders/{id}/assets`) rather than `OrderDetailView.attempts` /
- * `.assets`, because those are unpaged whole-collection arrays and a busy order's attempt
- * ledger is not a thing to render in full. Each tab's query is `enabled` only while its tab
- * is open, so an operator who never opens assets never fetches them.
+ * The attempt ledger reads the SUB-COLLECTION endpoint (`/orders/{id}/attempts`) rather than
+ * `OrderDetailView.attempts`, because that is an unpaged whole-collection array and a busy
+ * order's attempt ledger is not a thing to render in full.
+ *
+ * ## No tabs
+ *
+ * The ledger used to sit behind an `attempts` tab whose query was `enabled` only while the
+ * tab was open — with `timeline` the default. So the operator who opened an order to ask
+ * "how many times did this fail?" saw nothing, and nothing was even fetched. It is a sibling
+ * of the stepper and the deliverables card now, on the page on arrival. The `assets` tab went
+ * with it: it rendered the same rows the deliverables card above it already rendered, and two
+ * answers to one question is the "three disjointed tabs" defect this page was reskinned to
+ * remove. `orderDetailParams.ts` says what happens to a link that still names one.
  *
  * ## The reskin
  *
  * The page is a stack of borderless cards grouped under plain sentence-case labels —
  * `Pipeline`, `Order`, `Record` — set on the page ground above them. The labels are `<p>`s,
- * not headings: `PipelineTimeline`, `TimelineSourceLegend` and `AssetCard` each own their
+ * not headings: `PipelineTimeline`, `TimelineSourceLegend` and `LyricSheetPanel` each own their
  * own `<h2>`/`<h3>` inside their own card, and the screen still has exactly one `<h1>`.
  *
  * Three things the new geometry changed, each for a reason:
  *
- *  - **The tab strip left the card.** It was a row of outlined boxes above a `border-b`
- *    inside the panel; it is now a segmented row of soft pills sitting on the ground, with
- *    the panel below it. That is what lets each tab's own content be the card — the attempts
- *    tab renders a `DataTable`, which supplies one, and a card inside a card would have been
- *    the result of keeping the wrapper.
+ *  - **The tab strip left the card, and then left altogether.** It was a row of outlined
+ *    boxes above a `border-b` inside the panel, then a segmented row of soft pills on the
+ *    ground; now each section's own content is simply the card — the attempt ledger renders a
+ *    `DataTable`, which supplies one, and a card inside a card would have been the result of
+ *    keeping the wrapper either way.
  *  - **The timeline list lost its rules.** `divide-y divide-line` is gone: events are
  *    separated by space and a hover ground, which is this design's list idiom. `inferred` is
  *    a tinted pill rather than a bare cyan word, so the one flag on the row that changes what
@@ -64,22 +72,28 @@
  * never an id — see this task's report for the one place that rule and the brief disagree.
  */
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, type ReactElement, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
 
 import {
   DEFAULT_PAGE_LIMIT,
   IN_FLIGHT_ORDER_STATES,
+  MIN_PAGE_LIMIT,
   getOrder,
-  getOrderAssets,
   getOrderAttempts,
   getOrderTimeline,
+  getUser,
+  getUserCredits,
   unwrapAsync,
+  type AssetWireView,
   type AttemptWireView,
   type OrderAttemptsQuery,
+  type OrderLedgerStatus,
+  type OrderPaymentRail,
   type PageQuery,
   type TimelineEventView,
+  type UserCreditsQuery,
 } from "@/api";
 import {
   CursorPager,
@@ -89,10 +103,11 @@ import {
 } from "@/components/data";
 import {
   ATTEMPT_REVEAL_FIELDS,
-  AssetCard,
   BRIEF_REVEAL_FIELDS,
   CorrelationChip,
+  CreditBalanceChip,
   ErrorCodeBadge,
+  GrantCreditsButton,
   NameText,
   OrderRefChip,
   PipelineTimeline,
@@ -102,23 +117,27 @@ import {
   StatusPill,
   TelegramUserChip,
   TimelineSourceLegend,
+  assetTrack,
   briefRetentionClocks,
+  isAudioAsset,
 } from "@/components/domain";
 import { PageHeader } from "@/components/layout";
 import {
   AsyncBoundary,
   Button,
   EmptyState,
-  segmentVariant,
   Skeleton,
   SkeletonTable,
 } from "@/components/util";
+import { LyricSheetPanel } from "@/features/assets/LyricSheetPanel";
+import { usePlayerStore } from "@/lib/stores";
 import {
   EMPTY_VALUE,
   NO_POLLING,
   POLL_MS,
   cn,
   formatCostUsd,
+  formatDurationS,
   formatInteger,
   formatLatencyMs,
   formatRate,
@@ -130,13 +149,82 @@ import {
 
 import { IDENTITY_CLOCK_LABEL } from "./orderColumns";
 import {
-  DETAIL_TABS,
   ORDER_DETAIL_FALLBACK,
-  activeTab,
   orderDetailParser,
-  type DetailTab,
   type OrderDetailParams,
 } from "./orderDetailParams";
+
+/**
+ * The Customer 360 card wants the ACCOUNT, not the ledger, so it asks for the smallest legal
+ * page. The movements themselves are the user screen's table, and duplicating them here would
+ * be a second place for them to disagree.
+ */
+const CUSTOMER_CREDITS_QUERY: UserCreditsQuery = { limit: MIN_PAGE_LIMIT };
+
+/**
+ * The companion to `isAudioAsset`: what the artefact is FOR, not what it is stored as.
+ *
+ * `isAudioAsset` selects `song` / `greeting` and therefore excludes the lyric sheet, which is
+ * why the deliverables card rendered an approval badge and never a word of the lyric. Whether
+ * `/assets/{id}/text` will actually serve the row is a MIME question, and `LyricSheetPanel`
+ * asks it — the same split `mediaKinds.ts` argues.
+ */
+function isLyricAsset(asset: AssetWireView): boolean {
+  return asset.kind === "lyric_sheet";
+}
+
+/**
+ * No `lyric_sheet` row, said as a fact rather than drawn as a missing panel.
+ *
+ * It is not the same fact as "the lyrics are not approved", which the badge above it states,
+ * and it is not an error: the sheet is written by the lyric stage, so an order that has not
+ * reached it has nothing to show.
+ */
+const LYRIC_SHEET_ABSENT_LABEL =
+  "No lyric sheet has been rendered for this order, so there is nothing to reveal.";
+
+/** What each ledger status means, in the algebra the authorisation gate itself uses. */
+const LEDGER_STATUS_TITLES: Readonly<Record<OrderLedgerStatus, string>> = {
+  unmetered: "No ledger row references this order at all. Unmetered — which is not the same as free.",
+  pending:
+    "A debit stands open with no consume: the render is in flight, or it died without settling. This holds a credit the customer cannot see.",
+  settled: "The charge stands and was closed by a consume row.",
+  refunded:
+    "Net zero or better, with a refund. This is NOT an ending — net 0 is precisely what makes the order chargeable again on its next attempt.",
+};
+
+/** What paid, restricted to what the ledger can actually prove. */
+const PAYMENT_RAIL_TITLES: Readonly<Record<OrderPaymentRail, string>> = {
+  none: "No ledger row references this order. Unmetered, NOT free.",
+  credits: "A charge stands or stood against this order: the customer's balance paid.",
+  unenforced:
+    "credits_enforced was off and the account could not afford the render, so the shortfall was minted. Nobody paid — a configuration flag did.",
+};
+
+/**
+ * The two things a bare `retryCount` would let an operator believe, both wrong.
+ *
+ * It counts ATTEMPTS, so one clean render is `1` rather than `0`; and every row it can count
+ * today is a name-verification verdict, because nothing in `src/` writes a vendor-render
+ * attempt yet. A delivered three-song order therefore reports `0` honestly. Rendered as a
+ * bare number beside "retries", that reads as "this order never had any trouble".
+ */
+const ATTEMPTS_RECORDED_CAVEAT =
+  "Attempts, not retries — one clean render is 1. And only name-verification attempts are written today, so a delivered order can honestly read 0 until the render pipeline records its own.";
+
+/**
+ * What a FAILED credits request says, which is nothing about the account.
+ *
+ * `<CreditBalanceChip balance={null}>` is a positive claim — "no `credit_accounts` row at
+ * all" — and a query that errored has `data === undefined`, which a `?? null` would launder
+ * into exactly that claim. The endpoint 404s for an id neither table has heard of and 5xxs
+ * on a blip, and "never metered" read off either is how a customer holding four credits gets
+ * comped a second time. Unknown is its own answer, and it is this one.
+ */
+const CREDIT_BALANCE_UNREADABLE = "could not read the balance";
+
+const CREDIT_BALANCE_UNREADABLE_HINT =
+  "The credits request failed, so this account's balance is unknown. It is NOT 'never metered' and NOT 0 — neither of those has been established.";
 
 export function OrderDetailScreen(): ReactElement {
   const routeParams = useParams<{ orderId: string }>();
@@ -147,7 +235,7 @@ export function OrderDetailScreen(): ReactElement {
     orderDetailParser,
     ORDER_DETAIL_FALLBACK,
   );
-  const tab = activeTab(view.value);
+  const queryClient = useQueryClient();
 
   const detail = useQuery({
     queryKey: queryKeys.orders.detail(orderId),
@@ -180,18 +268,42 @@ export function OrderDetailScreen(): ReactElement {
   );
   const attemptsQuery: OrderAttemptsQuery = pageQuery;
 
+  // No longer `enabled` on a tab: "how many times did this fail, and why" is one of the two
+  // questions this screen exists for, and gating its fetch on a tab nobody opens by default
+  // meant the answer was never even requested.
   const attempts = useQuery({
     queryKey: queryKeys.orders.attempts(orderId, attemptsQuery),
     queryFn: ({ signal }) => unwrapAsync(getOrderAttempts(orderId, attemptsQuery, { signal })),
-    enabled: isRoutable && tab === "attempts",
+    enabled: isRoutable,
     refetchInterval: detailInterval,
   });
 
-  const assets = useQuery({
-    queryKey: queryKeys.orders.assets(orderId, pageQuery),
-    queryFn: ({ signal }) => unwrapAsync(getOrderAssets(orderId, pageQuery, { signal })),
-    enabled: isRoutable && tab === "assets",
-    refetchInterval: detailInterval,
+  /*
+   * The customer's side of the order, which `OrderDetailView` does not carry: `GET
+   * /users/{id}/credits` for the balance and `GET /users/{id}` for how many orders this is
+   * one of. Both are keyed off the order's own Telegram id, so neither can run until the
+   * order has arrived — `customerId` is `null` until then and both queries are disabled.
+   *
+   * The credits page is asked for ONE row: the account is what the card renders, and the
+   * ledger itself lives on the user's own screen. `account: null` there is "never metered"
+   * and NOT a balance of 0 — `<CreditBalanceChip>` is the component that keeps those apart.
+   */
+  const customerId = order?.telegramUserId ?? null;
+
+  const credits = useQuery({
+    queryKey: queryKeys.users.credits(customerId ?? 0, CUSTOMER_CREDITS_QUERY),
+    queryFn: ({ signal }) =>
+      unwrapAsync(getUserCredits(customerId ?? 0, CUSTOMER_CREDITS_QUERY, { signal })),
+    enabled: customerId !== null,
+  });
+
+  // 404s for a Telegram id with no `users` row — which a credited account can legitimately
+  // be — so the order count is rendered as absent rather than as zero when this fails.
+  const customer = useQuery({
+    queryKey: queryKeys.users.detail(customerId ?? 0),
+    queryFn: ({ signal }) => unwrapAsync(getUser(customerId ?? 0, { signal })),
+    enabled: customerId !== null,
+    retry: false,
   });
 
   if (!isRoutable) {
@@ -204,6 +316,8 @@ export function OrderDetailScreen(): ReactElement {
   }
 
   const brief = detail.data?.brief ?? null;
+  const audioAssets = (detail.data?.assets ?? []).filter(isAudioAsset);
+  const lyricAsset = detail.data?.assets.find(isLyricAsset) ?? null;
 
   return (
     <div className="flex flex-col">
@@ -259,176 +373,168 @@ export function OrderDetailScreen(): ReactElement {
         }
       />
 
-      <div className="flex flex-col gap-8 px-gutter pb-gutter">
-        {/* The top third: the plan, and why a section of the record may be empty. */}
-        <Group label="Pipeline">
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-            <AsyncBoundary
-              status={detail.status}
-              hasData={detail.data !== undefined}
-              dataUpdatedAt={detail.dataUpdatedAt}
-              error={detail.error}
-              onRetry={() => {
-                void detail.refetch();
-              }}
-              noun="the pipeline"
-              skeleton={<Skeleton height="14rem" />}
+      <div className="px-gutter pb-gutter">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+          {/* Left column (65-70%): Fulfillment Stepper Timeline + Deliverables Card + Attempts table */}
+          <div className="flex flex-col gap-6 lg:col-span-8">
+            {/* Fulfillment Stepper Timeline */}
+            <section
+              className="flex flex-col gap-3 rounded-card bg-surface-card p-card shadow-card"
+              aria-label="fulfillment pipeline"
             >
-              {detail.data === undefined ? null : (
-                <PipelineTimeline plan={detail.data.stagePlan} />
-              )}
-            </AsyncBoundary>
-
-            <AsyncBoundary
-              status={timeline.status}
-              hasData={timeline.data !== undefined}
-              dataUpdatedAt={timeline.dataUpdatedAt}
-              error={timeline.error}
-              onRetry={() => {
-                void timeline.refetch();
-              }}
-              noun="the timeline sources"
-              skeleton={<Skeleton height="14rem" />}
-            >
-              {timeline.data === undefined ? null : (
-                <TimelineSourceLegend
-                  availableSources={timeline.data.availableSources}
-                  unavailableSources={timeline.data.unavailableSources}
-                />
-              )}
-            </AsyncBoundary>
-          </div>
-        </Group>
-
-        <Group label="Order">
-          <AsyncBoundary
-            status={detail.status}
-            hasData={detail.data !== undefined}
-            dataUpdatedAt={detail.dataUpdatedAt}
-            error={detail.error}
-            onRetry={() => {
-              void detail.refetch();
-            }}
-            noun="this order"
-            skeleton={<Skeleton height="12rem" />}
-          >
-            {order === null ? null : (
-              <section
-                aria-label="order facts"
-                className="grid gap-x-6 gap-y-5 rounded-card bg-surface-card p-card shadow-card sm:grid-cols-2 xl:grid-cols-4"
+              <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-hairline pb-3">
+                <h3 className="type-h3 text-ink">Fulfillment & Generation Pipeline</h3>
+                <span className="type-caption text-ink-muted">Nine-stage generation plan</span>
+              </header>
+              <AsyncBoundary
+                status={detail.status}
+                hasData={detail.data !== undefined}
+                dataUpdatedAt={detail.dataUpdatedAt}
+                error={detail.error}
+                onRetry={() => {
+                  void detail.refetch();
+                }}
+                noun="the pipeline"
+                skeleton={<Skeleton height="14rem" />}
               >
-                <Fact label="recipient">
-                  <NameText
-                    value={order.recipientName}
-                    isToggleable
-                    fallback={
-                      /* `isBreakable`: a fact grid track is `minmax(0,1fr)` and can be
-                         narrower than the sentence at a small viewport. It has a third line
-                         to give; it has no room to the right. */
-                      <PurgedValue
-                        purgedAt={order.identityPurgedAt}
-                        isPurged={order.isIdentityPurged}
-                        clock={IDENTITY_CLOCK_LABEL}
-                        isBreakable
-                      />
-                    }
-                  />
-                </Fact>
-                <Fact label="user">
-                  <TelegramUserChip
-                    telegramUserId={order.telegramUserId}
-                    telegramUserIdMasked={order.telegramUserIdMasked}
-                  />
-                </Fact>
-                <Fact label="correlation">
-                  <CorrelationChip correlationId={order.correlationId} />
-                </Fact>
-                <Fact label="paid">{order.isPaid ? "yes" : "no"}</Fact>
-                <Fact label="occasion">
-                  {order.occasion === null ? EMPTY_VALUE : humaniseEnum(order.occasion)}
-                </Fact>
-                <Fact label="genre">
-                  {order.genre === null ? EMPTY_VALUE : humaniseEnum(order.genre)}
-                </Fact>
-                <Fact label="output language">
-                  {order.outputLanguage === null ? EMPTY_VALUE : humaniseEnum(order.outputLanguage)}
-                </Fact>
-                <Fact label="assets">
-                  <span className="num">{formatInteger(order.assetCount)}</span>
-                </Fact>
-                <Fact label="created">
-                  <Timestamp at={order.createdAt} seconds />
-                </Fact>
-                <Fact label="updated">
-                  <Timestamp at={order.updatedAt} seconds />
-                </Fact>
-                <Fact label="delivered">
-                  <Timestamp at={order.deliveredAt} seconds />
-                </Fact>
-                <Fact label="note">
-                  <PurgedValue purgedAt={order.notePurgedAt} clock="note retention" isBreakable>
-                    <span>
-                      {brief === null || brief.noteChars === null ? (
-                        EMPTY_VALUE
-                      ) : (
-                        <>
-                          <span className="num">{formatInteger(brief.noteChars)}</span>
-                          {" characters"}
-                        </>
+                {detail.data === undefined ? null : (
+                  <PipelineTimeline plan={detail.data.stagePlan} />
+                )}
+              </AsyncBoundary>
+            </section>
+
+            {/* Deliverables Card with inline audio player & lyric sheet preview */}
+            <section
+              className="flex flex-col gap-4 rounded-card bg-surface-card p-card shadow-card"
+              aria-label="deliverables"
+            >
+              <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-hairline pb-3">
+                <h3 className="type-h3 text-ink">Deliverables & Media Preview</h3>
+                <span className="type-caption text-ink-muted num">
+                  {formatInteger(order?.assetCount ?? 0)}{" "}
+                  {(order?.assetCount ?? 0) === 1 ? "asset" : "assets"}
+                </span>
+              </header>
+
+              {/* Audio deliverables. The emptiness that matters is "no AUDIO", not "no
+                  assets": an order whose only row is the lyric sheet has assets and no song,
+                  and the sentence below has to be the one about the song. */}
+              {audioAssets.length > 0 ? (
+                <div className="flex flex-col gap-3">
+                  {audioAssets.map((asset) => (
+                    <div
+                      key={asset.id}
+                      className="flex flex-wrap items-center justify-between gap-3 rounded-control bg-surface-sunken p-3"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="text-xl" aria-hidden="true">
+                          🎵
+                        </span>
+                        <div className="min-w-0">
+                          <p className="type-body font-medium truncate text-ink">
+                            Birthday Song{" "}
+                            {asset.variantIndex > 0 ? `(Variant ${String(asset.variantIndex)})` : ""}
+                          </p>
+                          <p className="type-caption text-ink-muted">
+                            {formatDurationS(asset.durationS)} · {asset.mime}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        size="xs"
+                        shape="pill"
+                        onClick={() => {
+                          usePlayerStore.getState().requestPlay(assetTrack(asset));
+                        }}
+                      >
+                        ▶ Play in player
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="type-body-sm flex items-center gap-3 rounded-control bg-surface-sunken p-4 text-ink-muted">
+                  <span className="text-lg" aria-hidden="true">
+                    🎵
+                  </span>
+                  <span>
+                    {order?.state === "delivered"
+                      ? "No audio assets recorded in this view."
+                      : "Song rendering in progress or not yet completed."}
+                  </span>
+                </div>
+              )}
+
+              {/*
+                Lyrics. The approval badge is the HEADER of this block and stays exactly where
+                it was — `hasApprovedLyrics` is a brief fact and answers a different question
+                from the sheet ("is this signed off" vs "what does it say"). Underneath it,
+                the sheet itself: `LyricSheetPanel` carries its own `reveal.media` gate, its
+                own step-up prompt and its own Hide, and none of that is re-implemented here.
+                Every read of it is charged and audited, so nothing is fetched until the
+                operator asks.
+              */}
+              <div className="flex flex-col gap-2 rounded-control bg-surface-sunken p-3">
+                <div className="flex items-center justify-between">
+                  <span className="type-caption font-semibold uppercase tracking-wider text-ink-muted">
+                    Approved Lyrics
+                  </span>
+                  {brief === null ? null : (
+                    <span
+                      className={cn(
+                        "type-caption rounded-pill px-2 py-0.5 font-medium",
+                        brief.hasApprovedLyrics
+                          ? "bg-success-tint text-success"
+                          : "bg-caution-tint text-caution",
                       )}
+                    >
+                      {brief.hasApprovedLyrics ? "✓ Approved" : "Pending Approval"}
                     </span>
-                  </PurgedValue>
-                </Fact>
+                  )}
+                </div>
                 {brief === null ? null : (
-                  <div className="sm:col-span-2 xl:col-span-4">
-                    <p className="type-body-sm mb-2 text-ink-muted">retention</p>
-                    <RetentionClocks clocks={briefRetentionClocks(brief)} />
+                  <div className="type-body-sm flex flex-wrap gap-x-4 gap-y-1 text-ink-muted">
+                    <span>
+                      Language:{" "}
+                      <strong className="font-medium text-ink">
+                        {humaniseEnum(brief.outputLanguage)}
+                      </strong>
+                    </span>
+                    {brief.noteChars !== null && (
+                      <span>
+                        Note length:{" "}
+                        <strong className="num font-medium text-ink">
+                          {formatInteger(brief.noteChars)} chars
+                        </strong>
+                      </span>
+                    )}
                   </div>
                 )}
-              </section>
-            )}
-          </AsyncBoundary>
-        </Group>
 
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
-            <p className="type-h3 text-ink">Record</p>
-            {/* A segmented control on the ground, so each tab's own content can be the card. */}
-            <div role="tablist" aria-label="order detail" className="flex flex-wrap gap-1.5">
-              {DETAIL_TABS.map((name) => (
-                <TabButton
-                  key={name}
-                  name={name}
-                  isActive={tab === name}
-                  onSelect={() => {
-                    view.patch({ tab: name });
-                  }}
-                />
-              ))}
-            </div>
-          </div>
+                {lyricAsset === null ? (
+                  <p className="type-body-sm text-ink-muted" data-testid="lyric-sheet-absent">
+                    <span className="text-ink-muted">{EMPTY_VALUE}</span>{" "}
+                    {LYRIC_SHEET_ABSENT_LABEL}
+                  </p>
+                ) : (
+                  <LyricSheetPanel asset={lyricAsset} className="shadow-none" />
+                )}
+              </div>
+            </section>
 
-          <div role="tabpanel" aria-label={tab}>
-            {tab === "timeline" && (
-              <AsyncBoundary
-                status={timeline.status}
-                hasData={timeline.data !== undefined}
-                isEmpty={(timeline.data?.events.length ?? 0) === 0}
-                dataUpdatedAt={timeline.dataUpdatedAt}
-                error={timeline.error}
-                onRetry={() => {
-                  void timeline.refetch();
-                }}
-                noun="timeline events"
-                emptyTitle="nothing recorded"
-                emptyBody="No source in this deployment recorded an event for this order. See the sources legend above — an empty section is a missing writer, not silence."
-                skeleton={<SkeletonTable rows={6} columns={4} withHeader />}
-              >
-                <TimelineEvents events={timeline.data?.events ?? []} />
-              </AsyncBoundary>
-            )}
-
-            {tab === "attempts" && (
+            {/*
+              The attempt ledger, hoisted out of the retired tabset: on the page on arrival,
+              beside the stepper and the deliverables card, because "where did it die" is
+              answered here and nowhere else.
+            */}
+            <section className="flex flex-col gap-3" aria-label="attempt ledger">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+                <p className="type-h3 text-ink">Attempts</p>
+                <span className="type-caption text-ink-muted">
+                  Seven of the eleven stages write no attempt row
+                </span>
+              </div>
               <AsyncBoundary
                 status={attempts.status}
                 hasData={attempts.data !== undefined}
@@ -467,54 +573,306 @@ export function OrderDetailScreen(): ReactElement {
                   }
                 />
               </AsyncBoundary>
+            </section>
+
+            {/* Record — the merged timeline, no longer one of three tabs */}
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2">
+                <p className="type-h3 text-ink">Record</p>
+                <span className="type-caption text-ink-muted">Merged event timeline</span>
+              </div>
+
+              <AsyncBoundary
+                status={timeline.status}
+                hasData={timeline.data !== undefined}
+                isEmpty={(timeline.data?.events.length ?? 0) === 0}
+                dataUpdatedAt={timeline.dataUpdatedAt}
+                error={timeline.error}
+                onRetry={() => {
+                  void timeline.refetch();
+                }}
+                noun="timeline events"
+                emptyTitle="nothing recorded"
+                emptyBody="No source in this deployment recorded an event for this order. See the sources legend above — an empty section is a missing writer, not silence."
+                skeleton={<SkeletonTable rows={6} columns={4} withHeader />}
+              >
+                <TimelineEvents events={timeline.data?.events ?? []} />
+              </AsyncBoundary>
+            </div>
+          </div>
+
+          {/* Right column (30-35%): Customer 360 Card + Retention Clocks + Correlation/Diagnostics */}
+          <div className="flex flex-col gap-6 lg:col-span-4">
+            {/* Customer 360 Card */}
+            <AsyncBoundary
+              status={detail.status}
+              hasData={detail.data !== undefined}
+              dataUpdatedAt={detail.dataUpdatedAt}
+              error={detail.error}
+              onRetry={() => {
+                void detail.refetch();
+              }}
+              noun="this order"
+              skeleton={<Skeleton height="18rem" />}
+            >
+              {order === null ? null : (
+                <section
+                  aria-label="order facts"
+                  className="flex flex-col gap-4 rounded-card bg-surface-card p-card shadow-card"
+                >
+                  <header className="flex flex-wrap items-baseline justify-between gap-2 border-b border-hairline pb-3">
+                    <h3 className="type-h3 text-ink">Customer 360</h3>
+                    {/*
+                      The same dialog the users screen offers, gated on `credit.grant.write`
+                      inside the button, so a VIEWER sees nothing here at all (§11.4 hides).
+                      It invalidates everything under `users` itself — the balance chip beside
+                      this header included — and `onSuccess` is for the key it cannot know
+                      about: this order, whose own financial row moves with the account.
+                    */}
+                    <GrantCreditsButton
+                      telegramUserId={order.telegramUserId}
+                      subjectLabel={order.telegramUserIdMasked}
+                      onSuccess={() => {
+                        void queryClient.invalidateQueries({
+                          queryKey: queryKeys.orders.detail(orderId),
+                        });
+                      }}
+                    />
+                  </header>
+
+                  <dl className="flex flex-col gap-3">
+                    <Fact label="customer">
+                      <TelegramUserChip
+                        telegramUserId={order.telegramUserId}
+                        telegramUserIdMasked={order.telegramUserIdMasked}
+                      />
+                    </Fact>
+                    <Fact label="credit balance">
+                      {/*
+                        `account: null` is "never metered" and NOT a balance of 0 — a customer
+                        who was never charged or granted anything, or one whose `/forget`
+                        deleted the row. The chip is the component that keeps the three states
+                        apart; `undefined` while the page is still in flight claims nothing.
+                      */}
+                      {credits.isPending ? (
+                        // A `<Fact>`'s value is a paragraph, so this placeholder is inline
+                        // text rather than a block skeleton — and it claims nothing about the
+                        // account while the answer is still in flight.
+                        <span className="type-body-sm text-ink-muted">{"checking\u2026"}</span>
+                      ) : credits.data === undefined ? (
+                        // Settled with no answer \u2014 a 404, a 5xx, a dropped connection. The
+                        // chip is deliberately NOT drawn: see `CREDIT_BALANCE_UNREADABLE`.
+                        <span className="flex flex-wrap items-center gap-2">
+                          <span
+                            data-testid="credit-balance-unreadable"
+                            title={CREDIT_BALANCE_UNREADABLE_HINT}
+                            className="type-body-sm text-ink-muted"
+                          >
+                            {`${EMPTY_VALUE} ${CREDIT_BALANCE_UNREADABLE}`}
+                          </span>
+                          <Button
+                            variant="quiet"
+                            size="xs"
+                            onClick={() => {
+                              void credits.refetch();
+                            }}
+                          >
+                            Try again
+                          </Button>
+                        </span>
+                      ) : (
+                        <CreditBalanceChip balance={credits.data.account?.balance ?? null} size="md" />
+                      )}
+                    </Fact>
+                    <Fact label="orders placed">
+                      {customer.data === undefined ? (
+                        <span className="text-ink-muted">{EMPTY_VALUE}</span>
+                      ) : (
+                        <span className="num">{formatInteger(customer.data.user.orderCount)}</span>
+                      )}
+                    </Fact>
+                    <Fact label="recipient">
+                      <NameText
+                        value={order.recipientName}
+                        isToggleable
+                        fallback={
+                          <PurgedValue
+                            purgedAt={order.identityPurgedAt}
+                            isPurged={order.isIdentityPurged}
+                            clock={IDENTITY_CLOCK_LABEL}
+                            isBreakable
+                          />
+                        }
+                      />
+                    </Fact>
+                    <Fact label="financial status">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={cn(
+                            "inline-flex items-center rounded-pill px-2.5 py-0.5 type-caption font-medium",
+                            order.isPaid ? "bg-success-tint text-success" : "bg-neutral-tint text-neutral",
+                          )}
+                        >
+                          {order.isPaid ? "✓ Paid" : "Unpaid"}
+                        </span>
+                        {/*
+                          The ledger's own answer, which is not the same question as `isPaid`:
+                          `refunded` is net zero WITH a refund, and net zero is precisely what
+                          makes the order chargeable again — so it is not drawn as an ending.
+                          The word carries the state; the title carries the algebra.
+                        */}
+                        <span
+                          data-testid="ledger-status"
+                          data-status={order.ledgerStatus}
+                          title={LEDGER_STATUS_TITLES[order.ledgerStatus]}
+                          className="inline-flex items-center rounded-pill bg-surface-sunken px-2.5 py-0.5 type-caption font-medium text-ink"
+                        >
+                          {humaniseEnum(order.ledgerStatus)}
+                        </span>
+                      </span>
+                    </Fact>
+                    <Fact label="credits charged">
+                      {/* "charged", never "spent": this is `-SUM(delta)` as it stands RIGHT
+                          NOW, so a refunded order reads 0 — history has not been rounded off,
+                          the charge has been reversed. */}
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="num" data-testid="credit-cost">
+                          {formatInteger(order.creditCost)}
+                        </span>
+                        <span
+                          data-testid="payment-rail"
+                          data-rail={order.paymentRail}
+                          title={PAYMENT_RAIL_TITLES[order.paymentRail]}
+                          className="type-caption text-ink-muted"
+                        >
+                          {`rail: ${humaniseEnum(order.paymentRail)}`}
+                        </span>
+                      </span>
+                    </Fact>
+                    <Fact label="attempts recorded">
+                      {/* A bare `0` here would read as "this order never had any trouble",
+                          which is the one thing it does not mean. The caveat travels with the
+                          number rather than living in a doc nobody opens. */}
+                      <span className="flex flex-col gap-1">
+                        <span className="num" data-testid="retry-count">
+                          {formatInteger(order.retryCount)}
+                        </span>
+                        <span className="type-caption text-ink-muted">
+                          {ATTEMPTS_RECORDED_CAVEAT}
+                        </span>
+                      </span>
+                    </Fact>
+                    <Fact label="occasion & genre">
+                      <span className="text-ink">
+                        {order.occasion === null ? EMPTY_VALUE : humaniseEnum(order.occasion)}
+                        {" · "}
+                        {order.genre === null ? EMPTY_VALUE : humaniseEnum(order.genre)}
+                      </span>
+                    </Fact>
+                    <Fact label="output language">
+                      <span className="text-ink">
+                        {order.outputLanguage === null
+                          ? EMPTY_VALUE
+                          : humaniseEnum(order.outputLanguage)}
+                      </span>
+                    </Fact>
+                    <Fact label="assets count">
+                      <span className="num">{formatInteger(order.assetCount)}</span>
+                    </Fact>
+                    <Fact label="created">
+                      <Timestamp at={order.createdAt} seconds />
+                    </Fact>
+                    <Fact label="updated">
+                      <Timestamp at={order.updatedAt} seconds />
+                    </Fact>
+                    <Fact label="delivered">
+                      {order.deliveredAt === null ? (
+                        <span className="text-ink-muted">{EMPTY_VALUE}</span>
+                      ) : (
+                        <Timestamp at={order.deliveredAt} seconds />
+                      )}
+                    </Fact>
+                    <Fact label="note">
+                      <PurgedValue purgedAt={order.notePurgedAt} clock="note retention" isBreakable>
+                        <span>
+                          {brief === null || brief.noteChars === null ? (
+                            EMPTY_VALUE
+                          ) : (
+                            <>
+                              <span className="num">{formatInteger(brief.noteChars)}</span>
+                              {" characters"}
+                            </>
+                          )}
+                        </span>
+                      </PurgedValue>
+                    </Fact>
+                  </dl>
+                </section>
+              )}
+            </AsyncBoundary>
+
+            {/* Retention Clocks */}
+            {brief !== null && (
+              <section
+                aria-label="retention clocks"
+                className="flex flex-col gap-3 rounded-card bg-surface-card p-card shadow-card"
+              >
+                <header className="border-b border-hairline pb-2">
+                  <h3 className="type-h3 text-ink">Retention & Privacy Clocks</h3>
+                </header>
+                <RetentionClocks clocks={briefRetentionClocks(brief)} />
+              </section>
             )}
 
-            {tab === "assets" && (
-              <AsyncBoundary
-                status={assets.status}
-                hasData={assets.data !== undefined}
-                isEmpty={(assets.data?.items.length ?? 0) === 0}
-                dataUpdatedAt={assets.dataUpdatedAt}
-                error={assets.error}
-                onRetry={() => {
-                  void assets.refetch();
-                }}
-                noun="assets"
-                emptyTitle="no assets"
-                emptyBody="Nothing has been rendered for this order yet."
-                skeleton={
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {[0, 1, 2].map((slot) => (
-                      <Skeleton key={slot} height="13rem" />
-                    ))}
-                  </div>
-                }
-              >
-                <div className="flex flex-col gap-2">
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {(assets.data?.items ?? []).map((asset) => (
-                      <AssetCard key={asset.id} asset={asset} />
-                    ))}
-                  </div>
-                  {/* On the ground rather than in a card: every asset already carries one,
-                      and a pager is chrome for the grid, not another panel. */}
-                  <CursorPager
-                    meta={assets.data?.meta ?? null}
-                    itemCount={assets.data?.items.length ?? 0}
-                    cursor={view.value.cursor ?? null}
-                    onCursorChange={(cursor) => {
-                      view.patch({ cursor: cursor ?? undefined }, { keepCursor: true });
-                    }}
-                    limit={view.value.limit ?? DEFAULT_PAGE_LIMIT}
-                    onLimitChange={(limit) => {
-                      view.patch({ limit });
-                    }}
-                    isFetching={assets.isFetching}
-                    label="assets"
-                  />
-                </div>
-              </AsyncBoundary>
-            )}
+            {/* Correlation & Diagnostics */}
+            <section
+              aria-label="diagnostics"
+              className="flex flex-col gap-3 rounded-card bg-surface-card p-card shadow-card"
+            >
+              <header className="border-b border-hairline pb-2">
+                <h3 className="type-h3 text-ink">Correlation & Diagnostics</h3>
+              </header>
+              <dl className="flex flex-col gap-3">
+                <Fact label="correlation id">
+                  <CorrelationChip correlationId={order?.correlationId ?? ""} />
+                </Fact>
+                <Fact label="order reference">
+                  <OrderRefChip orderId={orderId} visibleChars={16} />
+                </Fact>
+                {order?.failedReason != null && (
+                  <Fact label="failure code">
+                    <ErrorCodeBadge
+                      code={order.failedReason}
+                      isRetryable={order.isFailedReasonRetryable}
+                    />
+                  </Fact>
+                )}
+              </dl>
+
+              <div className="border-t border-hairline pt-3">
+                <p className="type-caption text-ink-muted mb-2 font-semibold uppercase tracking-wider">
+                  Timeline Sources
+                </p>
+                <AsyncBoundary
+                  status={timeline.status}
+                  hasData={timeline.data !== undefined}
+                  dataUpdatedAt={timeline.dataUpdatedAt}
+                  error={timeline.error}
+                  onRetry={() => {
+                    void timeline.refetch();
+                  }}
+                  noun="the timeline sources"
+                  skeleton={<Skeleton height="8rem" />}
+                >
+                  {timeline.data === undefined ? null : (
+                    <TimelineSourceLegend
+                      availableSources={timeline.data.availableSources}
+                      unavailableSources={timeline.data.unavailableSources}
+                    />
+                  )}
+                </AsyncBoundary>
+              </div>
+            </section>
           </div>
         </div>
       </div>
@@ -522,65 +880,7 @@ export function OrderDetailScreen(): ReactElement {
   );
 }
 
-/**
- * A plain section label with the cards it gathers.
- *
- * Deliberately NOT a heading and NOT a landmark: the cards inside carry their own headings
- * and accessible names, and this is a visual grouping in the new layout language rather than
- * a new level of information architecture. `LiveScreen` has the same helper, and the two are
- * duplicated on purpose — a shared `SectionLabel` primitive belongs in `components/layout/`,
- * which this task does not own. It is reported as a gap rather than invented here.
- */
-function Group({
-  label,
-  children,
-}: {
-  readonly label: string;
-  readonly children: ReactNode;
-}): ReactElement {
-  return (
-    <div className="flex flex-col gap-3">
-      <p className="type-h3 text-ink">{label}</p>
-      {children}
-    </div>
-  );
-}
 
-function TabButton({
-  name,
-  isActive,
-  onSelect,
-}: {
-  readonly name: DetailTab;
-  readonly isActive: boolean;
-  readonly onSelect: () => void;
-}): ReactElement {
-  return (
-    /*
-     * One tab, two states, and both come from `segmentVariant` so the strip cannot drift the
-     * way it had: ACTIVE is the console's secondary idiom (a tint of the brand with the brand
-     * as the label), INACTIVE is `quiet` — no ground at all until hover.
-     *
-     * The inactive half used to be `bg-surface-control text-ink-muted`: a filled grey chip
-     * with a grey label, which is the one thing this design language rules out by name. It is
-     * NOT re-pointed at the brand, because then "which tab am I on" would be answered by a
-     * shade rather than by the presence of colour. `aria-selected` carries the same fact to
-     * anyone who can see neither.
-     */
-    <Button
-      role="tab"
-      variant={segmentVariant(isActive)}
-      size="xs"
-      shape="pill"
-      aria-selected={isActive}
-      data-tab={name}
-      onClick={onSelect}
-      className="px-3.5 py-1.5"
-    >
-      {name}
-    </Button>
-  );
-}
 
 /**
  * The merged timeline.

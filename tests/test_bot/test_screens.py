@@ -10,7 +10,12 @@ from hbd.bot.callbacks import NavAction, NavCB
 from hbd.bot.draft import MAX_NOTE_CHARS, WizardDraft
 from hbd.bot.i18n import translate
 from hbd.bot.keyboards import KEEP_NOTE_LABEL_KEY, SKIP_LABEL_KEY
-from hbd.bot.screens import MAX_PREVIEW_LYRIC_CHARS, render_step, resolve_step, welcome_screen
+from hbd.bot.screens import (
+    MAX_PREVIEW_LYRIC_CHARS,
+    onboarding_language_screen,
+    render_step,
+    resolve_step,
+)
 from hbd.bot.states import WIZARD_ORDER, WizardStep
 from hbd.contracts import (
     MAX_RECIPIENT_NAME_CHARS,
@@ -62,8 +67,18 @@ def test_every_step_renders_non_empty_text(step: WizardStep) -> None:
     assert screen.text.strip()
 
 
-@pytest.mark.parametrize("step", [s for s in WIZARD_ORDER if s is not WizardStep.UI_LANGUAGE])
+@pytest.mark.parametrize("step", list(WIZARD_ORDER)[1:])
 def test_every_step_after_the_first_draws_a_back_button(step: WizardStep) -> None:
+    """The first step of the order is skipped by POSITION, never by name.
+
+    The old spelling filtered ``WizardStep.UI_LANGUAGE`` out by hand, and that filter is now
+    wrong in both directions at once: ``UI_LANGUAGE`` has left ``WIZARD_ORDER`` entirely, so
+    the comprehension excludes nothing, and the step that took its place at the head of the
+    order — ``OCCASION`` — draws no Back button either, because ``occasion_keyboard`` is
+    built with ``is_back_enabled=False``. An unfiltered walk would therefore fail on the
+    first row while the filter it carried tested nothing. Slicing by position keeps the
+    assertion true whatever the order's first member becomes next.
+    """
     # Arrange
     draft = full_draft()
 
@@ -74,12 +89,59 @@ def test_every_step_after_the_first_draws_a_back_button(step: WizardStep) -> Non
     assert NavCB(action=NavAction.BACK).pack() in {d for _, d in buttons(screen.markup)}
 
 
-def test_the_first_step_has_no_back_button() -> None:
-    # Arrange / Act
-    screen = welcome_screen(Language.EN)
+def test_the_first_wizard_step_draws_no_back_button() -> None:
+    """Back on the head of the order has nowhere to go, so it must not be drawn.
+
+    ``previous_step`` answers ``None`` for ``WIZARD_ORDER[0]``, and a Back button that
+    resolves to ``None`` is a button whose only honest behaviour is to re-render the screen
+    the customer is already looking at — which reads as a dead button. Asserted on the
+    rendered screen rather than on ``occasion_keyboard``'s keyword argument, because the
+    keyword is the mechanism and this is the promise.
+    """
+    # Arrange
+    draft = full_draft()
+
+    # Act
+    screen = render_step(WIZARD_ORDER[0], draft)
 
     # Assert
     assert NavCB(action=NavAction.BACK).pack() not in {d for _, d in buttons(screen.markup)}
+
+
+def test_the_onboarding_language_screen_draws_no_navigation_at_all() -> None:
+    """C0-6's regression fence, on the first screen a customer ever sees.
+
+    ``_with_nav`` appends ``NavAction.CANCEL`` unconditionally, so ``is_back_enabled=False``
+    alone used to put ✖️ Cancel here — where it reaches ``navigation.handle_cancel`` and
+    answers "Cancelled — nothing was made, and nothing was kept" to somebody who has not
+    started anything. No Back either: there is nothing before this screen.
+    """
+    # Arrange / Act
+    screen = onboarding_language_screen(Language.EN)
+
+    # Assert — not one NavCB of any action
+    assert not [d for _, d in buttons(screen.markup) if d.startswith("nav:")]
+
+
+def test_a_draft_parked_at_the_old_language_step_still_renders() -> None:
+    """``WizardStep.UI_LANGUAGE`` left ``WIZARD_ORDER`` but not ``WizardStep``, and this is why.
+
+    Drafts live in Redis for ``WIZARD_STATE_TTL``, so on the day this ships there are real
+    sessions parked at ``Wizard.ui_language``. Deleting the member would make ``render_step``
+    raise for every one of them; keeping it without a test would let the screen it renders rot
+    into a raw catalogue key, which ``translate`` shows to the customer rather than raising.
+    """
+    # Arrange
+    draft = full_draft()
+
+    # Act
+    screen = render_step(WizardStep.UI_LANGUAGE, draft)
+
+    # Assert — real copy, no unfilled placeholder, and not the deleted key echoed back
+    assert screen.text.strip()
+    assert _UNFILLED_PLACEHOLDER.search(screen.text) is None
+    assert "start.choose_ui_language" not in screen.text
+    assert translate("onboarding.language.prompt", Language.EN) in screen.text
 
 
 @pytest.mark.parametrize("step", list(WIZARD_ORDER))

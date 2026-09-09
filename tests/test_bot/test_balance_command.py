@@ -41,6 +41,7 @@ from tests.test_bot.conftest import (
     BOT_ID,
     CHAT_ID,
     USER_ID,
+    FakeProfiles,
     RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
@@ -53,10 +54,39 @@ from tests.test_bot.test_wizard_flow import send, walk_to_confirm
 #: copy the customer reads rather than agree with itself.
 NEXT_GRANT_DAY = "2026-04-07"
 
+#: A rolling allowance, stated here and threaded through ``Settings`` rather than read off
+#: ``DEFAULT_ENTITLEMENT_POLICY``.
+#:
+#: The two numbers used to be the same one. Since the paywall shipped they are not:
+#: ``Settings.free_allowance_credits`` defaults to **0** — every recording is sold — while
+#: the dataclass default stays at 3 for the callers that hold no settings object, so
+#: ``resolve_entitlement_policy(settings)`` and ``DEFAULT_ENTITLEMENT_POLICY`` now disagree
+#: by design. A test of the ALLOWANCE COPY has to run on a deployment that actually grants
+#: an allowance, or it asserts that "your allowance is 0 every 30 days" is shown to somebody
+#: — which is true of no shipped configuration and is exactly the sentence
+#: ``credits.balance_metered`` exists to avoid. Written as a literal rather than taken from
+#: the resolver so the expectation cannot agree with the code by construction.
+ALLOWANCE_CREDITS = 3
+
 
 def unwired(settings: Settings, submitter: RecordingSubmitter) -> BotDeps:
-    """``BotDeps`` with no meter at all — the shape the whole existing bot suite runs on."""
-    return BotDeps(settings=settings, submitter=submitter, content=RecordingContentWriter())
+    """``BotDeps`` with no METER at all — the shape the whole existing bot suite runs on.
+
+    Unwired means unwired for entitlements, and for nothing else. The profile store is present
+    and is not an inconsistency: ``confirm_screen_text`` reaches the Confirm screen through
+    ``walk_to_confirm``, which drives the real onboarding screens, and without a store the
+    onboarding router fails open, the walker's language press matches no handler, and the
+    "byte-identical" comparison below silently becomes a comparison of two fallback-language
+    screens that agree with each other and with nothing the customer sees. That is the exact
+    shape of vacuous green this file's byte-for-byte assertion exists to avoid, so the store is
+    wired on BOTH sides of it.
+    """
+    return BotDeps(
+        settings=settings,
+        submitter=submitter,
+        content=RecordingContentWriter(),
+        profiles=FakeProfiles(),
+    )
 
 
 async def ask_balance(dispatcher: Dispatcher, bot: Bot, session: RecordingSession) -> str:
@@ -134,11 +164,17 @@ async def test_an_enforcing_meter_shows_the_real_count_and_the_allowance_behind_
     submitter: RecordingSubmitter,
     clock: Callable[[], datetime],
 ) -> None:
-    """A bare number answers "how many" and not "how many more will I get, and when"."""
+    """A bare number answers "how many" and not "how many more will I get, and when".
+
+    The allowance is set on ``Settings`` here — see :data:`ALLOWANCE_CREDITS` — because this
+    is the copy for a deployment that STILL gives songs away, and the shipped one no longer
+    does. Nothing about the branch changed; only the number behind it has to be asked for.
+    """
     # Arrange
     credits = FakeEntitlements(credits=2)
+    generous = enforcing(settings).model_copy(update={"free_allowance_credits": ALLOWANCE_CREDITS})
     dispatcher = build_dispatcher(
-        wire(enforcing(settings), submitter, credits, clock), storage=MemoryStorage()
+        wire(generous, submitter, credits, clock), storage=MemoryStorage()
     )
 
     # Act
@@ -149,7 +185,7 @@ async def test_an_enforcing_meter_shows_the_real_count_and_the_allowance_behind_
         "credits.balance",
         Language.UZ_LATN,
         credits=2,
-        allowance=DEFAULT_ENTITLEMENT_POLICY.allowance_credits,
+        allowance=ALLOWANCE_CREDITS,
         period_days=DEFAULT_ENTITLEMENT_POLICY.allowance_period_days,
     )
     assert credits.writes == []

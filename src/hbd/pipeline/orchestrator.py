@@ -31,7 +31,7 @@ to write or zero, so nothing downstream has to know which path an order took.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
@@ -56,6 +56,7 @@ from hbd.contracts import (
     Storage,
     SttProvider,
     TtsProvider,
+    UsageTask,
     VoiceDescriptor,
     err,
     is_ok,
@@ -82,6 +83,7 @@ from hbd.pipeline.personas import select_voices
 from hbd.pipeline.plan_builder import build_composition_plan, derive_seed
 from hbd.pipeline.ports import Clock, ContentWriter, Moderator, NameSimilarity, Sleeper
 from hbd.pipeline.retry import RetryPolicy, call_with_retry
+from hbd.usage import usage_scope
 
 __all__ = ["KitPipeline", "DEFAULT_MUSIC_SLOTS", "DEFAULT_TTS_SLOTS"]
 
@@ -92,6 +94,34 @@ _LOGGER = get_logger(__name__)
 #: from ``Settings``; these keep a bare ``KitPipeline(...)`` in a test from being unbounded.
 DEFAULT_MUSIC_SLOTS: Final[int] = 2
 DEFAULT_TTS_SLOTS: Final[int] = 3
+
+# ---------------------------------------------------------------------------
+# Stage -> vendor-usage task
+#
+# THE ONLY PLACE THE TWO VOCABULARIES MEET. ``PipelineStage`` is this package's word for
+# where a run is; ``UsageTask`` is the vendor layer's word for what a call was FOR, and it
+# lives in ``hbd.contracts`` precisely so that a provider adapter stamping a row never has
+# to import ``hbd.pipeline``. Mapping them here, once, is what keeps that true.
+#
+# Six entries, not twelve: only these stages call a vendor. VALIDATING, AUTHORIZING,
+# POST_PROCESSING, PERSISTING and DELIVERING spend nothing, so a ``.get()`` miss on them
+# is the right answer and leaves ``task`` NULL rather than inventing a label for a call
+# that was never made.
+#
+# VERIFYING_NAME is in the table but is not, today, a stage ``_staged`` wraps: the name
+# loop runs INSIDE ``render_song``, which runs inside COMPOSING_SONG, so its transcription
+# calls are attributed to SONG. That is honest — they are part of composing the song — and
+# the entry stays because the day the loop gets its own stage wrapper the attribution
+# should follow it rather than have to be discovered again.
+# ---------------------------------------------------------------------------
+_STAGE_TASKS: Final[Mapping[PipelineStage, UsageTask]] = {
+    PipelineStage.MODERATING: UsageTask.MODERATION,
+    PipelineStage.WRITING_LYRICS: UsageTask.LYRICS,
+    PipelineStage.WRITING_SCRIPTS: UsageTask.GREETING_SCRIPTS,
+    PipelineStage.COMPOSING_SONG: UsageTask.SONG,
+    PipelineStage.VERIFYING_NAME: UsageTask.NAME_VERIFICATION,
+    PipelineStage.RENDERING_GREETINGS: UsageTask.GREETING_SPEECH,
+}
 
 # ---------------------------------------------------------------------------
 # orders.failed_reason
@@ -275,8 +305,14 @@ class KitPipeline:
 
     # -- entry point --------------------------------------------------------
     async def run(self, order: Order) -> Result[PipelineOutcome]:
-        """Generate and persist the kit for ``order``. Never raises."""
-        with correlation_scope(order.correlation_id):
+        """Generate and persist the kit for ``order``. Never raises.
+
+        Two scopes are bound for the whole run and neither reaches a provider signature:
+        the correlation id ties every log line together, and ``usage_scope`` ties every
+        vendor row this run writes to the order that paid for it. The task half is bound
+        per stage in :meth:`_staged`, inside this one.
+        """
+        with correlation_scope(order.correlation_id), usage_scope(order_id=order.id):
             return await self._run(order)
 
     async def _run(self, order: Order) -> Result[PipelineOutcome]:
@@ -643,7 +679,20 @@ class KitPipeline:
         *,
         policy: RetryPolicy | None = None,
     ) -> Result[T]:
-        """Time one stage, announce it, and retry it if the policy says so."""
+        """Time one stage, announce it, and retry it if the policy says so.
+
+        It is also where a vendor call learns what it was FOR. Every stage funnels through
+        here and every stage knows its own :class:`PipelineStage`, so binding
+        ``usage_scope(task=...)`` around the one await that can reach a provider labels all
+        six vendor-calling stages from a single site — including the retries, which are
+        real vendor calls and are billed like any other.
+
+        The inner scope names ONLY the task. It does not clear the ``order_id`` bound by
+        :meth:`run` around the whole run: ``usage_scope`` inherits a field passed as
+        ``None`` rather than blanking it, which is what makes the two-layer binding work
+        at all. A stage that calls no vendor maps to ``None`` and simply leaves the task
+        unbound rather than inventing a label for a call nobody made.
+        """
         await reporter.emit(stage, ProgressStatus.STARTED, now=self._clock())
         started = self._clock()
 
@@ -652,13 +701,14 @@ class KitPipeline:
                 stage, ProgressStatus.RETRYING, now=self._clock(), attempt=attempt, error=error
             )
 
-        result, report = await call_with_retry(
-            operation,
-            label=f"stage.{stage.value}",
-            policy=policy or RetryPolicy.single_attempt(),
-            sleeper=self._sleeper,
-            on_retry=on_retry,
-        )
+        with usage_scope(task=_STAGE_TASKS.get(stage)):
+            result, report = await call_with_retry(
+                operation,
+                label=f"stage.{stage.value}",
+                policy=policy or RetryPolicy.single_attempt(),
+                sleeper=self._sleeper,
+                on_retry=on_retry,
+            )
         elapsed_ms = int((self._clock() - started).total_seconds() * 1_000)
         is_failed = isinstance(result, Err)
         ledger.record_timing(

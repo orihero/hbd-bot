@@ -31,6 +31,8 @@ from hbd.config import Settings
 from hbd.contracts import MAX_RECIPIENT_NAME_CHARS, Genre, Language, Occasion, VoiceGender
 from tests.test_bot.conftest import (
     CHAT_ID,
+    USER_ID,
+    FakeProfiles,
     RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
@@ -43,9 +45,35 @@ from tests.test_bot.test_wizard_flow import press, walk_to_confirm
 EXPIRED = translate("wizard.expired", Language.UZ_LATN)
 
 
+@pytest.fixture
+def profiles() -> FakeProfiles:
+    """A store that already knows this customer, overriding the shared empty one.
+
+    Every test in this module drives a dispatcher PAST onboarding by setting a ``Wizard.*``
+    state by hand. With an empty store the onboarding catch-all (router 3) claims the update
+    first and answers the language question, so the assertions would be about a screen the
+    test never asked for. Seeding is the honest arrangement: an expired wizard session belongs
+    to somebody the bot already knows.
+
+    pytest resolves the NEAREST fixture of a name, so the shared ``deps`` fixture in
+    ``conftest.py`` picks this one up and nothing else in the module changes.
+    """
+    store = FakeProfiles()
+    store.seed(USER_ID)
+    return store
+
+
 @pytest.mark.parametrize(
     ("state_value", "data"),
     [
+        # The parked-draft row, and it is load-bearing. ``WizardStep.UI_LANGUAGE`` left both
+        # step orders but kept its state, its ``_STATE_BY_STEP`` entry and its callback
+        # registration in ``questions``; this is the only test that drives that registration.
+        # It reaches it only because the store above is SEEDED — an onboarded customer holding
+        # a stale Redis state is exactly the one live reader the registration has. If the bot
+        # domain ever drops it, the press falls through to ``fallback.handle_stale_callback``,
+        # which renders the same ``wizard.expired`` text but does NOT clear the state — so this
+        # row fails on the state assertion rather than on the text, which names the regression.
         (Wizard.ui_language, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack()),
         (Wizard.occasion, OccasionCB(value=Occasion.BIRTHDAY).pack()),
         (Wizard.genre, GenreCB(value=Genre.POP).pack()),
@@ -175,7 +203,12 @@ async def test_confirm_falls_back_to_a_new_message_when_the_edit_is_refused(
     # Arrange
     submitter = RecordingSubmitter()
     dispatcher = build_dispatcher(
-        BotDeps(settings=settings, submitter=submitter, content=RecordingContentWriter()),
+        BotDeps(
+            settings=settings,
+            submitter=submitter,
+            content=RecordingContentWriter(),
+            profiles=FakeProfiles(),
+        ),
         storage=MemoryStorage(),
     )
     await walk_to_confirm(dispatcher, bot)
@@ -199,7 +232,12 @@ async def test_confirm_reports_failure_when_no_progress_message_can_be_posted(
     # Arrange
     submitter = RecordingSubmitter()
     dispatcher = build_dispatcher(
-        BotDeps(settings=settings, submitter=submitter, content=RecordingContentWriter()),
+        BotDeps(
+            settings=settings,
+            submitter=submitter,
+            content=RecordingContentWriter(),
+            profiles=FakeProfiles(),
+        ),
         storage=MemoryStorage(),
     )
     await walk_to_confirm(dispatcher, bot)

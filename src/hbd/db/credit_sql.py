@@ -121,8 +121,14 @@ def upsert_statement(
         if set_ is None:
             return lite.on_conflict_do_nothing(index_elements=columns)
         return lite.on_conflict_do_update(index_elements=columns, set_=dict(set_))
+    # The message names the TABLE rather than "the entitlement ledger": this helper is
+    # general, it gained a second caller outside the entitlement layer when the vendor
+    # balance poll started upserting through it, and an operator debugging a balance cache
+    # should not be sent reading the credit ledger. The behaviour is unchanged — an unknown
+    # dialect still raises rather than falling back to a plain INSERT, for the reason this
+    # function's docstring gives.
     raise ConfigError(
-        f"the entitlement ledger has no ON CONFLICT dialect for {dialect!r}",
+        f"{getattr(table, '__tablename__', '?')} has no ON CONFLICT dialect for {dialect!r}",
         context={"dialect": dialect, "table": getattr(table, "__tablename__", "?")},
     )
 
@@ -327,15 +333,54 @@ async def read_balance(
     :func:`hbd.db.credits._mint_due_allowance` would then decline to mint — leaving the
     customer refused in the WORKER, after the progress bar, for the rest of the window.
     Asking the ledger costs one indexed lookup and only on the branch that would project.
+
+    **A LIVE PLAN'S UNMINTED SONGS ARE PROJECTED FOR EXACTLY THE SAME REASON, VERBATIM.**
+    Buying the starter plan writes one ``plan_purchases`` row and no credits at all —
+    :mod:`hbd.db.plan_sql` argues why an eager twelve-credit grant cannot express expiry on a
+    fungible balance — so a customer who has just paid 49 000 soʻm has a stored balance of 0
+    and twelve songs coming. Without this projection the read-only Confirm gate would
+    paywall them in the same message that had thanked them for paying, and the paywall would
+    stay up for thirty days while ``charge`` cheerfully minted a song every time. The
+    projection is bounded by the same predicate the mint uses (``plan_ends_at > now`` AND
+    ``songs_used < songs_included``, both inside :func:`hbd.db.plan_sql.live_plan`), so the
+    two cannot drift.
+
+    ``plan_ends_at`` is populated even when nothing is mintable — that is the
+    :func:`hbd.db.plan_sql.current_plan` fallback below — because "no plan" and "a plan with
+    nothing left" are different offers: the first is sold a plan, the second is sold a single
+    song and told the plan brings nothing more until it ends. A caller cannot tell them apart
+    from a fungible ``credits`` total, so the fields say it outright.
     """
     balance, minted_index = await account_state(session, telegram_user_id)
     current_index = period_index_for(now, period_days=policy.allowance_period_days)
     is_due = (minted_index is None or minted_index < current_index) and not await has_period_grant(
         session, telegram_user_id, current_index
     )
+    # THE ONE DEFERRED IMPORT IN THIS PACKAGE, and it closes a real cycle rather than a
+    # stylistic one. :mod:`hbd.db.plan_sql` is built ON this module's primitives — it calls
+    # ``insert_or_ignore`` and ``rowcount_of``, which is the correct direction for a
+    # higher-level statement set — while this one function needs to READ a plan. Importing
+    # ``plan_sql`` at module scope closes the loop: whichever module Python reaches first
+    # begins executing, reaches its import of the other, and that other's import of the first
+    # resolves against a half-initialised module whose names do not exist yet. Deferring the
+    # edge to the single call site costs one dict lookup per read and is confined to the one
+    # place the layering genuinely reverses.
+    from hbd.db.plan_sql import current_plan, live_plan
+
+    plan = await live_plan(session, telegram_user_id=telegram_user_id, now=now)
+    if plan is None:
+        # Spent-but-unexpired, or nothing at all. Costs a second indexed lookup only on the
+        # branch that has no songs to project, which is the branch that is not on the hot
+        # charge path.
+        spent = await current_plan(session, telegram_user_id=telegram_user_id, now=now)
+        plan_songs_left = 0
+        plan_ends_at = None if spent is None else spent.plan_ends_at
+    else:
+        plan_songs_left = plan.songs_included - plan.songs_used
+        plan_ends_at = plan.plan_ends_at
     return CreditBalance(
         telegram_user_id=telegram_user_id,
-        credits=balance + (policy.allowance_credits if is_due else 0),
+        credits=balance + (policy.allowance_credits if is_due else 0) + plan_songs_left,
         in_flight=await count_in_flight(
             session,
             telegram_user_id=telegram_user_id,
@@ -343,6 +388,8 @@ async def read_balance(
             exclude_order_id=exclude_order_id,
         ),
         is_blocked=await is_blocked(session, telegram_user_id),
+        plan_songs_left=plan_songs_left,
+        plan_ends_at=plan_ends_at,
     )
 
 

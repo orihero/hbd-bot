@@ -40,7 +40,7 @@ from tests.test_db.conftest import MovableClock, build_kit, new_order
 pytestmark = pytest.mark.integration
 
 _POSTGRES_URL: Final[str] = os.environ.get(
-    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd"
+    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
 )
 
 

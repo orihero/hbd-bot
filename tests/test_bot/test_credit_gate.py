@@ -38,6 +38,7 @@ from hbd.contracts import Language, Result, err, ok
 from hbd.entitlements import ChargeOutcome, CreditBalance, SettlementOutcome
 from hbd.errors import HbdError, StorageError
 from tests.test_bot.conftest import (
+    FakeProfiles,
     RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
@@ -123,7 +124,13 @@ class FakeEntitlements:
         self.writes.append("set_blocked")
         return ok(None)
 
-    async def touch(self, telegram_user_id: int, *, ui_language: Language) -> Result[None]:
+    async def touch(self, telegram_user_id: int, *, ui_language: Language | None) -> Result[None]:
+        # ``Language | None`` and not ``Language``: the inbound gate now meets people who have
+        # never answered the language question, and ``None`` is how it says "I do not know yet"
+        # instead of clobbering a stored choice with the operator's default. A fake that kept
+        # the narrow parameter would not merely be stale — parameter types are contravariant,
+        # so it would stop being a structural ``EntitlementStore`` and ``mypy --strict`` would
+        # fail at the assignment into ``BotDeps.entitlements``.
         self.writes.append("touch")
         return ok(None)
 
@@ -151,12 +158,24 @@ def wire(
     credits: FakeEntitlements,
     clock: Callable[[], datetime],
 ) -> BotDeps:
+    """A metered dispatcher's dependencies, profile store included.
+
+    ``profiles`` is not decoration. Every test in this file reaches the Confirm screen through
+    :func:`~tests.test_bot.test_wizard_flow.walk_to_confirm`, which now drives the real
+    onboarding screens; with no store at all the fail-open rule (C1-5) treats the caller as
+    already onboarded, so ``/start`` draws the menu, the walker's ``LanguageCB(slot=UI)`` press
+    matches no handler, and every assertion below fails with "that session expired" — a message
+    about the fallback router, in a file about credits. A fresh EMPTY store per call is the
+    right one: the walk is what creates the row, and sharing one between dispatchers would let
+    a test inherit an account another test onboarded.
+    """
     return BotDeps(
         settings=settings,
         submitter=submitter,
         content=RecordingContentWriter(),
         clock=clock,
         entitlements=credits,
+        profiles=FakeProfiles(),
     )
 
 
@@ -243,7 +262,15 @@ async def test_the_exhausted_refusal_ends_on_a_start_over_screen_not_on_confirm(
 
     # Assert
     offered = {data for _text, data in buttons(session.last_screen.reply_markup)}
-    assert offered == {NavCB(action=NavAction.START_OVER).pack()}
+    # Both buttons are NAMED rather than checked for membership. ``start_over_keyboard`` grew a
+    # 🏠 Back to menu row (CONTRACTS §5), and a superset assertion would have absorbed that
+    # silently — as it would absorb the row's later disappearance, which is the regression worth
+    # catching: a customer out of credits cannot start over to any effect, so the way home is
+    # the only button on this screen that leads anywhere.
+    assert offered == {
+        NavCB(action=NavAction.START_OVER).pack(),
+        NavCB(action=NavAction.TO_MENU).pack(),
+    }
     assert await state.get_state() is None
 
 
@@ -331,7 +358,12 @@ async def test_a_blocked_account_is_refused_even_with_credits_and_the_meter_dark
     assert submitter.submitted == []
     assert translate("error.blocked", Language.EN) in screen_texts(session)
     offered = {data for _text, data in buttons(session.last_screen.reply_markup)}
-    assert offered == {NavCB(action=NavAction.START_OVER).pack()}
+    # Both buttons, for the reason given on the exhausted-allowance case above: the 🏠 row is
+    # part of what "not a dead end" now means, and an exact set is what keeps it there.
+    assert offered == {
+        NavCB(action=NavAction.START_OVER).pack(),
+        NavCB(action=NavAction.TO_MENU).pack(),
+    }
 
 
 async def test_a_second_song_is_refused_while_the_first_one_is_still_being_made(

@@ -8,10 +8,21 @@
  * because `StateDistributionBar` has no props for any of those — the shape is fixed by the
  * component, and the screen only chooses the data.
  *
- * That data is the CURRENT PAGE's states. No endpoint returns per-state counts for an
- * arbitrary filter (`ordersByState` exists on `UserDetailView` and nowhere else), so the bar
- * describes the rows on screen and says so above itself. Inventing a whole-result-set shape
- * out of one page would be a wrong number wearing the dominant signal's clothes.
+ * That data is the WHOLE FILTERED SET's states, from `GET /api/orders/state-counts`. This
+ * file used to say no such endpoint existed and count the fifty rows in hand instead; the
+ * endpoint does exist, takes the list's identical filter dependency, and answers with an
+ * unbounded `GROUP BY` whose `total` is exact rather than `TOTAL_COUNT_CAP`-bounded. Counting
+ * the page was a wrong number wearing the dominant signal's clothes — it said "12 failed"
+ * when the filter matched four hundred, and it moved every time the operator turned a page.
+ *
+ * So there are TWO queries on the same filters here, and one function builds both:
+ * `toOrdersQuery(filters)` is `toStateCountsQuery(filters)` plus paging, which is what makes
+ * "the bar and the table describe the same set" a fact about the code rather than a promise.
+ * The aggregate is keyed WITHOUT paging, so turning a page leaves it untouched.
+ *
+ * The aggregate is also the SECOND query, never the gate: its skeleton and its error live
+ * inside the bar's own card, and the table renders from `orders` regardless. A failed count
+ * must not blank the rows.
  *
  * ## The poll
  *
@@ -23,8 +34,10 @@
  *
  * ## The window
  *
- * `TimeRangePicker` emits a preset as `{from, to: undefined}` and `/api/orders` 422s on half
- * a window, so `completeWindow` fills the missing end before it reaches the URL. See
+ * `TimeRangePicker` emits a preset as `{from, to: undefined}` and `completeWindow` fills the
+ * missing end before it reaches the URL. Not because the route refuses half a window — it
+ * accepts one now — but so the URL names a FIXED pair: "last 24 hours" is a different set of
+ * orders every time it is resolved, and a pasted link has to mean one thing. See
  * `ordersFilters.ts`.
  *
  * ## The reskin
@@ -33,11 +46,11 @@
  * under `--shadow-card`, so this screen wraps it in nothing. Same for `FilterBar`. What this
  * file owns is the space between them and the two surfaces it draws itself:
  *
- *  - **The dominant signal gets a card of its own**, under a plain `state distribution ·
- *    this page` label on the page ground. It was a bare bar on the ground before, which in a
+ *  - **The dominant signal gets a card of its own**, under a plain `state distribution`
+ *    label on the page ground. It was a bare bar on the ground before, which in a
  *    borderless language reads as a stray graphic; giving it paper is what keeps it looking
- *    like the loudest thing above row one. Its position in the DOM is unchanged and the
- *    label's text is unchanged.
+ *    like the loudest thing above row one. Its position in the DOM is unchanged; the label
+ *    lost its `· this page` qualifier when the bar stopped describing a page.
  *  - **The peek panel is an elevated card**: the same paper, lifted by
  *    `--shadow-card-hover`, with no accent border. Elevation is what says "this one is
  *    open"; the table's own `--brand-fill` rail on the highlighted row says which one.
@@ -55,9 +68,11 @@ import { useNavigate } from "react-router-dom";
 import {
   DEFAULT_PAGE_LIMIT,
   ORDER_STATE_VALUES,
+  getOrderStateCounts,
   getOrders,
   unwrapAsync,
   type OrderState,
+  type OrderStateCountsView,
   type OrderView,
 } from "@/api";
 import {
@@ -79,7 +94,14 @@ import {
   TelegramUserChip,
 } from "@/components/domain";
 import { PageHeader } from "@/components/layout";
-import { AsyncBoundary, Button, segmentVariant, SkeletonTable } from "@/components/util";
+import {
+  AsyncBoundary,
+  Button,
+  ErrorState,
+  Skeleton,
+  segmentVariant,
+  SkeletonTable,
+} from "@/components/util";
 import {
   POLL_MS,
   formatInteger,
@@ -97,9 +119,9 @@ import {
   ORDERS_FILTER_FALLBACK,
   ORDER_FILTER_FIELDS,
   completeWindow,
-  countByState,
   ordersFilterParser,
   toOrdersQuery,
+  toStateCountsQuery,
   type OrdersFilter,
 } from "./ordersFilters";
 
@@ -111,6 +133,8 @@ export function OrdersScreen(): ReactElement {
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   const query = useMemo(() => toOrdersQuery(filters.value), [filters.value]);
+  /** The same filters, minus paging — so a new cursor moves the table and not the bar. */
+  const countsQuery = useMemo(() => toStateCountsQuery(filters.value), [filters.value]);
 
   const orders = useQuery({
     queryKey: queryKeys.orders.list(query),
@@ -118,8 +142,16 @@ export function OrdersScreen(): ReactElement {
     refetchInterval: pollWhileVisible(expandedOrderId === null ? POLL_MS.ordersList : false),
   });
 
+  /* The aggregate behind the bar. It polls on the list's tick, and pauses with it — a bar
+     that repainted while an operator read an expanded row is the same hostility §11.5 bans
+     for the rows themselves. */
+  const stateCounts = useQuery({
+    queryKey: queryKeys.orders.stateCounts(countsQuery),
+    queryFn: ({ signal }) => unwrapAsync(getOrderStateCounts(countsQuery, { signal })),
+    refetchInterval: pollWhileVisible(expandedOrderId === null ? POLL_MS.ordersList : false),
+  });
+
   const items = useMemo(() => orders.data?.items ?? [], [orders.data]);
-  const counts = useMemo(() => countByState(items), [items]);
   const chips = useMemo(
     () => buildFilterChips(filters, ORDER_FILTER_FIELDS),
     [filters],
@@ -202,19 +234,18 @@ export function OrdersScreen(): ReactElement {
 
       <div className="flex flex-col gap-8 px-gutter pb-gutter">
         {/* The dominant signal. Directly under the filter bar, before row one. */}
-        <div className="flex flex-col gap-3">
-          <p className="type-h3 text-ink">state distribution · this page</p>
-          <div className="rounded-card bg-surface-card p-card shadow-card">
-            <StateDistributionBar
-              counts={counts}
-              isRefetching={orders.isFetching}
-              label="orders by state on this page"
-            />
-          </div>
-        </div>
+        <StateDistribution
+          view={stateCounts.data ?? null}
+          status={stateCounts.status}
+          isFetching={stateCounts.isFetching}
+          error={stateCounts.error}
+          onRetry={() => {
+            void stateCounts.refetch();
+          }}
+        />
 
         {expanded === null ? null : (
-          <PeekPanel
+          <OrderPeekDrawer
             order={expanded}
             onClose={() => {
               setExpandedOrderId(null);
@@ -224,6 +255,7 @@ export function OrdersScreen(): ReactElement {
             }}
           />
         )}
+
 
         <AsyncBoundary
           status={orders.status}
@@ -272,6 +304,65 @@ export function OrdersScreen(): ReactElement {
         </AsyncBoundary>
       </div>
     </div>
+  );
+}
+
+/**
+ * The dominant signal's card: the aggregate, its own loading state and its own failure.
+ *
+ * It is a separate component for one reason — it must be able to fail on its own. The table
+ * below reads a different query, so a 500 from `/orders/state-counts` renders an `ErrorState`
+ * inside THIS card with a retry beside it and leaves every row on screen. §11.4's "inline,
+ * scoped, keeps surrounding data" applied to the one panel on this screen that has a
+ * neighbour worth keeping.
+ *
+ * The total in the heading is the aggregate's `total` — the exact sum of an unbounded
+ * `GROUP BY`, not the list's `meta.total`, which stops at `TOTAL_COUNT_CAP` and would read
+ * `10,000+` next to a bar drawn from four hundred thousand orders.
+ */
+function StateDistribution({
+  view,
+  status,
+  isFetching,
+  error,
+  onRetry,
+}: {
+  readonly view: OrderStateCountsView | null;
+  readonly status: "pending" | "error" | "success";
+  readonly isFetching: boolean;
+  readonly error: unknown;
+  readonly onRetry: () => void;
+}): ReactElement {
+  return (
+    <section className="flex flex-col gap-3" aria-label="state distribution">
+      <p className="type-h3 text-ink">
+        {"state distribution"}
+        {view === null ? null : (
+          <>
+            {" · "}
+            <span className="num text-ink-muted">{formatInteger(view.total)}</span>
+            <span className="text-ink-muted">{" orders"}</span>
+          </>
+        )}
+      </p>
+      <div className="rounded-card bg-surface-card p-card shadow-card" data-testid="state-distribution">
+        {status === "error" && view === null ? (
+          <ErrorState error={error} onRetry={onRetry} what="the state distribution" />
+        ) : view === null ? (
+          /* Exactly the finished dimensions: the 8px band, then one legend line. */
+          <div className="flex flex-col gap-2" data-testid="state-distribution-skeleton">
+            <Skeleton className="h-2 w-full rounded-pill" />
+            <Skeleton className="h-5 w-64" />
+          </div>
+        ) : (
+          <StateDistributionBar
+            counts={view.counts}
+            isRefetching={isFetching}
+            label="orders by state"
+          />
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -369,7 +460,7 @@ function TriStateSelect({
  * what lets it be the thing that pauses the poll rather than a second thing competing with
  * it. The full answer is `/orders/:id`, one click away.
  */
-function PeekPanel({
+export function OrderPeekDrawer({
   order,
   onClose,
   onOpen,
@@ -379,77 +470,99 @@ function PeekPanel({
   readonly onOpen: () => void;
 }): ReactElement {
   return (
-    <section
-      data-testid="order-peek"
-      data-order-id={order.id}
-      aria-label="expanded order"
-      // Lifted rather than outlined: the deeper shadow is what says "this one is open".
-      className="flex flex-col gap-5 rounded-card bg-surface-card p-card shadow-card-hover"
-    >
-      <header className="flex flex-wrap items-center gap-2">
-        <StatusPill state={order.state} size="md" />
-        <OrderRefChip orderId={order.id} />
-        <span className="type-body-sm ml-auto text-ink-muted">polling paused while expanded</span>
-      </header>
+    <>
+      {/* Dimmed backdrop */}
+      <div
+        className="fixed inset-0 z-40 bg-black/40 backdrop-blur-xs transition-opacity"
+        onClick={onClose}
+        aria-hidden="true"
+        data-testid="order-peek-backdrop"
+      />
+      {/* Slide-out drawer overlay */}
+      <aside
+        data-testid="order-peek"
+        data-order-id={order.id}
+        aria-label="expanded order"
+        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col gap-6 overflow-y-auto bg-surface-card p-6 shadow-overlay transition-transform duration-base ease-standard sm:border-l sm:border-line"
+      >
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-hairline pb-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusPill state={order.state} size="md" />
+            <OrderRefChip orderId={order.id} />
+          </div>
+          <Button
+            variant="quiet"
+            size="xs"
+            shape="pill"
+            onClick={onClose}
+            aria-label="close peek drawer"
+          >
+            ✕
+          </Button>
+          <div className="w-full">
+            <span className="type-caption text-ink-muted">polling paused while expanded</span>
+          </div>
+        </header>
 
-      <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Fact label="recipient">
-          <NameText
-            value={order.recipientName}
-            isToggleable
-            fallback={
-              <PurgedValue
-                purgedAt={order.identityPurgedAt}
-                isPurged={order.isIdentityPurged}
-                clock={IDENTITY_CLOCK_LABEL}
-              />
-            }
-          />
-        </Fact>
-        <Fact label="user">
-          <TelegramUserChip
-            telegramUserId={order.telegramUserId}
-            telegramUserIdMasked={order.telegramUserIdMasked}
-          />
-        </Fact>
-        <Fact label="correlation">
-          <CorrelationChip correlationId={order.correlationId} />
-        </Fact>
-        <Fact label="assets">
-          <span className="num">{formatInteger(order.assetCount)}</span>
-        </Fact>
-        <Fact label="created">
-          <Timestamp at={order.createdAt} seconds />
-        </Fact>
-        <Fact label="updated">
-          <Timestamp at={order.updatedAt} seconds />
-        </Fact>
-        <Fact label="delivered">
-          <Timestamp at={order.deliveredAt} seconds />
-        </Fact>
-        <Fact label="note">
-          <PurgedValue purgedAt={order.notePurgedAt} clock="note retention">
-            <span className="text-ink-muted">
-              {order.isBriefPresent ? "brief recorded" : "no brief"}
-            </span>
-          </PurgedValue>
-        </Fact>
-      </dl>
+        <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+          <Fact label="recipient">
+            <NameText
+              value={order.recipientName}
+              isToggleable
+              fallback={
+                <PurgedValue
+                  purgedAt={order.identityPurgedAt}
+                  isPurged={order.isIdentityPurged}
+                  clock={IDENTITY_CLOCK_LABEL}
+                />
+              }
+            />
+          </Fact>
+          <Fact label="user">
+            <TelegramUserChip
+              telegramUserId={order.telegramUserId}
+              telegramUserIdMasked={order.telegramUserIdMasked}
+            />
+          </Fact>
+          <Fact label="correlation">
+            <CorrelationChip correlationId={order.correlationId} />
+          </Fact>
+          <Fact label="assets">
+            <span className="num font-semibold">{formatInteger(order.assetCount)}</span>
+          </Fact>
+          <Fact label="created">
+            <Timestamp at={order.createdAt} seconds />
+          </Fact>
+          <Fact label="updated">
+            <Timestamp at={order.updatedAt} seconds />
+          </Fact>
+          <Fact label="delivered">
+            <Timestamp at={order.deliveredAt} seconds />
+          </Fact>
+          <Fact label="note">
+            <PurgedValue purgedAt={order.notePurgedAt} clock="note retention">
+              <span className="text-ink-muted">
+                {order.isBriefPresent ? "brief recorded" : "no brief"}
+              </span>
+            </PurgedValue>
+          </Fact>
+        </dl>
 
-      <div className="flex flex-wrap items-center gap-2">
-        {/* The design's primary button: solid brand, white label, 16px corners. */}
-        <Button variant="primary" onClick={onOpen}>
-          open full detail
-        </Button>
-        {/* Dismissive, so `quiet` — no ground of its own beside the primary. Two filled
-            buttons side by side read as two primaries, whatever colour the second one is. */}
-        <Button variant="quiet" onClick={onClose}>
-          close
-        </Button>
-      </div>
-    </section>
+        <div className="mt-auto flex flex-wrap items-center gap-3 border-t border-hairline pt-4">
+          <Button variant="primary" onClick={onOpen}>
+            open full detail
+          </Button>
+          <Button variant="quiet" onClick={onClose}>
+            close
+          </Button>
+        </div>
+      </aside>
+    </>
   );
 }
+
+export const PeekPanel = OrderPeekDrawer;
+
 
 function Fact({
   label,

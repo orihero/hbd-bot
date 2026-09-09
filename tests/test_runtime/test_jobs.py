@@ -10,12 +10,15 @@ operator can be told about.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 from aiogram import Bot
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.methods import EditMessageText
@@ -23,7 +26,7 @@ from arq.worker import Retry
 
 from hbd.bot.i18n import translate
 from hbd.config import Settings
-from hbd.contracts import Kit, Order, Result, err, ok
+from hbd.contracts import BotBlockSource, Kit, Order, Result, err, ok
 from hbd.errors import PipelineError, ProviderTimeoutError, StorageError
 from hbd.pipeline.events import (
     STAGE_MESSAGE_KEYS,
@@ -99,6 +102,30 @@ class _Pipeline:
         )
 
 
+@dataclass
+class RecordingBlocks:
+    """A ``BotBlockRecorder`` that writes nothing and remembers every call.
+
+    ``answer`` is what the store returns, so one fake covers the three outcomes the worker
+    logs differently: a recorded transition, an account already blocked (the ordinary case
+    once the bot's ``my_chat_member`` handler got there first), and a storage failure.
+    """
+
+    answer: Result[bool] = field(default_factory=lambda: ok(True))
+    calls: list[tuple[int, BotBlockSource]] = field(default_factory=list)
+
+    async def record_bot_blocked(
+        self, telegram_user_id: int, *, at: datetime, source: BotBlockSource
+    ) -> Result[bool]:
+        self.calls.append((telegram_user_id, source))
+        return self.answer
+
+    async def record_bot_unblocked(
+        self, telegram_user_id: int, *, at: datetime, source: BotBlockSource
+    ) -> Result[bool]:  # pragma: no cover - the worker never learns of a win-back
+        raise AssertionError("the delivery arm must never record an unblock")
+
+
 class _Container(AppContainer):
     """A real container shape with a scripted pipeline. Frozen, so this is a subclass.
 
@@ -117,6 +144,7 @@ class _Container(AppContainer):
         root: Path,
         hangs: bool = False,
         credits: RecordingEntitlementStore | None = None,
+        bot_blocks: RecordingBlocks | None = None,
     ):
         settings = Settings(
             _env_file=None,
@@ -137,6 +165,7 @@ class _Container(AppContainer):
             music_slots=asyncio.Semaphore(1),
             tts_slots=asyncio.Semaphore(1),
             credits=credits or RecordingEntitlementStore(),
+            bot_blocks=bot_blocks,
         )
         object.__setattr__(self, "_outcome", outcome)
         object.__setattr__(self, "_hangs", hangs)
@@ -229,6 +258,19 @@ async def test_a_terminal_failure_reports_a_user_message_key_instead_of_retrying
 async def test_the_customer_is_told_why_the_run_failed(
     order: Order, bot: Bot, session: RecordingSession, tmp_path: Path
 ) -> None:
+    """A failed render is the worker's only message to a customer, and it must not dead-end.
+
+    The equality is EXACT and both buttons are named, deliberately. A membership check would
+    keep passing if 🏠 Back to menu were dropped from ``start_over_keyboard``, and this is the
+    one screen where that row matters most: the song did not arrive, the wizard is over, and
+    the reply keyboard the customer would otherwise navigate from is chat-level state they may
+    have collapsed hours ago. ↩️ Start over alone offers exactly one answer — "buy again" — to
+    somebody who has just been told their order failed, and the alternative it hides is their
+    balance, the support address, and the way out.
+
+    Ordering is asserted too, because the two rows are not interchangeable: the recovery the
+    worker is apologising for has to sit above the exit.
+    """
     # Arrange — the one failure a customer can fix by rewording
     failure = PipelineError("moderator refused", user_message_key="error.content_not_allowed")
     container = _Container(order=order, outcome=err(failure), root=tmp_path)
@@ -240,9 +282,10 @@ async def test_the_customer_is_told_why_the_run_failed(
     sent = session.last_named("SendMessage")
     assert sent.chat_id == CHAT_ID
     assert sent.text == translate("error.content_not_allowed", order.brief.ui_language)
-    # and a dead end owes the reader a way out
+    # and a dead end owes the reader BOTH ways out: start again, or go home.
     assert buttons(sent.reply_markup) == (
         (translate("button.start_over", order.brief.ui_language), "nav:start_over"),
+        (translate("button.to_menu", order.brief.ui_language), "nav:to_menu"),
     )
 
 
@@ -632,3 +675,113 @@ async def test_a_session_waiting_on_a_different_order_is_left_alone(
         "order_id": other_order_id,
         "draft": {"note": "the second song"},
     }
+
+
+# ---------------------------------------------------------------------------
+# The churn arm: a send Telegram refused because the customer blocked the bot
+# ---------------------------------------------------------------------------
+def _blocked_by_the_customer() -> TelegramForbiddenError:
+    return TelegramForbiddenError(method=None, message="Forbidden: bot was blocked by the user")  # type: ignore[arg-type]
+
+
+def _refuse_every_send(session: RecordingSession, exc: Exception) -> None:
+    for name in ("SendAudio", "SendVoice", "SendMessage"):
+        session.failures[name] = exc
+
+
+async def test_a_send_refused_by_a_blocked_customer_is_recorded_before_the_retry(
+    order: Order, kit: Kit, bot: Bot, session: RecordingSession, tmp_path: Path
+) -> None:
+    """THE ORDERING IS THE POINT, and it is why this asserts on a retrying attempt.
+
+    A retryable delivery failure raises ``Retry`` out of ``_send_kit``, so a record placed
+    after that branch would never run on any attempt but the last — which is every attempt
+    but one. This drives a NON-final attempt, which really does raise, and asserts the block
+    was recorded anyway.
+
+    It is the ACCOUNT that is recorded, not the chat: they are the same number for a private
+    chat today, but the ``users`` row and the event row are keyed on the account, and taking
+    it from the order is the version that survives a kit ever being delivered elsewhere.
+    """
+    # Arrange
+    _refuse_every_send(session, _blocked_by_the_customer())
+    recorder = RecordingBlocks()
+    container = _Container(
+        order=order, outcome=ok(_outcome(kit)), root=tmp_path, bot_blocks=recorder
+    )
+
+    # Act — a retryable failure on a non-final attempt still defers.
+    with pytest.raises(Retry):
+        await generate_and_deliver(_ctx(container, bot), str(order.id), CHAT_ID, MESSAGE_ID)
+
+    # Assert
+    assert recorder.calls == [(order.telegram_user_id, BotBlockSource.DELIVERY_REFUSAL)]
+
+
+async def test_an_ordinary_delivery_failure_records_no_block(
+    order: Order, kit: Kit, bot: Bot, session: RecordingSession, tmp_path: Path
+) -> None:
+    """A 400 is not churn. Recording it would invent departures nothing could corroborate."""
+    # Arrange
+    from aiogram.exceptions import TelegramBadRequest
+
+    _refuse_every_send(session, TelegramBadRequest(method=None, message="chat not found"))  # type: ignore[arg-type]
+    recorder = RecordingBlocks()
+    container = _Container(
+        order=order, outcome=ok(_outcome(kit)), root=tmp_path, bot_blocks=recorder
+    )
+
+    # Act
+    with pytest.raises(Retry):
+        await generate_and_deliver(_ctx(container, bot), str(order.id), CHAT_ID, MESSAGE_ID)
+
+    # Assert
+    assert recorder.calls == []
+
+
+@pytest.mark.parametrize(
+    "recorder",
+    [None, RecordingBlocks(answer=ok(False)), RecordingBlocks(answer=err(StorageError("down")))],
+    ids=["unwired", "already_recorded", "storage_failed"],
+)
+async def test_recording_the_block_never_changes_what_the_job_does(
+    order: Order,
+    kit: Kit,
+    bot: Bot,
+    session: RecordingSession,
+    tmp_path: Path,
+    recorder: RecordingBlocks | None,
+) -> None:
+    """Unwired, a no-op and a failure are all invisible to the retry ladder.
+
+    ``Ok(False)`` is the ORDINARY outcome in a healthy deployment — the ``my_chat_member``
+    update arrived first and the transition guard already claimed it — so it must be as
+    uneventful as having no recorder at all.
+    """
+    # Arrange
+    _refuse_every_send(session, _blocked_by_the_customer())
+    container = _Container(
+        order=order, outcome=ok(_outcome(kit)), root=tmp_path, bot_blocks=recorder
+    )
+
+    # Act / Assert — the raise is unchanged in all three configurations.
+    with pytest.raises(Retry):
+        await generate_and_deliver(_ctx(container, bot), str(order.id), CHAT_ID, MESSAGE_ID)
+
+
+async def test_a_delivered_kit_records_nothing_at_all(
+    order: Order, kit: Kit, bot: Bot, tmp_path: Path
+) -> None:
+    """The happy path must not touch the churn table; a delivery is the opposite of a block."""
+    # Arrange
+    recorder = RecordingBlocks()
+    container = _Container(
+        order=order, outcome=ok(_outcome(kit)), root=tmp_path, bot_blocks=recorder
+    )
+
+    # Act
+    summary = await generate_and_deliver(_ctx(container, bot), str(order.id), CHAT_ID, MESSAGE_ID)
+
+    # Assert
+    assert summary["is_delivered"] is True
+    assert recorder.calls == []

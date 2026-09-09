@@ -45,6 +45,15 @@ export const RBAC_MATRIX = {
   "order.retry": OPERATOR_UP,
   "order.force_deliver": OPERATOR_UP,
   "user.block": OPERATOR_UP,
+  // The ROLE halves. `permissions.py` gives `user.block.write` and `credit.grant.write`
+  // `_row(admin=_W, owner=_W)` — exactly the two roles their `W+S` partners hold, minus the
+  // step-up, which is a server decision this table does not mirror. **These are the rows a
+  // `PermissionGate` on a Block or Grant Credits button must name**, because they are what
+  // the routers actually guard; gating on `user.block` / `credit.grant` would be the same
+  // two roles today and would drift the moment the matrix splits them.
+  "user.block.write": OPERATOR_UP,
+  "credit.grant": OPERATOR_UP,
+  "credit.grant.write": OPERATOR_UP,
   "moderation.reveal": OPERATOR_UP,
   "moderation.decide": OPERATOR_UP,
   "retention.sweep": OPERATOR_UP,

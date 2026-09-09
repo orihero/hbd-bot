@@ -7,8 +7,8 @@ for a long time in a template that no production call path could reach.
 
 from __future__ import annotations
 
-from hbd.contracts import Brief, Language
-from hbd.pipeline.prompts import lyrics_system_prompt, lyrics_user_prompt
+from hbd.contracts import Brief, Language, Occasion
+from hbd.pipeline.prompts import OCCASION_BRIEFS, lyrics_system_prompt, lyrics_user_prompt
 from hbd.providers.llm.prompt_loader import language_guide
 
 TURNED_COMMA = "ʻ"
@@ -81,3 +81,18 @@ def test_the_shape_sentence_the_parser_depends_on_is_untouched(brief: Brief) -> 
         'Return JSON shaped as {"title": str, "sections": '
         '[{"label": str, "lines": [str], "is_name_hook": bool}]}.'
     ) in prompt
+
+
+def test_every_occasion_has_a_phrase_the_writer_can_be_given() -> None:
+    """``OCCASION_BRIEFS`` is subscripted, not ``.get``-ed, so a gap is a live KeyError.
+
+    It fails at the lyric stage — after the order is taken and the customer is watching a
+    progress bar — which is the worst place in the run to discover that somebody added an
+    occasion to the enum and stopped there. The list was widened from three members to ten
+    exactly once and this is the fence that keeps the eleventh honest.
+    """
+    # Arrange / Act
+    missing = [occasion.value for occasion in Occasion if occasion not in OCCASION_BRIEFS]
+
+    # Assert
+    assert missing == []

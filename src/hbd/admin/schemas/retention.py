@@ -75,6 +75,23 @@ class SweepCounts(ApiModel):
     audit_rows_deleted: int
     admin_sessions_deleted: int
     purge_runs_deleted: int
+    vendor_usage_deleted: int
+    #: ``bot_membership_events`` past the 400-day cutoff (revision 0017). Required
+    #: like every other field here: a default of 0 would report a growing churn log
+    #: as nothing due, which is the one wrong answer this endpoint must never give.
+    membership_events_deleted: int
+    chat_bodies_purged: int = 0
+    chat_messages_deleted: int = 0
+    #: ``payme_rpc_log`` past the 90-day cutoff and TERMINAL UNPAID ``payment_intents``
+    #: past the 400-day one (revision 0023). Defaulted like the two above so an older
+    #: stored run, written before the payment rail existed, still projects onto this model.
+    payme_rpc_rows_deleted: int = 0
+    payment_intents_deleted: int = 0
+    #: ``broadcast_recipients`` past the 400-day cutoff (revision 0024). Defaulted like the
+    #: four above so a run stored before the broadcast tables existed still projects onto this
+    #: model, and worth watching more than any of them: the table takes a row per account per
+    #: campaign, so this is where a sweep falling behind becomes visible first.
+    broadcast_recipients_deleted: int = 0
 
     @property
     def total(self) -> int:
@@ -208,6 +225,13 @@ def _counts(row: PurgeRunRow) -> SweepCounts:
         audit_rows_deleted=row.audit_rows_deleted,
         admin_sessions_deleted=row.admin_sessions_deleted,
         purge_runs_deleted=row.purge_runs_deleted,
+        vendor_usage_deleted=row.vendor_usage_deleted,
+        membership_events_deleted=row.membership_events_deleted,
+        chat_bodies_purged=row.chat_bodies_purged,
+        chat_messages_deleted=row.chat_messages_deleted,
+        payme_rpc_rows_deleted=row.payme_rpc_rows_deleted,
+        payment_intents_deleted=row.payment_intents_deleted,
+        broadcast_recipients_deleted=row.broadcast_recipients_deleted,
     )
 
 

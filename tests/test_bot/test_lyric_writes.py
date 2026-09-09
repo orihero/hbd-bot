@@ -9,6 +9,14 @@ flight.
 Note which ceiling is which. ``MAX_LYRIC_WRITES`` here is per DRAFT and is MEANT to be reset
 by a fresh start; the durable per-account daily budget above it lives in
 ``test_lyric_budget_gate.py``. The two are a pair and neither replaces the other.
+
+The two locally-built ``BotDeps`` carry an EMPTY ``FakeProfiles``, and empty is the correct
+half of the rule: every test here reaches ``Wizard.lyrics`` by WALKING, and ``walk_to_lyrics``
+now drives the real onboarding screens and creates the row on the way past. The one test that
+sets ``Wizard.submitting`` by hand does so AFTER a walk, so it is behind onboarding legitimately
+rather than in front of it. With no store at all the onboarding router fails open and the walk
+never reaches the writer, so ``content.calls`` would be zero and this file would read as a
+regression in the vendor seam.
 """
 
 from __future__ import annotations
@@ -20,12 +28,14 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from hbd.bot.app import build_dispatcher
 from hbd.bot.callbacks import NavAction, NavCB
 from hbd.bot.deps import BotDeps
+from hbd.bot.draft import ONBOARDED_KEY, UI_LANGUAGE_KEY
 from hbd.bot.handlers.lyrics import MAX_LYRIC_WRITES
 from hbd.bot.i18n import translate
 from hbd.bot.states import Wizard
 from hbd.config import Settings
 from hbd.contracts import Brief, Language, LyricDraft, Result
 from tests.test_bot.conftest import (
+    FakeProfiles,
     RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
@@ -63,7 +73,12 @@ async def test_the_session_is_not_accepting_input_while_the_writer_is_working(
 ) -> None:
     # Arrange
     watcher = StateWatchingContentWriter(state)
-    deps = BotDeps(settings=settings, submitter=RecordingSubmitter(), content=watcher)
+    deps = BotDeps(
+        settings=settings,
+        submitter=RecordingSubmitter(),
+        content=watcher,
+        profiles=FakeProfiles(),
+    )
     dispatcher = build_dispatcher(deps, storage=storage)
 
     # Act
@@ -120,17 +135,29 @@ async def test_cancelling_during_the_write_is_not_undone_when_the_lyric_arrives(
     """
     # Arrange
     writer = CancellingContentWriter()
-    deps = BotDeps(settings=settings, submitter=RecordingSubmitter(), content=writer)
+    deps = BotDeps(
+        settings=settings,
+        submitter=RecordingSubmitter(),
+        content=writer,
+        profiles=FakeProfiles(),
+    )
     dispatcher = build_dispatcher(deps, storage=storage)
     writer.bind(build_dispatcher(deps, storage=storage), bot)
 
     # Act
     await walk_to_lyrics(dispatcher, bot)
 
-    # Assert — the writer was called and answered; nothing of it survived the cancellation
+    # Assert — the writer was called and answered; nothing OF THE DRAFT survived the cancel
     assert writer.calls == 1
     assert await state.get_state() is None
-    assert await state.get_data() == {}
+    # Not ``== {}`` any more, and the difference is the whole of C2-8. ``handle_cancel`` clears
+    # through ``common.clear_keeping_identity``, which deliberately carries two keys across the
+    # clear: which language to speak, and whether the number has already been asked for. A bare
+    # clear here would have made the goodbye message and the next screen disagree about the
+    # language, and would have re-asked an onboarded customer for their phone number for the
+    # crime of cancelling. Spelled as an exact set so a THIRD key surviving — a draft fragment,
+    # an order id — still fails, which is the erasure this test is actually about.
+    assert set(await state.get_data()) == {UI_LANGUAGE_KEY, ONBOARDED_KEY}
 
 
 async def test_a_message_sent_while_the_writer_is_working_cannot_overwrite_the_result(

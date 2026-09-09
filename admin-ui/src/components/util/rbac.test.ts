@@ -32,6 +32,13 @@ const EXPECTED: Readonly<Record<Permission, readonly AdminRole[]>> = {
   "order.retry": ["admin", "owner"],
   "order.force_deliver": ["admin", "owner"],
   "user.block": ["admin", "owner"],
+  // The ROLE halves of the two `W+S` cells, from `permissions.py`'s own rows rather than from
+  // §12.2 — which has no row for issuing credits at all, and never split the block cell. Each
+  // is exactly its `W+S` partner's two roles: the split is about WHERE the step-up is
+  // enforced (handler, not router), never about who holds the cell.
+  "user.block.write": ["admin", "owner"],
+  "credit.grant": ["admin", "owner"],
+  "credit.grant.write": ["admin", "owner"],
   "moderation.reveal": ["admin", "owner"],
   "moderation.decide": ["admin", "owner"],
   "retention.sweep": ["admin", "owner"],
@@ -104,6 +111,22 @@ describe("the reads that matter for what the console draws", () => {
     expect(hasPermission("support", "reveal.personal_data")).toBe(true);
     expect(hasPermission("support", "order.retry")).toBe(false);
     expect(hasPermission("admin", "order.retry")).toBe(true);
+  });
+
+  /**
+   * The rows a Block or Grant Credits button gates on. Both routers guard the `.write` half —
+   * a router cannot enforce a `W+S` cell, because `require_permission` resolves to
+   * `check_role`, which holds no subject and would answer `STEP_UP_REQUIRED` to a correctly
+   * re-authenticated ADMIN for ever — so gating the affordance on the `W+S` row would mirror a
+   * permission the route never names.
+   */
+  it("gives the two write halves exactly their step-up partners' roles", () => {
+    for (const role of ADMIN_ROLE_VALUES) {
+      expect(hasPermission(role, "user.block.write")).toBe(hasPermission(role, "user.block"));
+      expect(hasPermission(role, "credit.grant.write")).toBe(hasPermission(role, "credit.grant"));
+    }
+    expect(hasPermission("support", "credit.grant.write")).toBe(false);
+    expect(hasPermission("viewer", "credit.grant.write")).toBe(false);
   });
 });
 

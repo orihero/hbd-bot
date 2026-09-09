@@ -1,14 +1,41 @@
 """Wire models for ``/users``, and the projection that makes ``/wizard-state`` safe to serve.
 
 **The date column is "last order", not "last seen", and the name is the whole point.**
-``users`` is written by ``repository._ensure_user``, which is called only from
-``_create_order``, so the row's clock advances when an order is *created* and at no other
-moment — and somebody who walks the entire wizard without confirming has no row at all.
-``users.last_seen_at`` therefore does not mean what its name says, and a panel column headed
-"last seen" would be a claim about presence derived from a column that measures purchases.
-Phase 3's inbound middleware gives it a real writer; until then this layer reports
-``lastOrderAt``, derived from ``MAX(orders.created_at)`` so it stays true even after that
-writer lands and changes what the column means.
+``users`` has THREE writers and none of them is an order alone: ``users_sql.ensure_user``,
+called from ``repository._create_order`` when an order is placed and from
+``SqlUserProfiles.record_language`` when somebody answers the very first question the bot
+asks; ``credits.touch``, which upserts the row with ``last_seen_at=now`` on every inbound
+update; and ``credits.set_blocked``, which upserts it so an operator can bar an account that
+never ordered. ``accountCreatedAt`` therefore means FIRST CONTACT, not first purchase, and
+this list contains people who have bought nothing — which is what onboarding bought the
+panel, not a regression. The previous version of this paragraph claimed one writer, one call
+site and "somebody who walks the entire wizard without confirming has no row at all"; every
+clause of it was already false in the shipped code before onboarding landed, which is why it
+is spelled out here rather than left as a name a reader is expected to trust.
+
+``lastSeenAt`` is still absent from this wire, and the reason has changed rather than gone
+away. The column has a real writer now, but it is written per *update*, so publishing it
+would turn a screen whose stated purpose is records into a minute-by-minute activity feed
+about a customer. ``lastOrderAt`` is derived from ``MAX(orders.created_at)`` and says one
+bounded, purchase-shaped thing no matter what a later writer does to the column.
+
+**There is no ``telegramUsername``, ``firstName``, ``lastName`` or ``phoneE164`` on this
+wire, at any role, OWNER included.** ``RECORDS_READ`` is ``M`` in all four cells of §12.3's
+table, and :class:`~hbd.admin.schemas.common.ApiModel` is ``frozen=True, extra="forbid"``,
+so a plaintext field cannot be smuggled in later without editing this model — which is the
+property that makes the masking claim checkable rather than aspirational. ``telegramUserId``
+ships unmasked beside its own mask and that is not an inconsistency: every ``/users/**``
+route keys on it, so the panel could not build a link or a reveal without it. Nothing routes
+on a name, a handle or a number, so nothing here carries one, and ``POST /reveal`` stays the
+only path to the plaintext.
+
+**The credit columns are on this wire unmasked, and that costs nothing this file protects.**
+``credit_accounts`` holds a Telegram id, three integers and two clocks — no free text, no
+name, nothing about a person that ``orders.telegram_user_id`` does not already say — which is
+why it is deliberately absent from ``tables_with_personal_data``. So ``creditBalance``,
+``lifetimeCreditsGranted`` and ``allowancePeriod`` need no mask and no reveal, and the only
+care they need is the one their field comments spell out: ``null`` means *no account row* and
+must never be rendered as ``0``.
 
 **``/wizard-state`` is a reveal surface, and it is built from an allowlist.** The FSM draft
 is the copy that holds the recipient's display name, the free-text note and the entire
@@ -31,7 +58,12 @@ from uuid import UUID
 
 from hbd.admin.schemas.common import ApiModel
 from hbd.admin.schemas.page import PageMeta
-from hbd.admin.serializers.redaction import mask_telegram_user_id
+from hbd.admin.serializers.redaction import (
+    mask_name,
+    mask_phone,
+    mask_telegram_user_id,
+    mask_username,
+)
 from hbd.contracts import Language, OrderState
 from hbd.db.admin.views import UserDetail, UserListItem
 
@@ -82,12 +114,63 @@ class UserView(ApiModel):
     telegram_user_id_masked: str
     ui_language: Language
     is_blocked: bool
-    #: When the ``users`` row was inserted — i.e. when this person's FIRST order was created.
+    #: When the ``users`` row was inserted — i.e. this account's FIRST CONTACT, whichever of
+    #: the three writers named in the module docstring got there first. It is not the first
+    #: order, and reading it as one understates how long an account has existed by everything
+    #: between the language question and the first purchase.
     account_created_at: datetime
     first_order_at: datetime | None
     last_order_at: datetime | None
     order_count: int
     paid_order_count: int
+    #: Whether a ``user_profiles`` row exists. False is "never onboarded" and "erased by
+    #: /forget" at once, deliberately: PD-3 deletes the row, so absence is the erasure record
+    #: and there is no purge stamp to display beside it.
+    is_profile_present: bool
+    #: ``@G•••``. The handle itself is reachable only through ``POST /reveal`` with
+    #: ``user_profiles.telegram_username``.
+    telegram_username_masked: str | None
+    first_name_masked: str | None
+    last_name_masked: str | None
+    #: ``•••••42``. No country prefix, by design — see ``serializers.redaction.mask_phone``.
+    phone_masked: str | None
+    phone_shared_at: datetime | None
+    #: From ``avatar_stored_at``. Named for what it is on this side of the wire: when we last
+    #: FETCHED a picture, never when the customer changed one.
+    avatar_fetched_at: datetime | None
+    #: Whether a row claims stored bytes. Nothing stat-ed a file to answer this, so the SPA
+    #: must still handle the ``<img>`` 404-ing, and it is what lets the list avoid issuing
+    #: fifty requests for accounts that have no photo.
+    has_avatar: bool
+    #: ``/api/users/{telegramUserId}/avatar``, or ``None`` when there is nothing to fetch.
+    #: Formatted by the ROUTER and handed in, so the SPA never builds a path and a prefix
+    #: change cannot be missed in TypeScript. The literal ``/avatar`` appears exactly once in
+    #: this codebase, in ``routers/users.py`` beside ``USER_PATH``.
+    avatar_url: str | None
+    #: ``credit_accounts.balance``, or ``null`` when this account has no row there.
+    #:
+    #: **``null`` is a third value and the panel must render it as one — never as "0".** The
+    #: column is ``NOT NULL`` in the schema, so a null here has exactly one cause: no row.
+    #: That happens for a customer nobody has ever charged or granted (the row is opened by
+    #: the first movement, so everybody who has talked to the bot and not confirmed an order
+    #: is in this state — and they are still owed a full rolling allowance the moment they
+    #: do) and for a customer whose ``/forget`` deleted it. "0 credits" says the opposite of
+    #: both: it says this account has spent everything it had.
+    #:
+    #: There is no ``isCreditAccountPresent`` beside these three, and the asymmetry with
+    #: ``isProfilePresent`` is deliberate rather than an oversight. Every profile column is
+    #: independently nullable, so none of them can carry presence and a flag is the only way
+    #: to say it; here the balance can carry it alone, and a redundant boolean would be a
+    #: second thing to keep in step with the first.
+    credit_balance: int | None
+    #: Every credit ever added, allowances included — the number that answers "has this
+    #: account already been comped?" without reading the ledger. ``null`` for the same one
+    #: reason ``creditBalance`` is.
+    lifetime_credits_granted: int | None
+    #: The last rolling-allowance window this account was minted for. ``null`` for TWO
+    #: reasons — no account row, or an account that has never had an allowance — and
+    #: ``creditBalance`` is what tells them apart.
+    allowance_period: int | None
 
 
 class UsersPage(ApiModel):
@@ -107,6 +190,33 @@ class UserDetailView(ApiModel):
     orders_by_state: list[OrderStateCount]
     delivered_order_count: int
     failed_order_count: int
+    #: What the BOT would tell this customer they have right now — the stored balance plus a
+    #: rolling allowance that is due and not yet minted — computed by the same
+    #: :func:`hbd.db.credit_sql.read_balance` function the bot's own gate calls.
+    #:
+    #: **The same function is not the same answer, and that distinction is load-bearing.**
+    #: This line used to claim the call itself was the bot's; it is not, because
+    #: ``read_balance`` takes a policy and the two processes build theirs separately — the bot
+    #: through :func:`hbd.entitlements.resolve_entitlement_policy` over ``hbd.config``, this
+    #: one through :func:`hbd.admin.routers.users._entitlement_policy` over mirrored
+    #: ``AdminSettings`` values that the panel cannot verify. The mirrors are what make the
+    #: two agree, and when one drifted the field said 4 to an operator while the customer read
+    #: 1. So: same arithmetic, same due-allowance rule, and a number that is only as true as
+    #: ``admin_free_allowance_credits`` and ``admin_settlement_grace_s`` are current.
+    #:
+    #: It is on the wire **beside** ``user.creditBalance`` rather than instead of it, because
+    #: the two settle different arguments: the stored column is what the ledger can prove,
+    #: and this is what the customer was shown on the Confirm screen. An operator handed only
+    #: one of them cannot answer "they say they have three songs and your panel says zero",
+    #: which is the support ticket this pair exists for. An ``int`` and not ``int | None``:
+    #: it is computed for every account, row or no row, and "no row" is exactly what a
+    #: brand-new customer with their whole allowance ahead of them looks like.
+    credits_projected: int
+    #: Debits this account has not settled yet, inside the settlement grace window. A render
+    #: whose worker died holds a credit that neither the balance nor the ledger's totals show
+    #: as spent, and this is the only number on the screen that explains why the customer is
+    #: being refused.
+    in_flight_render_count: int
 
 
 class DraftFieldView(ApiModel):
@@ -147,7 +257,20 @@ class WizardStateView(ApiModel):
     lyric_writes: int | None = None
 
 
-def to_user_view(item: UserListItem) -> UserView:
+def to_user_view(item: UserListItem, *, avatar_url: str | None) -> UserView:
+    """Project one list row, masking every profile value on the way out.
+
+    ``avatar_url`` is KEYWORD-ONLY, and that is not a style preference. A bare second
+    positional ``str | None`` sitting beside a :class:`UserListItem` is the argument somebody
+    eventually passes the wrong thing to — a masked phone, a display name — and the mistake
+    type-checks, renders as a broken ``<img>`` and puts the value in the DOM's ``src``.
+
+    The URL arrives from the router rather than being built here for the reason its field
+    comment gives: the ``/avatar`` literal has exactly one home, and it is not a schema
+    module. This function is the only place ``UserListItem``'s plaintext profile columns are
+    read, which is what makes "no unmasked field on this wire" a property of one function
+    instead of a habit spread over every handler.
+    """
     return UserView(
         id=item.id,
         telegram_user_id=item.telegram_user_id,
@@ -159,17 +282,37 @@ def to_user_view(item: UserListItem) -> UserView:
         last_order_at=item.last_order_at,
         order_count=item.order_count,
         paid_order_count=item.paid_order_count,
+        is_profile_present=item.is_profile_present,
+        telegram_username_masked=mask_username(item.telegram_username),
+        first_name_masked=mask_name(item.first_name),
+        last_name_masked=mask_name(item.last_name),
+        phone_masked=mask_phone(item.phone_e164),
+        phone_shared_at=item.phone_shared_at,
+        avatar_fetched_at=item.avatar_stored_at,
+        has_avatar=item.has_avatar,
+        avatar_url=avatar_url,
+        credit_balance=item.credit_balance,
+        lifetime_credits_granted=item.lifetime_credits_granted,
+        allowance_period=item.allowance_period_index,
     )
 
 
-def to_user_detail_view(detail: UserDetail) -> UserDetailView:
+def to_user_detail_view(detail: UserDetail, *, avatar_url: str | None) -> UserDetailView:
+    """The detail envelope. Forwards ``avatar_url`` to :func:`to_user_view` unexamined.
+
+    Keyword-only for the same reason, and forwarded rather than re-derived because a detail
+    screen showing a different avatar from the list row it was opened from is a bug nobody
+    would look for in a schema module.
+    """
     return UserDetailView(
-        user=to_user_view(detail.user),
+        user=to_user_view(detail.user, avatar_url=avatar_url),
         orders_by_state=[
             OrderStateCount(state=state, count=count) for state, count in detail.orders_by_state
         ],
         delivered_order_count=detail.delivered_order_count,
         failed_order_count=detail.failed_order_count,
+        credits_projected=detail.credits_projected,
+        in_flight_render_count=detail.in_flight_render_count,
     )
 
 

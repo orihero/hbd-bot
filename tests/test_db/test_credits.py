@@ -411,6 +411,74 @@ async def test_a_touch_creates_the_row_for_an_account_the_bot_has_never_recorded
     assert row.is_blocked is False
 
 
+async def test_a_first_ever_touch_with_no_language_still_creates_the_row(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """The silent blocker, pinned. ``None`` must leave the INSERT half alone, not enter it.
+
+    ``ui_language`` is ``Language | None`` because a customer who has not answered the
+    onboarding language question has not chosen one, and stamping the fallback into the
+    column would be indistinguishable from a choice. The obvious implementation conditions
+    only the ``ON CONFLICT ... DO UPDATE SET`` clause — and that is the bug this test exists
+    for. ``UserRow.ui_language`` is ``nullable=False``, so a ``None`` left in the INSERT
+    values dict trips the constraint, ``run_guarded`` turns it into an ``Err``, and **no
+    ``users`` row is ever created for a pre-onboarding account**.
+
+    Nothing else would fail. The bot's gate ignores a failed touch by design (a lost
+    liveness ping must never cost a customer a tap), so the whole suite stays green while
+    the population an operator most wants to bar quietly becomes unblockable — a ``users``
+    row is what ``set_blocked`` and the block gate both read.
+
+    The row is therefore born with an explicit named constant, ``credits._DEFAULT_UI_LANGUAGE``,
+    supplied for the insert exactly as ``set_blocked`` supplies it. Asserted here as the
+    literal it resolves to, so a change of default has to be made deliberately in two places
+    rather than sliding through on a column default nobody reads.
+    """
+    # Arrange — an account the bot has never seen, mid-onboarding: no language yet.
+    ledger = _ledger(sessions, clock)
+
+    # Act
+    result = await ledger.touch(_USER, ui_language=None)
+
+    # Assert
+    assert is_ok(result)
+    row = await _user_row(sessions)
+    assert row is not None
+    assert row.ui_language is Language.UZ_LATN
+    assert row.is_blocked is False
+
+
+async def test_a_touch_with_no_language_never_overwrites_a_language_already_chosen(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """The UPDATE half of the same rule, and the regression it was written for.
+
+    The gate used to offer ``resolve_language(state)`` into the touch, which answers the
+    FALLBACK language whenever there is no draft — so for the sixty seconds after every
+    ``state.clear()`` the drain wrote UZ_LATN over a Russian speaker's real choice, and
+    Settings appeared to forget itself for no reason a reader of either file could see.
+
+    ``last_seen_at`` is asserted alongside it because the two halves must not be fixed by
+    skipping the write altogether: a touch that declines to write the language still has to
+    record that the account is alive, which is the only thing it was ever really for.
+    """
+    # Arrange — a customer who has chosen Russian.
+    ledger = _ledger(sessions, clock)
+    assert is_ok(await ledger.touch(_USER, ui_language=Language.RU))
+    first_seen = clock.now
+
+    # Act — a later update that says nothing about the language.
+    clock.advance(days=1)
+    result = await ledger.touch(_USER, ui_language=None)
+
+    # Assert
+    assert is_ok(result)
+    row = await _user_row(sessions)
+    assert row is not None
+    assert row.ui_language is Language.RU
+    assert row.last_seen_at > first_seen
+
+
 # ---------------------------------------------------------------------------
 # Reads that must not write
 # ---------------------------------------------------------------------------

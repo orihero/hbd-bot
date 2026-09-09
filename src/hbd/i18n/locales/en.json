@@ -27,6 +27,13 @@
   "occasion.prompt": "What are we celebrating?",
   "occasion.birthday": "Birthday",
   "occasion.anniversary": "Anniversary",
+  "occasion.love": "Confession",
+  "occasion.support": "Encouragement",
+  "occasion.prank": "Prank",
+  "occasion.holiday": "Holiday",
+  "occasion.wedding": "Wedding",
+  "occasion.kids": "For kids",
+  "occasion.no_occasion": "No occasion",
   "occasion.custom": "Something else",
   "occasion.custom_prompt": "Tell me the occasion in a few words.",
 
@@ -48,7 +55,7 @@
   "voice.duet": "Duet",
   "voice.any": "Surprise me",
 
-  "note.prompt": "Anything personal to weave in? A nickname, a hobby, a family joke. Or tap Skip.",
+  "note.prompt": "Now for the part that matters most! We have the genre and the occasion — let us make the song truly personal. Write anything that could inspire it: what they are like, funny stories, favourite catchphrases, what this track should say. Or tap Skip.",
   "note.too_long": "Please keep it under {max} characters.",
   "note.skipped": "No problem — I will keep it warm and general.",
 

@@ -15,6 +15,13 @@ graph:
 The split exists because the fade-out has to start at ``duration - fade_out`` and the
 duration is only known AFTER the trim. Computing it from the untrimmed source would place
 the fade past the end of the audio, which silently produces no fade at all.
+
+:func:`brand_command` is a FOURTH pass and deliberately not folded into pass three.
+``loudnorm_apply_command`` also builds every greeting intermediate, and its
+``OUTPUT_HYGIENE_ARGS`` carries a ``-vn`` that would drop an attached cover picture without
+saying so; its failure mode today is "ship the un-normalised raw render", which is a price
+worth paying for loudness and not for a tag. A separate copy-only pass can therefore fail
+on its own, cost the customer nothing but the watermark, and carry its own hygiene tuple.
 """
 
 from __future__ import annotations
@@ -22,7 +29,9 @@ from __future__ import annotations
 from pathlib import Path
 
 from hbd.audio.constants import (
+    BRAND_HYGIENE_ARGS,
     FFMPEG_COMMON_ARGS,
+    ID3V2_VERSION,
     INTERMEDIATE_CODEC,
     INTERMEDIATE_SUFFIX,
     NULL_MUXER,
@@ -48,6 +57,7 @@ __all__ = [
     "loudnorm_measure_command",
     "loudnorm_apply_command",
     "voice_note_command",
+    "brand_command",
     "codec_args_for",
 ]
 
@@ -163,5 +173,74 @@ def voice_note_command(
         OPUS_APPLICATION,
         "-f",
         VOICE_NOTE_CONTAINER,
+        str(destination),
+    )
+
+
+def brand_command(
+    binary: str,
+    source: Path,
+    *,
+    destination: Path,
+    cover: Path | None,
+    tags: tuple[tuple[str, str], ...],
+) -> tuple[str, ...]:
+    """The watermark pass: attach the cover picture and write the ID3 tags. Copy only.
+
+    Three things about this argv are load-bearing, and each of them was chosen against a
+    specific way of getting it wrong.
+
+    ``-c:a copy``. This pass runs AFTER two-pass loudnorm, so re-encoding here would undo
+    the only mastering the customer gets and would do it invisibly — the file plays, it is
+    just quieter and lossier than the one we measured. There is nothing to re-encode for
+    either: a tag and a picture are container-level, not sample-level.
+
+    ``-c:v copy`` rather than ``-c:v mjpeg``. The cover arrives from
+    :func:`hbd.audio.cover.render_cover` as a JPEG already, so a re-encode would cost
+    quality for nothing — and, more usefully, copying means this pass needs no video
+    ENCODER at all. That is what keeps ``startup.REQUIRED_ENCODERS`` at ``("libopus",)``:
+    an ffmpeg that can serve every order today can still serve every order with artwork,
+    so the boot check does not have to grow a new way to refuse to start.
+
+    ``-map_metadata -1`` BEFORE the ``-metadata`` flags. ffmpeg applies output options in
+    order, so the wipe placed after them wipes exactly the tags this function exists to
+    write, exits zero, and produces an untagged file. Placing it first is why
+    :data:`~hbd.audio.constants.BRAND_HYGIENE_ARGS` is spliced in above the tag pairs and
+    not appended with them.
+
+    The cover is optional and its absence removes the whole second input rather than
+    passing an empty one: an ``-i`` with no file is an ffmpeg error, and a ``-map 1:v``
+    against an input that does not exist is a different one.
+    """
+    picture: tuple[str, ...] = ()
+    mapping: tuple[str, ...] = ()
+    if cover is not None:
+        picture = ("-i", str(cover))
+        # ``attached_pic`` is what turns a mapped video stream into cover art rather than a
+        # one-frame video track; without it players show a file with a stray video stream.
+        mapping = (
+            "-map",
+            "0:a",
+            "-map",
+            "1:v",
+            "-c:v",
+            "copy",
+            "-disposition:v:0",
+            "attached_pic",
+        )
+    metadata = tuple(element for key, value in tags for element in ("-metadata", f"{key}={value}"))
+    return (
+        binary,
+        *FFMPEG_COMMON_ARGS,
+        "-i",
+        str(source),
+        *picture,
+        *mapping,
+        "-c:a",
+        "copy",
+        "-id3v2_version",
+        ID3V2_VERSION,
+        *BRAND_HYGIENE_ARGS,
+        *metadata,
         str(destination),
     )

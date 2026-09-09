@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from hbd.audio.commands import (
+    brand_command,
     loudnorm_apply_command,
     loudnorm_measure_command,
     silence_trim_command,
@@ -53,10 +54,12 @@ _OP_TRIM = "loudnorm.trim"
 _OP_MEASURE = "loudnorm.measure"
 _OP_APPLY = "loudnorm.apply"
 _OP_VOICE_NOTE = "voice_note.encode"
+_OP_BRAND = "brand.mux"
 
 _TRIMMED_STEM = "trimmed"
 _NORMALIZED_STEM = "normalized"
 _VOICE_NOTE_STEM = "voice"
+_BRANDED_STEM = "branded"
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +154,57 @@ class FfmpegAudioPostProcessor:
                 publish(staged, destination)
         except OSError as exc:
             return err(_filesystem_failure(_OP_VOICE_NOTE, destination, exc))
+        return ok(destination)
+
+    async def brand(
+        self,
+        source: Path,
+        *,
+        destination: Path,
+        cover: Path | None,
+        tags: tuple[tuple[str, str], ...],
+    ) -> Result[Path]:
+        """Mux the cover picture and the metadata tags in, copying the audio untouched.
+
+        Refuses — with an ``Err``, never a raise — when there is nothing to write. An empty
+        ``tags`` with no ``cover`` would build an argv that spends a full container rewrite
+        producing a byte-for-byte copy of its input, and the caller would then ship that
+        copy believing it had been branded. Saying so is cheaper than debugging why the
+        watermark is missing from a file that was demonstrably "processed".
+
+        Shaped exactly like :meth:`to_voice_note`: scratch directory beside the
+        destination, ffmpeg writes into it, atomic publish only on a zero exit. The staged
+        name carries the destination's suffix because ffmpeg picks its muxer from it, and
+        an mp3 written through a suffix-less path gets guessed at.
+        """
+        if not tags and cover is None:
+            return err(
+                AudioProcessingError(
+                    "branding was asked for with no tags and no cover, which would be a "
+                    "full copy that changes nothing",
+                    is_retryable=False,
+                    context={"source": str(source), "destination": str(destination)},
+                )
+            )
+        try:
+            with scratch_dir(destination) as scratch:
+                staged = scratch / f"{_BRANDED_STEM}{_suffix_of(destination)}"
+                outcome = await run_command(
+                    brand_command(
+                        self.ffmpeg_binary,
+                        source,
+                        destination=staged,
+                        cover=cover,
+                        tags=tags,
+                    ),
+                    operation=_OP_BRAND,
+                    timeout_s=self.timeout_s,
+                )
+                if isinstance(outcome, Err):
+                    return outcome
+                publish(staged, destination)
+        except OSError as exc:
+            return err(_filesystem_failure(_OP_BRAND, destination, exc))
         return ok(destination)
 
     # -- beyond the protocol -------------------------------------------------

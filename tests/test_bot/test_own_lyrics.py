@@ -45,6 +45,7 @@ from hbd.bot.keyboards import OWN_LYRICS_LABEL_KEY, occasion_keyboard
 from hbd.bot.lyrics_entry import MAX_LYRIC_CHARS, MIN_LYRIC_CHARS
 from hbd.bot.states import OWN_LYRICS_ORDER, WIZARD_ORDER, Wizard, WizardStep
 from hbd.contracts import Genre, Language, Occasion, VoiceGender
+from hbd.watermark import WATERMARK_HANDLE
 from tests.test_bot.conftest import (
     RecordingContentWriter,
     RecordingSession,
@@ -53,7 +54,13 @@ from tests.test_bot.conftest import (
     make_non_text_message,
 )
 from tests.test_bot.test_lyrics_step import PASTED, current_draft, screen_texts
-from tests.test_bot.test_wizard_flow import press, send, walk_to_lyrics
+from tests.test_bot.test_wizard_flow import (
+    complete_onboarding,
+    press,
+    send,
+    tap,
+    walk_to_lyrics,
+)
 
 OWN_LYRICS = NavCB(action=NavAction.OWN_LYRICS).pack()
 BACK = NavCB(action=NavAction.BACK).pack()
@@ -61,9 +68,20 @@ APPROVE = NavCB(action=NavAction.LYRICS_OK).pack()
 
 
 async def start_own_lyrics(dispatcher: Dispatcher, bot: Bot) -> None:
-    """/start, English, then the pen. Lands on the screen that asks for the words."""
-    await send(dispatcher, bot, "/start")
-    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack())
+    """First contact, the menu, then the pen. Lands on the screen that asks for the words.
+
+    The two lines in front of the button are the onboarding migration's cost, and they are
+    driven rather than seeded for the reason :func:`~tests.test_bot.test_wizard_flow.
+    complete_onboarding` gives: the walkers are where the gate is exercised by every module
+    that imports them, so a regression fails everywhere rather than in one file.
+
+    ``menu.generate`` is a REPLY-keyboard label, so :func:`~tests.test_bot.test_wizard_flow.
+    tap` sends it as ordinary text — which is what Telegram does, and what makes the
+    ``is_menu_label`` guards on the free-text steps necessary in the first place. It is the
+    only way into the occasion list now: the wizard no longer begins at ``/start``.
+    """
+    await complete_onboarding(dispatcher, bot, language=Language.EN)
+    await tap(dispatcher, bot, "menu.generate", Language.EN)
     await press(dispatcher, bot, OWN_LYRICS)
 
 
@@ -334,7 +352,16 @@ async def test_a_voice_message_is_answered_with_a_request_for_text(
 async def test_the_preview_calls_the_words_the_customers_own(
     dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
 ) -> None:
-    """The writer's preview invites the reader to "send me your own", which they just did."""
+    """The writer's preview invites the reader to "send me your own", which they just did.
+
+    Byte-for-byte, because the point is WHICH template was chosen and a substring check
+    cannot make it. Since the paywall shipped the preview is also the product's only free
+    half and therefore the thing customers forward, so ``watermark.invite`` is composed onto
+    the end of it in :func:`hbd.bot.screens._lyrics_screen` — outside the blockquote, where
+    it can never reach the lyric that gets sung. That line is part of the expectation here
+    rather than tolerated by a looser assertion: the old expectation was the template alone,
+    the new one is the template, a blank line, and the invite.
+    """
     # Arrange
     await start_own_lyrics(dispatcher, bot)
 
@@ -344,12 +371,16 @@ async def test_the_preview_calls_the_words_the_customers_own(
     # Assert
     lyrics = (await current_draft(state)).lyrics
     assert lyrics is not None
-    assert session.last_screen.text == translate(
+    preview = translate(
         "wizard.lyrics.own_preview",
         Language.EN,
         title=lyrics.title,
         lyrics=lyrics.as_plain_text(),
     )
+    invite = translate("watermark.invite", Language.EN, handle=WATERMARK_HANDLE)
+    assert session.last_screen.text == f"{preview}\n\n{invite}"
+    # The words the customer pasted are still exactly theirs — the mark sits after them.
+    assert WATERMARK_HANDLE not in lyrics.as_plain_text()
 
 
 async def test_the_preview_offers_no_rewrite_of_words_the_bot_did_not_write(

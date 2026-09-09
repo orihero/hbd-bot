@@ -286,6 +286,7 @@ def test_a_missing_database_url_is_reported_as_a_configuration_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     # Arrange
+    monkeypatch.setattr("hbd.admin.settings.ADMIN_ENV_FILE", str(tmp_path / "absent.env"))
     monkeypatch.delenv("HBD_DATABASE_URL", raising=False)
     monkeypatch.setenv("HBD_ADMIN_AUDIT_HMAC_KEY", HMAC_KEY)
     path = _password_file(tmp_path, _PASSWORD)

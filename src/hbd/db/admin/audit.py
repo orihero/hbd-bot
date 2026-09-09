@@ -134,7 +134,21 @@ MAX_VERIFY_ROWS: Final[int] = 50_000
 #: §5.4's closed vocabulary. A subject type outside it is a bug at the call site, not a new
 #: kind of row: the panel joins on these strings.
 SUBJECT_TYPES: Final[frozenset[str]] = frozenset(
-    {"order", "user", "asset", "chat", "config", "admin", "session", "wizard_draft", "system"}
+    {
+        "order",
+        "user",
+        "asset",
+        "chat",
+        "config",
+        "admin",
+        "session",
+        "wizard_draft",
+        "system",
+        # A campaign, never one of its recipients: a broadcast has exactly one subject and
+        # the accounts it reached are not it. Putting a Telegram id here would make the
+        # 730-day table the place a 40 000-row audience accumulates (BROADCAST_SPEC §6.4).
+        "broadcast",
+    }
 )
 
 #: ``^[A-Za-z0-9#_-]{1,64}$`` per §5.4 — a ticket reference, not a sentence.

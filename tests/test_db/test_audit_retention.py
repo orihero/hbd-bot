@@ -422,6 +422,30 @@ def _columns_of(element: object) -> set[str]:
     return found
 
 
+def test_the_vendor_telemetry_table_declares_no_retention_clock_to_be_swept_by() -> None:
+    """``vendor_usage`` is deliberately outside this file's inventory, so say it once.
+
+    Both halves of the guard below key off a column name ending in ``expires_at``, which is
+    how ``user_profiles`` is passed over by construction. ``vendor_usage`` is passed over the
+    same way and for a different reason: it holds no personal data at all — every column is a
+    closed enum, an integer, a machine id or a bounded error code — so it has no legal clock
+    to declare. Its growth is bounded by a cutoff on ``created_at`` instead
+    (``hbd.db.purge.VENDOR_USAGE_RETENTION_DAYS``), counted through the sweep registry above.
+
+    Naming a column there ``*_expires_at`` would enlist the table in the inventory below and
+    claim a published schedule it does not have; this asserts the absence rather than
+    leaving it to be reintroduced by somebody copying another model.
+    """
+    # Arrange / Act
+    columns = {column.name for column in Base.metadata.tables["vendor_usage"].columns}
+
+    # Assert
+    assert not any(name.endswith("expires_at") for name in columns), (
+        "vendor_usage is swept on a cutoff, not a clock; an *_expires_at column here would "
+        "claim a retention schedule this table does not have"
+    )
+
+
 def test_every_retention_clock_in_the_schema_is_read_by_a_sweep() -> None:
     """A clock column with no sweep is data retained past its own stated schedule.
 
@@ -447,13 +471,30 @@ def test_the_sweep_registry_lists_a_statement_for_every_new_clock() -> None:
     # Arrange / Act
     names = {name for name, _ in rows_past_expiry_statements(now=NOW)}
 
-    # Assert
-    assert {"audit_reasons_purged", "audit_rows_deleted", "admin_sessions_deleted"} <= names
+    # Assert — ``vendor_usage_deleted`` is here despite ``vendor_usage`` holding no personal
+    # data and carrying no ``*_expires_at`` column. It is swept on a 400-day CUTOFF, and the
+    # backlog the panel reads comes from this registry alone, so a bounded-growth sweep that
+    # is missing from it is a table quietly growing behind a number that says zero.
+    assert {
+        "audit_reasons_purged",
+        "audit_rows_deleted",
+        "admin_sessions_deleted",
+        "vendor_usage_deleted",
+        "chat_bodies_purged",
+        "chat_messages_deleted",
+    } <= names
 
 
 @pytest.mark.parametrize(
     "field",
-    ["audit_reasons_purged", "audit_rows_deleted", "admin_sessions_deleted"],
+    [
+        "audit_reasons_purged",
+        "audit_rows_deleted",
+        "admin_sessions_deleted",
+        "vendor_usage_deleted",
+        "chat_bodies_purged",
+        "chat_messages_deleted",
+    ],
 )
 async def test_each_new_count_is_stored_on_the_purge_runs_row(
     sessions: async_sessionmaker[AsyncSession], field: str

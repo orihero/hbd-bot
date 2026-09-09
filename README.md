@@ -194,6 +194,59 @@ group or anybody else read or replace it.
 > lists, and they carry the skip reason with the DSN they tried.
 
 
+### Dev and prod: which file each process reads
+
+Two axes, and conflating them is the usual mistake.
+
+`HBD_ENVIRONMENT` (`dev` | `staging` | `prod`) is a value **inside** a config file, and it
+is what the code branches on: at `prod`, `HBD_USE_FAKE_PROVIDERS` is refused, panel `DEBUG`
+is refused, `HBD_ADMIN_PUBLIC_ORIGIN` is required, and an admin process that can reach a
+vendor credential refuses to boot. `HBD_ENV_FILE` and `HBD_ADMIN_ENV_FILE` decide **which
+file** is read. They are process-environment variables — a dotenv file cannot name the
+dotenv file about to be read — and they default to `.env` and `.env.admin`, so a checkout
+that has only ever had those two behaves exactly as it always has.
+
+The split by *process* is the older and more important one, and it survives both:
+
+|             | bot + worker       | admin API              |
+| ----------- | ------------------ | ---------------------- |
+| development | `.env`             | `.env.admin`           |
+| production  | `/etc/hbd/bot.env` | `/etc/hbd/admin.env`   |
+
+`make` wraps the two variables in one `ENV` flag:
+
+```bash
+cp .env.example .env.prod             && $EDITOR .env.prod
+cp .env.admin.example .env.admin.prod && $EDITOR .env.admin.prod
+
+make admin ENV=prod          # .env.prod + .env.admin.prod
+make dev ENV=prod            # …and the same for worker, migrate, revision, admin-bootstrap
+```
+
+`ENV=dev` is the default and maps to the bare names, so nothing changes for anyone who
+never passes the flag. Only `dev` and `prod` are in use; `staging` is a supported third
+value of `HBD_ENVIRONMENT` with nothing built for it yet.
+
+> **`ENV=prod make dev` is a loaded gun, deliberately.** It points a real bot token, real
+> vendor keys and a real database at a process running from your working tree. Both boot
+> paths log which file they read — `host verified` carries `environment` and `env_file`,
+> `admin.boot.ok` carries the same pair — so the terminal says which configuration is live
+> before you type anything into the bot.
+
+> **`HBD_DB_MIGRATION_URL` now comes from that file too.** It used to be read from
+> `os.environ` alone, so the line `.env.example` documents did nothing unless it was also
+> exported by hand — and `make migrate ENV=prod` would have migrated a production database
+> as whichever role the shell happened to be carrying. `migrations/env.py` reads the
+> process environment first and the selected dotenv file second. It is still kept off
+> `Settings`: the bot and the worker must never hold the owner credential.
+
+Production is three systemd units on one VPS, with the secrets in root-owned `0640` files
+under `/etc/hbd/` rather than in `EnvironmentFile=` — which would put them in
+`systemctl show` and `/proc/<pid>/environ`. The units and the full runbook are in
+[`deploy/`](deploy/README.md); `hbd-admin.service` carries
+`InaccessiblePaths=/etc/hbd/bot.env`, so the vendor-key separation is enforced by the
+kernel as well as by the panel's own boot refusal.
+
 ### The admin console in development
 
 A fourth terminal, and the only one that is not part of the production shape: Vite's dev
@@ -231,9 +284,16 @@ runs ruff, `mypy --strict` and the coverage run, and nothing that involves Node 
 browser. Two more sets exist and neither is reachable from it:
 
 ```bash
-cd admin-ui && npx tsc --noEmit && npx eslint . --max-warnings 0 && npx vitest run
+make ui-check    # the console's own gates: tsc, eslint, vitest and tokens:check
 make ui-e2e      # the browser gate: Playwright, the built console, the production CSP
 ```
+
+`tokens:check` is in `ui-check` rather than only in `vitest` because it checks two things
+the Vitest gate does not: the `on` / `at best on` FORM each `tokens.css` annotation must
+take, derived from the token's WCAG bar, and the wider `{6,8}` must-annotate scan. It is
+also what makes one deliberate failure loud: a malformed selector takes
+`src/styles/tokenContrast.test.ts` to *zero* tests on purpose, and `vitest run` reports a
+file that contributed no tests as a pass.
 
 `make ui-e2e` stays outside `make check` for one concrete reason: it needs a ~150 MB
 Chromium that `make ui-e2e-install` downloads, and a first `make check` on a new machine
@@ -242,7 +302,7 @@ discovering: **the only check that can see a Content-Security-Policy regression 
 nobody is obliged to run.** jsdom implements no CSP at all, so a `<style>` element Chrome
 refuses is accepted in silence by every one of the console's Vitest tests. Until this repo
 has CI wired to it, "before a release" means a human running all three sets — `make check`,
-the console's three, and `make ui-e2e` — and that is the whole of the policy.
+`make ui-check` and `make ui-e2e` — and that is the whole of the policy.
 
 `make ui-e2e` builds the bundle, then starts `tests/e2e/serve_admin_e2e.py` (the real admin
 app over the same in-memory SQLite and dictionary Redis the Python unit suite uses, on
@@ -306,7 +366,9 @@ a `Protocol`. Only `hbd.runtime` knows which concrete vendor is behind which pro
 | `hbd.storage` | `LocalFileStorage` — the object-storage leg, filesystem-backed. Confined keys, atomic writes, never raises. |
 | `hbd.pipeline` | The orchestrator: one `Brief` in, one `Kit` out, including the acoustic verification loop and its bounded re-rolls. |
 | `hbd.bot` | aiogram 3.x wizard, four locales, progress, delivery. |
-| `hbd.payments` | `NoopPaymentProvider`. The only payment code in this build. |
+| `hbd.payments` | The RENDER gate — `PaymentProvider.authorize` answers "may this order be rendered?" against a credit already owned. `NoopPaymentProvider` always authorises. |
+| `hbd.checkout` | The BUYING seam — `CheckoutProvider.charge` answers "did money change hands?", and the vendor-neutral redirect vocabulary (`PaymentIntent`, `PaymentIntentOpener`). Imports no HTTP client and **may never import `hbd.db`**. |
+| `hbd.payme` | The Payme Merchant API: the pure wire layer (protocol, errors, Basic auth, the link builder), the inbound JSON-RPC service, its ASGI app and its own composition root, and the operator CLI. Ships switched off. |
 | `hbd.admin` | The operator panel: a FastAPI JSON API (third process, `make admin`) plus the React/Vite console in `admin-ui/`. Read-only in this build. Holds no vendor credential and sends nothing to Telegram — every action that needs one is an ARQ job. |
 | `hbd.runtime` | **The composition root.** Builds real or fake vendors from config, owns the container, the queue seam and the job that generates *and delivers*. |
 
@@ -318,6 +380,7 @@ a `Protocol`. Only `hbd.runtime` knows which concrete vendor is behind which pro
 | `make worker` | `hbd.worker` | The ARQ worker. Owns a send-only `Bot`. |
 | `make demo` | `hbd.demo` | One kit, offline, printed to the terminal. |
 | `make admin` | `hbd.admin.app` | The admin API on `127.0.0.1:8080`, behind uvicorn. Reads `.env.admin`; serves the console out of `src/hbd/admin/static/`. |
+| `make payme` | `hbd.payme.app` | The Payme gateway on `127.0.0.1:8091`, behind uvicorn. Reads `.env.payme`. Refuses to start unless `HBD_PAYME_ENABLED=true`, which is not the default. |
 | `make admin-bootstrap u=<username>` | `hbd.admin.bootstrap` | The first OWNER account, and the way back from losing one (`args="--reset-owner"`). Prompts for the password; never takes one in `argv`. |
 | `make ui-install` / `make ui` / `make ui-build` | `admin-ui/` | Install the console's Node dependencies; run its dev server on `:5173`; build it into the API's static directory. |
 | `make ui-e2e` / `make ui-e2e-install` | `admin-ui/`, `tests/e2e/` | The browser gate — Playwright against the built console and the real API under the production CSP, plus the font-coverage check; and the one-off Chromium download it needs. Not part of `make check`. |
@@ -326,9 +389,37 @@ The one flag that changes everything is `HBD_USE_FAKE_PROVIDERS`. It is **all-or
 by design — a half-fake run spends money on a result nobody can trust — and it is refused
 outright when `HBD_ENVIRONMENT=prod`.
 
-`NoopPaymentProvider`, which always authorises, is the only payment code in this build.
-There is no checkout, no ledger and no refund path; the `PaymentProvider` protocol exists
-so the real rail drops in without a refactor.
+### Two payment seams, and four processes
+
+**There are two payment seams and they answer different questions.**
+`hbd.payments.PaymentProvider.authorize` is the RENDER gate — *"may this order be
+rendered?"*, asked once per order against a credit the customer already owns, and
+`NoopPaymentProvider` always says yes. `hbd.checkout.CheckoutProvider.charge` is the BUYING
+seam — *"did money change hands for a product?"*, asked on a button tap, with a receipt and a
+credit grant behind it. Overloading one with the other would give a single seam two meanings,
+and the first person to fake it for one meaning would silently disable the other.
+
+The domestic rail behind the buying seam is **Payme** (`DECISIONS.md` **D11**, specified in
+`PAYME_INTEGRATION`), and it makes this a **four-process** system, because Payme's Merchant
+API is *inbound*: its methods are calls Payme makes against a server we write.
+
+| Process | Holds | Faces |
+|---|---|---|
+| `hbd.main` | the Telegram token and three vendor keys | outbound only — long polling, nothing inbound |
+| `arq hbd.worker` | the same four | outbound only |
+| `hbd.admin.app` | **no vendor credential at all** | an operator's browser, behind a login |
+| `hbd.payme.app` | one secret: the Payme cashbox key | **the public internet, unauthenticated** |
+
+The gateway is a fourth container rather than a route on the panel because its one credential
+is a different *kind* of credential — an inbound verification secret whose theft mints
+credits, rather than an outbound one that lets somebody spend our vendor balance. It holds no
+Telegram token, which is why telling a customer their payment landed is an ARQ job the worker
+performs. `CheckoutProvider.charge` itself **opens no socket**: Payme has no create-payment-link
+API for the standard checkout, so a checkout link is base64 of a `;`-joined string.
+
+**All of it ships switched off.** `HBD_CHECKOUT_PROVIDER` defaults to `stub` and
+`HBD_PAYME_ENABLED` to `false`, so the stub rail is still what runs: still constructed at the
+composition root, still wired into `BotDeps`, still under test.
 
 ---
 
@@ -433,8 +524,14 @@ Honest list, so nobody rediscovers these under pressure.
 
 ## Out of scope for this build
 
-Payment (Stars, Click, Payme, checkout, invoices, ledgers, refunds), referral and share
-pages, retention reminders, voice cloning, B2B.
+Referral and share pages, retention reminders, voice cloning, B2B.
+
+Payment used to be on this list and is not any more: the checkout, the credit ledger and the
+Payme rail are all built. What is deliberately **not** built, and is a decision rather than a
+gap, is any post-perform reversal — `CancelTransaction` on a performed transaction answers
+`-31007` unconditionally, and a refund is a cabinet action plus an operator credit correction
+(`PAYME_INTEGRATION` §6). Also out: fiscalisation (`SetFiscalData`), Payme's Subscribe API,
+and Telegram Stars, which remains the named fallback rail and is not implemented.
 
 The admin panel used to be on this list and is not any more: `make admin` serves it today.
 It is **read-only** in this build — no reveal, no retry, no purge, no config commit — so
@@ -442,5 +539,15 @@ treat the absent write surface as the scope note, not the panel itself.
 
 ## Reference documents
 
-`SCOPE_OF_WORK.md` (§4 functional requirements, §6 architecture), `DECISIONS.md` (vendor
-picks and their triggers), `BENCHMARK-song-generation.md` (why ElevenLabs won).
+Everything that is not this file lives under [`docs/`](docs/README.md), which has its own
+index. The three that explain *why the product is shaped this way*:
+
+| Document | What it settles |
+| --- | --- |
+| [`docs/product/SCOPE_OF_WORK.md`](docs/product/SCOPE_OF_WORK.md) | §4 functional requirements, §6 architecture |
+| [`docs/decisions/DECISIONS.md`](docs/decisions/DECISIONS.md) | Vendor picks, their named fallbacks, and the trigger that switches to each |
+| [`docs/research/BENCHMARK-song-generation.md`](docs/research/BENCHMARK-song-generation.md) | Why ElevenLabs won, and which `DECISIONS.md` claims it corrects |
+| [`docs/product/PAYME_INTEGRATION.md`](docs/product/PAYME_INTEGRATION.md) | The Payme rail: the two seams, both state machines, the one commit that makes fulfilment exactly-once, and the go-live sequence |
+
+Deploying, or debugging a live problem, starts at
+[`docs/deployment/README.md`](docs/deployment/README.md).

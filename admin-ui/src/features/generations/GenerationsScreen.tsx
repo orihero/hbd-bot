@@ -435,7 +435,12 @@ export function GenerationsScreen(): ReactElement {
         </FilterBar>
       </PageHeader>
 
-      <div className="grid min-h-0 grid-cols-1 gap-gutter px-gutter pb-gutter xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div
+        className={cn(
+          "grid min-h-0 grid-cols-1 gap-gutter px-gutter pb-gutter",
+          selectedId !== null && "xl:grid-cols-[minmax(0,1fr)_24rem]",
+        )}
+      >
         <section className="flex min-w-0 flex-col gap-3" aria-label="generation attempts">
           {/* A plain section label ABOVE the card, not a heading inside it. */}
           <h2 className="type-h3 text-ink">Attempts</h2>

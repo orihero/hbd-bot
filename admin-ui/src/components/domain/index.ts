@@ -65,8 +65,40 @@ export type { ConfigFieldProps, ConfigTier } from "./ConfigField";
 export { CorrelationChip } from "./CorrelationChip";
 export type { CorrelationChipProps } from "./CorrelationChip";
 
+export { CreditBalanceChip } from "./CreditBalanceChip";
+export type { CreditBalanceChipProps } from "./CreditBalanceChip";
+
+export { CreditLedgerTable } from "./CreditLedgerTable";
+export type { CreditLedgerTableProps } from "./CreditLedgerTable";
+
+export {
+  CREDIT_BALANCE_COLOR_VAR,
+  CREDIT_BALANCE_GLYPH,
+  CREDIT_BALANCE_TITLES,
+  CREDIT_KIND_COLOR_VAR,
+  CREDIT_KIND_GLYPH,
+  creditBalanceState,
+  NEVER_METERED_BODY,
+  NEVER_METERED_LABEL,
+  NEVER_METERED_TITLE,
+} from "./credits";
+export type { CreditBalanceState } from "./credits";
+
+export { DurationBadge } from "@/components/data";
+export type { DurationBadgeProps } from "@/components/data";
+
 export { ErrorCodeBadge } from "./ErrorCodeBadge";
 export type { ErrorCodeBadgeProps } from "./ErrorCodeBadge";
+
+export {
+  CREDITS_RANGE_HINT,
+  FRESH_GRANT_NOTICE,
+  GRANT_TITLE,
+  GrantCreditsButton,
+  GrantCreditsDialog,
+  REPLAY_NOTICE,
+} from "./GrantCreditsDialog";
+export type { GrantCreditsButtonProps, GrantCreditsDialogProps } from "./GrantCreditsDialog";
 
 export { LiveFeed } from "./LiveFeed";
 export type { LiveFeedProps } from "./LiveFeed";
@@ -74,8 +106,12 @@ export type { LiveFeedProps } from "./LiveFeed";
 export { NAME_DIR, NAME_LANG, NameText } from "./NameText";
 export type { NameTextProps } from "./NameText";
 
+export { ACTION_REASON_REQUIRED_HINT, ReasonConfirmDialog } from "./ReasonConfirmDialog";
+export type { ReasonConfirmDialogProps, ReasonValue } from "./ReasonConfirmDialog";
+
 export {
   LONG_REF_WARNING,
+  NO_RETENTION_CLOCK_NOTE,
   REASON_REQUIRED_HINT,
   REVEAL_IS_LOGGED_NOTE,
   RevealButton,
@@ -132,6 +168,7 @@ export {
   REVEAL_FIELD_LABELS,
   REVEAL_REASON_LABELS,
   REVEAL_SHAPE_LABELS,
+  USER_PROFILE_REVEAL_FIELDS,
 } from "./revealFields";
 export type { RevealCost } from "./revealFields";
 
@@ -238,5 +275,14 @@ export {
   TimelineSourceLegend,
 } from "./TimelineSourceLegend";
 export type { TimelineSourceLegendProps } from "./TimelineSourceLegend";
+
+export {
+  NO_PHOTO_NO_NAME_TITLE,
+  NO_PHOTO_TITLE,
+  USER_AVATAR_IMAGE_TESTID,
+  USER_AVATAR_MONOGRAM_TESTID,
+  UserAvatar,
+} from "./UserAvatar";
+export type { UserAvatarProps } from "./UserAvatar";
 
 export { useTimeZoneMode } from "./useTimeZoneMode";

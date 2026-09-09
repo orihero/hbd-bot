@@ -7,7 +7,8 @@ Three jobs:
   pipeline via ``contextvars`` — no threading it through call signatures.
 * Redaction applied at the formatter, so a careless call site cannot leak a key. Keys
   whose NAME looks secret are masked, and values that look like known key formats are
-  masked wherever they appear.
+  masked wherever they appear. The one exception is a closed, integer-only allow-list of
+  token-COUNT field names — see :data:`_USAGE_COUNTER_KEYS`.
 
 Recipient names are personal data but not secrets: they are logged, and callers that
 want them hashed should hash before logging.
@@ -46,6 +47,28 @@ _SECRET_NAME_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"(api[_-]?key|secret|token|password|passwd|authorization|credential|private[_-]?key"
     r"|database_url|redis_url|dsn|connection_string|conn_str|hmac_key)",
     re.IGNORECASE,
+)
+
+#: The three field names that carry a token COUNT, not a token.
+#:
+#: ``_SECRET_NAME_PATTERN`` matches the substring ``token``, which is right for
+#: ``bot_token``, ``access_token`` and ``refresh_token`` and wrong for exactly three names:
+#: an LLM response reports its work as ``prompt_tokens`` / ``completion_tokens`` /
+#: ``total_tokens``, and those are the only quantities the chat-completion leg measures.
+#: Masked, the ``vendor.usage`` line carries no measurement at all — and that line is the
+#: designed fallback for when the ``vendor_usage`` insert fails, so the substring cost us
+#: the whole record precisely when it was the only copy left.
+#:
+#: The exception is safe because it is narrow in three directions at once. It is a closed
+#: set of literal, case-sensitive names rather than a pattern, so no key an attacker can
+#: choose falls into it — ``token``, ``api_token`` and ``x_total_tokens`` all still mask.
+#: It admits only a real ``int`` (``bool`` excluded: ``True`` is not a count, and a count
+#: is a number the panel adds up), so a credential that lands in a field called
+#: ``total_tokens`` is still a string and is still masked. And it never widens the value
+#: patterns: a secret-shaped VALUE is unreachable from an int, so nothing that would have
+#: been caught by shape escapes through the name.
+_USAGE_COUNTER_KEYS: Final[frozenset[str]] = frozenset(
+    {"prompt_tokens", "completion_tokens", "total_tokens"}
 )
 
 #: Value shapes for the keys this project actually holds.
@@ -136,8 +159,25 @@ def _redact_text(text: str) -> str:
     return masked
 
 
+def _is_usage_counter(key: str, value: Any) -> bool:
+    """True for one of the three token-count fields holding an actual count.
+
+    Both halves are required. The name alone would let anything a call site puts under
+    ``total_tokens`` through the secret matcher; the type alone would carve out every
+    integer. Together they describe a value that cannot be a credential.
+    """
+    return key in _USAGE_COUNTER_KEYS and isinstance(value, int) and not isinstance(value, bool)
+
+
 def redact(value: Any, *, key: str | None = None) -> Any:
-    """Return a NEW value with secrets masked. Never mutates the input."""
+    """Return a NEW value with secrets masked. Never mutates the input.
+
+    The allow-list is consulted before the secret-name pattern because the pattern would
+    otherwise win on the substring ``token``; see :data:`_USAGE_COUNTER_KEYS` for why the
+    three counters need the exception and why granting it weakens nothing.
+    """
+    if key is not None and _is_usage_counter(key, value):
+        return value
     if key is not None and _SECRET_NAME_PATTERN.search(key):
         return REDACTED
     if isinstance(value, str):

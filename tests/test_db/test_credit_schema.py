@@ -367,7 +367,7 @@ async def test_a_ledger_entry_may_reference_an_order_that_does_not_exist(
 ) -> None:
     # Arrange / Act — deliberately no foreign key: the gate can charge before the orders row
     # is written, and a ledger entry must outlive the order it refers to (the same reasoning
-    # docs/ADMIN_PANEL_PLAN.md §5.8 gives for payments.order_id).
+    # docs/product/ADMIN_PANEL_PLAN.md §5.8 gives for payments.order_id).
     order_id = uuid4()
     await _write_entry(
         sessions,

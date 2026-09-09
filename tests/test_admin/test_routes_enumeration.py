@@ -31,7 +31,11 @@ So the assertions here are deliberately about ``create_app()`` and nothing else:
   object: CSRF is enforced inside ``get_current_admin`` and "does not write" is not
   declared anywhere at all. So both are asserted twice — structurally, by freezing the set
   of mutations, and behaviourally, by sending the requests and by snapshotting every domain
-  table around every GET the application serves.
+  table around every GET the application serves. ``/users/{id}/avatar`` is in that sweep and
+  belongs there: it is the first GET in this table that streams bytes off a volume rather
+  than returning JSON, and a streaming read is exactly the shape somebody later hangs a
+  "record that this was viewed" write on. PD-1 refused that write, so the snapshot around it
+  must keep coming back unchanged.
 * **The SPA mount changes none of it.** ``create_app()`` is only half the story since Slice
   1d: the static mount and the SPA fallback are installed by the *lifespan*, so the frozen
   table above describes an application nobody runs. The last section re-asserts it against
@@ -74,15 +78,35 @@ from hbd.admin.routers.assets import (
     ASSETS_PATH,
 )
 from hbd.admin.routers.audit import AUDIT_PATH, VERIFY_PATH
+from hbd.admin.routers.broadcasts import (
+    BROADCAST_CANCEL_PATH,
+    BROADCAST_PATH,
+    BROADCAST_PAUSE_PATH,
+    BROADCAST_RECIPIENTS_PATH,
+    BROADCAST_RESUME_PATH,
+    BROADCAST_REVISE_PATH,
+    BROADCAST_SEND_PATH,
+    BROADCAST_TEST_SEND_PATH,
+    BROADCASTS_PATH,
+)
+from hbd.admin.routers.chats import CHAT_MESSAGES_PATH_TEMPLATE, CHATS_PATH
 from hbd.admin.routers.config import CONFIG_PATH
+from hbd.admin.routers.credits import USER_CREDITS_GRANT_PATH, USER_CREDITS_PATH
 from hbd.admin.routers.dashboard import (
+    AUDIENCE_LISTS_PATH,
+    AUDIENCE_PATH,
     CAPABILITIES_PATH,
     FAILURES_PATH,
+    FINANCE_PATH,
     LATENCY_PATH,
     NAME_ANALYTICS_PATH,
     NAME_STRATEGIES_PATH,
     ORDERS_BY_DAY_PATH,
+    PERFORMANCE_PATH,
+    PLAN_LIABILITY_PATH,
     PULSE_PATH,
+    SERIES_PATH,
+    VENDOR_PATH,
 )
 from hbd.admin.routers.generations import ATTEMPT_PATH, GENERATIONS_PATH
 from hbd.admin.routers.health import STATUS_OK
@@ -90,18 +114,29 @@ from hbd.admin.routers.orders import (
     ORDER_ASSETS_PATH,
     ORDER_ATTEMPTS_PATH,
     ORDER_PATH,
+    ORDER_STATE_COUNTS_PATH,
     ORDER_TIMELINE_PATH,
     ORDERS_PATH,
 )
 from hbd.admin.routers.retention import RETENTION_PATH
 from hbd.admin.routers.reveal import REVEAL_PATH
+from hbd.admin.routers.segments import SEGMENT_FIELDS_PATH, SEGMENT_PREVIEW_PATH
 from hbd.admin.routers.users import (
+    USER_AVATAR_PATH,
+    USER_BLOCK_PATH,
     USER_ORDERS_PATH,
     USER_PATH,
+    USER_UNBLOCK_PATH,
     USERS_PATH,
     WIZARD_STATE_PATH,
 )
+from hbd.admin.routers.vendors import (
+    VENDOR_ERRORS_PATH,
+    VENDOR_USAGE_BY_DAY_PATH,
+    VENDOR_USAGE_PATH,
+)
 from hbd.admin.security.permissions import RBAC_MATRIX, Permission, StepUpAction
+from hbd.contracts import BroadcastKind, Language
 from hbd.db.base import Base
 from hbd.db.enums import AdminRole, AuditReasonCode
 from hbd.db.models.asset import AssetRow
@@ -150,8 +185,37 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         # bare series above. Aggregate counts only: no name, no candidate text, no
         # transcript, so it belongs to DASHBOARD_READ rather than to RECORDS_READ.
         ("GET", NAME_ANALYTICS_PATH, Permission.DASHBOARD_READ),
+        # The redesigned dashboard: one route per section of the page, plus the plan book.
+        # All five are aggregate counts, enum members, UTC buckets, currencies, provider
+        # names and money — no telegram id, no name, no note, no transcript, no receipt
+        # reference — so they sit on the same cell as the six above and need no masking
+        # branch. The plan route is the only DASHBOARD_READ route that takes NO window:
+        # liability is a state, not a flow.
+        ("GET", AUDIENCE_PATH, Permission.DASHBOARD_READ),
+        ("GET", FINANCE_PATH, Permission.DASHBOARD_READ),
+        ("GET", PERFORMANCE_PATH, Permission.DASHBOARD_READ),
+        ("GET", SERIES_PATH, Permission.DASHBOARD_READ),
+        # The Vendor section, added with the second dashboard cut. Vendor names, closed enums,
+        # call counts, token and character totals, milliseconds and money — the same class of
+        # data as the three vendor-usage routes below, and the same cell.
+        ("GET", VENDOR_PATH, Permission.DASHBOARD_READ),
+        ("GET", PLAN_LIABILITY_PATH, Permission.DASHBOARD_READ),
+        # Vendor spend. DASHBOARD_READ and not a member of its own: §12.3 classes costs and
+        # latencies as always-visible non-personal data, and every column behind these three
+        # is a closed enum, an integer, a machine id or a bounded error code. A VENDOR_READ
+        # member would be a five-file change across two languages for a distinction no
+        # operator could act on.
+        ("GET", VENDOR_USAGE_PATH, Permission.DASHBOARD_READ),
+        ("GET", VENDOR_USAGE_BY_DAY_PATH, Permission.DASHBOARD_READ),
+        ("GET", VENDOR_ERRORS_PATH, Permission.DASHBOARD_READ),
         # Records.
         ("GET", ORDERS_PATH, Permission.RECORDS_READ),
+        # The Orders hub's distribution bar, over the whole filter set rather than over the
+        # fifty rows the browser happens to hold. A sibling of the list rather than a field on
+        # its ``meta`` so that paging does not re-run the aggregate — the argument is in
+        # ``routers.orders.order_state_counts`` — and a literal segment, so it must stay
+        # declared ahead of ``ORDER_PATH`` for route matching to reach it.
+        ("GET", ORDER_STATE_COUNTS_PATH, Permission.RECORDS_READ),
         ("GET", ORDER_PATH, Permission.RECORDS_READ),
         ("GET", ORDER_ATTEMPTS_PATH, Permission.RECORDS_READ),
         ("GET", ORDER_ASSETS_PATH, Permission.RECORDS_READ),
@@ -159,6 +223,37 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         ("GET", USERS_PATH, Permission.RECORDS_READ),
         ("GET", USER_PATH, Permission.RECORDS_READ),
         ("GET", USER_ORDERS_PATH, Permission.RECORDS_READ),
+        # The ONE identified route on the dashboard surface, and the only reason it is a
+        # RECORDS_READ row three lines below five DASHBOARD_READ ones: it returns the ACCOUNT
+        # HOLDER's Telegram id, handle and first name UNMASKED, by the owner's explicit
+        # decision, with an audit row on every call standing in for the reveal gate. It is a
+        # second router in ``dashboard.py`` for exactly that reason — the guard is per-router
+        # (§12.1 T3) — and this line is what puts it into every sweep that reads this table.
+        # The recipient's name is not on it and must not be added: that decision covers the
+        # person who pays, not the third party a song is about.
+        ("GET", AUDIENCE_LISTS_PATH, Permission.RECORDS_READ),
+        ("GET", CHATS_PATH, Permission.CHAT_INDEX_READ),
+        ("GET", CHAT_MESSAGES_PATH_TEMPLATE, Permission.CHAT_INDEX_READ),
+        # PD-1: an ordinary records read, not a reveal surface. The product owner rejected
+        # the step-up/audit-row trade explicitly, so there is no REVEAL_MEDIA_READ split row
+        # here the way there is for the two asset streams below, and no
+        # ``authorise_media_reveal``: a face in the operator's own list is the same class of
+        # read as the masked name beside it. This single line is also what puts the route
+        # into every sweep that reads this table — the RBAC matrix's, the plaintext sweep's,
+        # the no-GET-writes snapshot's — which is why it is the only edit the route needs
+        # here and why working around it instead would silently drop it from all three.
+        ("GET", USER_AVATAR_PATH, Permission.RECORDS_READ),
+        # The entitlement ledger, on the same cell as the ``/users`` row it explains.
+        # ``credit_accounts`` and ``credit_ledger`` hold a Telegram id, closed enums,
+        # integers and machine-built keys — no free text, no name — so there is nothing here
+        # a reveal would gate and no reason for a stricter row than the record itself.
+        ("GET", USER_CREDITS_PATH, Permission.RECORDS_READ),
+        # The audience preview counts exactly the population ``/users?segment=`` pages, with
+        # the same document and the same compiler, so it carries the same cell: an operator
+        # who may read the rows one screen at a time may read how many there are. It puts no
+        # customer row on the wire at all — see ``routers/segments.py`` on the sample the
+        # blueprint sketched and this route does not have.
+        ("GET", SEGMENT_PREVIEW_PATH, Permission.RECORDS_READ),
         ("GET", GENERATIONS_PATH, Permission.RECORDS_READ),
         ("GET", ATTEMPT_PATH, Permission.RECORDS_READ),
         ("GET", ASSETS_PATH, Permission.RECORDS_READ),
@@ -176,6 +271,17 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         # The wizard-state projection is a second router precisely so it can carry a
         # different cell from the records around it (§12.2 row 5).
         ("GET", WIZARD_STATE_PATH, Permission.WIZARD_STATE_READ),
+        # The segment vocabulary, on the campaign cell rather than the records one: it is the
+        # broadcast builder's schema — no customer data, one row per FIELD — and it is what
+        # keeps the SPA's rule editor generated from the server's allowlist instead of from a
+        # copy that would keep offering a field after the compiler withdrew it.
+        ("GET", SEGMENT_FIELDS_PATH, Permission.BROADCAST_READ),
+        # Campaigns. The read side is BROADCAST_READ — M in all four cells — because a
+        # campaign record is operator copy, closed enums and counters, and the one list that
+        # touches people at all (the recipient ledger) publishes a mask and never an id.
+        ("GET", BROADCASTS_PATH, Permission.BROADCAST_READ),
+        ("GET", BROADCAST_RECIPIENTS_PATH, Permission.BROADCAST_READ),
+        ("GET", BROADCAST_PATH, Permission.BROADCAST_READ),
         # Operations.
         ("GET", CONFIG_PATH, Permission.CONFIG_READ),
         ("GET", RETENTION_PATH, Permission.RETENTION_READ),
@@ -192,6 +298,33 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         # REVEAL_PERSONAL_DATA's ``A+S`` cell is enforced by the handler on the subject in
         # the body. It is the only POST in this table that is not an auth route.
         ("POST", REVEAL_PATH, Permission.REVEAL_PERSONAL_DATA_READ),
+        # The three operator actions. Each declares the ROLE half of a ``W+S`` row and
+        # enforces the step-up half inside the handler, on the Telegram id in the path —
+        # the same split the two media routes and ``POST /reveal`` above take, and for the
+        # identical reason: a router guard resolves to ``check_role``, which holds no
+        # subject and therefore no grant, so a ``W+S`` cell declared here would answer
+        # STEP_UP_REQUIRED to a correctly re-authenticated operator for ever.
+        #
+        # ``USER_BLOCK_WRITE`` and ``CREDIT_GRANT_WRITE`` are two rows and not one shared
+        # ``records.write`` whose cells would be identical today: "may edit a record", "may
+        # bar an account" and "may issue credit" are three questions, and one permission
+        # answering all of them widens two decisions the day somebody widens the first.
+        ("POST", USER_BLOCK_PATH, Permission.USER_BLOCK_WRITE),
+        ("POST", USER_UNBLOCK_PATH, Permission.USER_BLOCK_WRITE),
+        ("POST", USER_CREDITS_GRANT_PATH, Permission.CREDIT_GRANT_WRITE),
+        # The seven campaign actions, all on BROADCAST_WRITE. Two of them — the send and the
+        # test send — are the ROLE half of §12.2's ``W+S`` row and enforce
+        # ``BROADCAST_SEND``'s step-up inside the handler on the campaign id, the same split
+        # the three rows above take. The other five change a state and nothing leaves the
+        # building; putting a re-authentication in front of PAUSE in particular would be a
+        # control that costs seconds at the moment somebody most needs them.
+        ("POST", BROADCASTS_PATH, Permission.BROADCAST_WRITE),
+        ("POST", BROADCAST_REVISE_PATH, Permission.BROADCAST_WRITE),
+        ("POST", BROADCAST_SEND_PATH, Permission.BROADCAST_WRITE),
+        ("POST", BROADCAST_PAUSE_PATH, Permission.BROADCAST_WRITE),
+        ("POST", BROADCAST_RESUME_PATH, Permission.BROADCAST_WRITE),
+        ("POST", BROADCAST_CANCEL_PATH, Permission.BROADCAST_WRITE),
+        ("POST", BROADCAST_TEST_SEND_PATH, Permission.BROADCAST_WRITE),
     }
 )
 
@@ -210,6 +343,23 @@ MUTATIONS: Final[frozenset[tuple[str, str]]] = frozenset(
         # mutation by that rule whatever the verb suggests. Being a POST is also what puts
         # it behind the CSRF check inside ``get_current_admin``.
         ("POST", REVEAL_PATH),
+        # §9.2's first three actions. Every one of them writes a state change AND its audit
+        # row in the request's own transaction, which is what §9.1's first rule requires of
+        # an action that is a single database transaction.
+        ("POST", USER_BLOCK_PATH),
+        ("POST", USER_UNBLOCK_PATH),
+        ("POST", USER_CREDITS_GRANT_PATH),
+        # The campaign lifecycle. ``POST /api/broadcasts`` is the first path in this table
+        # that carries BOTH a GET and a POST, which is why the method sweep below probes
+        # every method a path does *not* declare rather than assuming a GET path takes no
+        # POST.
+        ("POST", BROADCASTS_PATH),
+        ("POST", BROADCAST_REVISE_PATH),
+        ("POST", BROADCAST_SEND_PATH),
+        ("POST", BROADCAST_PAUSE_PATH),
+        ("POST", BROADCAST_RESUME_PATH),
+        ("POST", BROADCAST_CANCEL_PATH),
+        ("POST", BROADCAST_TEST_SEND_PATH),
     }
 )
 
@@ -563,7 +713,53 @@ _MUTATION_BODIES: Final[dict[str, dict[str, Any]]] = {
         "fields": ["briefs.recipient_name_display"],
         "reasonCode": AuditReasonCode.SUPPORT_INVESTIGATION.value,
     },
+    # The three operator actions. Well-shaped for the same reason the reveal's body is: the
+    # CSRF and origin checks run inside ``get_current_admin``, before the body is validated,
+    # before the step-up is weighed and before any row is touched — so a refusal here is the
+    # layer under test rather than a 422 or a missing grant.
+    USER_BLOCK_PATH: {"reasonCode": AuditReasonCode.ABUSE_REPORT.value},
+    USER_UNBLOCK_PATH: {"reasonCode": AuditReasonCode.CUSTOMER_REQUEST.value},
+    USER_CREDITS_GRANT_PATH: {
+        "credits": 1,
+        "reasonCode": AuditReasonCode.CUSTOMER_REQUEST.value,
+    },
+    # The seven campaign actions. Well-shaped in the same sense as the rest: the CSRF and
+    # origin checks run inside ``get_current_admin``, before the body is validated, before the
+    # step-up is weighed and before any campaign is looked up.
+    BROADCASTS_PATH: {
+        "title": "A campaign nobody will send",
+        "kind": BroadcastKind.SERVICE.value,
+        "segment": {"v": 1, "match": "all", "rules": []},
+        "bodies": [{"language": Language.RU.value, "text": "Salom"}],
+    },
+    BROADCAST_REVISE_PATH: {
+        "title": "A campaign nobody will send",
+        "bodies": [{"language": Language.RU.value, "text": "Salom"}],
+    },
+    BROADCAST_SEND_PATH: {"reasonCode": AuditReasonCode.ROUTINE_OPS.value},
+    BROADCAST_PAUSE_PATH: {"reasonCode": AuditReasonCode.INCIDENT.value},
+    BROADCAST_RESUME_PATH: {"reasonCode": AuditReasonCode.INCIDENT.value},
+    BROADCAST_CANCEL_PATH: {"reasonCode": AuditReasonCode.INCIDENT.value},
+    BROADCAST_TEST_SEND_PATH: {
+        "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
+        "telegramUserId": 770_000_123,
+    },
 }
+
+#: Path parameters for the two CSRF sweeps. :data:`MUTATIONS` now carries templates, and a
+#: POST sent to the literal ``{telegram_user_id}`` would be answered by the path converter's
+#: 422 rather than by the layer under test — which would pass the "not 200" half of both
+#: assertions while proving nothing about CSRF.
+MUTATION_IDENTIFIERS: Final[dict[str, object]] = {
+    "telegram_user_id": 770_000_123,
+    "broadcast_id": UUID(int=4),
+}
+
+
+def mutation_url(template: str) -> str:
+    """A sendable URL for a frozen mutation. Identity for the paths that carry no parameter."""
+    return template.format(**MUTATION_IDENTIFIERS)
+
 
 #: The mutations that go through the permission guard, and therefore through the CSRF check
 #: inside ``get_current_admin``. Derived from :data:`MUTATIONS` rather than listed again, so
@@ -591,7 +787,9 @@ async def test_a_mutation_without_the_csrf_token_is_refused(
     assert (await sign_in(client)).status_code == 200
 
     # Act
-    response = await client.post(path, json=_MUTATION_BODIES[path], headers={"Origin": ORIGIN})
+    response = await client.post(
+        mutation_url(path), json=_MUTATION_BODIES[path], headers={"Origin": ORIGIN}
+    )
 
     # Assert
     assert response.status_code == 403, path
@@ -610,11 +808,23 @@ async def test_a_mutation_from_a_foreign_origin_is_refused(
     headers = csrf_headers(client) | {"Origin": "https://not-the-panel.example"}
 
     # Act
-    response = await client.post(path, json=_MUTATION_BODIES[path], headers=headers)
+    response = await client.post(mutation_url(path), json=_MUTATION_BODIES[path], headers=headers)
 
     # Assert
     assert response.status_code == 403, path
     assert response.json()["error"]["code"] == AdminErrorCode.ORIGIN_REJECTED.value, path
+
+
+#: The methods a path is probed with, minus whatever it legitimately declares.
+#:
+#: ``HEAD`` is absent because Starlette pairs one with every ``GET`` and it is not a method
+#: anybody routes. ``GET`` is absent for a subtler reason: the SPA catch-all accepts ``GET``
+#: for every path, and ``_serve_spa_index`` answers an unknown ``/api`` path with **404**, so
+#: a ``GET`` sent to a POST-only route is a 404 from the fallback rather than a 405 from the
+#: router. That is the correct behaviour — a JSON client must not be handed the shell — and it
+#: is asserted in its own right by ``test_asgi_smoke``; it simply means a ``GET`` probe here
+#: could never observe the thing this test is about.
+PROBE_METHODS: Final[tuple[str, ...]] = ("POST", "PUT", "PATCH", "DELETE")
 
 
 async def test_no_route_answers_a_method_the_table_does_not_declare(
@@ -622,17 +832,28 @@ async def test_no_route_answers_a_method_the_table_does_not_declare(
 ) -> None:
     # Arrange — Starlette answers 405 for a method a path does not carry, and that is the
     # answer wanted: a route that quietly accepted DELETE would be a mutation nobody froze.
+    #
+    # The undeclared methods are DERIVED per path rather than picked as "POST if the row is a
+    # GET". ``POST /api/broadcasts`` is a real route sharing its path with a real ``GET``, so
+    # the old form would have probed the campaign list with a method it genuinely serves and
+    # failed on a correct application; deriving the complement probes four methods per path
+    # instead of one and cannot go stale as the table grows.
     await create_account(container, role=AdminRole.OWNER)
     assert (await sign_in(client)).status_code == 200
     headers = csrf_headers(client)
+    declared: dict[str, set[str]] = {}
+    for method, path, _ in MOUNTED_ROUTES:
+        declared.setdefault(path, set()).add(method)
 
     # Act / Assert
-    for method, path, _ in MOUNTED_ROUTES:
+    for path, methods in declared.items():
         if "{" in path:
             continue
-        forbidden = "POST" if method == "GET" else "DELETE"
-        response = await client.request(forbidden, path, headers=headers)
-        assert response.status_code == 405, (forbidden, path)
+        for forbidden in PROBE_METHODS:
+            if forbidden in methods:
+                continue
+            response = await client.request(forbidden, path, headers=headers)
+            assert response.status_code == 405, (forbidden, path)
 
 
 # ---------------------------------------------------------------------------
@@ -688,6 +909,9 @@ async def test_no_get_route_changes_domain_state(
         "telegram_user_id": TELEGRAM_ID,
         "asset_id": asset_id,
         "attempt_id": attempt_id,
+        # No campaign is seeded: the two ``/broadcasts/{id}`` reads answer 404 and an empty
+        # page for an unknown id, which is still a GET that must write nothing.
+        "broadcast_id": UUID(int=5),
     }
     await create_account(container, role=AdminRole.OWNER)
     assert (await sign_in(client)).status_code == 200
@@ -715,6 +939,7 @@ _PROBE_IDENTIFIERS: Final[dict[str, object]] = {
     "telegram_user_id": 1,
     "asset_id": UUID(int=2),
     "attempt_id": UUID(int=3),
+    "broadcast_id": UUID(int=4),
 }
 
 

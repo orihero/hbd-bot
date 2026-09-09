@@ -18,7 +18,7 @@ Two design points carry most of the weight:
   would render every refunded-then-reauthorised order for free.
 * **There is no foreign key to ``orders``.** The gate can run before the ``orders`` row
   exists, and a ledger entry must outlive the order it refers to — the same reasoning
-  ``docs/ADMIN_PANEL_PLAN.md`` §5.8 gives for ``payments.order_id``. ``order_id`` is
+  ``docs/product/ADMIN_PANEL_PLAN.md`` §5.8 gives for ``payments.order_id``. ``order_id`` is
   indexed because the net-position probe is exactly that predicate.
 
 **Deliberately not personal data, and deliberately not on a retention clock.** Every column
@@ -47,8 +47,12 @@ from hbd.db.enums import CreditEntryKind, CreditReason
 
 __all__ = ["CreditLedgerRow", "IDEMPOTENCY_KEY_LENGTH", "ACTOR_LENGTH"]
 
-#: Sized for the longest key shape, ``grant:admin:{uuid4}`` at 48 characters, with room for
-#: a future prefix. Short enough that the unique index stays cheap on the hot debit path.
+#: Sized for the longest key shape, ``grant:admin:{telegram_user_id}:{uuid4}`` — 68
+#: characters at Telegram's widest id — with room for a future prefix. The account id is in
+#: that shape rather than left out because this column is unique **globally**, so a key
+#: without it would let one operator ``requestId`` reused across two customers credit the
+#: first and silently no-op the second (``admin/routers/credits.py::grant_credits``). Short
+#: enough that the unique index stays cheap on the hot debit path.
 IDEMPOTENCY_KEY_LENGTH: Final[int] = 128
 #: ``bot`` | ``pipeline`` | ``sweep`` | ``admin:{username}``. The username column is 64
 #: characters, so a long operator name is truncated by the writer — the actor is diagnostic
