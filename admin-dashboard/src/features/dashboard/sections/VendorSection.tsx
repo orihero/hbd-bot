@@ -2,13 +2,14 @@
  * Vendor: what is left at each supplier, whether the pollers are still asking, what a song
  * consumes, and how every dollar on this page was arrived at.
  *
- * ## Two reads, and they are not the same read
+ * ## One read, after the stat band came off
  *
- * The four stat cards come off `/dashboard/finance` — they moved tabs, not routes. The five
- * figures come off `/dashboard/vendor`. The two republish `vendorSpend` and `vendorBalances`
- * from the same server functions and are asked for windows that agree by contract, but they
- * land independently and fail independently, which is why they get two notes: a finance 403
- * must not blank the balance meters, and a vendor timeout must not blank the cards.
+ * This tab used to open with four stat cards off `/dashboard/finance` — vendor balance, songs
+ * remaining, spend, cost per song — above the same accounts drawn per supplier. All four were
+ * a second, coarser printing of numbers `VendorCards` gives per supplier and in that
+ * supplier's own unit, so the row is gone and with it the second read, the second note and the
+ * second failure mode. Everything on this tab is now `/dashboard/vendor` at the figure period,
+ * except the two charts, which carry their own reads inside their own cards.
  *
  * ## Why three of the five figures take the whole band
  *
@@ -45,7 +46,6 @@ import { THRESHOLD_BAD_BELOW, THRESHOLD_WARN_BELOW } from "@/features/dashboard/
 import { useI18n } from "@/i18n";
 
 import {
-  CardBand,
   ChartPanels,
   FigureCard,
   FigureGrid,
@@ -68,16 +68,13 @@ const UNITS_RATIO = "651 / 352";
  * one line above a drawing that takes its gates from `thresholdOf` — and the day the boundary
  * moves, the caption is the copy nobody greps for.
  */
-export interface VendorSectionProps extends SectionProps {
+export interface VendorSectionProps
+  extends Omit<SectionProps, "state" | "values" | "cardPeriods" | "onCardPeriodChange"> {
   /** `/dashboard/vendor` at the figure period. Its own read, its own failure. */
   readonly vendor: Query<VendorResponse>;
 }
 
 export function VendorSection({
-  state,
-  values,
-  cardPeriods,
-  onCardPeriodChange,
   figurePeriod,
   picker,
   grans,
@@ -99,18 +96,6 @@ export function VendorSection({
 
   return (
     <>
-      {/* The subject is "Vendor", not "Finances": these four cards are served by the finance
-          read but they are drawn here, and a note headed with the name of a tab the operator
-          is not looking at tells them to go and check the wrong thing. */}
-      <CardBand
-        section="vendor"
-        subjectKey="dashboard.subjects.vendorSpend"
-        state={state}
-        values={values}
-        cardPeriods={cardPeriods}
-        onCardPeriodChange={onCardPeriodChange}
-      />
-
       <FigureHeading label={t("dashboard.figures.heading")}>{picker}</FigureHeading>
       <SectionNote state={vendorState} subjectKey="dashboard.subjects.vendorDetail" />
 
@@ -119,7 +104,12 @@ export function VendorSection({
           consumption the balance still buys. The figures below are the same accounts drawn;
           the cards are the same accounts NUMBERED, and neither is a substitute for the other. */}
       {!blocked && (
-        <div className="mt-3">
+        /* `mb-[14px]`: the same gap `FigureHeading` puts between a group and what precedes it.
+           `FigureStack` below carries only its own 10px BOTTOM margin, so without this the last
+           supplier card and the balance meters were two cards touching — which read as one
+           group of five figures and one drawing, rather than as the cards and then the
+           figures. */
+        <div className="mb-[14px] mt-3">
           {data === undefined ? <VendorCardsSkeleton /> : <VendorCards {...adaptVendorCards(data)} />}
         </div>
       )}

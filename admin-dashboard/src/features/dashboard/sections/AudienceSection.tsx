@@ -5,19 +5,20 @@
  * layout is what it is:
  *
  *  - `/dashboard/audience` (`DASHBOARD_READ`) serves the two figures below. It is the same
- *    route the stat cards in the band above the tabs come off, so its note is already drawn up
- *    there; this group blocks quietly rather than repeating the same sentence a second time.
+ *    route the stat cards in the band above this section come off, so its note is already
+ *    drawn up there; this group blocks quietly rather than repeating the sentence a second
+ *    time.
  *  - `/series` (`DASHBOARD_READ`) serves Sign-ups, through `ChartPanel`, which carries its own
  *    failure inside its own card.
  *
  * ## What moved out, and why it is not here any more
  *
  * The four STAT CARDS, the CHURN card and the two identified-customer lists — top generators,
- * recent subscribers — used to open this tab, in that order. The owner asked for all of it
- * above the tab content on EVERY tab, so `DashboardPage` draws it now, once, over whichever
- * section is open, in the order it always had. Nothing about it changed except where it is
- * mounted; the reasoning for the lists' permission boundary and their masking (there is none,
- * by decision) moved with them and lives in that file.
+ * recent subscribers — used to open this tab, in that order. They were hoisted onto all four
+ * tabs and then brought back to this one, so `DashboardPage` draws them immediately above this
+ * section rather than inside it: it owns those two reads and their two independent failures.
+ * Nothing about them changed except where they are mounted; the reasoning for the lists'
+ * permission boundary and their masking (there is none, by decision) lives in that file.
  *
  * What is left here is FIGURES, which is why this file no longer reads `state`, `values` or the
  * card periods at all — it takes `SectionProps` for the one shape all four tabs are handed and

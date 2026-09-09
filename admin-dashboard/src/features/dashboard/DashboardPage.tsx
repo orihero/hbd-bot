@@ -48,17 +48,18 @@
  * the API as well as the page. `finance` at `BASE_PERIOD` is enabled on every tab, because the
  * header's FX line reads it and the header is drawn everywhere.
  *
- * TWO reads are exempt from that gating, and both are exempt for the same reason: the band
- * above the tabs — churn, top generators, recent subscribers — is drawn on every tab, so
- * `/dashboard/audience` at the figure period and `/dashboard/audience-lists` are enabled
- * everywhere.
+ * NO read is exempt from that gating. The audience band — stat cards, churn, top generators,
+ * recent subscribers — briefly drew on all four tabs while its two reads stayed gated to
+ * Audience, which is the worst of both arrangements: the other three tabs drew the band with
+ * nothing behind it. It is back inside the Audience branch, and `/dashboard/audience` and
+ * `/dashboard/audience-lists` are enabled there and nowhere else.
  *
- * `/dashboard/audience-lists` is `RECORDS_READ` and writes an audit disclosure row per call, so
- * that is a real widening: reading the Finances tab now also reads customer identities. What
- * bounds it is the 5-minute `staleTime` plus the client's `refetchOnMount: false` — the tab
- * strip re-reads the cache rather than the route, so walking between tabs does not buy a row
- * per tab. Moving the figure picker DOES buy one, and should: a different window is a different
- * list, and the row records that an admin read customer identities over it.
+ * That the LISTS follow the tab is the load-bearing half. `/dashboard/audience-lists` is
+ * `RECORDS_READ` and writes an audit disclosure row per call, so a band on every tab meant that
+ * opening the Finances tab also read customer identities. Only the tab that actually shows
+ * those two lists asks for them. Moving the figure picker still buys a row, and should: a
+ * different window is a different list, and the row records that an admin read customer
+ * identities over it.
  *
  * ## What the header lost
  *
@@ -174,8 +175,9 @@ import { useAuthStore } from "@/state/auth";
 /* -------------------------------------------------------------------------- */
 
 /**
- * The three reads that serve stat cards. `vendor` is a TAB and not one of these: its four
- * cards are finance figures drawn beside the meters that measure the same accounts.
+ * The three reads that serve stat cards. `vendor` is a TAB and not one of these — it now draws
+ * no stat card at all: the four it used to open with were a coarser second printing of what
+ * `VendorCards` gives per supplier, and they went with the row.
  */
 type ReadKey = "audience" | "finance" | "performance";
 
@@ -183,6 +185,8 @@ type ReadKey = "audience" | "finance" | "performance";
 const SEL_IN: Readonly<Record<SectionKey, readonly CardKey[]>> = {
   audience: selectableKeysIn("audience"),
   finance: selectableKeysIn("finance"),
+  /* Empty, and derived rather than written as `[]` so that a row put back on this tab is picked
+     up here without anyone remembering to. */
   vendor: selectableKeysIn("vendor"),
   performance: selectableKeysIn("performance"),
 };
@@ -190,9 +194,9 @@ const SEL_IN: Readonly<Record<SectionKey, readonly CardKey[]>> = {
 /**
  * The selector-bearing cards each READ serves.
  *
- * Finance serves two tabs' worth, and that is the one place where "where a card is drawn" and
- * "where its number comes from" come apart. Both lists are needed in one array because
- * `override` walks the keys of ONE response.
+ * Finance keeps the Vendor tab's list appended even though it is empty today: that pairing is
+ * the one place where "where a card is drawn" and "where its number comes from" ever came
+ * apart, and one array is what `override` needs because it walks the keys of ONE response.
  */
 const SEL_BY_READ: Readonly<Record<ReadKey, readonly CardKey[]>> = {
   audience: SEL_IN.audience,
@@ -409,24 +413,22 @@ export function DashboardPage(): JSX.Element {
      Finance is the one read with no tab test on it. Its base window feeds the header's FX line,
      which is drawn above every tab; the two tabs whose cards it serves add their own windows on
      top. */
-  /* No tab test: the audience stat cards are drawn above every tab now, so the windows their
-     selectors are on are wanted on every tab. */
-  const audienceNeed = useMemo(() => periodsFor(SEL_IN.audience, cardPeriods), [cardPeriods]);
-  const financeNeed = useMemo(() => {
-    if (tab === "finance") return periodsFor(SEL_IN.finance, cardPeriods);
-    if (tab === "vendor") return periodsFor(SEL_IN.vendor, cardPeriods);
-    return periodsFor([], cardPeriods);
-  }, [tab, cardPeriods]);
+  const audienceNeed = useMemo(
+    () => (tab === "audience" ? periodsFor(SEL_IN.audience, cardPeriods) : NO_PERIODS),
+    [tab, cardPeriods],
+  );
+  /* Never `NO_PERIODS`: even on a tab with no finance card, the BASE window is wanted for the
+     header's FX line and for the published price the charts are drawn against. */
+  const financeNeed = useMemo(
+    () => periodsFor(tab === "finance" ? SEL_IN.finance : [], cardPeriods),
+    [tab, cardPeriods],
+  );
   const perfNeed = useMemo(
     () => (tab === "performance" ? periodsFor(SEL_IN.performance, cardPeriods) : NO_PERIODS),
     [tab, cardPeriods],
   );
-  /* The audience wells are always drawn — those cards are in the band above the tabs — so the
-     open tab's wells are added to them rather than replacing them. */
-  const sparkNeed = useMemo(
-    () => periodsFor([...sparkKeysIn("audience"), ...sparkKeysIn(tab)], cardPeriods),
-    [tab, cardPeriods],
-  );
+  /* Only the open tab's wells: a card that is not mounted has no well to fill. */
+  const sparkNeed = useMemo(() => periodsFor(sparkKeysIn(tab), cardPeriods), [tab, cardPeriods]);
 
   const audience: PeriodMap<ReturnType<typeof useAudience>> = {
     today: useAudience("today", { enabled: audienceNeed.has("today") }),
@@ -595,28 +597,27 @@ export function DashboardPage(): JSX.Element {
           <SectionTabs tab={tab} />
         </header>
 
-        {/* THE TOP OF EVERY TAB, in this order: the audience stat cards, the churn card, then
-            the two identified-customer lists. Audience first because churn is a fraction of the
-            population the cards count, and the lists last because they are the same people
-            named. Drawn by the page rather than by the Audience section, so the operator has
-            them whatever else they came to look at — which is why that section is figures
-            only. */}
-        <AudienceBand
-          state={audienceState}
-          values={values}
-          cardPeriods={cardPeriods}
-          onCardPeriodChange={setCardPeriod}
-          figures={audienceFigures}
-          lists={lists}
-        />
-
+        {/* THE TOP OF THE AUDIENCE TAB, in this order: the audience stat cards, the churn
+            card, the two identified-customer lists, then that tab's figures. Audience first
+            because churn is a fraction of the population the cards count, and the lists last
+            because they are the same people named. Still drawn by the page rather than by the
+            section, because the band's two reads fail independently and that wiring is the
+            page's — which is why the section itself stayed figures only. */}
         {tab === "audience" && (
-          <AudienceSection {...common} state={audienceState} figures={audienceFigures} />
+          <>
+            <AudienceBand
+              state={audienceState}
+              values={values}
+              cardPeriods={cardPeriods}
+              onCardPeriodChange={setCardPeriod}
+              figures={audienceFigures}
+              lists={lists}
+            />
+            <AudienceSection {...common} state={audienceState} figures={audienceFigures} />
+          </>
         )}
         {tab === "finance" && <FinancesSection {...common} state={financeState} plans={plans} />}
-        {/* Vendor's cards are FINANCE figures drawn on another tab, so it is handed the finance
-            band's state; only its five figures come from the vendor route. */}
-        {tab === "vendor" && <VendorSection {...common} state={financeState} vendor={vendor} />}
+        {tab === "vendor" && <VendorSection {...common} vendor={vendor} />}
         {tab === "performance" && <PerformanceSection {...common} state={performanceState} />}
       </div>
     </main>
@@ -624,15 +625,17 @@ export function DashboardPage(): JSX.Element {
 }
 
 /* -------------------------------------------------------------------------- */
-/* The band above every tab                                                    */
+/* The band that opens the Audience tab                                        */
 /* -------------------------------------------------------------------------- */
 
 /**
- * The audience cards, then churn, then top generators and recent subscribers — on all four tabs.
+ * The audience cards, then churn, then top generators and recent subscribers.
  *
- * That is the order the Audience tab always had, hoisted whole: who is here, then who is
- * leaving, then which of them by name. Churn under the cards rather than over them is the point
- * of the ordering — a churn rate is read against the population it is a fraction of.
+ * Who is here, then who is leaving, then which of them by name. Churn under the cards rather
+ * than over them is the point of the ordering — a churn rate is read against the population it
+ * is a fraction of. This band drew on all four tabs for a while; it draws on Audience only,
+ * because the two reads under it are enabled on Audience only and one of them is audited per
+ * call.
  *
  * Two reads meet here and they fail INDEPENDENTLY, which is why one component draws all three:
  *
@@ -676,10 +679,9 @@ function AudienceBand({
 
   return (
     <>
-      {/* WHO IS HERE, first and on every tab. These are the `/dashboard/audience` cards; they
-          used to open the Audience tab and nothing else, and the churn card and the two lists
-          were drawn under them. That order is the owner's and it is kept — the whole THREE-part
-          band moved up together, rather than churn jumping over the cards it is read against. */}
+      {/* WHO IS HERE, first. These are the `/dashboard/audience` cards, with the churn card and
+          then the two lists under them — the order the tab has always had, and the order churn
+          needs: a rate is read against the population it is a fraction of. */}
       <CardBand
         section="audience"
         subjectKey="dashboard.subjects.audience"

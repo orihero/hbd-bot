@@ -15,11 +15,11 @@
  *
  * ## `section` is where a card is DRAWN, and it is not where its number comes FROM
  *
- * The four vendor cards — balance, songs remaining, spend and cost per song — are drawn in
- * **Vendor** and served by the **finance** read. Those are two different questions and this
- * file answers only the first: `DashboardPage` keeps its own card→read map, because a card
- * moving between tabs must not silently re-point at another endpoint. Every row here is
- * homogeneous in both, which is what lets the page derive a row's read from its first card.
+ * They agree today — every row is drawn on the tab that names its read — but they are still
+ * two questions, and this file answers only the first. `DashboardPage` keeps its own card→read
+ * map so that a card moving between tabs cannot silently re-point at another endpoint; the
+ * four vendor cards were drawn on **Vendor** off the **finance** read for exactly as long as
+ * that row existed.
  */
 
 import type { TranslationPath } from "@/i18n/types";
@@ -84,12 +84,20 @@ export interface CardRow {
 }
 
 /**
- * **`churn` has no row any more, and its `CardKey` is deliberately kept.**
+ * **Five keys have no row, and all five are deliberately kept.**
  *
- * The card printed `churn.blocked` — one of the four numbers the new `ChurnCard` leads with —
- * and a page that shows a quantity twice invites the reader to believe whichever copy suits
- * them. The key stays in `CardKey` because `adaptAudience` still fills it: the adapter is the
- * audience response's own vocabulary, not this file's layout, and pruning the key here would
+ * `churn` lost its card because it printed `churn.blocked` — one of the four numbers the
+ * `ChurnCard` leads with — and a page that shows a quantity twice invites the reader to
+ * believe whichever copy suits them.
+ *
+ * `vendorBalance`, `songsRemaining`, `vendorSpend` and `costPerSong` lost the whole ROW they
+ * shared, at the top of the Vendor tab, for the same reason four times over: every one of
+ * them is printed again a few hundred pixels below, per supplier and in that supplier's own
+ * unit, by `VendorCards` — and the per-supplier reading is the truer one, because a balance in
+ * dollars and a balance in characters have no honest sum to lead with.
+ *
+ * The keys stay in `CardKey` because `adaptAudience` and `adaptFinance` still fill them: an
+ * adapter is its response's vocabulary, not this file's layout, and pruning a key here would
  * be this file deciding what a response is allowed to say.
  */
 export const CARD_ROWS: readonly CardRow[] = [
@@ -149,37 +157,6 @@ export const CARD_ROWS: readonly CardRow[] = [
         // net × 365 ÷ the window's own days. NOT MRR × 12, whatever the mockup captioned it.
         key: "arr",
         unit: "soʻm",
-      },
-    ],
-  },
-  {
-    /* Drawn in Vendor, served by the FINANCE read — the four figures that are about what the
-       vendors cost and what is left at them. They sat under Finances while Finances was the
-       only place money appeared; they belong beside the meters that measure the same accounts. */
-    section: "vendor",
-    labelKey: "dashboard.groups.vendor",
-    w: 340.5,
-    cards: [
-      {
-        key: "vendorBalance",
-        unit: "",
-      },
-      {
-        key: "songsRemaining",
-        unit: "",
-      },
-      {
-        key: "vendorSpend",
-        unit: "",
-        invert: true,
-        spark: true,
-        sel: true,
-      },
-      {
-        key: "costPerSong",
-        unit: "",
-        invert: true,
-        sel: true,
       },
     ],
   },

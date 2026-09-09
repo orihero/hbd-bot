@@ -82,9 +82,10 @@ export interface VendorCardsProps {
   readonly cards: readonly VendorCard[];
   /**
    * `VendorResponse.deliveredOrders` — the bare int, and the denominator every per-song figure
-   * on every card was divided by. Printed once above the cards rather than on each: it is one
-   * number about the window, and repeating it four times invites the reader to think the cards
-   * were each divided by something of their own.
+   * on every card was divided by. Printed ONCE, above the cards, and nowhere else: it is one
+   * number about the window, and a copy under each per-song figure both invited the reader to
+   * think the cards were divided by something of their own and spent a line of type per figure
+   * to say nothing new.
    *
    * NOT `PerformanceResponse.deliveredOrders`, which is a `TrendView` of the same name over a
    * different window.
@@ -107,8 +108,8 @@ export function VendorCards({
     return (
       <p className="rounded-card bg-card p-4 text-[11px] leading-[1.45] text-ink-300">
         {isVendorBalance
-          ? "No supplier answered for this window — no balance, no spend and no usage."
-          : "This deployment polls no vendor for a balance and has recorded no vendor call in this window."}
+          ? "No supplier answered — no balance, no spend, no usage."
+          : "No vendor is polled here, and none was called in this window."}
       </p>
     );
   }
@@ -117,8 +118,8 @@ export function VendorCards({
     <div className="flex flex-col gap-3">
       <p className="text-[11px] leading-[1.2] text-ink-300">
         {deliveredOrders === 0
-          ? "Nothing was delivered in this window, so every per-song figure below is undefined."
-          : `Per-song figures are divided by ${String(deliveredOrders)} delivered song${deliveredOrders === 1 ? "" : "s"} in this window.`}
+          ? "Nothing delivered — per-song figures undefined."
+          : `Per song ÷ ${String(deliveredOrders)} delivered song${deliveredOrders === 1 ? "" : "s"}.`}
       </p>
       {cards.map((card) => (
         <VendorCardBlock key={card.vendor} card={card} />
@@ -183,7 +184,10 @@ function Figure({ figure }: { readonly figure: VendorFigure }): JSX.Element {
               </u>
             )}
           </dd>
-          <dd className="mt-[3px] text-[11px] leading-[1.35] text-ink-300">{figure.note}</dd>
+          {/* A figure with nothing left to say prints no line, rather than an empty one. */}
+          {figure.note !== "" && (
+            <dd className="mt-[3px] text-[11px] leading-[1.35] text-ink-300">{figure.note}</dd>
+          )}
         </>
       )}
     </div>

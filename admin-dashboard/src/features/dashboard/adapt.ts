@@ -1534,7 +1534,11 @@ export interface VendorFigure {
   /** `null` is UNMEASURED — the card draws a hatched pill and prints `note` in place of it. */
   readonly value: string | null;
   readonly unit: string;
-  /** Always present. When `value` is null this is the reason, in words, not a restatement. */
+  /**
+   * The reason, when `value` is null. Empty where the figure has nothing to add that the
+   * verdict, the unit or the divisor line above the cards has not already said — the card then
+   * prints no line at all, rather than a line that repeats one of them.
+   */
   readonly note: string;
   /** Only `balance` and `remaining` carry one — the two the owner asked to highlight. */
   readonly state?: ThresholdState;
@@ -1599,14 +1603,12 @@ function nativeBalance(b: VendorBalanceView): string | null {
 function balanceReason(b: VendorBalanceView, asOf: number | null): string | null {
   if (b.isUnbounded === true) return "uncapped key — the vendor publishes no cap";
   if (b.fetchedAt === null) return "never answered — no successful poll yet";
-  if (b.remaining === null) return "not reported — the vendor answered without a balance";
+  if (b.remaining === null) return "answered without a balance";
   const fetched = parseInstant(b.fetchedAt);
   if (asOf !== null && fetched !== null && asOf - fetched > BALANCE_STALE_MS) {
     return `stale — last answered ${ageLabel(asOf - fetched)} ago`;
   }
-  if (b.songsRemaining === null) {
-    return "no per-song rate measured over trailing traffic";
-  }
+  if (b.songsRemaining === null) return "no per-song rate over trailing traffic";
   return null;
 }
 
@@ -1659,17 +1661,21 @@ function buildCard(vendor: Vendor, r: VendorResponse, asOf: number | null): Vend
   const songsOfCover = lead?.songsRemaining ?? null;
   const state = thresholdOf(songsOfCover);
 
+  /* `primary` / `fallback` is only worth a word when there are two accounts to tell apart. On
+     the single-account supplier the role is the whole supplier, and printing it made every card
+     open with a label that distinguished nothing. */
+  const named = balances.length > 1;
   const accounts = balances.map((b) => {
     const native = nativeBalance(b);
-    const who = b.isFallback ? "fallback" : "primary";
+    const who = named ? `${b.isFallback ? "fallback" : "primary"} ` : "";
     const age =
       b.fetchedAt === null || asOf === null
-        ? "never answered"
+        ? "never polled"
         : (() => {
             const fetched = parseInstant(b.fetchedAt);
-            return fetched === null ? "answered" : `${ageLabel(asOf - fetched)} ago`;
+            return fetched === null ? "polled" : `${ageLabel(asOf - fetched)} ago`;
           })();
-    return `${who} — ${native ?? "no balance"} · ${age}`;
+    return `${who}${native ?? "no balance"} · ${age}`;
   });
 
   return {
@@ -1685,7 +1691,7 @@ function buildCard(vendor: Vendor, r: VendorResponse, asOf: number | null): Vend
       consumedFigure(consumed),
       perSongFigure(consumed, r.deliveredOrders),
       costFigure(cost, r.deliveredOrders),
-      remainingFigure(lead, consumed, cost, state, songsOfCover),
+      remainingFigure(lead, consumed, cost, state),
     ],
   };
 }
@@ -1736,21 +1742,23 @@ function balanceFigure(
       ...base,
       value: null,
       unit: "",
-      note: "not polled — no balance row exists for this account",
+      note: "not polled — no balance row for this account",
     };
   }
   const native = nativeBalance(lead);
   if (native === null) {
     return { ...base, value: null, unit: "", note: balanceReason(lead, asOf) ?? "not reported" };
   }
+  /* No note when the runway IS measured: the verdict beside the supplier's name already prints
+     `ok · 1 049 songs of cover`, and this line used to repeat it and then append
+     `estimateBasis` — a wire column name (`trailing_spend_usd`), which is not a sentence and
+     was never meant for an operator. The note is kept for the ABSENCES, which the verdict
+     states in one word and this can state in the account's own terms. */
   return {
     ...base,
     value: native,
     unit: "",
-    note:
-      songs === null
-        ? (balanceReason(lead, asOf) ?? "balance known, runway not measured")
-        : `${songsPhrase(songs)}${lead.estimateBasis === null ? "" : ` · ${lead.estimateBasis}`}`,
+    note: songs === null ? (balanceReason(lead, asOf) ?? "runway not measured") : "",
   };
 }
 
@@ -1763,7 +1771,7 @@ function consumedFigure(
       label: "Consumed",
       value: null,
       unit: "",
-      note: "this supplier records no token or character count",
+      note: "no token or character count recorded",
     };
   }
   return {
@@ -1771,7 +1779,7 @@ function consumedFigure(
     label: `${COUNT_LABEL[consumed.unit]} count`,
     value: formatCount(consumed.total),
     unit: consumed.unit,
-    note: "billed in this window, retries included",
+    note: "retries included",
   };
 }
 
@@ -1792,13 +1800,9 @@ function perSongFigure(
           : "this supplier measures no such unit",
     };
   }
-  return {
-    key: "perSong",
-    label,
-    value: formatCount(consumed.perSong),
-    unit: consumed.unit,
-    note: `over ${formatCount(delivered)} delivered song${delivered === 1 ? "" : "s"}`,
-  };
+  /* The denominator is printed ONCE, above the cards — see `VendorCardsProps.deliveredOrders`.
+     Repeating it under each per-song figure was the same clause four times a card. */
+  return { key: "perSong", label, value: formatCount(consumed.perSong), unit: consumed.unit, note: "" };
 }
 
 /** `not_priced` is the shipped state for most legs, and it is not `$0.00`. */
@@ -1836,17 +1840,19 @@ function costFigure(
     unit: "",
     /* The coverage gap is printed with the figure, never after it: an average over the
        attributed subset improves as instrumentation degrades, and a reader who cannot see the
-       denominator cannot see that happening. */
-    note: `${formatCount(cost.attributedOrders)} of ${formatCount(delivered)} delivered song${delivered === 1 ? "" : "s"} carried priced spend`,
+       denominator cannot see that happening. The PAIR is the whole message, so it is a pair and
+       not a sentence about one. */
+    note: `${formatCount(cost.attributedOrders)} of ${formatCount(delivered)} priced`,
   };
 }
 
+/* No `songs` parameter: the runway this figure carries the light for is the card's one
+   `songsOfCover`, and the verdict beside the supplier's name is where it is spelled. */
 function remainingFigure(
   lead: VendorBalanceView | undefined,
   consumed: ReturnType<typeof consumptionOf>,
   cost: VendorCostPerSongView | undefined,
   state: ThresholdState,
-  songs: number | null,
 ): VendorFigure {
   const unitName = consumed === null ? "consumption" : consumed.unit;
   const base = { key: "remaining" as const, label: `Remaining ${unitName}`, state };
@@ -1863,7 +1869,10 @@ function remainingFigure(
       ...base,
       value: formatCount(lead.remaining),
       unit: "characters",
-      note: `measured in characters${songs === null ? "" : ` · ${songsPhrase(songs)}`}`,
+      /* Four words, and every one of them load-bearing: the unit is already the suffix and the
+         runway is already the verdict, so all this can add is that the figure is the balance
+         over again rather than a second reading of it. */
+      note: "same as the balance",
     };
   }
 
@@ -1876,7 +1885,7 @@ function remainingFigure(
       ...base,
       value: null,
       unit: "",
-      note: "no rate is configured, so the balance cannot be converted",
+      note: "no rate configured — the balance cannot be converted",
     };
   }
   if (cost.costUsd <= 0) {
@@ -1884,7 +1893,7 @@ function remainingFigure(
       ...base,
       value: null,
       unit: "",
-      note: "the vendor reports these calls as free, so there is no price to divide the balance by",
+      note: "vendor reports these calls free — no price to divide by",
     };
   }
   const usdPerUnit = cost.costUsd / consumed.total;
@@ -1892,7 +1901,7 @@ function remainingFigure(
     ...base,
     value: formatCount(lead.remaining / usdPerUnit),
     unit: unitName,
-    note: `derived — ${formatUsd(lead.remaining)} ÷ the ${formatUsd(usdPerUnit * 1e6)}/million rate this window measured`,
+    note: `derived · ${formatUsd(lead.remaining)} ÷ ${formatUsd(usdPerUnit * 1e6)}/M`,
   };
 }
 
