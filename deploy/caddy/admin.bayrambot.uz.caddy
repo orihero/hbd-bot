@@ -1,11 +1,11 @@
 # The admin panel. Paste into /etc/caddy/Caddyfile on the host, or import it.
 #
-# UNVERIFIED LIKE EVERYTHING ELSE IN deploy/. This file was written without access to the
-# host. It assumes Caddy terminates TLS there because deploy/caddy/pay.bayrambot.uz.caddy
-# assumes it — which is an assumption citing an assumption, not evidence. Row 12 of
-# docs/deployment/00-host-inventory.md ("what terminates TLS in front of the admin API") is
-# still empty. If aizu runs nginx, this file is the wrong shape entirely; translate the four
-# decisions below rather than installing Caddy alongside whatever is already listening.
+# VERIFIED AGAINST THE HOST on 2026-09-09, unlike the rest of deploy/. Caddy v2.11.4 is
+# installed and active there, it owns :80 and :443, and /etc/caddy/Caddyfile is a single
+# file with no import — so this block is appended to it rather than dropped in a sites
+# directory that does not exist. The admin API answers on 127.0.0.1:8080 (hbd-admin.service,
+# ExecStart pins that host and port) and nothing in Caddy currently points at it: before this
+# file, the panel was reachable only over an SSH tunnel, exactly as that unit's comment says.
 #
 # WHY THE WHOLE HOSTNAME PROXIES, unlike pay.bayrambot.uz which exposes exactly one path.
 # The admin API serves its own React bundle: `/` and every browser route render the SPA
@@ -18,8 +18,9 @@
 # is the compensating control the threat model names (src/hbd/admin/security/clientip.py:3-5,
 # ADMIN_PANEL_PLAN §12.1 T13). The port is a HOST fact — uvicorn takes it on the command
 # line and HBD_ADMIN_PORT is not read by anything that binds (settings.py:188-189, and
-# docs/deployment/04-release.md §6 spells this trap out). 8080 here matches
-# deploy/systemd/hbd-admin.service:30. Read the running process before you trust it.
+# docs/deployment/04-release.md §6 spells this trap out). Confirmed on the host: the running
+# ExecStart is `-m uvicorn hbd.admin.app:app --host 127.0.0.1 --port 8080`, and ss shows
+# exactly one listener on 127.0.0.1:8080.
 
 admin.bayrambot.uz {
 	# Optional, and worth considering: the panel is a username/password login with no
@@ -38,23 +39,28 @@ admin.bayrambot.uz {
 		# them wrong is silent: every rate-limit bucket and every `last_ip` audit row
 		# collapses onto the proxy's address.
 		#
-		#   grey cloud (DNS-only in Cloudflare, as pay.bayrambot.uz is):
-		#     HBD_ADMIN_TRUSTED_PROXY_HOPS=1
-		#     HBD_ADMIN_TRUSTED_PROXY_CIDRS=127.0.0.1/32
+		# THIS HOSTNAME IS PROXIED (orange cloud), confirmed by resolution on
+		# 2026-09-09: admin.bayrambot.uz answers as 2606:4700:3036::… — Cloudflare
+		# anycast — where pay.bayrambot.uz answers as 192.166.228.52, the origin
+		# itself. The two hostnames are deliberately set up differently and the values
+		# below follow from that:
 		#
-		#   orange cloud (proxied through Cloudflare):
 		#     HBD_ADMIN_TRUSTED_PROXY_HOPS=2
 		#     HBD_ADMIN_TRUSTED_PROXY_CIDRS=127.0.0.1/32
 		#
 		# The CIDR is the PEER — always loopback, because Caddy is what connects to the
 		# app. The hop count is how many appended entries to walk back past: Cloudflare
 		# writes the client into XFF and Caddy appends Cloudflare's edge, so proxied
-		# traffic is two entries deep (clientip.py:127-145).
+		# traffic is two entries deep (clientip.py:127-145). Were this hostname ever
+		# switched to grey cloud, the count becomes 1 — and nothing would report the
+		# mismatch, which is why it is written down here next to the reason.
 		#
-		# Unlike the Payme hostname, orange cloud is defensible here — this is a browser
+		# Orange cloud is defensible here in a way it is not for Payme: this is a browser
 		# talking to a login form, exactly the traffic Cloudflare's protections are built
-		# for, and hiding the origin address is worth something. It is a choice, not a
-		# default; make it deliberately and set the hop count to match.
+		# for, and hiding the origin address is worth something. It does mean Cloudflare's
+		# TLS mode must be Full (strict) — under Flexible, Cloudflare speaks plain HTTP to
+		# this block, the panel is served over a connection the __Host- cookies refuse,
+		# and nobody can sign in.
 	}
 
 	# The application sets CSP, X-Content-Type-Options and Referrer-Policy on every
