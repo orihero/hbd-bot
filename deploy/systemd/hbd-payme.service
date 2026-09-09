@@ -1,7 +1,7 @@
 # The Payme Merchant API endpoint. THE ONLY PROCESS IN THIS SYSTEM WITH ANYTHING INBOUND FROM
 # THE PUBLIC INTERNET, and the only one holding the Payme cashbox key.
 #
-#   sudo cp deploy/systemd/*.service /etc/systemd/system/
+#   sudo cp deploy/systemd/hbd-payme.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now hbd-payme
 #
 # WHAT THIS PROCESS HOLDS, AND WHAT IT DELIBERATELY DOES NOT.
@@ -60,9 +60,9 @@ Wants=network-online.target
 Type=simple
 User=hbd
 Group=hbd
-WorkingDirectory=/srv/hbd
+WorkingDirectory=/var/lib/hbd
 Environment=HBD_PAYME_ENV_FILE=/etc/hbd/payme.env
-ExecStart=/srv/hbd/.venv/bin/python -m uvicorn hbd.payme.app:app --host 127.0.0.1 --port 8091
+ExecStart=/opt/hbd/venv/bin/python -m uvicorn hbd.payme.app:app --host 127.0.0.1 --port 8091
 Restart=always
 RestartSec=5s
 
@@ -90,7 +90,7 @@ RestrictNamespaces=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-InaccessiblePaths=/etc/hbd/bot.env /etc/hbd/admin.env
+InaccessiblePaths=/etc/hbd/hbd.env /etc/hbd/hbd-admin.env
 
 [Install]
 WantedBy=multi-user.target

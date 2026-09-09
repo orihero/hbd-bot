@@ -1,14 +1,32 @@
 # The aizu host — inventory
 
-> **UNVERIFIED. Every cell in this document is empty because nobody who wrote it could reach
-> the machine.** The product is *reported* to be deployed to a VPS — unverified. The only
-> thing checkable from here is that a connection recipe was written down: `~/.ssh/config`
-> lines 2–7 define `Host aizu` as `192.166.228.52`, port `722`, user `developer`, identity
-> `~/.ssh/aizu_server`. That is an alias configured on one laptop. It does not establish that
-> anything is deployed there, that the host answers, that the key still works, or that the
-> account still exists — those are row 0 below. Nothing else on this page is a fact yet. The repository records how
-> the software is *built* and how it *behaves*; it records nothing whatsoever about how it is
-> *deployed*, and no document in `docs/` or `deploy/` was written by anyone with host access.
+> **PARTLY VERIFIED, 2026-09-09.** SSH to `aizu` works and a first pass was made from the
+> host. Rows carrying a "Verified 2026-09-09" note are FACTS read off the machine; every other
+> cell is still empty and still a guess. Do not read a filled row as blessing the empty ones.
+>
+> **Three findings that contradict this repository, and they matter more than the rows:**
+>
+> 1. **The host is not called `aizu`.** `hostname` returns `abdu-test`; `aizu` is only the
+>    `~/.ssh/config` alias. Every `journalctl`/`systemctl` transcript will say `abdu-test`.
+> 2. **The deploy is WHEEL-based, and `/srv/hbd` does not exist.** There is no git checkout on
+>    the server. A wheel is built elsewhere and dropped in `/opt/hbd/release/` (which keeps a
+>    `-ROLLBACK-` copy), then installed into `/opt/hbd/venv`. Services run as `User=hbd` with
+>    `WorkingDirectory=/var/lib/hbd`. Alembic lives at `/opt/hbd/migrations`. **Every
+>    `deploy/systemd/*.service` file in this repository names `/srv/hbd/.venv/bin/python` and
+>    would fail to start.** Only `hbd-payme.service` has been corrected; the other three are
+>    left alone because they describe an intent the running units do not implement (see rows
+>    18-19) and rewriting them without redeploying would make the repository wrong in a second
+>    way.
+> 3. **The running units load secrets with `EnvironmentFile=`,** not with the
+>    `HBD_*_ENV_FILE` indirection this repository argues for. The practical consequence is in
+>    row 18: the secrets are in the process environment, where `systemctl show` and
+>    `/proc/<pid>/environ` expose them.
+>
+> **What the `developer` account can and cannot do**, because it bounds who can act:
+> it OWNS `/opt/hbd` (venv, `release/`, `migrations/`), so building, installing a wheel and
+> running migrations need NO root. It has full `sudo` **but only with a password**, and the
+> single `NOPASSWD` rule covers an unrelated `aizu` service. So `/etc/hbd/*`,
+> `/etc/systemd/system/*` and `/etc/caddy/*` are out of reach of any unattended process.
 
 This file exists so that the guesses live in exactly one place and are visibly marked as
 guesses. Fill it in from the host, once, and it becomes the reference the rest of the
@@ -65,9 +83,9 @@ cell empty rather than inferring it.
 | 14 | Whether migration 0007's `REVOKE` is in force | | `psql -d hbd -c '\dp admin_audit_log'`, or `GET /api/audit/verify` → `chainProtection` |
 | 15 | Alembic head the database is actually at | | `sudo -u postgres psql -d hbd -Atc 'select version_num from alembic_version'` — **the `-d hbd` is load-bearing**: without it `psql` connects to the invoking role's default database (`postgres`), where the answer is `relation "alembic_version" does not exist`, which reads as "no migration has ever run". The repo's head is `0021` (`migrations/versions/20260908_1200_0021_add_dashboard_read_indexes.py:93-94`) |
 | 16 | Redis presence, version, and **persistence** | | `redis-cli INFO server \| head -5; redis-cli CONFIG GET appendonly; redis-cli CONFIG GET save; redis-cli CONFIG GET dir` |
-| 17 | What terminates TLS, on what hostname, and whether it adds HSTS | | `systemctl list-units --type=service \| grep -Ei 'caddy\|nginx\|traefik\|apache'; ss -ltnp \| grep -E ':(80\|443)'` |
-| 18 | Path and mode of the bot/worker dotenv file | | `systemctl show -p Environment hbd-bot`, then `stat -c '%n %a %U:%G' <that path>` |
-| 19 | Path and mode of the admin dotenv file | | `systemctl show -p Environment hbd-admin`, then `stat` as above |
+| 17 | What terminates TLS, on what hostname, and whether it adds HSTS | **Caddy** (`caddy.service`, `/usr/bin/caddy`, config `/etc/caddy/Caddyfile`, admin API on `127.0.0.1:2019`). It listens on `*:80` and `*:443` and currently serves `aizu.uz` + `www.aizu.uz` → `127.0.0.1:8765` (a DIFFERENT application), plus a temporary cleartext `http://192.166.228.52` block. **The admin panel is NOT exposed through it** — `127.0.0.1:8080` is loopback-only with no vhost. HSTS: not configured in the Caddyfile; Caddy does not add it by default, so assume ABSENT. Verified 2026-09-09. | `systemctl list-units --type=service \| grep -Ei 'caddy\|nginx\|traefik\|apache'; ss -ltnp \| grep -E ':(80\|443)'` |
+| 18 | Path and mode of the bot/worker dotenv file | `/etc/hbd/hbd.env`, loaded by **`EnvironmentFile=`** in both `hbd-bot.service` and `hbd-worker.service`. **This diverges from the repository**, which specifies `Environment=HBD_ENV_FILE=/etc/hbd/bot.env` so that pydantic-settings reads the file directly and the secrets never enter the process environment. As deployed they DO enter it, and are therefore visible in `systemctl show hbd-bot` and `/proc/<pid>/environ`. Mode not readable from the `developer` account (`/etc/hbd` is `root`-only). Verified 2026-09-09. | `systemctl show -p Environment hbd-bot`, then `stat -c '%n %a %U:%G' <that path>` |
+| 19 | Path and mode of the admin dotenv file | `/etc/hbd/hbd-admin.env`, again via **`EnvironmentFile=`** rather than the repository's `Environment=HBD_ADMIN_ENV_FILE=/etc/hbd/admin.env`. Same divergence and same consequence as row 18. Verified 2026-09-09. | `systemctl show -p Environment hbd-admin`, then `stat` as above |
 | 20 | `HBD_ENVIRONMENT` in **each** of the two files | | `sudo grep -n '^HBD_ENVIRONMENT=' <bot env> <admin env>` — they are independent (`src/hbd/config.py:170`, `src/hbd/admin/settings.py:169`) |
 | 21 | `HBD_ADMIN_ENABLED` | | `sudo grep -n '^HBD_ADMIN_ENABLED=' <admin env>` — default is `false` and the lifespan refuses without it (`src/hbd/admin/app.py:206-208`, `settings.py:180`) |
 | 22 | `HBD_ADMIN_PUBLIC_ORIGIN`, and whether it matches the origin browsers actually reach | | `sudo grep -n '^HBD_ADMIN_PUBLIC_ORIGIN=' <admin env>` — compared exactly (`src/hbd/admin/settings.py:194`, `src/hbd/admin/csrf.py:76-88` — note `csrf.py` is at the package root, *not* under `security/`) |
@@ -85,8 +103,8 @@ cell empty rather than inferring it.
 | 34 | Backup story: `var/archive` (delivered audio *and* every customer avatar) | | as above; `src/hbd/storage.py:73-84` and `src/hbd/user_profiles.py:199-200` share one root |
 | 35 | Backup story: `HBD_ADMIN_AUDIT_HMAC_KEY` | | is it stored anywhere but the admin dotenv file? The chain has no key id (`src/hbd/db/admin/audit.py:10-12`), so losing it makes the whole log unverifiable |
 | 36 | Whether the retention cron has ever run | | `psql -d hbd -c 'select ran_at, is_batch_full, storage_keys_returned, storage_keys_deleted from purge_runs order by ran_at desc limit 5'` |
-| 37 | **The hostname Payme calls, and whether it is a DEDICATED name** | | Nothing in this repository can answer this and nothing here can verify it. It is registered by a human in the Payme cabinet (Кассы → the kassa → Настройки → Инструменты разработчика) as the Endpoint URL, `https://<hostname>/payme`. It must NOT be the admin panel's name: the panel has to be the only reachable name at its origin, because both its cookies are `__Host-` prefixed and un-narrowable and its CSRF check compares `HBD_ADMIN_PUBLIC_ORIGIN` exactly. Confirm too that the terminator proxies `POST /payme` to `127.0.0.1:8091` and passes HTTP 200 bodies through unaltered — Payme reads any other status as a transport fault (`docs/deployment/08-payme.md` §4) |
-| 38 | **The caller-IP allowlist actually configured at the terminator** | | Payme originates from `185.234.113.1`–`185.234.113.15` (`185.234.113.0/28`), and the allowlist is the terminator's job, NOT the application's: `payme_allowed_cidrs` defaults to empty and is honoured only when `payme_trusted_proxy_hops > 0`, because at zero hops the app sees the proxy's address and a filter matching the wrong address is worse than no filter. So this row is the whole control. `nginx -T \| grep -A5 payme`, or the equivalent for whatever row 17 turns out to be. Cross-check it against what actually called us: `journalctl -u hbd-payme --since '7 days ago' -o cat \| grep -o '"peer_ip": *"[^"]*"' \| sort \| uniq -c` |
+| 37 | **The hostname Payme calls, and whether it is a DEDICATED name** | **`pay.bayrambot.uz`** — a dedicated name, NOT the panel's. `bayrambot.uz` was delegated to Cloudflare (`clara`/`patryk.ns.cloudflare.com`) on 2026-09-09; `pay` is an `A` record to `192.166.228.52` set to **DNS-only (grey cloud)** deliberately, because a proxied hostname lets Cloudflare substitute its own non-200 error pages and bot challenges, which Payme reads as `-32400`. **NOT YET REGISTERED in the Payme cabinet, and no Caddy vhost exists for it yet** — the hostname currently resolves and times out. Caddy config to install: `deploy/caddy/pay.bayrambot.uz.caddy`. Verified 2026-09-09. | Nothing in this repository can answer this and nothing here can verify it. It is registered by a human in the Payme cabinet (Кассы → the kassa → Настройки → Инструменты разработчика) as the Endpoint URL, `https://<hostname>/payme`. It must NOT be the admin panel's name: the panel has to be the only reachable name at its origin, because both its cookies are `__Host-` prefixed and un-narrowable and its CSRF check compares `HBD_ADMIN_PUBLIC_ORIGIN` exactly. Confirm too that the terminator proxies `POST /payme` to `127.0.0.1:8091` and passes HTTP 200 bodies through unaltered — Payme reads any other status as a transport fault (`docs/deployment/08-payme.md` §4) |
+| 38 | **The caller-IP allowlist actually configured at the terminator** | **NONE — deliberately.** `185.234.113.0/28` is Payme's PRODUCTION range; their sandbox may originate elsewhere, and a filter that refuses every certification call is indistinguishable from a broken endpoint. The gateway logs every peer IP unconditionally, so the allowlist is to be built from observation AFTER certification. The commented matcher is in `deploy/caddy/pay.bayrambot.uz.caddy`. Verified 2026-09-09. | Payme originates from `185.234.113.1`–`185.234.113.15` (`185.234.113.0/28`), and the allowlist is the terminator's job, NOT the application's: `payme_allowed_cidrs` defaults to empty and is honoured only when `payme_trusted_proxy_hops > 0`, because at zero hops the app sees the proxy's address and a filter matching the wrong address is worse than no filter. So this row is the whole control. `nginx -T \| grep -A5 payme`, or the equivalent for whatever row 17 turns out to be. Cross-check it against what actually called us: `journalctl -u hbd-payme --since '7 days ago' -o cat \| grep -o '"peer_ip": *"[^"]*"' \| sort \| uniq -c` |
 
 > **Rows 33–35 are the ones to do first.** Every retention argument in this codebase is about
 > deleting data on time; not one line of it is about losing data.
