@@ -21,7 +21,7 @@ uses a shell variable you fill in once, and says so.
 
 ```bash
 # Fill these in for your host, once, then paste the rest verbatim.
-CHECKOUT=…            # the git checkout; `migrations/` and `admin-ui/` must be under it
+CHECKOUT=…            # the git checkout; `migrations/` and `admin-dashboard/` must be under it
 PY=…                  # the interpreter the three processes already run under — a HOST fact.
                       # Makefile:22 and the untracked deploy/first-install-proposal.md:90 both assume
                       # "$CHECKOUT/.venv/bin/python"; this repository cannot confirm that is
@@ -209,14 +209,25 @@ about missing API keys — which is confusing, and is a signal that the owner DS
 ## 5. Rebuild the admin console
 
 ```bash
-cd "$CHECKOUT/admin-ui" && npm ci && npm run build
+cd "$CHECKOUT/admin-dashboard" && npm ci && npm run build
 ```
+
+**Build `admin-dashboard/`, not `admin-ui/`.** There are two consoles in this tree and they
+write to the *same* output directory with `emptyOutDir: true` — admin-dashboard/vite.config.ts:20-21
+and admin-ui/vite.config.ts:106-107 both name `../src/hbd/admin/static`. So the last one built
+wins, completely, and building the wrong one is not a partial deploy: it replaces the panel.
+`admin-ui/` is the legacy Gogo console, marked `[DEPRECATED in favor of admin-dashboard]` in its
+own admin-ui/package.json:6. The Makefile already reflects this — `UI := admin-dashboard`
+(Makefile:30) and `make ui-build` (Makefile:110-111) build the dashboard, while the legacy
+console has been moved aside to `make legacy-ui-build` (Makefile:116-117). This section said
+`admin-ui` until 2026-09-09 and was wrong; if another document in this directory still says it,
+it is wrong the same way.
 
 This step is not optional and it is not cosmetic.
 
 `src/hbd/admin/static/` is gitignored (src/hbd/admin/app.py:124-128), so `git pull` never
 updates the bundle. `npm run build` writes into that directory with `emptyOutDir: true`
-(admin-ui/vite.config.ts:106-107) — the Python package tree *is* the build target.
+(admin-dashboard/vite.config.ts:20-21) — the Python package tree *is* the build target.
 
 Skipping it degrades the panel **silently**, in two different ways, neither of which looks
 like a build problem:
@@ -226,7 +237,7 @@ like a build problem:
   `if not SPA_INDEX.is_file(): raise HTTPException(status_code=404)` (app.py:238-239), with
   the static mount deliberately built `check_dir=False` (app.py:298) so the process still
   boots.
-- **A stale bundle**, which is worse because it looks like it works. `admin-ui/index.html:28`
+- **A stale bundle**, which is worse because it looks like it works. `admin-dashboard/index.html:8`
   carries a `__HBD_CSP_NONCE__` placeholder that the API replaces with this response's style
   nonce. A bundle built before that placeholder existed has nothing to replace, and
   `render_shell` serves such a shell **unchanged** and logs
@@ -472,7 +483,7 @@ cd "$CHECKOUT"
 git rev-parse --abbrev-ref HEAD    # WRITE THIS DOWN TOO — the branch you are leaving
 git checkout <the SHA from §2>
 uv pip install --python "$PY" -e "$CHECKOUT"
-cd "$CHECKOUT/admin-ui" && npm ci && npm run build     # NOT optional on the way back either
+cd "$CHECKOUT/admin-dashboard" && npm ci && npm run build   # NOT optional on the way back either
 # restart admin API → bot → worker, exactly as in §6 — including the HBD_ENV_FILE /
 # HBD_ADMIN_ENV_FILE prefixes and your own bind address and port
 ```
