@@ -73,6 +73,17 @@ admin.bayrambot.uz {
 	# knows nothing about, and preload is close to irreversible.
 	header Strict-Transport-Security "max-age=86400"
 
+	# CREATE THIS FILE AS THE CADDY USER BEFORE RELOADING, or the reload is rejected:
+	#
+	#   install -o caddy -g caddy -m 600 /dev/null /var/log/caddy/admin.log
+	#
+	# `caddy validate` does not merely parse, it PROVISIONS — and provisioning a `log`
+	# directive opens the file. Validate as root, as any sane pre-flight check does, and
+	# root creates /var/log/caddy/admin.log owned by root:root. The caddy user then cannot
+	# open it, and `systemctl reload caddy` fails with "permission denied" on the very file
+	# the validation just made. The validation causes the failure it exists to prevent.
+	# This bit us on 2026-09-09; aizu.log was unaffected only because the caddy user had
+	# created it itself back in August.
 	log {
 		output file /var/log/caddy/admin.log {
 			roll_size 10MiB
