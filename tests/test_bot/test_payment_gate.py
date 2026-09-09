@@ -4,6 +4,13 @@ Every failure here also has to put the FSM back. ``handle_confirm`` flips to
 ``Wizard.submitting`` before it does anything else, so that a second tap does not match its
 own state filter; a declined payment or an unreachable queue that left the session in that
 state would strand a customer on a confirm screen whose only button no longer worked.
+
+Every ``BotDeps`` built here carries a ``FakeProfiles``, and it is a precondition rather than
+a habit: ``walk_to_confirm`` drives the real onboarding screens, so a dispatcher with
+``profiles=None`` fails open, treats the caller as onboarded, and answers the walker's first
+language press with nothing at all — every test in the file would then fail on "that session
+expired" and blame the fallback router for a payment bug that is not there.
+``test_walker_preconditions.py`` enforces that statically, so this cannot rot back.
 """
 
 from __future__ import annotations
@@ -27,6 +34,7 @@ from tests.test_bot.conftest import (
     CHAT_ID,
     USER_ID,
     DecliningPaymentProvider,
+    FakeProfiles,
     RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
@@ -102,6 +110,7 @@ async def test_the_gate_is_told_which_telegram_user_is_paying(
             submitter=RecordingSubmitter(),
             content=RecordingContentWriter(),
             payment=payment,
+            profiles=FakeProfiles(),
         ),
         storage=MemoryStorage(),
     )
@@ -125,6 +134,7 @@ async def test_declined_payment_blocks_the_queue_and_keeps_the_user_on_confirm(
         submitter=submitter,
         content=RecordingContentWriter(),
         payment=DecliningPaymentProvider(),
+        profiles=FakeProfiles(),
     )
     dispatcher = build_dispatcher(deps, storage=storage)
     state = FSMContext(
@@ -149,7 +159,12 @@ async def test_queue_failure_keeps_the_user_on_confirm(
     submitter = RecordingSubmitter(failure=RuntimeError("redis is down"))
     storage = MemoryStorage()
     dispatcher = build_dispatcher(
-        BotDeps(settings=settings, submitter=submitter, content=RecordingContentWriter()),
+        BotDeps(
+            settings=settings,
+            submitter=submitter,
+            content=RecordingContentWriter(),
+            profiles=FakeProfiles(),
+        ),
         storage=storage,
     )
     state = FSMContext(
@@ -178,7 +193,12 @@ async def test_a_second_confirm_after_a_queue_failure_is_accepted(
     # Arrange
     submitter = RecordingSubmitter(failure=RuntimeError("redis is down"))
     dispatcher = build_dispatcher(
-        BotDeps(settings=settings, submitter=submitter, content=RecordingContentWriter()),
+        BotDeps(
+            settings=settings,
+            submitter=submitter,
+            content=RecordingContentWriter(),
+            profiles=FakeProfiles(),
+        ),
         storage=MemoryStorage(),
     )
     await walk_to_confirm(dispatcher, bot)

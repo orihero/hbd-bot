@@ -1,0 +1,49 @@
+# The Payme merchant endpoint. Paste into /etc/caddy/Caddyfile on the host, or import it.
+#
+# WHY THIS HOSTNAME IS DNS-ONLY IN CLOUDFLARE (grey cloud), and it is not a preference.
+# Payme reads ANY non-200 as RPC -32400 and retries. A proxied hostname lets Cloudflare
+# substitute its OWN responses — 502/521/522 origin errors, a 1020 access denial, a managed
+# challenge — and every one of those is a non-200 HTML body we never see and cannot log.
+# Cloudflare's bot protections target exactly this traffic shape: a server-to-server POST
+# with no browser and no JavaScript. Grey cloud also keeps the PEER IP real, which is what
+# makes the allowlist below buildable from observation rather than from a published range.
+# The origin address is public anyway (it is in this repository), so grey cloud costs
+# nothing here. See docs/deployment/08-payme.md §4 for the full terminator contract.
+#
+# THE ALLOWLIST IS DELIBERATELY NOT ENABLED YET. 185.234.113.0/28 is Payme's PRODUCTION
+# range; their sandbox may originate elsewhere, and a filter that refuses every
+# certification call looks exactly like a broken endpoint. The gateway logs every request's
+# peer IP unconditionally, so switch it on once the real caller set has been observed:
+#
+#   journalctl -u hbd-payme --since "7 days ago" -o cat \
+#     | grep -o '"peer_ip": *"[^"]*"' | sort | uniq -c | sort -rn
+#
+# Then uncomment the @payme_callers matcher and the two lines that use it.
+
+pay.bayrambot.uz {
+	# @payme_callers remote_ip 185.234.113.0/28
+
+	# Payme's client reconnects frequently, so the upstream keepalive is worth stating
+	# rather than left to chance. Caddy handles the TLS session cache itself.
+	handle /payme {
+		# handle @payme_callers  # ← wrap the reverse_proxy once the range is confirmed
+		reverse_proxy 127.0.0.1:8091 {
+			transport http {
+				keepalive 10m
+			}
+		}
+	}
+
+	# Nothing else on this hostname is reachable from outside. /healthz and /readyz are for
+	# the local monitor and stay on the loopback.
+	handle {
+		respond 404
+	}
+
+	log {
+		output file /var/log/caddy/payme.log {
+			roll_size 10MiB
+			roll_keep 30
+		}
+	}
+}

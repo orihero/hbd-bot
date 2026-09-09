@@ -67,14 +67,26 @@ CATALOGUE: Final[dict[str, str]] = {
     # sanoq yuritiladi, lekin hech kimga rad javobi berilmaydi, va "0 ta qoldi" mahsulot
     # bajarmaydigan raqam boʻlardi. Qolgan holatlarda halol javob —
     # ``credits.balance_none``.
+    #
+    # Bu qatorlarning hech biri endi qoʻshiqlar bepul yoki sotib oladigan narsa yoʻq deb
+    # vaʼda bera olmaydi: ``Settings.free_allowance_credits`` sukut boʻyicha 0, yaʼni
+    # yetkazilayotgan konfiguratsiyada har bir yozuv sotiladi, va "sotib olish kerak emas"
+    # degan gap narxli tugmadan bir ekran oldin aytilgan yolgʻon boʻlardi.
     "credits.balance": (
         "🎵 Qolgan qoʻshiqlar: <b>{credits}</b>\n\n"
-        "Limit — har {period_days} kunda {allowance} ta, u oʻzi yangilanadi: sotib "
-        "olish ham, uzaytirish ham kerak emas."
+        "Limitingiz — har {period_days} kunda {allowance} ta. Qoʻshiqlarni sotib ham "
+        "olsangiz boʻladi: bittalab yoki boshlangʻich reja bilan."
     ),
     "credits.balance_none": (
-        "🎵 Hozircha ishni endi boshlaganim uchun qoʻshiqlar bepul. Sizga hech qanday "
-        "cheklov qoʻllanmayapti, shuning uchun koʻrsatadigan raqam ham yoʻq."
+        "🎵 Hozir bu hisob boʻyicha hech narsa sanalmayapti, shuning uchun "
+        "koʻrsatadigan raqam ham yoʻq."
+    ),
+    # Har bir qoʻshiq sotiladigan konfiguratsiyadagi ``/balance`` javobi: taʼriflaydigan
+    # limit yoʻq, raqam esa faqat uni toʻldiradigan narsa yonida maʼnoga ega — bu endi
+    # taqvim emas, xarid.
+    "credits.balance_metered": (
+        "🎵 Qolgan qoʻshiqlar: <b>{credits}</b>\n\n"
+        "Har bir qoʻshiq bittasini oladi. Bittalab sotib oling yoki boshlangʻich rejani oling."
     ),
     # Hisoblagich ulangan boʻlsa, bayroqdan qatʼi nazar koʻrsatiladi: "bir vaqtda bitta
     # qoʻshiq" cheklovi birinchi kundan ishlaydi, aks holda balans "ha", tasdiqlash tugmasi
@@ -84,7 +96,101 @@ CATALOGUE: Final[dict[str, str]] = {
         "kelishi bilan buyurtma qilsangiz boʻladi."
     ),
     "credits.confirm_note": (
-        "<i>Bu qoʻshiq limitingizdan bittasini oladi. Hozir sizda: {credits}.</i>"
+        "<i>Bu qoʻshiq sizdagilardan bittasini oladi. Hozir sizda: {credits}.</i>"
+    ),
+    # -- checkout (pulli ekran) --------------------------------------------
+    # Hisobda yetarli qoʻshiq boʻlmasa, tasdiqlash ekrani ikkinchi qiyofasini kiyadi.
+    # Matnning vazifasi bitta: mahsulotning ikki yarmini ajratish. Soʻzlar allaqachon
+    # yozilgan, ular bepul va mijozniki boʻlib qoladi; pul faqat yozuvga toʻlanadi. Shu
+    # sababli har bir xabar avval soʻzlarni, keyin narxni ataydi va hech biri "mumkin
+    # emas" demaydi — bu ekran taklif.
+    #
+    # ``{single_amount}`` va ``{plan_amount}`` ``hbd.bot.pricing.format_amount`` orqali
+    # allaqachon uch xonaga ajratilgan holda keladi ("7 000", "49 000") va valyuta soʻzini
+    # OLIB KELMAYDI: u soʻz tilga bogʻliq va shu yerda yashaydi. Raqamlarning oʻzi
+    # ``Settings``dan olinadi, shuning uchun narxni oʻzgartirish — konfiguratsiya
+    # oʻzgarishi, toʻrtta katalog tahriri emas.
+    "checkout.paywall": (
+        "🔒 <b>Soʻzlar sizniki. Pul yozib olishga toʻlanadi.</b>\n\n"
+        "💳 Bitta qoʻshiq — <b>{single_amount} soʻm</b>\n"
+        "🌟 Boshlangʻich — <b>{plan_amount} soʻm</b>: {plan_days} kunda {plan_songs} ta\n\n"
+        "Siz tanlamaguningizcha hech narsa yozib olinmaydi."
+    ),
+    # Oʻsha ekran, lekin reja allaqachon ishlayapti va unda qoʻshiq qolmagan. Birinchisi
+    # ustiga ikkinchi rejani sotish — hech narsa uchun pul olish, shuning uchun faqat bitta
+    # qoʻshiq taklif qilinadi va rejaning oʻzi tugab qolgani ochiq aytiladi.
+    "checkout.paywall_topup": (
+        "🔒 <b>Soʻzlar sizniki. Pul yozib olishga toʻlanadi.</b>\n\n"
+        "Rejangizda qoʻshiq qolmadi va u tugagunicha yangisi qoʻshilmaydi.\n\n"
+        "💳 Yana bitta qoʻshiq — <b>{single_amount} soʻm</b>"
+    ),
+    # Toʻlov oʻtgandan keyin. Raqamni aytadi va tugmani koʻrsatadi: toʻlov qoʻshiqni
+    # navbatga QOʻYMAYDI — mijoz qayta chizilgan ekranda oʻzi "Yozib olinsin"ni bosadi.
+    "checkout.paid_single": (
+        "✅ Toʻlandi. Sizda {credits} ta qoʻshiq tayyor — 🎬 Yozib olinsin tugmasini bosing."
+    ),
+    # ``{ends_on}`` — oddiy ``YYYY-MM-DD`` taqvim sanasi, xuddi ``credits.next_opens``
+    # kabi va oʻsha sababga koʻra: reja sotib olingan kunga bogʻlangan, shuning uchun "30
+    # kunga" degan gap ikkinchi oʻqishda rost boʻlmay qolardi.
+    "checkout.paid_plan": "✅ Toʻlandi. {ends_on} kunigacha {songs} ta qoʻshiq sizniki.",
+    # Oʻsha ikki gap, ammo SOVUQ aytilgan: toʻlov havola orqali mijoz telefonini qoʻygandan
+    # keyin — daqiqalar yoki soatlar oʻtib — oʻtganda ularni ishchi jarayon yuboradi. Bu
+    # ataylab yuqoridagi ikkitasi emas: u yerda mijoz koʻrib turgan ekrandagi 🎬 tugmasi
+    # koʻrsatiladi, bu xabar esa mijoz butunlay boshqa joyga qarab turganda keladi. Tugma
+    # NOMI bu yerda aytilmaydi: klaviaturani xabarni yuboradigan vazifa qoʻyadi.
+    "checkout.paid_late_single": (
+        "✅ <b>Toʻlovingiz oʻtdi.</b>\n\n"
+        "Sizda {credits} ta qoʻshiq tayyor — qoʻshiq yasash uchun quyidagi tugmalardan "
+        "foydalaning."
+    ),
+    "checkout.paid_late_plan": (
+        "✅ <b>Toʻlovingiz oʻtdi.</b>\n\n"
+        "{ends_on} kunigacha {songs} ta qoʻshiq sizniki — qoʻshiq yasash uchun quyidagi "
+        "tugmalardan foydalaning."
+    ),
+    # Reja ishlab turganda tasdiqlash ekrani va ``/balance`` qoʻshadigan yagona qator.
+    "checkout.plan_note": "<i>Rejangizda {songs} ta qoʻshiq qoldi, {ends_on} kunigacha.</i>",
+    # Tashqi toʻlov sahifasida BOSHLANGAN toʻlov — bu muvaffaqiyat. Bu kalit paydo boʻlgunicha
+    # bot aynan toʻlov muvaffaqiyatli boshlangan paytda ``checkout.failed`` ("hech narsa
+    # yechilmadi") deb aytardi.
+    #
+    # ``{amount}`` yuqoridagi vitrinadagidek allaqachon uch xonaga ajratilgan va valyuta
+    # soʻzisiz keladi, va bu — ``Settings``dan qayta oʻqilgan emas, balki toʻlov tizimiga
+    # yuborilgan aynan oʻsha raqam. Yozuv haqida bu yerda hech narsa vada qilinmaydi: hali
+    # hech narsa hisobga olinmagan.
+    "checkout.pending": (
+        "🔗 <b>Sal qoldi.</b>\n\n"
+        "Quyidagi tugmani bosing va <b>{amount} soʻm</b> toʻlang. Toʻlov oʻtmaguncha hech "
+        "narsa yozib olinmaydi — u oʻtishi bilan shu yerda xabar beraman."
+    ),
+    # Xarid haqida emas, HAVOLA haqidagi ikki fakt: shuning uchun bu alohida kalit va shuning
+    # uchun unda birorta ham oʻrin almashtirgich yoʻq — u har qanday mahsulot va har qanday
+    # narx uchun bir xil oʻqiladi.
+    #
+    # Oʻn ikki soat — bu blokdagi konfiguratsiyadan kelmaydigan yagona raqam: u Payme'ning
+    # oʻz oynasi hamda ``HBD_PAYME_TRANSACTION_TIMEOUT_MS`` va ``HBD_PAYME_INTENT_TTL_S``
+    # uchun standart qiymat. Sozlamani oʻzgartirsangiz, bu gapni toʻrtala katalogda ham
+    # oʻzgartirasiz.
+    "checkout.pending_hint": (
+        "<i>Havola 12 soat amal qiladi va bir vaqtning oʻzida faqat bitta toʻlov ochiq "
+        "boʻlishi mumkin. Sahifani yopib, keyin qaytsangiz ham hech narsa yoʻqolmaydi.</i>"
+    ),
+    # Ataylab ``error.`` ostida turmagan ikkita rad javobi: u prefiks ``hbd.errors``ga
+    # tegishli va u yerdagi hamma narsani ishchi jarayon YOZUV muvaffaqiyatsiz tugaganda
+    # yuborishi mumkin — muvaffaqiyatli toʻlovdan keyin yiqilgan qoʻshiq esa "hech narsa
+    # yechilmadi" yolgʻonga aylanadigan aynan oʻsha holat.
+    "checkout.failed": (
+        "Toʻlov oʻtmadi va sizdan hech narsa yechilmadi. Bir ozdan soʻng qayta urinib koʻring."
+    ),
+    "checkout.unavailable": (
+        "Hozir toʻlovni qabul qila olmayman. Iltimos, bir ozdan soʻng qayta urinib koʻring."
+    ),
+    # ``CheckoutPausedError``. ``checkout.unavailable``dan farq qiladi: u yerda toʻlov umuman
+    # ulanmagan, bu yerda esa operator ishlab turgan toʻlovni bir necha daqiqaga ataylab
+    # yopib qoʻygan — shuning uchun vada qisqaroq va mijozdan qaytish soʻraladi.
+    "checkout.paused": (
+        "Toʻlovlar bir necha daqiqaga toʻxtatib turildi — biz bir narsani tuzatyapmiz. "
+        "Sizdan hech narsa yechilmadi, iltimos, birozdan soʻng qayta urinib koʻring."
     ),
     # -- start -------------------------------------------------------------
     "start.welcome": (
@@ -93,15 +199,72 @@ CATALOGUE: Final[dict[str, str]] = {
         "Uslub va ovozni siz tanlaysiz, yozuvdan oldin esa soʻzlarni oʻzingiz oʻqib "
         "chiqasiz. Qoʻshiq va qoʻshiq matni shu yerga keladi."
     ),
-    "start.choose_ui_language": "Avvalo — men siz bilan qaysi tilda gaplashay?",
+    # -- onboarding (hammasidan oldingi ikki ekran) -------------------------
+    # Buni bu bot telefon raqamiga arziydimi-yoʻqmi degan qarorga hali kelmagan odam
+    # oʻqiydi, shuning uchun har bir qator nima kerakligini, bu unga nima berishini va uni
+    # qanday qaytarib olish mumkinligini shu tartibda aytadi. ``onboarding.contact.required``
+    # ataylab ``error.`` ostida emas: u prefiks ``hbd.errors``ga tegishli,
+    # ``runtime.jobs._tell_the_customer_why`` uni parametrsiz yuboradi va ``test_i18n.py``
+    # u yerda oʻrin egallovchini taqiqlaydi — ``error.`` ostidagi rad javobi esa aynan shu
+    # matnni yozdirgan yagona narsani, yaʼni pastdagi tugmani bosish koʻrsatmasini,
+    # olib yura olmasdi.
+    "onboarding.language.prompt": (
+        "🌐 Assalomu alaykum. Avvalo — men siz bilan qaysi tilda gaplashay?\n\n"
+        "Buni keyin ⚙️ Sozlamalar orqali oʻzgartirsangiz boʻladi."
+    ),
+    "onboarding.contact.prompt": (
+        "📱 Endi telefon raqamingizni qoldiring — quyidagi tugmani bosing.\n\n"
+        "Bir marta soʻrayman. Agar qoʻshigʻingiz shu yerga yetib bormasa, oʻsha raqamga "
+        "yuboramiz."
+    ),
+    "onboarding.contact.privacy_line": (
+        "<i>Raqamni faqat qoʻshigʻingizni yetkazish uchun saqlayman, /forget uni oʻchiradi.</i>"
+    ),
+    "onboarding.contact.saved": ("✅ Rahmat, raqamingiz saqlandi. Endi qoʻshiq yasashimiz mumkin."),
+    "onboarding.contact.required": (
+        "📱 Qoʻshiq yasashdan oldin raqamingiz kerak — bir marta soʻrayman. Quyidagi "
+        "tugmani bosing."
+    ),
+    # Telegram joʻnatuvchining manzillar kitobidagi istalgan odam uchun ``Contact``
+    # beradi, shuning uchun uzatilgan karta — hech narsaga rozilik bermagan odamning
+    # toʻgʻri raqami. Ishlovchi ``contact.user_id`` ni joʻnatuvchi bilan solishtiradi.
+    "onboarding.contact.foreign": (
+        "⚠️ Bu boshqa odamning raqami. Iltimos, oʻzingiznikini quyidagi tugma bilan yuboring."
+    ),
+    # -- menu (doimiy javob klaviaturasi) -----------------------------------
+    # Bu toʻrt yozuv kiruvchi xabarning MATNI bilan solishtiriladi. Javob klaviaturasi —
+    # tilni almashtirishdan ham omon qoladigan chat holati: bugun ertalab rus tiliga
+    # oʻtgan odamning yozuv maydoni ostida hamon kechagi oʻzbekcha tugmalar turadi, va
+    # ``keyboards.MENU_LABELS`` aynan shuning uchun joriy til boʻyicha emas, toʻrtala
+    # katalog boʻyicha yigʻiladi. ``menu.prompt`` esa XABAR MATNI va
+    # ``keyboards.MENU_BUTTON_KEYS`` ichida ataylab yoʻq: izoh bosqichida tasodifan "Nima
+    # qilamiz?" deb yozilgan izoh hech qanday tugmasi yoʻq dispetcherga tushmasligi kerak.
+    "menu.prompt": "Nima qilamiz?",
+    "menu.generate": "🎵 Qoʻshiq yasash",
+    "menu.balance": "🎫 Limitim",
+    "menu.settings": "⚙️ Sozlamalar",
+    "menu.help": "❓ Yordam",
+    # -- settings ------------------------------------------------------------
+    # ``{language}`` — bu oʻzgarish qoʻshadigan yagona oʻrin egallovchi, va unga til KODI
+    # emas, ``language.*`` yozuvi — tilning oʻz yozuvidagi oʻz nomi — qoʻyiladi: "Joriy
+    # til: ru" bu kodni oʻqiy olmaydigan odamga hech narsa demaydi, ikki bosishdan keyingi
+    # tanlov ekrani esa aynan oʻsha yozuvni chizadi.
+    "settings.title": "⚙️ <b>Sozlamalar</b>\n\nJoriy til: {language}",
+    "settings.language.prompt": "🌐 Men siz bilan qaysi tilda gaplashay?",
+    "settings.language.saved": "✅ Til saqlandi.",
     # -- wizard ------------------------------------------------------------
     "wizard.occasion.prompt": "Nimani nishonlayapmiz?",
     "wizard.genre.prompt": "Qoʻshiq qanday yangrasin?",
     "wizard.vocal_gender.prompt": "Kim kuylasin?",
     "wizard.note.prompt": (
-        "Bu odam haqida bitta narsani ayting — sevimli mashgʻuloti, eski hazil, faqat siz "
-        "ishlatadigan laqab. Men uni soʻzlar ichiga kiritaman.\n\n"
-        "Bir-ikki gap yetarli, {limit} belgigacha. Izohsiz ham davom etsa boʻladi."
+        "Endi eng muhimi!\n"
+        "Janr ham, sabab ham bor — endi qoʻshiqni chinakam shaxsiy qilamiz 🎯\n\n"
+        "💬 Ilhom beradigan hamma narsani yozing:\n"
+        "— U qanday odam? Qanaqa qiziq odatlari bor?\n"
+        "— Kulgili voqealar yoki sevimli iboralari bormi?\n"
+        "— Bu trek nimani aytsin: sevgimi, hazilmi, minnatdorlikmi?\n\n"
+        "Bemalol yozing, {limit} belgigacha. Ismni keyingi qadamda alohida soʻrayman — "
+        "bu qadamni esa oʻtkazib yuborsa ham boʻladi."
     ),
     "wizard.note.privacy_line": ("<i>Izohni faqat qoʻshiqni yozib, yetkazguncha saqlayman.</i>"),
     "wizard.note.too_long": "Biroz uzun boʻldi. Iltimos, {limit} belgidan oshmasin.",
@@ -223,6 +386,19 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.skip": "⏭️ Oʻtkazib yuborish",
     "button.cancel": "✖️ Bekor qilish",
     "button.confirm": "🎬 Yozib olinsin",
+    # Ikkita xarid tugmasi. Narx toʻrtta katalogga yozib qoʻyilmay, ``Settings``dan
+    # qoʻyiladi: yozib qoʻyilgan raqam bir kuni ``HBD_SINGLE_SONG_PRICE_MINOR`` bilan
+    # kelishmay qoladi — va aynan narxni oʻzgartirgan odam oʻqimaydigan tillarda. Emoji
+    # baribir BIRINCHI turadi, shuning uchun "har bir tugma emoji bilan boshlanadi"
+    # qoidasi buzilmaydi.
+    #
+    # Har biri oʻz qatorini oladi: {amount} = "49 000" bilan uzunlik yigirmadan sal
+    # oshadi, ``MAX_ROW_LABEL_CHARS`` = 30 esa butun qatorga hisoblanadi.
+    "button.pay": "💳 {amount} soʻm — 1 qoʻshiq",
+    "button.subscribe": "🌟 {amount} soʻm — {songs} ta",
+    # Mahsulotdagi tashqi havolali birinchi tugma — u toʻlov sahifasiga olib chiqadi. 💳 emas,
+    # 🔗: 💳 bir ekran oldin ``button.pay``ga tegishli. Narx unda yoʻq — narx tepadagi xabarda.
+    "button.pay_now": "🔗 Toʻlash",
     "button.name_ok": "✅ Ha, shunday",
     "button.retype": "✏️ Qaytadan yozish",
     "button.lyrics_ok": "✅ Shu matn qolsin",
@@ -233,9 +409,26 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.report_problem": "⚠️ Nimadir notoʻgʻri",
     "button.keep_note": "✅ Izoh qolsin",
     "button.try_again": "🔄 Qayta urinish",
+    # Sozlamalar boʻlimi va berk koʻchadan chiqadigan ikki yoʻl. ``button.share_contact`` —
+    # kolbek emas, ``request_contact`` javob tugmasining yozuvi: raqam aynan joʻnatuvchiga
+    # tegishli ekanini isbotlaydigan yagona narsa shu tugma, va yuqoridagi
+    # ``onboarding.contact.foreign`` ham shuning uchun bor.
+    "button.set_language": "🌐 Tilni oʻzgartirish",
+    "button.show_privacy": "🔒 Maʼlumotlarim",
+    "button.show_support": "✉️ Yordam soʻrash",
+    "button.to_menu": "🏠 Menyuga qaytish",
+    "button.to_settings": "⬅️ Sozlamalarga",
+    "button.share_contact": "📱 Raqamni yuborish",
     # -- enum labels -------------------------------------------------------
     "occasion.birthday": "🎂 Tugʻilgan kun",
+    "occasion.love": "❤️ Sevgi izhori",
+    "occasion.support": "💪 Dalda",
+    "occasion.prank": "😂 Hazil",
+    "occasion.holiday": "🎉 Bayram",
+    "occasion.wedding": "💒 Toʻy",
     "occasion.anniversary": "💍 Yubiley",
+    "occasion.kids": "👶 Bolalar uchun",
+    "occasion.no_occasion": "🎶 Sababsiz",
     "occasion.custom": "✨ Boshqa sabab",
     "genre.pop": "🎤 Pop",
     "genre.retro_estrada": "📻 Retro estrada",
@@ -251,10 +444,17 @@ CATALOGUE: Final[dict[str, str]] = {
     "vocal_gender.male": "👨 Erkak ovozi",
     "vocal_gender.duet": "👫 Duet",
     "vocal_gender.any": "🎲 Har qanday ovoz",
-    "language.uz_latn": "Oʻzbekcha (lotin)",
-    "language.uz_cyrl": "Ўзбекча (кирилл)",
-    "language.ru": "Русский",
-    "language.en": "English",
+    # A language button is labelled in its own language, so these four are byte-identical
+    # in every catalogue and stay that way. The flags are deliberate and so is the repeated
+    # 🇺🇿: the product owner chose an emoji on every button with no exceptions and accepted
+    # that both Uzbek options carry the same one, because the endonym in its own script is
+    # what tells them apart. That acceptance is what forces ``keyboards.LANGUAGE_COLUMNS``
+    # to 1 — with the flags on, a two-column row measures 39 characters against a 30 budget,
+    # and a truncated endonym would take away the only thing distinguishing the two.
+    "language.uz_latn": "🇺🇿 Oʻzbekcha (lotin)",
+    "language.uz_cyrl": "🇺🇿 Ўзбекча (кирилл)",
+    "language.ru": "🇷🇺 Русский",
+    "language.en": "🇬🇧 English",
     # -- progress (keys mirror hbd.pipeline.events.STAGE_MESSAGE_KEYS) ------
     "progress.queued": (
         "🎬 {name} uchun qoʻshiq studiyada. Telegramni yopsangiz ham boʻladi — "
@@ -282,6 +482,23 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "progress.retrying_suffix": "({attempt}-urinish)",
     "progress.degraded_suffix": "(imkon qadar)",
+    # -- watermark ---------------------------------------------------------
+    # Bot CHIQARGAN hamma narsani belgilaydigan ikki qator. Ular audio izohiga, tabrik
+    # izohlariga, matn varagʻining qismlariga va matn koʻrinishiga kodda qoʻshiladi, oʻsha
+    # oltita shablonning ichiga yozilmaydi: oltita tirik kalitga ``{handle}`` qoʻshish
+    # ularning oʻrin egallovchilar TOʻPLAMINI oʻzgartirardi, testi esa uni toʻrtta fayl
+    # boʻyicha ikki tomonlama solishtiradi; ``delivery._split_for_telegram`` esa matnning
+    # sof funksiyasi boʻlib qolishi shart, chunki u qaytaradigan qism raqami qayta
+    # yetkazish jurnalida takrorni aniqlash kaliti.
+    #
+    # ``{handle}`` — bu ``hbd.watermark.WATERMARK_HANDLE``, muqova, ID3 teglari va shu
+    # izohlar oʻqiydigan yagona konstanta, shunda toʻrtta tashuvchi qoʻshiqni kim
+    # yaratgani haqida bir-biriga zid gapirmaydi.
+    #
+    # Ikkala kalit ham ``LyricDraft``ga HECH QACHON tushmaydi: matn ichidagi belgi
+    # vendorga ketardi va KUYLANARDI.
+    "watermark.song": "🎧 Bu qoʻshiq {handle} tomonidan yaratilgan",
+    "watermark.invite": "✨ Oʻzingiznikini {handle} da yarating",
     # -- delivery ----------------------------------------------------------
     "delivery.song_caption": (
         "🎵 <b>{title}</b>\n{name} uchun yozildi va kuylandi. Ovozni yoqing."
@@ -325,6 +542,13 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "gap.greeting_missing": "Ovozli tabriklardan biri chiqmadi, shuning uchun u bu yerda yoʻq.",
     # -- commands ----------------------------------------------------------
+    "command.start": "Bir odamga qoʻshiq yasash",
+    "command.cancel": "Toʻxtatib, qaytadan boshlash",
+    "command.balance": "Nechta qoʻshigʻingiz qolgan",
+    "command.help": "Bu qanday ishlaydi",
+    "command.privacy": "Nima saqlanadi, nima yoʻq",
+    "command.support": "Tirik odamga yozish",
+    "command.forget": "Siz haqingizdagi hammasini oʻchirish",
     "help.text": (
         "🎂 Men bitta odam uchun bitta qoʻshiq yozaman va kuylayman — ismi toʻgʻri "
         "talaffuz bilan.\n\n"
@@ -338,32 +562,65 @@ CATALOGUE: Final[dict[str, str]] = {
         "Olgan qoʻshigʻingizda muammo bormi? Uning yakuniy xabaridagi buyurtma raqami "
         "bilan /support yuboring."
     ),
+    # Roʻyxatning birinchi qatorida ataylab muddat yoʻq. Odam OʻZI HAQIDA aytgan narsaning
+    # soati yoʻq: ``/forget`` yozuvni oʻchiradi va yozuvning yoʻqligining oʻzi oʻchirilgan
+    # deganidir — bu yerda muddat yozish esa mavjud boʻlmagan, koddagi hech narsa hech
+    # qachon ishga tushirmaydigan tozalashni vaʼda qilish boʻlardi.
+    #
+    # Toʻlov qatori bu yerda, chunki ``plan_purchases`` jadvali bor: telegram_user_id yonida
+    # summa, valyuta, provayder, toʻlov havolasi va plan tugash sanasi — yaʼni aniq bir odam
+    # haqidagi toʻlov yozuvi. Kassa ishga tushganda bu bildirishnoma hamon faqat
+    # raqam/ism/surat, izoh, fayllar, chalajon qoralama, qoʻshiqlar yozuvi va kunlik sanoqni
+    # sanardi. Oʻchirish teshik emas edi: ``anonymise_plans`` ``forget_account`` dan
+    # chaqiriladi va ``plans_anonymised`` boʻlib hisobot beradi. Teshik AYTIB OʻTISHda edi,
+    # bot mijozlari haqida yozadigan jadvalni tilga olmaydigan bildirishnomani esa odatda
+    # tashqaridan topishadi. Bu qatorda ataylab plexolder yoʻq: ``test_i18n.py`` toʻrtala
+    # katalogning plexolder toʻplamlarini ikki tomonlama solishtiradi, ustiga-ustak bu
+    # yozuvda ataydigan tozalash muddatining oʻzi yoʻq.
     "privacy.text": (
         "🔒 <b>Nimani va qancha saqlayman</b>\n\n"
+        "📱 Telefon raqamingiz, @username, ismingiz va profil suratingiz: hisobingiz "
+        "turgunicha\n"
         "🎙️ Siz bergan ism: {recipient_identity_days} kun\n"
         "✍️ Siz yozgan izoh: {brief_text_days} kun\n"
         "🎵 Tayyor qoʻshiq va qoʻshiq matni: {paid_audio_days} kun\n"
         "🎬 Boshlangan, lekin tugallanmagan qoʻshiq: {abandoned_draft_days} kun\n"
         "🧾 Yasalgan qoʻshiqlar va sarflangan limit yozuvi: muddatsiz\n"
+        "💳 Nima uchun toʻlaganingiz, evaziga nima olganingiz va plan qachon tugashi: "
+        "muddatsiz\n"
         "✍️ Bugun matn necha marta yozilgani sanogʻi: keyingi yozuvingizgacha\n\n"
-        "Muddati bor narsaning hammasi qoʻlda emas, jadval boʻyicha oʻchiriladi. Yozuv — "
-        "ataylab qoldirilgan istisno: oylar oʻtib ham qoʻshiqlaringiz haqidagi savolga aynan "
-        "u javob bera oladi, shuning uchun /forget undan hisob raqamingizni olib tashlaydi va "
-        "sanoqning oʻzini qoldiradi, kvitansiyani oʻchirmaydi. Kunlik yozuv sanogʻida hisob "
-        "raqamingiz ham qoladi — aynan u bir odamning kun boʻyi yozishiga yoʻl qoʻymaydi — "
-        "va keyingi safar yozganingizda ustiga yoziladi.\n\n"
-        "/forget yuborsangiz, hozir ustida ishlayotgan qoʻshigʻingiz darhol oʻchadi; "
-        "studiyaga allaqachon yuborilganiga esa yuqoridagi muddatlar qoladi.\n\n"
+        "Muddati bor narsaning hammasi qoʻlda emas, jadval boʻyicha oʻchiriladi. Qoʻshiqlar "
+        "yozuvi bilan toʻlov yozuvi — ataylab qoldirilgan ikki istisno: oylar oʻtib ham "
+        "qoʻshiqlaringiz yoki ketgan pulingiz haqidagi savolga aynan shu ikkisi javob bera "
+        "oladi, shuning uchun /forget ikkalasidan ham hisob raqamingizni olib tashlaydi va "
+        "sanoq bilan summalarni qoldiradi, kvitansiyani oʻchirmaydi. Kunlik yozuv sanogʻida "
+        "hisob raqamingiz ham qoladi — aynan u bir odamning kun boʻyi yozishiga yoʻl "
+        "qoʻymaydi — "
+        "va keyingi safar yozganingizda ustiga yoziladi. Oʻzingiz haqingizda menga "
+        "aytganlaringiz — raqam, foydalanuvchi nomi, ism, surat — muddatsiz: bu yerda "
+        "hisobingiz turgan ekan, saqlab turaman, /forget esa hammasini bir yoʻla "
+        "oʻchiradi.\n\n"
+        "/forget yuborsangiz, hozir ustida ishlayotgan qoʻshigʻingiz raqamingiz, ismingiz "
+        "va suratingiz bilan birga darhol oʻchadi; studiyaga allaqachon yuborilganiga esa "
+        "yuqoridagi muddatlar qoladi. Keyingi safar tilingizni ham, raqamingizni ham "
+        "qaytadan soʻrayman.\n\n"
         "Qoʻshiq yasamoqchi boʻlsangiz, /start yuboring."
     ),
+    # Oxirgi qator tugmani emas, /start ni aytadi: /forget dan keyin hisob yana birinchi
+    # muloqot nuqtasida boʻladi, va keyingi xabarni — qaysi tugma yuborishidan qatʼi
+    # nazar — onboarding oladi va tilni ham, raqamni ham qaytadan soʻraydi. "Quyidan
+    # qaytadan boshlang" esa aynan shu oʻchirish olib qoʻygan qisqa yoʻlni vaʼda qilardi.
     "privacy.forgotten": (
         "✅ Oʻchirildi. Ustida ishlayotgan qoʻshigʻingiz — ism, izoh, soʻzlar — mening "
         "tomonimda qolmadi, buni ortga qaytarib boʻlmaydi.\n\n"
+        "Telefon raqamingiz, foydalanuvchi nomingiz, ismingiz va suratingiz ham oʻchdi: "
+        "endi men siz haqingizda hech narsa bilmayman, keyingi safar qoʻshiq yasashdan "
+        "oldin qaysi tilda gaplashishimni ham, raqamingizni ham qaytadan soʻrayman.\n\n"
         "Yasalgan qoʻshiqlar yozuvi ham endi siz bilan bogʻliq emas: sanoq qoladi, hisob "
         "raqamingiz esa yoʻq. Shu bilan birga joriy davrda qolgan qoʻshiqlar ham "
         "kuyadi: keyingilari davr almashganda ochiladi.\n\n"
         "Studiyaga allaqachon yuborilgan qoʻshiq /privacy dagi jadval boʻyicha oʻchiriladi.\n\n"
-        "Yana qoʻshiq xohlaganingizda, quyidan qaytadan boshlang."
+        "Yana qoʻshiq xohlaganingizda, /start yuboring."
     ),
     "support.no_contact": (
         "✉️ Nima notoʻgʻri ketganini shu yerda ayting — shu chatga javob yozsangiz "

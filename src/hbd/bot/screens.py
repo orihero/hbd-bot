@@ -21,6 +21,13 @@ Two rules the screens themselves hold, both of them learnt the hard way:
   the work. Where a template takes ``{name}`` and the draft might not have one,
   ``render_step`` reaches for a sibling ``…_noname`` key rather than interpolating an
   empty string: this function is total over :class:`WizardStep` and must never raise.
+
+That totality is why ``render_step`` still has an arm for :attr:`WizardStep.UI_LANGUAGE`
+even though that step is in neither order any more — the interface language is asked once,
+at first contact, by the onboarding screens at the bottom of this module. The arm is not
+dead code and must not be deleted as such; ``states.PARKED_ONLY_STEPS`` sets out the two
+things it buys (an exhaustive ``match`` mypy can check, and a state name Redis keeps handing
+back for fourteen days) and is explicit that neither of them is a customer being sent there.
 """
 
 from __future__ import annotations
@@ -28,9 +35,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup
 
-from hbd.bot.callbacks import LanguageSlot
+from hbd.bot.callbacks import LanguageSlot, NavAction
 from hbd.bot.draft import MAX_NOTE_CHARS, WizardDraft
 from hbd.bot.i18n import (
     escape_html,
@@ -41,22 +48,40 @@ from hbd.bot.i18n import (
     vocal_gender_label,
 )
 from hbd.bot.keyboards import (
+    checkout_keyboard,
+    checkout_link_keyboard,
     confirm_keyboard,
+    contact_request_keyboard,
     genre_keyboard,
     language_keyboard,
     lyrics_keyboard,
+    main_menu_keyboard,
     name_confirm_keyboard,
     name_prompt_keyboard,
     note_keyboard,
     occasion_keyboard,
     own_lyrics_keyboard,
+    settings_keyboard,
     vocal_gender_keyboard,
 )
 from hbd.bot.lyrics_entry import MAX_LYRIC_CHARS, MIN_LYRIC_CHARS
+from hbd.bot.pricing import CheckoutOffer, format_amount
 from hbd.bot.states import WizardStep
 from hbd.contracts import MAX_RECIPIENT_NAME_CHARS, Language
+from hbd.watermark import WATERMARK_HANDLE
 
-__all__ = ["Screen", "render_step", "resolve_step", "welcome_screen", "MAX_PREVIEW_LYRIC_CHARS"]
+__all__ = [
+    "Screen",
+    "render_step",
+    "resolve_step",
+    "menu_screen",
+    "checkout_link_screen",
+    "settings_screen",
+    "settings_language_screen",
+    "onboarding_language_screen",
+    "onboarding_contact_screen",
+    "MAX_PREVIEW_LYRIC_CHARS",
+]
 
 #: How much of a lyric the preview shows. Telegram refuses a message over 4096 characters,
 #: and a generated lyric is bounded only by the lyric-shape constants — eight sections of
@@ -83,7 +108,16 @@ class Screen:
     """What to put on the user's screen. Immutable, and free of any Telegram plumbing."""
 
     text: str
-    markup: InlineKeyboardMarkup | None = None
+    #: Inline markup rides on the MESSAGE; a reply keyboard is chat-level state. Telegram's
+    #: ``editMessageText`` accepts inline markup only, so a screen carrying a reply markup
+    #: can only ever be SENT, never edited in place — and an edit that carries one is a 400
+    #: at send time, from the send site, which no in-process test double will ever raise.
+    #: ``handlers.common._edit_or_send`` enforces that; this comment is why it has to.
+    #:
+    #: ``ReplyKeyboardRemove`` is deliberately NOT a member. Nothing in this product removes
+    #: a keyboard — the menu is persistent by design — and an unused union member is a shape
+    #: that invites a removal nobody designed.
+    markup: InlineKeyboardMarkup | ReplyKeyboardMarkup | None = None
     #: True when the next thing we expect from the user is typed text, not a button.
     is_text_expected: bool = False
 
@@ -124,21 +158,199 @@ def resolve_step(step: WizardStep, draft: WizardDraft) -> WizardStep:
     return step
 
 
-def welcome_screen(language: Language) -> Screen:
-    """The /start screen: greeting plus the interface-language picker, in one message."""
-    text = "\n\n".join(
-        (
-            translate("start.welcome", language),
-            translate("start.choose_ui_language", language),
-        )
-    )
+def menu_screen(language: Language, *, is_first_time: bool = False) -> Screen:
+    """The home screen: one question and the persistent keyboard under it.
+
+    ``is_first_time`` is the whole of the argument about how much to say here.
+    ``start.welcome`` is 214-231 characters of product pitch across the four locales, and
+    this screen is drawn on every ``/start``, every 🏠 Back to menu and every return from a
+    finished flow — a weekly customer would read the same paragraph a dozen times, which is
+    how a pitch turns into noise and then into something skipped. So the pitch is drawn
+    exactly once, on the first menu after onboarding completes, and every other call site
+    gets ``menu.prompt`` alone. One builder rather than two, because two definitions of one
+    screen is how the same screen came to be described three different ways.
+
+    The markup is a REPLY keyboard, which is the one thing a caller has to know about this
+    screen: it can be sent and never edited into an existing message. See ``Screen.markup``.
+    """
+    body = translate("menu.prompt", language)
+    if is_first_time:
+        body = f"{translate('start.welcome', language)}\n\n{body}"
+    return Screen(body, main_menu_keyboard(language))
+
+
+def checkout_link_screen(language: Language, *, url: str, amount_minor: int) -> Screen:
+    """A payment that has STARTED at a redirect rail. Not a receipt, and not a failure.
+
+    Drawn by ``handlers.checkout._settle``'s pending branch, which is reached when the rail
+    answers ``Ok`` with ``is_paid=False`` and a ``checkout_url``. Until that branch existed the
+    same answer was read as a decline and the customer was told "that did not go through, and
+    nothing was charged" at the exact moment their payment had successfully begun.
+
+    **The amount is the one that was quoted to the rail, not one re-read from ``Settings``.**
+    The caller passes the integer minor units it handed ``PurchaseRequest.amount_minor``, which
+    is the same integer the link's ``a=`` parameter carries (``PAYME_INTEGRATION §1``), so the
+    number on this screen and the number on the rail's page cannot disagree — a re-read here
+    would put a price change made between the tap and the redirect on the wrong side of a
+    customer's decision. It arrives in MINOR units and is formatted here, at the edge, which is
+    ``hbd.bot.pricing``'s own rule; the currency WORD stays in the four catalogues, where it
+    differs per language.
+
+    **Two keys rather than one template**, mirroring :func:`onboarding_contact_screen` and
+    :func:`_note_screen`. ``checkout.pending`` carries the price and ``checkout.pending_hint``
+    carries the two facts about the LINK — how long it stays payable, and that only one payment
+    may be open at a time — which are the same two facts for every product and every price.
+    Fusing them would have given the sentence that must be identical in four catalogues a
+    placeholder set owned by the sentence beside it, and
+    ``test_catalog_files``/``test_i18n``'s placeholder-parity assertions are exactly where a
+    half-landed four-file edit would then have shown up.
+
+    There is deliberately no "press 🎬 Record it" here, unlike ``checkout.paid_single``: nothing
+    has been granted, the meter has not moved, and the screen must not point at a button that
+    would refuse. What happens next is told by ``runtime.payme_jobs.notify_payment_settled``,
+    from the worker, whenever the money actually lands — which may be seconds or hours later
+    and does not depend on the customer coming back at all.
+    """
     return Screen(
-        text=text,
-        markup=language_keyboard(LanguageSlot.UI, language, is_back_enabled=False),
+        "\n\n".join(
+            (
+                translate("checkout.pending", language, amount=format_amount(amount_minor)),
+                translate("checkout.pending_hint", language),
+            )
+        ),
+        checkout_link_keyboard(language, url),
     )
 
 
-def render_step(step: WizardStep, draft: WizardDraft, *, credits_note: str | None = None) -> Screen:
+def settings_screen(language: Language) -> Screen:
+    """Settings, headlined by the answer to the only question it can be opened to change.
+
+    ``{language}`` is filled with ``language_label(language, language)`` — the language's own
+    endonym, not the current locale's word for it — because that is the string on the button
+    the customer will press next, and a screen that names the setting one way and the button
+    another makes the reader stop and check whether they are the same thing.
+
+    The substitution is done here rather than through ``translate``'s ``**params`` for one
+    unhappy reason, and it is worth writing down so nobody "simplifies" it back: this is the
+    only template in any catalogue whose placeholder is spelled ``language``, which is also
+    the name of ``translate``'s own second parameter — ``translate(key, lang,
+    language=...)`` is a ``TypeError`` at the call, not a rendering bug, and it would take
+    the whole settings screen down. Everything else about this line matches what
+    ``translate`` would have done: the value is escaped exactly once with the same helper
+    ``translate`` uses, and a catalogue that has lost the key degrades to the key itself with
+    the substitution a harmless no-op, which is the same failure shape as every other screen.
+    """
+    return Screen(
+        translate("settings.title", language).replace(
+            "{language}", escape_html(language_label(language, language))
+        ),
+        settings_keyboard(language),
+    )
+
+
+def settings_language_screen(language: Language) -> Screen:
+    """The language picker inside Settings. No Back, no Cancel — one way out, upwards.
+
+    Cancel would reach ``navigation.handle_cancel``, which is stateless by design: it would
+    clear the FSM and answer "Cancelled — nothing was made, and nothing was kept" to somebody
+    who came here to change a language, and if they were mid-wizard it would take the draft
+    with it. Back has nowhere to go — this screen has no wizard order behind it, and
+    ``previous_step`` would answer ``None``. ``TO_SETTINGS`` is the exit, and unlike Cancel
+    it says where it goes.
+
+    ``LanguageSlot.SETTINGS`` in the payload is what tells the handler this is not the
+    wizard's OUTPUT picker. It cannot be inferred from the FSM state, because this screen
+    deliberately sets none.
+    """
+    return Screen(
+        translate("settings.language.prompt", language),
+        language_keyboard(
+            LanguageSlot.SETTINGS,
+            language,
+            is_back_enabled=False,
+            is_cancel_enabled=False,
+            tail_action=NavAction.TO_SETTINGS,
+        ),
+    )
+
+
+def onboarding_language_screen(language: Language) -> Screen:
+    """The first screen a new customer ever sees. Four buttons and nothing else.
+
+    No Back — there is nothing before it. No Cancel — there is no wizard run to abandon, and
+    the button would have told a brand-new customer that something they had not started had
+    been cancelled, which is the first impression this product can least afford.
+
+    ``language`` is the language the sentence above the buttons is written in, and it is a
+    guess — the configured default — until they answer. The guess is survivable because the
+    buttons themselves are always drawn in each language's own name rather than translated
+    into the guess: somebody who reads none of the sentence can still find their language.
+    """
+    return Screen(
+        translate("onboarding.language.prompt", language),
+        language_keyboard(
+            LanguageSlot.UI, language, is_back_enabled=False, is_cancel_enabled=False
+        ),
+    )
+
+
+def onboarding_contact_screen(language: Language) -> Screen:
+    """The contact request: the prompt, then the retention promise, then the one button.
+
+    Two paragraphs joined here rather than one template, mirroring :func:`_note_screen` —
+    the promise about what happens to the number is a separate sentence in a separate voice
+    (``<i>``), and it is on this screen rather than buried in ``/privacy`` because this is
+    the moment the answer matters to the person deciding.
+
+    ``is_text_expected`` is FALSE, and that is not an oversight. What is expected next is a
+    ``Contact``, not text: a typed number is unattributable, and the number exists precisely
+    so a song can be delivered when Telegram cannot. A typed answer is refused with
+    ``onboarding.contact.required``, not stored — which is also why the keyboard is a reply
+    keyboard with ``request_contact=True`` rather than a prompt to type.
+    """
+    return Screen(
+        "\n\n".join(
+            (
+                translate("onboarding.contact.prompt", language),
+                translate("onboarding.contact.privacy_line", language),
+            )
+        ),
+        contact_request_keyboard(language),
+    )
+
+
+def _parked_language_screen(language: Language) -> Screen:
+    """The total-match arm for :attr:`WizardStep.UI_LANGUAGE`. Almost certainly unreachable.
+
+    This step left both orders when the interface language moved to onboarding. The enum
+    member survives so ``render_step``'s ``match`` stays TOTAL and ``step_for_state``
+    resolves a state name Redis keeps handing back for ``WIZARD_STATE_TTL`` — see
+    ``states.PARKED_ONLY_STEPS`` — and NOT because a customer is expected here. A draft
+    parked in ``Wizard:ui_language`` predates ``user_profiles``, so its owner has no profile
+    row and the onboarding catch-all claims their next tap long before ``questions`` can;
+    they are re-asked their language by :func:`onboarding_language_screen`, and the parked
+    draft — a session id and a default, since UI_LANGUAGE was the first step and nothing
+    after it had been answered — is dropped when onboarding ends. Do not "fix" that by
+    moving this screen anywhere.
+
+    It renders the same catalogue key the onboarding screen does, because two sentences for
+    one question is how a catalogue starts disagreeing with itself. It keeps Cancel because
+    a draft behind a screen is a wizard run by this module's own rule — that is the rule
+    applied consistently, not evidence that anyone will press the button.
+    """
+    return Screen(
+        translate("onboarding.language.prompt", language),
+        language_keyboard(LanguageSlot.UI, language, is_back_enabled=False),
+    )
+
+
+def render_step(
+    step: WizardStep,
+    draft: WizardDraft,
+    *,
+    credits_note: str | None = None,
+    offer: CheckoutOffer | None = None,
+) -> Screen:
     """Render any wizard step. Total over :class:`WizardStep`; never raises.
 
     ``credits_note`` is used by the Confirm screen alone and defaults to ``None``, which is
@@ -147,11 +359,20 @@ def render_step(step: WizardStep, draft: WizardDraft, *, credits_note: str | Non
     arrives as finished text rather than as a balance because a screen is a pure function of
     the draft: reading the meter is I/O, it belongs to ``handlers.balance.show_confirm``, and
     a screen that could await would stop being assertable without an event loop.
+
+    ``offer`` is the same argument one layer on. It is what makes the Confirm screen wear a
+    CHECKOUT face when the account cannot afford a render, and it is a value object rather
+    than a new :class:`WizardStep` for the reasons
+    :class:`~hbd.bot.pricing.CheckoutOffer` sets out — a new step would move
+    ``previous_step(CONFIRM)``, both step orders, ``_STATE_BY_STEP``, this ``match`` and
+    ``walk_to_confirm``, for a screen that is the same screen. ``None`` — which is what a
+    deployment wiring no ``purchases`` and no ``pricing`` produces — renders exactly what
+    this function rendered before the checkout shipped.
     """
     language = draft.ui_language
     match step:
         case WizardStep.UI_LANGUAGE:
-            return welcome_screen(language)
+            return _parked_language_screen(language)
         case WizardStep.OCCASION:
             return Screen(
                 translate("wizard.occasion.prompt", language), occasion_keyboard(language)
@@ -173,7 +394,7 @@ def render_step(step: WizardStep, draft: WizardDraft, *, credits_note: str | Non
         case WizardStep.LYRICS:
             return _lyrics_screen(draft)
         case WizardStep.CONFIRM:
-            return _confirm_screen(draft, credits_note)
+            return _confirm_screen(draft, credits_note, offer=offer)
 
 
 def _quoted(value: str) -> str:
@@ -330,6 +551,24 @@ def _lyrics_screen(draft: WizardDraft) -> Screen:
 
     ``translate`` HTML-escapes every parameter exactly once, so the template owns the
     markup around ``{lyrics}`` and nothing is escaped at this call site.
+
+    **The watermark line is composed here, in code, and never woven into the template.**
+    Two reasons, and the second is the load-bearing one:
+
+    * ``wizard.lyrics.preview`` and ``wizard.lyrics.own_preview`` would each gain a
+      ``{handle}`` placeholder in four catalogues, under a test that asserts placeholder-set
+      equality in both directions — a four-file edit that half-lands is a red suite — and
+      composition costs nothing;
+    * the mark must sit OUTSIDE the ``<blockquote expandable>``. What is inside that quote
+      is the lyric, and the lyric is what gets handed to the music vendor and sung. A
+      watermark that drifted inside it would be sung to a real person on their birthday.
+      ``hbd.watermark`` is a hard leaf that never touches a ``LyricDraft`` for exactly this
+      reason; this call site is the boundary where that stops being an import rule and
+      starts being a screen.
+
+    The line is about thirty-five characters against Telegram's 4096 ceiling and a
+    3000-character clamp on the lyric itself, so :data:`MAX_PREVIEW_LYRIC_CHARS` is
+    unchanged and the preview cannot be pushed over the limit by it.
     """
     language = draft.ui_language
     lyrics = draft.lyrics
@@ -339,19 +578,84 @@ def _lyrics_screen(draft: WizardDraft) -> Screen:
             return _own_lyrics_prompt_screen(draft)
         return render_step(WizardStep.OUTPUT_LANGUAGE, draft)
     body = _elide_for_preview(lyrics.as_plain_text())
+    text = translate(
+        "wizard.lyrics.own_preview" if is_own else "wizard.lyrics.preview",
+        language,
+        title=lyrics.title,
+        lyrics=body,
+    )
+    invite = translate("watermark.invite", language, handle=WATERMARK_HANDLE)
     return Screen(
-        translate(
-            "wizard.lyrics.own_preview" if is_own else "wizard.lyrics.preview",
-            language,
-            title=lyrics.title,
-            lyrics=body,
-        ),
+        f"{text}\n\n{invite}",
         lyrics_keyboard(language, is_own_lyrics=is_own),
         is_text_expected=True,
     )
 
 
-def _confirm_screen(draft: WizardDraft, credits_note: str | None = None) -> Screen:
+def _paywall_screen(language: Language, offer: CheckoutOffer) -> Screen:
+    """The Confirm screen's other face: the words are free, the recording is what costs.
+
+    It REPLACES the summary rather than sitting under it, and that is the decision worth
+    stating. A price appended to a five-row table of answers reads as a surcharge on a thing
+    the customer thought they already had; a screen of its own reads as what it is — one
+    half of the product delivered, the other half offered. The lyric is still one Back press
+    away, unedited and un-taken.
+
+    Two bodies, chosen by ``is_plan_offered``. With a plan already running, ``checkout.paywall``
+    would advertise a product the fulfiller refuses to sell twice (see
+    ``PurchaseFulfiller.start_plan``), so the top-up wording offers the single song alone and
+    says the plan brings nothing more until it ends. The screen and the store therefore agree
+    about what can be bought, instead of the screen finding out from an error.
+
+    Nothing is read here and nothing is formatted here: every number arrives finished on
+    ``offer.pricing``. See :class:`~hbd.bot.pricing.CheckoutOffer`.
+    """
+    pricing = offer.pricing
+    if offer.is_plan_offered:
+        text = translate(
+            "checkout.paywall",
+            language,
+            single_amount=pricing.single_amount,
+            plan_amount=pricing.plan_amount,
+            plan_songs=pricing.plan_songs,
+            plan_days=pricing.plan_days,
+        )
+    else:
+        text = translate("checkout.paywall_topup", language, single_amount=pricing.single_amount)
+    return Screen(text, checkout_keyboard(language, offer))
+
+
+def _confirm_notes(
+    language: Language, credits_note: str | None, offer: CheckoutOffer | None
+) -> tuple[str, ...]:
+    """The lines appended under the Confirm summary, in the order they are read.
+
+    Two of them at most, and both are conditional on something being TRUE rather than on a
+    layout: the credits note only when the meter is wired and enforcing, the plan note only
+    while a plan is actually running. A screen that always drew both would have to render an
+    empty paragraph for every deployment that has neither, which is how a screen grows a
+    blank line nobody can explain.
+
+    The plan note is keyed on ``plan_ends_on`` and not on ``plan_songs_left``, because a
+    SPENT plan is still a fact the customer needs on this screen: it is why the plan button
+    is not being offered, and it is the date after which one will be.
+    """
+    notes = [] if credits_note is None else [credits_note]
+    if offer is not None and offer.plan_ends_on is not None:
+        notes.append(
+            translate(
+                "checkout.plan_note",
+                language,
+                songs=offer.plan_songs_left,
+                ends_on=offer.plan_ends_on,
+            )
+        )
+    return tuple(notes)
+
+
+def _confirm_screen(
+    draft: WizardDraft, credits_note: str | None = None, *, offer: CheckoutOffer | None = None
+) -> Screen:
     """The commit screen, headlined by the person it is for.
 
     It used to open with the bot's word for the product and demote the recipient to one row
@@ -360,6 +664,30 @@ def _confirm_screen(draft: WizardDraft, credits_note: str | None = None) -> Scre
     ``{name}`` and the row is gone with it — the same value cannot be both the headline and
     a line item without reading as a duplicate — which is why every parameter below is
     load-bearing and none of them may be dropped.
+
+    With ``offer`` unset or not paywalled this renders BYTE-IDENTICALLY to what it rendered
+    before the checkout shipped, on both the named and the own-lyrics paths. Be precise about
+    who that is for, because this paragraph used to claim ``BotDeps.purchases`` and
+    ``BotDeps.pricing`` are ``None`` "in every deployment", and both halves of that were
+    wrong. ``hbd.main`` is the single ``BotDeps`` construction site and it passes
+    ``purchases=container.purchases`` and ``pricing=Pricing.from_settings(settings)``, while
+    ``runtime.container`` builds ``SqlPurchaseLedger`` unconditionally — so the paywall is
+    LIVE in every shipped configuration, and with ``free_allowance_credits`` at 0 every
+    existing customer meets it on their next song. That is the product, not a regression.
+    What ``offer=None`` actually buys is every ``BotDeps`` built OUTSIDE ``hbd.main`` — the
+    whole bot suite — plus the three runtime ways to reach it, which are enumerated once on
+    ``handlers.balance.build_offer``; that sibling docstring states the rule correctly and is
+    the one to trust if this ever drifts again. "This deployment does not sell" still has to
+    be expressible as a screen that does not mention selling, and here it is.
+
+    That byte-identity is a property of THIS screen only. ``_lyrics_screen`` above appends
+    the watermark invite with no gate on ``purchases`` or ``pricing`` at all, so the lyric
+    preview changed for everyone the day the watermark shipped — deliberately, since the
+    invite is the distribution model and not a checkout artefact.
+
+    A paywalled offer replaces the summary entirely — see :func:`_paywall_screen` — and the
+    replacement carries no 🎬 Record it button, which is what makes "no render is queued
+    unpaid" a property of the keyboard rather than of a check somebody could reorder.
     """
     language = draft.ui_language
     recipient = draft.recipient
@@ -373,7 +701,12 @@ def _confirm_screen(draft: WizardDraft, credits_note: str | None = None) -> Scre
         or output_language is None
         or (recipient is None and not draft.is_own_lyrics)
     ):
+        # The downgrade wins over the offer. A draft this screen cannot render is not a
+        # screen a price belongs on, and the step it resolves to is never CONFIRM.
         return render_step(resolve_step(WizardStep.CONFIRM, draft), draft)
+    if offer is not None and offer.is_paywalled:
+        return _paywall_screen(language, offer)
+    notes = _confirm_notes(language, credits_note, offer)
     if recipient is None:
         # The own-lyrics summary. It is headlined by the SONG rather than by a person,
         # because there is no person: the wizard never asked. The note row is gone with the
@@ -388,10 +721,7 @@ def _confirm_screen(draft: WizardDraft, credits_note: str | None = None) -> Scre
             vocal_gender=vocal_gender_label(vocal_gender, language),
             output_language=language_label(output_language, language),
         )
-        return Screen(
-            text if credits_note is None else f"{text}\n\n{credits_note}",
-            confirm_keyboard(language),
-        )
+        return Screen("\n\n".join((text, *notes)), confirm_keyboard(language))
     text = translate(
         "wizard.confirm.summary",
         language,
@@ -402,10 +732,8 @@ def _confirm_screen(draft: WizardDraft, credits_note: str | None = None) -> Scre
         output_language=language_label(output_language, language),
         note=draft.note.strip() or translate("wizard.confirm.no_note", language),
     )
-    # Appended rather than woven into ``wizard.confirm.summary``: the note is true only when
-    # the meter is wired AND enforcing (see ``handlers.balance``), and a placeholder inside
-    # the summary would have to be rendered as an empty line in every other deployment —
-    # which is how a screen grows a blank paragraph nobody can explain.
-    if credits_note is not None:
-        text = f"{text}\n\n{credits_note}"
-    return Screen(text, confirm_keyboard(language))
+    # Appended rather than woven into ``wizard.confirm.summary``: the notes are true only in
+    # some deployments (see :func:`_confirm_notes`), and a placeholder inside the summary
+    # would have to be rendered as an empty line in every other one — which is how a screen
+    # grows a blank paragraph nobody can explain.
+    return Screen("\n\n".join((text, *notes)), confirm_keyboard(language))

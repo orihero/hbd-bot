@@ -3,9 +3,17 @@
 .env.*
 !.env.example
 !.env.admin.example
+# The Payme gateway's example dotenv. It must be negated explicitly like the other two:
+# `.env.*` on line 3 swallows it silently, so without this line the file is a deliverable
+# that never appears in `git status` and is therefore never committed.
+!.env.payme.example
 # The admin process's own environment. Separate from .env so a shared file cannot leak a
 # vendor key into a process that must not hold one.
 .env.admin
+# The gateway's own environment. Separate again, because it holds the ONE inbound
+# verification secret — the merchant key, whose theft mints credits — and no process that
+# holds a vendor key may be able to read it.
+.env.payme
 *.pem
 *.key
 

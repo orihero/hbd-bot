@@ -64,14 +64,28 @@ CATALOGUE: Final[dict[str, str]] = {
     # but an account that has run out is covered by a grant and renders anyway, so "0 of
     # your 3 songs left" would be a number the product does not honour.
     # ``credits.balance_none`` is the honest answer in every other configuration.
+    #
+    # None of these may promise that songs are free or that there is nothing to buy any
+    # more. ``Settings.free_allowance_credits`` defaults to 0, so the shipped configuration
+    # sells every recording, and a customer who read "it refills on its own — nothing to
+    # buy" here and then met a price button one screen later would have been misled by this
+    # file rather than by the code. The rolling allowance is now something a deployment may
+    # switch on, not the shape of the product.
     "credits.balance": (
         "🎵 Songs left: <b>{credits}</b>\n\n"
-        "The allowance is {allowance} every {period_days} days and it refills on its "
-        "own — nothing to buy, nothing to renew."
+        "Your allowance is {allowance} every {period_days} days. You can also buy songs "
+        "one at a time, or take the starter plan."
     ),
     "credits.balance_none": (
-        "🎵 Songs are free while I am getting started. No limit is being applied to you "
-        "yet, so there is no number worth showing."
+        "🎵 Nothing is being counted against this account right now, so there is no "
+        "number worth showing."
+    ),
+    # The ``/balance`` answer for the deployment that sells every song: there is no
+    # allowance to describe, so the number is only worth showing beside what refills it,
+    # which is now a purchase and not the calendar.
+    "credits.balance_metered": (
+        "🎵 Songs left: <b>{credits}</b>\n\n"
+        "Each song costs one. Buy one at a time, or take the starter plan."
     ),
     # Shown whenever the meter is wired, flag or no flag: the one-song-at-a-time cap is
     # enforced from the day it merged, so a customer whose song is still in the studio would
@@ -80,7 +94,105 @@ CATALOGUE: Final[dict[str, str]] = {
         "🎬 One of your songs is being made right now. The next one can be ordered as soon "
         "as it lands here."
     ),
-    "credits.confirm_note": "<i>This one uses a song from your allowance. You have {credits}.</i>",
+    "credits.confirm_note": "<i>This one uses one of your songs. You have {credits}.</i>",
+    # -- checkout (the paywall) --------------------------------------------
+    # The Confirm screen wears a second face when the account cannot afford a render. The
+    # copy has one job: separate the two halves of the product, because the customer has
+    # already been given something. The words were written for free and are theirs to keep;
+    # only the recording is sold. Every message here therefore names the words first and
+    # the price second, and none of them says "you cannot" — the screen is an offer.
+    #
+    # ``{single_amount}`` and ``{plan_amount}`` arrive already grouped by
+    # ``hbd.bot.pricing.format_amount`` ("7 000", "49 000") and carry NO currency word,
+    # because the word differs per language and belongs in these templates. The numbers
+    # come from ``Settings``, so a price change is a deployment change and never a
+    # four-catalogue edit that half-lands.
+    "checkout.paywall": (
+        "🔒 <b>The words are yours. The recording is what costs.</b>\n\n"
+        "💳 One song — <b>{single_amount} UZS</b>\n"
+        "🌟 Starter — <b>{plan_amount} UZS</b>: {plan_songs} songs, {plan_days} days\n\n"
+        "Nothing is recorded until you choose."
+    ),
+    # Same screen, but a plan is already running and has no song left on it. Selling a
+    # second plan on top would take money for nothing, so only the single song is offered
+    # and the plan's own dead end is stated rather than left for the customer to infer.
+    "checkout.paywall_topup": (
+        "🔒 <b>The words are yours. The recording is what costs.</b>\n\n"
+        "Your plan has no songs left on it, and it brings no more until it ends.\n\n"
+        "💳 One more song — <b>{single_amount} UZS</b>"
+    ),
+    # After a purchase settles. It says the number and then points at the button, because
+    # paying does NOT queue the render: the customer presses Record it themselves on the
+    # redrawn screen, and a "paid" message that stopped there would read as a dead end.
+    "checkout.paid_single": "✅ Paid. You have {credits} song(s) ready — press 🎬 Record it.",
+    # ``{ends_on}`` is a plain ``YYYY-MM-DD`` calendar date, like ``credits.next_opens``
+    # and for the same reason: the plan is anchored to the day it was bought, so "for 30
+    # days" would stop being true the moment the customer reads it again.
+    "checkout.paid_plan": "✅ Paid. {songs} songs are yours until {ends_on}.",
+    # The same two sentences said COLD, by the worker, when a redirect rail settles a payment
+    # minutes or hours after the customer put their phone down
+    # (``runtime.payme_jobs.notify_payment_settled``). They are deliberately NOT the two above:
+    # that copy points at 🎬 Record it, which is a button on a screen the customer is looking
+    # at, and this message arrives when they are looking at something else entirely — so it has
+    # to re-open the door itself rather than gesture at one. It names no button LABEL either,
+    # because the keyboard under it belongs to the job that sends it and a label named here
+    # would be a promise this file cannot keep.
+    "checkout.paid_late_single": (
+        "✅ <b>Your payment landed.</b>\n\n"
+        "You have {credits} song(s) ready — use the buttons below to make one."
+    ),
+    "checkout.paid_late_plan": (
+        "✅ <b>Your payment landed.</b>\n\n"
+        "{songs} songs are yours until {ends_on} — use the buttons below to make one."
+    ),
+    # The one line the Confirm screen and ``/balance`` add while a plan is running. Italic
+    # and short: it is a footnote to a number that is already on the screen.
+    "checkout.plan_note": "<i>{songs} songs left on your plan, until {ends_on}.</i>",
+    # A payment that has STARTED at a redirect rail, which is a SUCCESS. Until this key
+    # existed the bot said ``checkout.failed`` — "nothing was charged" — at the exact moment a
+    # customer's payment had begun, because an unpaid receipt was the only shape the handler
+    # knew and it read it as a decline.
+    #
+    # ``{amount}`` arrives grouped from ``hbd.bot.pricing.format_amount`` and carries no
+    # currency word, exactly like the paywall above, and it is the number that was quoted to
+    # the RAIL rather than one re-read from ``Settings`` — see ``screens.checkout_link_screen``.
+    # It promises nothing about the recording: nothing has been granted yet, and the sentence
+    # that says a song is ready is ``checkout.paid_late_single``, sent from somewhere else.
+    "checkout.pending": (
+        "🔗 <b>Almost there.</b>\n\n"
+        "Tap the button below to pay <b>{amount} UZS</b>. Nothing is recorded until the "
+        "payment lands, and I will tell you here the moment it does."
+    ),
+    # The two facts about the LINK rather than about the purchase, which is why this is a
+    # second key and why it carries NO placeholder: it reads identically for every product and
+    # every price, so it must not inherit a placeholder set from the sentence beside it.
+    #
+    # The twelve hours is the ONE number in this block that is not interpolated from
+    # configuration. It is Payme's own transaction window and the shipped default of both
+    # ``HBD_PAYME_TRANSACTION_TIMEOUT_MS`` and ``HBD_PAYME_INTENT_TTL_S``; moving either off
+    # its default for anything but a certification rehearsal means moving this sentence in all
+    # four catalogues with it.
+    "checkout.pending_hint": (
+        "<i>The link stays good for 12 hours, and only one payment can be open at a time. "
+        "You can close the page and come back — nothing is lost.</i>"
+    ),
+    # Two refusals that are deliberately NOT ``error.``-keyed. That prefix is owned by
+    # ``hbd.errors`` and every key under it is reachable from the worker's
+    # ``_tell_the_customer_why``, which would put "nothing was charged" into the vocabulary
+    # a failed RENDER can answer with — and a render failing after a successful purchase is
+    # exactly the case where that sentence is false.
+    "checkout.failed": "That did not go through, and nothing was charged. Try again in a moment.",
+    "checkout.unavailable": "I cannot take a payment right now. Please try again in a moment.",
+    # ``CheckoutPausedError.default_user_message_key``, and the third refusal that is not an
+    # ``error.`` one for the same reason as its two neighbours. It is distinct from
+    # ``checkout.unavailable`` — that one is a deployment with no rail wired at all, this one is
+    # an operator who has deliberately closed a live rail for a few minutes — so it promises
+    # the customer a shorter wait and asks them to come back rather than telling them to try
+    # something else.
+    "checkout.paused": (
+        "Payments are paused for a few minutes while we sort something out. Nothing was "
+        "charged — please try again shortly."
+    ),
     # -- start -------------------------------------------------------------
     "start.welcome": (
         "🎂 <b>I make one song, for one person, with their name sung the way it is "
@@ -88,15 +200,70 @@ CATALOGUE: Final[dict[str, str]] = {
         "You pick the style and the voice, and you read the words before anything is "
         "recorded. The song and the lyric sheet arrive right here."
     ),
-    "start.choose_ui_language": "First — which language should I talk to you in?",
+    # -- onboarding (the two screens that come before everything else) ------
+    # Read by somebody who has not yet decided whether this bot is worth a phone number, so
+    # each string says what is wanted, what it buys them, and how to take it back, in that
+    # order. ``onboarding.contact.required`` is deliberately NOT keyed under ``error.``:
+    # that prefix is owned by ``hbd.errors``, is rendered with no parameters by
+    # ``runtime.jobs._tell_the_customer_why``, and ``test_i18n.py`` forbids a placeholder
+    # under it — a refusal living there could never carry the one thing that makes this one
+    # actionable, which is the instruction to press the button underneath it.
+    "onboarding.language.prompt": (
+        "🌐 Hello. First — which language should I speak to you in?\n\n"
+        "You can change this later in ⚙️ Settings."
+    ),
+    "onboarding.contact.prompt": (
+        "📱 Now leave me your phone number — press the button below.\n\n"
+        "I ask once. If your song cannot reach you here, we send it to that number."
+    ),
+    "onboarding.contact.privacy_line": (
+        "<i>I keep the number only to deliver your song, and /forget erases it.</i>"
+    ),
+    "onboarding.contact.saved": "✅ Thank you, your number is saved. Now we can make a song.",
+    "onboarding.contact.required": (
+        "📱 Before we make a song I need your number — I ask once. Please press the button below."
+    ),
+    # Telegram hands over a ``Contact`` for anyone in the sender's address book, so a
+    # forwarded card is a well-formed number belonging to somebody who never agreed to
+    # anything. The handler compares ``contact.user_id`` with the sender's and says this.
+    "onboarding.contact.foreign": (
+        "⚠️ That is someone else's number. Please send your own, with the button below."
+    ),
+    # -- menu (the persistent reply keyboard) -------------------------------
+    # These four labels are matched against inbound message TEXT. A reply keyboard is
+    # chat-level state that outlives a language change, so somebody who switched to Russian
+    # this morning still has yesterday's Uzbek buttons pinned under their composer — which
+    # is why ``keyboards.MENU_LABELS`` is computed over all four catalogues rather than over
+    # the one the customer is currently speaking. ``menu.prompt`` is a MESSAGE BODY and is
+    # deliberately excluded from ``keyboards.MENU_BUTTON_KEYS``: a note at the note step
+    # that happens to read "What shall we do?" must not be routed into a dispatcher that has
+    # no button to dispatch to.
+    "menu.prompt": "What shall we do?",
+    "menu.generate": "🎵 Make a song",
+    "menu.balance": "🎫 My balance",
+    "menu.settings": "⚙️ Settings",
+    "menu.help": "❓ Help",
+    # -- settings ------------------------------------------------------------
+    # ``{language}`` is the only placeholder this whole change adds, and it is interpolated
+    # with a ``language.*`` label — the endonym in its own script — never with the language
+    # CODE: "Current language: ru" tells somebody who cannot read the code nothing, and the
+    # picker two taps below draws that same label, so the screen and the choice agree.
+    "settings.title": "⚙️ <b>Settings</b>\n\nCurrent language: {language}",
+    "settings.language.prompt": "🌐 Which language should I speak to you in?",
+    "settings.language.saved": "✅ Language saved.",
     # -- wizard ------------------------------------------------------------
     "wizard.occasion.prompt": "What are we celebrating?",
     "wizard.genre.prompt": "What should it sound like?",
     "wizard.vocal_gender.prompt": "Whose voice should sing it?",
     "wizard.note.prompt": (
-        "Tell me one thing about them — a hobby, an old joke, the name only you use. "
-        "I write it into the words.\n\n"
-        "A sentence or two is plenty, up to {limit} characters. You can also go on without one."
+        "Now for the part that matters most!\n"
+        "We have the genre and the occasion — let us make the song truly personal 🎯\n\n"
+        "💬 Write anything that could inspire it:\n"
+        "— What are they like? Any quirks worth singing about?\n"
+        "— Any funny stories or favourite catchphrases?\n"
+        "— What should this track say: love, mischief, gratitude?\n\n"
+        "Write as freely as you like, up to {limit} characters. I ask for the name separately "
+        "on the next step — and this one can be skipped."
     ),
     "wizard.note.privacy_line": (
         "<i>I keep the note only long enough to write and deliver the song.</i>"
@@ -226,6 +393,24 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.skip": "⏭️ Skip",
     "button.cancel": "✖️ Cancel",
     "button.confirm": "🎬 Record it",
+    # The two purchase buttons. The price is interpolated from ``Settings`` rather than
+    # baked into four catalogues, because a baked number is one that silently disagrees
+    # with ``HBD_SINGLE_SONG_PRICE_MINOR`` the day somebody changes it — and disagrees only
+    # in the three languages the person changing it does not read. The emoji still LEADS,
+    # so ``test_every_button_label_leads_with_an_emoji`` holds with a digit in the label.
+    #
+    # Each gets its own keyboard row: rendered with {amount} at "49 000" these run to the
+    # low twenties, and ``MAX_ROW_LABEL_CHARS`` is 30 for a whole row.
+    "button.pay": "💳 {amount} UZS — 1 song",
+    "button.subscribe": "🌟 {amount} UZS — {songs} songs",
+    # The label on the product's first ``url=`` button — the one that hands the customer to
+    # the payment rail's own page. 🔗 rather than 💳, which is ``button.pay`` one screen
+    # earlier and would collide with it under
+    # ``test_no_two_buttons_on_one_screen_lead_with_the_same_emoji`` the day the two ever share
+    # a screen. It carries no price: the price is in the message above it
+    # (``checkout.pending``), and a button that both leaves Telegram and quotes a number is one
+    # a customer reads twice.
+    "button.pay_now": "🔗 Pay now",
     "button.name_ok": "✅ Yes, that is it",
     "button.retype": "✏️ Type it again",
     "button.lyrics_ok": "✅ Use these lyrics",
@@ -236,9 +421,26 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.report_problem": "⚠️ Something is wrong",
     "button.keep_note": "✅ Keep this note",
     "button.try_again": "🔄 Try again",
+    # The settings submenu and the two ways out of a dead end. ``button.share_contact`` is
+    # the label on a ``request_contact`` reply button rather than on a callback, because
+    # that button is the only thing Telegram offers that proves the number belongs to the
+    # sender — which is also why ``onboarding.contact.foreign`` above has to exist.
+    "button.set_language": "🌐 Change language",
+    "button.show_privacy": "🔒 My data",
+    "button.show_support": "✉️ Contact us",
+    "button.to_menu": "🏠 Back to menu",
+    "button.to_settings": "⬅️ Back to settings",
+    "button.share_contact": "📱 Share my number",
     # -- enum labels -------------------------------------------------------
     "occasion.birthday": "🎂 Birthday",
+    "occasion.love": "❤️ Confession",
+    "occasion.support": "💪 Encouragement",
+    "occasion.prank": "😂 Prank",
+    "occasion.holiday": "🎉 Holiday",
+    "occasion.wedding": "💒 Wedding",
     "occasion.anniversary": "💍 Anniversary",
+    "occasion.kids": "👶 For kids",
+    "occasion.no_occasion": "🎶 No occasion",
     "occasion.custom": "✨ Something else",
     "genre.pop": "🎤 Pop",
     "genre.retro_estrada": "📻 Retro estrada",
@@ -254,10 +456,17 @@ CATALOGUE: Final[dict[str, str]] = {
     "vocal_gender.male": "👨 Male voice",
     "vocal_gender.duet": "👫 Duet",
     "vocal_gender.any": "🎲 Any voice",
-    "language.uz_latn": "Oʻzbekcha (lotin)",
-    "language.uz_cyrl": "Ўзбекча (кирилл)",
-    "language.ru": "Русский",
-    "language.en": "English",
+    # A language button is labelled in its own language, so these four are byte-identical
+    # in every catalogue and stay that way. The flags are deliberate and so is the repeated
+    # 🇺🇿: the product owner chose an emoji on every button with no exceptions and accepted
+    # that both Uzbek options carry the same one, because the endonym in its own script is
+    # what tells them apart. That acceptance is what forces ``keyboards.LANGUAGE_COLUMNS``
+    # to 1 — with the flags on, a two-column row measures 39 characters against a 30 budget,
+    # and a truncated endonym would take away the only thing distinguishing the two.
+    "language.uz_latn": "🇺🇿 Oʻzbekcha (lotin)",
+    "language.uz_cyrl": "🇺🇿 Ўзбекча (кирилл)",
+    "language.ru": "🇷🇺 Русский",
+    "language.en": "🇬🇧 English",
     # -- progress (keys mirror hbd.pipeline.events.STAGE_MESSAGE_KEYS) ------
     "progress.queued": "🎬 {name}'s song is in the studio. You can close Telegram — it lands here.",
     "progress.queued_noname": (
@@ -282,6 +491,24 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "progress.retrying_suffix": "(attempt {attempt})",
     "progress.degraded_suffix": "(best effort)",
+    # -- watermark ---------------------------------------------------------
+    # The two lines that mark everything this bot RENDERS. They are composed onto the audio
+    # caption, the greeting captions, the lyric-sheet parts and the lyrics preview in code
+    # rather than being folded into those six templates, for two reasons. Adding a
+    # ``{handle}`` placeholder to six live keys moves their placeholder SET, which
+    # ``test_catalogue_uses_the_same_placeholders_as_the_reference`` compares in both
+    # directions across four files at once. And ``delivery._split_for_telegram`` has to stay
+    # a pure function of the lyric text, because the part number it produces is a dedup key
+    # in the redelivery ledger.
+    #
+    # ``{handle}`` is ``hbd.watermark.WATERMARK_HANDLE``, one constant that the cover art,
+    # the ID3 tags and these captions all read, so the four carriers cannot come to disagree
+    # about which bot made the song.
+    #
+    # NEITHER key ever reaches a ``LyricDraft``. A watermark inside the lyric would be sent
+    # to the music vendor and SUNG.
+    "watermark.song": "🎧 This song has been generated by {handle}",
+    "watermark.invite": "✨ Generate yours at {handle}",
     # -- delivery ----------------------------------------------------------
     "delivery.song_caption": "🎵 <b>{title}</b>\nWritten and sung for {name}. Sound on.",
     "delivery.greeting_caption": "🎙️ Greeting {index} of {total}",
@@ -318,6 +545,17 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "gap.greeting_missing": "One of the spoken greetings did not come out, so it is not in here.",
     # -- commands ----------------------------------------------------------
+    # The Telegram command menu, one key per entry. These are the ONLY strings Telegram
+    # renders from the client's own language rather than the interface language this bot
+    # asked for, which is why they live here and are published per language_code by
+    # ``hbd.bot.app.publish_commands`` instead of being an English-only tuple.
+    "command.start": "Start a song for someone",
+    "command.cancel": "Stop and start over",
+    "command.balance": "Songs you still have",
+    "command.help": "How this works",
+    "command.privacy": "What is kept, what isn't",
+    "command.support": "Write to a person",
+    "command.forget": "Erase everything about you",
     "help.text": (
         "🎂 I write and record one song for one person, with their name sung properly.\n\n"
         "🎬 /start — make a song\n"
@@ -330,32 +568,61 @@ CATALOGUE: Final[dict[str, str]] = {
         "Something wrong with a song you received? Send /support with the order number "
         "from its closing message."
     ),
+    # The first line of the list has no number beside it on purpose. What the customer told
+    # me about THEMSELVES has no clock: ``/forget`` deletes the row, and the absence of the
+    # row is the erasure record, so naming a retention period here would promise a sweep
+    # that does not exist and that nothing in the code would ever run.
+    #
+    # The payment line is here because ``plan_purchases`` exists. It holds a telegram_user_id
+    # beside an amount, a currency, a provider, a reference and a plan end date — a payment
+    # record about a named person — and when checkout shipped this notice still listed only
+    # the phone/name/photo, the brief, the assets, the draft, the songs-made record and the
+    # daily write count. The erasure was never the gap: ``anonymise_plans`` is called from
+    # ``forget_account`` and reported as ``plans_anonymised``. The DISCLOSURE was, and a
+    # retention notice that omits a table this bot writes about its customers is the kind of
+    # omission that is only ever found from the outside. It carries no placeholder on
+    # purpose: ``tests/test_bot/test_i18n.py`` asserts placeholder-set equality across all
+    # four catalogues in both directions, and this row has no sweep date to name anyway.
     "privacy.text": (
         "🔒 <b>What I keep, and for how long</b>\n\n"
+        "📱 Your phone number, @username, name and profile photo: while your account exists\n"
         "🎙️ The name you gave me: {recipient_identity_days} days\n"
         "✍️ The note you wrote: {brief_text_days} days\n"
         "🎵 The finished song and lyric sheet: {paid_audio_days} days\n"
         "🎬 A song you started but never finished: {abandoned_draft_days} days\n"
         "🧾 The record of songs made and allowance used: no end date\n"
+        "💳 What you paid, what it bought and when the plan runs out: no end date\n"
         "✍️ A count of how many times the words were written today: until you write again\n\n"
-        "Everything with a date on it is deleted on a schedule, not by hand. The record is "
-        "the one exception, on purpose — it is what can still answer a question about your "
-        "songs months later — so /forget takes your account number off it and leaves the "
-        "count behind, rather than erasing a receipt. The daily writing count keeps your "
-        "account number too — it is what stops one person rewriting all day — and it is "
-        "replaced the next time you write.\n\n"
-        "Send /forget and the song you are working on now goes immediately; anything "
-        "already sent to the studio keeps the dates above.\n\n"
+        "Everything with a date on it is deleted on a schedule, not by hand. The songs-made "
+        "record and what you paid are the two exceptions, on purpose — between them they are "
+        "what can still answer a question about your songs, or about money that left your "
+        "account, months later — so /forget takes your account number off both and leaves "
+        "the counts and the amounts behind, rather than erasing a receipt. The daily writing "
+        "count keeps your account number too — it is what stops one person rewriting all "
+        "day — and it is "
+        "replaced the next time you write. What you told me about yourself — the number, "
+        "the username, the name, the photo — has no date on it: I keep it while you have "
+        "an account here, and /forget erases all of it at once.\n\n"
+        "Send /forget and the song you are working on now goes immediately, along with "
+        "your number, your name and your photo; anything already sent to the studio keeps "
+        "the dates above. I will ask for your language and your number again next time.\n\n"
         "Send /start whenever you want to make a song."
     ),
+    # The closing line says /start rather than pointing at a button, because after /forget
+    # the account is back at true first contact: the next update — whichever button sent it
+    # — is claimed by onboarding and re-asks for the language and the number. "Start over
+    # below" would be promising a shortcut that this deletion has just taken away.
     "privacy.forgotten": (
         "✅ Deleted. The song you were working on — the name, the note, the words — is gone "
         "from my side, and there is nothing left to undo.\n\n"
+        "Your phone number, your username, your name and your photo are gone too: I no "
+        "longer know anything about you, and next time I will ask which language to speak "
+        "and for your number again before we can make a song.\n\n"
         "Your songs-made record is no longer linked to you either: the count stays, your "
         "account number does not. That also gives up the songs left in this allowance "
         "window — the next ones open when the window turns over.\n\n"
         "A song already sent to the studio is deleted on the schedule /privacy sets out.\n\n"
-        "Whenever you want another one, start over below."
+        "Whenever you want another one, send /start."
     ),
     "support.no_contact": (
         "✉️ Tell me here what went wrong — just reply in this chat.\n\n"

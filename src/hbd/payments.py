@@ -117,8 +117,23 @@ class CreditGatedPaymentProvider:
     ``submitter.submit`` returned ``Err``) and none of them can reach a refund, because no
     order row and no ARQ job exist yet; and ``reset_to_welcome`` mints a fresh session id,
     hence a fresh UUID5, so the customer's second attempt would be charged again. The
-    worker is the only process whose terminal paths can compensate, so the money lives
-    there and the bot's check (WU7) reads without writing.
+    worker is the only process whose terminal paths can compensate, so the spending lives
+    there and the bot's check (WU7) reads the meter without ever DEBITING it.
+
+    DEBIT and not "writes", and the word is the whole point. This paragraph said "reads
+    without writing" until the checkout shipped, at which point the code contradicted it:
+    the bot process now writes ``credit_ledger`` GRANT rows through
+    ``hbd.db.purchases.SqlPurchaseLedger`` with ``actor=CHECKOUT_ACTOR``, wired into
+    ``BotDeps.purchases`` by ``hbd.main``. Stated as "the bot must not write", the rule is
+    simply false and the next reader corrects it in whichever direction they happened to
+    read first. Stated as "the bot must not SPEND", it is exactly true and it is what makes
+    the asymmetry safe: a GRANT is additive and carries an idempotency key, so a redelivered
+    update lands on a row the unique index already holds and there is nothing to compensate,
+    whereas a DEBIT subtracts against a balance and its settlement closes a row — both have a
+    half-done state that only the process holding the order can unwind, which is this one.
+    ``PIPELINE_ACTOR`` above therefore still says what it always said: ``bot`` never appears
+    against a DEBIT by construction. The port the bot holds carries no ``charge`` and no
+    ``settle``, so it cannot express one.
 
     **It no longer owns ``Settings.credits_enforced``, and that is a fix, not a tidy-up.**
     This class used to return before ``_take_one_credit`` whenever the flag was off, and
