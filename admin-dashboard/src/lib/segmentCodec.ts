@@ -258,9 +258,24 @@ export const segmentSchema: z.ZodType<Segment, z.ZodTypeDef, unknown> = z
     v: z.literal(SEGMENT_SCHEMA_VERSION),
     match: matchModeSchema,
     rules: z.array(segmentNodeSchema).default([]),
-    sort: segmentSortSchema.optional(),
+    /*
+     * `.nullish()`, not `.optional()`, because the wire has two spellings for "no sort". The
+     * TOKEN drops the key (`exclude_none`), but a RESPONSE BODY is a plain dump of the same
+     * pydantic model and a dump spells `None` as `null`: every stored document that never set a
+     * sort comes back from the broadcast detail as `sort: null`, and `.strict()` refused it.
+     * Both spellings mean "the registry's default order", so null is normalised to absent here
+     * rather than widening `Segment.sort` into every screen that reads it — `value` is the same
+     * wire reality, tolerated the same way one field up.
+     */
+    sort: segmentSortSchema.nullish(),
   })
-  .strict();
+  .strict()
+  // Rebuilt key by key rather than spread-and-drop, for the reason `withSort` gives: under
+  // `exactOptionalPropertyTypes` a present `sort: undefined` is not an absent `sort`, and only
+  // the absence encodes. A document read from either spelling is the same object.
+  .transform(({ v, match, rules, sort }) =>
+    sort === undefined || sort === null ? { v, match, rules } : { v, match, rules, sort },
+  );
 
 /** Whether the version the server's registry asks for is the one this bundle speaks. */
 export function isSupportedSegmentVersion(version: number): boolean {
