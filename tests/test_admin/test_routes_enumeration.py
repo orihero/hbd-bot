@@ -11,7 +11,7 @@ So the assertions here are deliberately about ``create_app()`` and nothing else:
 * **The table is frozen.** :data:`MOUNTED_ROUTES` spells out every method, path and
   router-level permission the application serves. A route that appears, disappears, moves or
   changes its guard fails here — including the one that was never mounted at all.
-* **Every exported builder is reachable.** :data:`hbd.admin.routers.__all__` is walked and
+* **Every exported builder is reachable.** :data:`bayram.admin.routers.__all__` is walked and
   each builder's own paths are required to be present in the application. This is the half
   that catches the *next* router: adding it to the package's ``__all__`` without adding the
   ``include_router`` line is a failure, not a silence.
@@ -22,7 +22,7 @@ So the assertions here are deliberately about ``create_app()`` and nothing else:
   ``extend(dependencies)``), so a guard moved off the router and onto the handler reads
   back through it identically — which is the exact substitution §12.1 T3 forbids.
   ``route.dependant`` is worse still, since it flattens the whole tree. So the guard is
-  attributed instead by rebuilding every router ``hbd.admin.routers.__all__`` exports and
+  attributed instead by rebuilding every router ``bayram.admin.routers.__all__`` exports and
   reading ``APIRouter.dependencies`` — the router's own list, before FastAPI has copied it
   anywhere. Anything a route carries beyond what its router declares is a handler guard,
   and :func:`test_no_route_carries_a_guard_its_router_did_not_declare` requires that
@@ -63,22 +63,36 @@ import sqlalchemy as sa
 from fastapi import APIRouter, params
 from fastapi.routing import APIRoute
 
-from hbd.admin import app as app_module
-from hbd.admin import routers as routers_package
-from hbd.admin.app import create_app
-from hbd.admin.container import AdminContainer
-from hbd.admin.deps import API_PREFIX, AUTH_PREFIX, RequirePermission
-from hbd.admin.errors import AdminErrorCode
-from hbd.admin.middleware.security_headers import IMMUTABLE_PATH_PREFIX
-from hbd.admin.routers.admins import ADMINS_PATH
-from hbd.admin.routers.assets import (
+from bayram.admin import app as app_module
+from bayram.admin import routers as routers_package
+from bayram.admin.app import create_app
+from bayram.admin.container import AdminContainer
+from bayram.admin.deps import API_PREFIX, AUTH_PREFIX, RequirePermission
+from bayram.admin.errors import AdminErrorCode
+from bayram.admin.middleware.security_headers import IMMUTABLE_PATH_PREFIX
+from bayram.admin.routers.admins import ADMINS_PATH
+from bayram.admin.routers.assets import (
     ASSET_PATH,
     ASSET_STREAM_PATH,
     ASSET_TEXT_PATH,
     ASSETS_PATH,
 )
-from hbd.admin.routers.audit import AUDIT_PATH, VERIFY_PATH
-from hbd.admin.routers.broadcasts import (
+from bayram.admin.routers.audit import AUDIT_PATH, VERIFY_PATH
+from bayram.admin.routers.billing import (
+    ATTENTION_PATH,
+    CALLS_PATH,
+    FAULTS_PATH,
+    FUNNEL_PATH,
+    INTENT_NOTIFY_PATH,
+    INTENT_PATH,
+    INTENTS_PATH,
+    LOOKUP_PATH,
+    RAIL_PATH,
+    RAIL_PAUSE_PATH,
+    RAIL_RESUME_PATH,
+    SETTLEMENT_PATH,
+)
+from bayram.admin.routers.broadcasts import (
     BROADCAST_CANCEL_PATH,
     BROADCAST_PATH,
     BROADCAST_PAUSE_PATH,
@@ -89,10 +103,10 @@ from hbd.admin.routers.broadcasts import (
     BROADCAST_TEST_SEND_PATH,
     BROADCASTS_PATH,
 )
-from hbd.admin.routers.chats import CHAT_MESSAGES_PATH_TEMPLATE, CHATS_PATH
-from hbd.admin.routers.config import CONFIG_PATH
-from hbd.admin.routers.credits import USER_CREDITS_GRANT_PATH, USER_CREDITS_PATH
-from hbd.admin.routers.dashboard import (
+from bayram.admin.routers.chats import CHAT_MESSAGES_PATH_TEMPLATE, CHATS_PATH
+from bayram.admin.routers.config import CONFIG_PATH
+from bayram.admin.routers.credits import USER_CREDITS_GRANT_PATH, USER_CREDITS_PATH
+from bayram.admin.routers.dashboard import (
     AUDIENCE_LISTS_PATH,
     AUDIENCE_PATH,
     CAPABILITIES_PATH,
@@ -108,9 +122,9 @@ from hbd.admin.routers.dashboard import (
     SERIES_PATH,
     VENDOR_PATH,
 )
-from hbd.admin.routers.generations import ATTEMPT_PATH, GENERATIONS_PATH
-from hbd.admin.routers.health import STATUS_OK
-from hbd.admin.routers.orders import (
+from bayram.admin.routers.generations import ATTEMPT_PATH, GENERATIONS_PATH
+from bayram.admin.routers.health import STATUS_OK
+from bayram.admin.routers.orders import (
     ORDER_ASSETS_PATH,
     ORDER_ATTEMPTS_PATH,
     ORDER_PATH,
@@ -118,10 +132,10 @@ from hbd.admin.routers.orders import (
     ORDER_TIMELINE_PATH,
     ORDERS_PATH,
 )
-from hbd.admin.routers.retention import RETENTION_PATH
-from hbd.admin.routers.reveal import REVEAL_PATH
-from hbd.admin.routers.segments import SEGMENT_FIELDS_PATH, SEGMENT_PREVIEW_PATH
-from hbd.admin.routers.users import (
+from bayram.admin.routers.retention import RETENTION_PATH
+from bayram.admin.routers.reveal import REVEAL_PATH
+from bayram.admin.routers.segments import SEGMENT_FIELDS_PATH, SEGMENT_PREVIEW_PATH
+from bayram.admin.routers.users import (
     USER_AVATAR_PATH,
     USER_BLOCK_PATH,
     USER_ORDERS_PATH,
@@ -130,17 +144,17 @@ from hbd.admin.routers.users import (
     USERS_PATH,
     WIZARD_STATE_PATH,
 )
-from hbd.admin.routers.vendors import (
+from bayram.admin.routers.vendors import (
     VENDOR_ERRORS_PATH,
     VENDOR_USAGE_BY_DAY_PATH,
     VENDOR_USAGE_PATH,
 )
-from hbd.admin.security.permissions import RBAC_MATRIX, Permission, StepUpAction
-from hbd.contracts import BroadcastKind, Language
-from hbd.db.base import Base
-from hbd.db.enums import AdminRole, AuditReasonCode
-from hbd.db.models.asset import AssetRow
-from hbd.db.models.generation_attempt import GenerationAttemptRow
+from bayram.admin.security.permissions import RBAC_MATRIX, Permission, StepUpAction
+from bayram.contracts import BroadcastKind, Language
+from bayram.db.base import Base
+from bayram.db.enums import AdminRole, AuditReasonCode
+from bayram.db.models.asset import AssetRow
+from bayram.db.models.generation_attempt import GenerationAttemptRow
 from tests.test_admin.conftest import (
     ORIGIN,
     PASSWORD,
@@ -208,6 +222,26 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         ("GET", VENDOR_USAGE_PATH, Permission.DASHBOARD_READ),
         ("GET", VENDOR_USAGE_BY_DAY_PATH, Permission.DASHBOARD_READ),
         ("GET", VENDOR_ERRORS_PATH, Permission.DASHBOARD_READ),
+        # The payment rail's own state and the five aggregates over it. DASHBOARD_READ for the
+        # same reason the vendor trio above carries it: counts, closed enum members, provider
+        # and cashbox names, JSON-RPC reply codes, UTC instants and probe booleans — no
+        # telegram id, no name, no note. ``/api/ops/rail`` sits beside ``/api/ops/pulse``
+        # because it describes the MACHINE rather than a metric over it, and it is the only
+        # route in this table that reads Redis: the pause key is the one of the rail's three
+        # switches this process can actually see.
+        ("GET", RAIL_PATH, Permission.DASHBOARD_READ),
+        ("GET", SETTLEMENT_PATH, Permission.DASHBOARD_READ),
+        ("GET", FUNNEL_PATH, Permission.DASHBOARD_READ),
+        ("GET", ATTENTION_PATH, Permission.DASHBOARD_READ),
+        ("GET", FAULTS_PATH, Permission.DASHBOARD_READ),
+        # The inbound journal, and the one line in this table whose prefix and whose cell
+        # disagree. It is served under ``/api/billing`` because that is where an operator
+        # following an incident from the board looks for it, and it stands on DASHBOARD_READ
+        # because ``payme_rpc_log`` holds no telegram id, no request body and no header at all
+        # — ``peerIp`` is Payme's data centre. ``AUDIENCE_LISTS_PATH`` below is the mirror
+        # image (a RECORDS_READ route under ``/api/metrics/``), so a prefix in this API has
+        # never implied a cell.
+        ("GET", CALLS_PATH, Permission.DASHBOARD_READ),
         # Records.
         ("GET", ORDERS_PATH, Permission.RECORDS_READ),
         # The Orders hub's distribution bar, over the whole filter set rather than over the
@@ -248,6 +282,18 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         # integers and machine-built keys — no free text, no name — so there is nothing here
         # a reveal would gate and no reason for a stricter row than the record itself.
         ("GET", USER_CREDITS_PATH, Permission.RECORDS_READ),
+        # Payments, on the same cell as every other record this panel lists, because that is
+        # what they are: a row with a MASKED buyer on it. Nothing here has a plaintext
+        # ``telegramUserId`` field to unmask — the wire models carry the mask plus an explicit
+        # ``isBuyerErased`` and nothing else — so there is no reveal to gate, no masking branch
+        # and no audit row, exactly as on ``/api/orders``. ``/lookup`` is a literal sibling of
+        # ``/intents`` rather than of ``{intent_id}``, so no declaration order matters here:
+        # every literal in this namespace differs from the parameterised route in segment
+        # COUNT, which is a reason to nest the dossier under ``/intents/`` rather than an
+        # accident of it.
+        ("GET", INTENTS_PATH, Permission.RECORDS_READ),
+        ("GET", LOOKUP_PATH, Permission.RECORDS_READ),
+        ("GET", INTENT_PATH, Permission.RECORDS_READ),
         # The audience preview counts exactly the population ``/users?segment=`` pages, with
         # the same document and the same compiler, so it carries the same cell: an operator
         # who may read the rows one screen at a time may read how many there are. It puts no
@@ -288,9 +334,16 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         ("GET", AUDIT_PATH, Permission.AUDIT_READ),
         ("GET", VERIFY_PATH, Permission.AUDIT_READ),
         # ADMIN_READ, not ADMIN_MANAGE: §6.8 line 949 lists this GET as a bare owner ``W``
-        # and gives the four account writes below it an explicit ``W +S``. ``ADMIN_MANAGE``
-        # keeps that ``W+S`` cell and guards no route in this slice.
+        # and gives the four account writes below it an explicit ``W +S``.
         ("GET", ADMINS_PATH, Permission.ADMIN_READ),
+        # The first of those four writes, and the same path under a different method — so
+        # this is the second entry in this table (after ``POST /api/broadcasts``) whose path
+        # carries both, and the method sweep below is what keeps that from being an
+        # assumption. ADMIN_MANAGE_WRITE is the ROLE half of ``ADMIN_MANAGE``'s ``W+S``
+        # cell: the router guard is ``check_role``, which holds no subject and would answer
+        # STEP_UP_REQUIRED to that cell for ever, so the step-up is enforced by the handler
+        # on the username in the body.
+        ("POST", ADMINS_PATH, Permission.ADMIN_MANAGE_WRITE),
         # The one path by which masked data becomes plaintext (§12.2 line 1886: "every ``A``
         # cell routes through the same ``POST /reveal`` endpoint"). Its row is split like the
         # two media routes above and for the same ``check_role`` reason —
@@ -325,6 +378,25 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         ("POST", BROADCAST_RESUME_PATH, Permission.BROADCAST_WRITE),
         ("POST", BROADCAST_CANCEL_PATH, Permission.BROADCAST_WRITE),
         ("POST", BROADCAST_TEST_SEND_PATH, Permission.BROADCAST_WRITE),
+        # The three rail writes, and the two cells are the whole reason there are two routers.
+        #
+        # RAIL_CONTROL is a plain ``W`` and is the FIRST operator action in this table that is
+        # not the role half of a ``W+S`` row — it carries no step-up at all, and
+        # ``Permission.RAIL_CONTROL`` in ``security/permissions.py`` argues the four reasons at
+        # length. The short one: ``bayram.payme.pause``'s own docstring disclaims the switch as
+        # a security control, pausing stops the bot QUOTING rather than moving any money, and
+        # an incident brake with a password box in front of it costs seconds at the moment
+        # somebody most needs them. ``test_rbac_matrix`` asserts it is absent from
+        # ``STEP_UP_ACTIONS``, because adding it there would 403 an OWNER for ever while
+        # looking exactly correct.
+        #
+        # PAYMENT_NOTIFY is its own cell rather than a third route on RAIL_CONTROL because it
+        # reaches SUPPORT: re-sending a confirmation the customer was already owed is the
+        # single most common answer to "I paid and nothing happened", and folding it in would
+        # have handed a support agent the switch that stops the business selling.
+        ("POST", RAIL_PAUSE_PATH, Permission.RAIL_CONTROL),
+        ("POST", RAIL_RESUME_PATH, Permission.RAIL_CONTROL),
+        ("POST", INTENT_NOTIFY_PATH, Permission.PAYMENT_NOTIFY),
     }
 )
 
@@ -360,6 +432,19 @@ MUTATIONS: Final[frozenset[tuple[str, str]]] = frozenset(
         ("POST", BROADCAST_RESUME_PATH),
         ("POST", BROADCAST_CANCEL_PATH),
         ("POST", BROADCAST_TEST_SEND_PATH),
+        # Creating an operator account. Like the three §9.2 actions above it writes the
+        # state change and its audit row in the request's own transaction; unlike them, its
+        # step-up is scoped to a username rather than to an id, because the row it is
+        # authorising does not exist until the request succeeds.
+        ("POST", ADMINS_PATH),
+        # The three rail writes. Pause and resume flip a Redis key and audit the press in the
+        # request's own transaction; notify writes its audit row and then enqueues an ARQ job.
+        # None of the three is a GET and none could be: §12.1 T8 forbids a GET that changes
+        # state, and being a POST is also what puts each behind the CSRF check inside
+        # ``get_current_admin``.
+        ("POST", RAIL_PAUSE_PATH),
+        ("POST", RAIL_RESUME_PATH),
+        ("POST", INTENT_NOTIFY_PATH),
     }
 )
 
@@ -514,7 +599,7 @@ def test_every_router_the_package_exports_is_actually_mounted(
     container: AdminContainer,
 ) -> None:
     # Arrange — the half that catches the *next* router: a builder exported from
-    # ``hbd.admin.routers`` whose ``include_router`` line was never added to ``create_app``.
+    # ``bayram.admin.routers`` whose ``include_router`` line was never added to ``create_app``.
     application = create_app(container=container)
     served = method_paths(api_routes(application))
 
@@ -744,6 +829,23 @@ _MUTATION_BODIES: Final[dict[str, dict[str, Any]]] = {
         "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
         "telegramUserId": 770_000_123,
     },
+    # Creating an operator, well-shaped in the same sense: the CSRF and origin checks run
+    # inside ``get_current_admin``, before this body is validated, before the step-up is
+    # weighed and before ``admin_users`` is touched — so a refusal here is the layer under
+    # test rather than a 422, a missing grant or a username that is already taken.
+    ADMINS_PATH: {
+        "username": "an-operator-nobody-creates",
+        "password": PASSWORD,
+        "role": AdminRole.VIEWER.value,
+        "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
+    },
+    # The three rail writes. Well-shaped in the same sense as everything above: the CSRF and
+    # origin checks run inside ``get_current_admin``, before either body is validated, before
+    # the intent is looked up and before the Redis key is touched — so a refusal here is the
+    # layer under test rather than a 422 or a 409 about a payment nobody seeded.
+    RAIL_PAUSE_PATH: {"reasonCode": AuditReasonCode.INCIDENT.value},
+    RAIL_RESUME_PATH: {"reasonCode": AuditReasonCode.INCIDENT.value},
+    INTENT_NOTIFY_PATH: {"reasonCode": AuditReasonCode.CUSTOMER_REQUEST.value},
 }
 
 #: Path parameters for the two CSRF sweeps. :data:`MUTATIONS` now carries templates, and a
@@ -753,6 +855,7 @@ _MUTATION_BODIES: Final[dict[str, dict[str, Any]]] = {
 MUTATION_IDENTIFIERS: Final[dict[str, object]] = {
     "telegram_user_id": 770_000_123,
     "broadcast_id": UUID(int=4),
+    "intent_id": UUID(int=6),
 }
 
 
@@ -912,6 +1015,11 @@ async def test_no_get_route_changes_domain_state(
         # No campaign is seeded: the two ``/broadcasts/{id}`` reads answer 404 and an empty
         # page for an unknown id, which is still a GET that must write nothing.
         "broadcast_id": UUID(int=5),
+        # Nor a payment: the dossier answers 404 for an unknown intent, and the rail's five
+        # aggregates answer over an empty set. Both are still GETs that must write nothing,
+        # and the settlement route additionally 422s here for want of a ``?from=`` — which is
+        # a refusal that must also leave the database untouched.
+        "intent_id": UUID(int=7),
     }
     await create_account(container, role=AdminRole.OWNER)
     assert (await sign_in(client)).status_code == 200
@@ -940,14 +1048,15 @@ _PROBE_IDENTIFIERS: Final[dict[str, object]] = {
     "asset_id": UUID(int=2),
     "attempt_id": UUID(int=3),
     "broadcast_id": UUID(int=4),
+    "intent_id": UUID(int=6),
 }
 
 
 @pytest.fixture
 def spa_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
-    """A directory shaped like ``vite build``'s output, patched onto ``hbd.admin.app``.
+    """A directory shaped like ``vite build``'s output, patched onto ``bayram.admin.app``.
 
-    Patched rather than written into ``src/hbd/admin/static``, because whether that directory
+    Patched rather than written into ``src/bayram/admin/static``, because whether that directory
     exists depends on whether anybody has run ``make ui-build``. Without the patch these
     tests would assert one thing on a developer's machine and pass vacuously on CI, where the
     bundle is absent and the fallback 404s before it can shadow anything.
@@ -955,7 +1064,7 @@ def spa_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     Returns the shell's marker text, so a caller can assert a response *is* it — and, below,
     that thirty other responses are not.
     """
-    shell = "<!doctype html><title>hbd admin</title><div id=root></div>"
+    shell = "<!doctype html><title>Bayram Admin</title><div id=root></div>"
     static = tmp_path / "static"
     (static / IMMUTABLE_PATH_PREFIX.strip("/")).mkdir(parents=True)
     (static / "index.html").write_text(shell, encoding="utf-8")

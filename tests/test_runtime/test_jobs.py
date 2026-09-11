@@ -24,27 +24,27 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.methods import EditMessageText
 from arq.worker import Retry
 
-from hbd.bot.i18n import translate
-from hbd.config import Settings
-from hbd.contracts import BotBlockSource, Kit, Order, Result, err, ok
-from hbd.errors import PipelineError, ProviderTimeoutError, StorageError
-from hbd.pipeline.events import (
+from bayram.bot.i18n import translate
+from bayram.config import Settings
+from bayram.contracts import BotBlockSource, Kit, Order, Result, err, ok
+from bayram.errors import PipelineError, ProviderTimeoutError, StorageError
+from bayram.pipeline.events import (
     STAGE_MESSAGE_KEYS,
     PipelineStage,
     ProgressEvent,
     ProgressSink,
     ProgressStatus,
 )
-from hbd.pipeline.outcome import PipelineOutcome
-from hbd.runtime.container import AppContainer
-from hbd.runtime.jobs import (
+from bayram.pipeline.outcome import PipelineOutcome
+from bayram.runtime.container import AppContainer
+from bayram.runtime.jobs import (
     BOT_CTX_KEY,
     CONTAINER_CTX_KEY,
     STORAGE_CTX_KEY,
     build_kit_worker_settings,
     generate_and_deliver,
 )
-from hbd.storage import LocalFileStorage
+from bayram.storage import LocalFileStorage
 from tests.test_bot.conftest import (
     CHAT_ID,
     FIXED_MOMENT,

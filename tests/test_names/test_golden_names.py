@@ -14,16 +14,16 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.config import DEFAULT_NAME_CANDIDATE_ORDER
-from hbd.contracts import (
+from bayram.config import DEFAULT_NAME_CANDIDATE_ORDER
+from bayram.contracts import (
     MAX_CANDIDATE_CHARS,
     MAX_RECIPIENT_NAME_CHARS,
     RecipientName,
     is_ok,
 )
-from hbd.names.marks import APOSTROPHE_VARIANTS, MODIFIER_APOSTROPHE, TURNED_COMMA
-from hbd.names.matching import name_similarity
-from hbd.names.resolve import resolve_name
+from bayram.names.marks import APOSTROPHE_VARIANTS, MODIFIER_APOSTROPHE, TURNED_COMMA
+from bayram.names.matching import name_similarity
+from bayram.names.resolve import resolve_name
 from tests.test_names.golden_data import GOLDEN_NAMES, GoldenName
 
 #: The threshold the pipeline ships with. A candidate that scores below it against its own

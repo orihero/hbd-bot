@@ -25,10 +25,10 @@ from typing import Final
 
 import pytest
 
-from hbd.bot.callbacks import NavAction
-from hbd.bot.keyboards import LANGUAGE_COLUMNS
-from hbd.bot.locales import CATALOGUES
-from hbd.contracts import Language
+from bayram.bot.callbacks import NavAction
+from bayram.bot.keyboards import LANGUAGE_COLUMNS
+from bayram.bot.locales import CATALOGUES
+from bayram.contracts import Language
 from tests.test_bot.test_keyboards import every_keyboard, every_reply_keyboard
 
 #: Every tag Telegram's Bot API documents for ``parse_mode=HTML``. Anything else is a 400.
@@ -58,16 +58,16 @@ _TAG = re.compile(r"<\s*/?\s*([a-zA-Z][a-zA-Z0-9-]*)")
 _SPAN = re.compile(r"<\s*span\b[^>]*>")
 
 #: The bot package, which is where every catalogue key is rendered from.
-_SOURCE_ROOT: Final[Path] = Path(__file__).resolve().parents[2] / "src" / "hbd"
+_SOURCE_ROOT: Final[Path] = Path(__file__).resolve().parents[2] / "src" / "bayram"
 
 #: Packages under :data:`_SOURCE_ROOT` that render no catalogue key and are skipped whole.
 #:
-#: The admin panel is a JSON API for operators: it imports nothing from ``hbd.bot.locales``,
+#: The admin panel is a JSON API for operators: it imports nothing from ``bayram.bot.locales``,
 #: calls ``translate`` nowhere, and has no catalogue of its own — its strings are English
 #: constants in an error envelope. It is skipped because :func:`_module_level_key_constants`
 #: is a *heuristic* ("a dotted string assigned to a name ending in KEY"), and that heuristic
 #: reads a column name as an i18n key: ``RevealField.RECIPIENT_LOOKUP_KEY =
-#: "briefs.recipient_lookup_key"`` in ``hbd.admin.schemas.reveal`` is the name of a database
+#: "briefs.recipient_lookup_key"`` in ``bayram.admin.schemas.reveal`` is the name of a database
 #: column that ``POST /reveal`` audits, and it is neither rendered to a customer nor
 #: translatable.
 #:
@@ -235,8 +235,8 @@ def test_the_skipped_packages_really_do_render_no_catalogue_key() -> None:
         assert root.is_dir(), package
         for path in sorted(root.rglob("*.py")):
             reasons = sorted(_literal_keys_rendered_by(path))
-            if "hbd.bot.locales" in path.read_text(encoding="utf-8"):
-                reasons.append("imports hbd.bot.locales")
+            if "bayram.bot.locales" in path.read_text(encoding="utf-8"):
+                reasons.append("imports bayram.bot.locales")
             if reasons:
                 offenders[str(path.relative_to(_SOURCE_ROOT))] = reasons
 
@@ -475,7 +475,7 @@ def test_the_only_label_prefixed_key_that_is_not_a_button_is_the_menu_prompt() -
     exempted here fails too.
     """
     # Arrange
-    from hbd.bot.keyboards import MENU_BUTTON_KEYS
+    from bayram.bot.keyboards import MENU_BUTTON_KEYS
 
     # Act / Assert — every exemption is a real key, under a label prefix, and on no keyboard
     for key in sorted(NOT_A_BUTTON):

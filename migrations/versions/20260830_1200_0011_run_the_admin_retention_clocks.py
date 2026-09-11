@@ -74,9 +74,9 @@ _NEW_COUNTERS: Final[tuple[str, ...]] = (
 # Spelled out again rather than imported from 0007: a migration must keep working after the
 # revision beside it is edited, and Alembic revisions are not a module a later one may
 # depend on. The four conditions are 0007's, verbatim in meaning.
-_AUDIT_DSN_ENV: Final[str] = "HBD_ADMIN_AUDIT_DSN"
-_APP_ROLE_ENV: Final[str] = "HBD_DB_APP_ROLE"
-_APP_DSN_ENV: Final[str] = "HBD_DATABASE_URL"
+_AUDIT_DSN_ENV: Final[str] = "BAYRAM_ADMIN_AUDIT_DSN"
+_APP_ROLE_ENV: Final[str] = "BAYRAM_DB_APP_ROLE"
+_APP_DSN_ENV: Final[str] = "BAYRAM_DATABASE_URL"
 _ROLE_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]{0,62}$")
 
 _PURGE_FUNCTION: Final[str] = "hbd_purge_audit_log"
@@ -93,7 +93,7 @@ RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $hbd$
+AS $bayram$
 DECLARE
     deleted integer;
     bounded integer;
@@ -116,7 +116,7 @@ BEGIN
     GET DIAGNOSTICS deleted = ROW_COUNT;
     RETURN deleted;
 END;
-$hbd$
+$bayram$
 """
 
 _CREATE_REASON_PURGE_FUNCTION: Final[str] = f"""
@@ -125,7 +125,7 @@ RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $hbd$
+AS $bayram$
 DECLARE
     purged integer;
     bounded integer;
@@ -152,7 +152,7 @@ BEGIN
     GET DIAGNOSTICS purged = ROW_COUNT;
     RETURN purged;
 END;
-$hbd$
+$bayram$
 """
 
 

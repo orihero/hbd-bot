@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from hbd.contracts import Chunk, HealthState, MusicProvider, is_err, is_ok
-from hbd.errors import ProviderUnavailableError
-from hbd.providers.music.fake import (
+from bayram.contracts import Chunk, HealthState, MusicProvider, is_err, is_ok
+from bayram.errors import ProviderUnavailableError
+from bayram.providers.music.fake import (
     MP3_FRAME_DURATION_S,
     SILENT_MP3_FRAME,
     FakeMusicProvider,

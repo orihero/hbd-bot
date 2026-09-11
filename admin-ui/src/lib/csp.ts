@@ -54,14 +54,14 @@
 
 import { setNonce } from "get-nonce";
 
-/** `hbd.admin.shell.CSP_NONCE_META_NAME`. */
+/** `bayram.admin.shell.CSP_NONCE_META_NAME`. */
 export const CSP_NONCE_META_NAME = "csp-nonce";
 
 /**
- * `hbd.admin.shell.CSP_NONCE_PLACEHOLDER`. Present verbatim under `vite dev`, where no
+ * `bayram.admin.shell.CSP_NONCE_PLACEHOLDER`. Present verbatim under `vite dev`, where no
  * server substitutes it — and where there is no CSP either, so "no nonce" is correct.
  */
-export const CSP_NONCE_PLACEHOLDER = "__HBD_CSP_NONCE__";
+export const CSP_NONCE_PLACEHOLDER = "__BAYRAM_CSP_NONCE__";
 
 /**
  * This response's style nonce, or `null` when the document carries none.
@@ -94,7 +94,7 @@ export function installCspNonce(doc: Document = document): string | null {
   }
   if (import.meta.env.PROD) {
     // A production bundle with no nonce means the shell was served by something that did
-    // not substitute the placeholder — a stale `src/hbd/admin/static/`, or a proxy serving
+    // not substitute the placeholder — a stale `src/bayram/admin/static/`, or a proxy serving
     // index.html itself. Every Radix modal's scroll lock is dead in that deployment, so it
     // is worth one loud line rather than a violation nobody correlates.
     console.error(

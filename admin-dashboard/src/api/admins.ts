@@ -1,8 +1,8 @@
 /**
  * `GET /api/admins` — the operator roster: who can sign in to this panel, and who cannot.
  *
- * Transcribed from `hbd/admin/schemas/admins.py` (`AdminAccountView`, `AdminRosterResponse`)
- * over `hbd/admin/routers/admins.py`. Eight fields, all camelCase on the wire because
+ * Transcribed from `bayram/admin/schemas/admins.py` (`AdminAccountView`, `AdminRosterResponse`)
+ * over `bayram/admin/routers/admins.py`. Eight fields, all camelCase on the wire because
  * `ApiModel` sets `alias_generator=to_camel`; they are transcribed byte for byte, because a
  * prettier local name would make the `safeParse` in `client.ts` a permanent `SCHEMA_DRIFT`
  * banner.
@@ -65,21 +65,46 @@
  * re-authentication prompt and no retry: the guard writes a `permission.denied` audit row in
  * its own committed transaction before raising, so every attempt costs a row in the log.
  *
- * ## There are no writes on this build
+ * ## One write: `POST /api/admins`
  *
- * `admins.py` declares exactly one route and its opening line says it: "It is a read and it
- * writes nothing." `Permission.ADMIN_MANAGE` exists in the matrix and in `STEP_UP_ACTIONS`
- * but no route declares it. `POST /admins`, `PATCH /admins/{id}`,
- * `POST /admins/{id}/reset-password` and `DELETE /admins/{id}/sessions` are §6.8 future work
- * and will 404 today — so this module exports no writer, and adding one here is how a button
- * that 404s gets drawn.
+ * Creating an operator is the first of §6.8's four account writes to land. The other three —
+ * `PATCH /admins/{id}`, `POST /admins/{id}/reset-password` and
+ * `DELETE /admins/{id}/sessions` — are still future work and still 404 today, so this module
+ * exports one writer and no more; adding another here is how a button that 404s gets drawn.
+ *
+ * **It needs a step-up, and the subject is the USERNAME.** Every other subject-scoped action
+ * in this console re-authenticates against a row that already exists — a Telegram id, a
+ * campaign UUID. This one cannot: the id it would name is minted by the insert being asked
+ * for. So the grant is `admin.manage:{username}`, taken from the refusal's `details`
+ * verbatim like every other, and the practical consequence for a form is that **editing the
+ * username after re-authenticating invalidates the grant** — which is the point, not a
+ * defect: the owner re-authenticated to create *that* operator.
+ *
+ * **The role half is `ADMIN_MANAGE_WRITE` and it is OWNER's alone**, so the three other roles
+ * get a flat `FORBIDDEN` here exactly as they do on the roster read — never a step-up prompt,
+ * which no password could satisfy. A caller that already has a 403 on the list read must not
+ * draw a create button at all.
+ *
+ * **`role: "owner"` is refused with `INVALID_INPUT` (422), not accepted.** The database holds
+ * one active owner (`ix_admin_users_active_owner`); ownership moves with
+ * `python -m bayram.admin.bootstrap --reset-owner` on the host. The refusal carries that
+ * sentence, so render the server's message rather than a generic "invalid input".
+ *
+ * **A taken username is `CONFLICT` (409)** — the ordinary case is retyping a name already on
+ * the roster in front of you — and so is a roster that has reached `MAX_ADMIN_ACCOUNTS`.
+ *
+ * **The password goes up and never comes back.** The response is an `AdminAccountView` like
+ * any other row, with `mustChangePassword: true`: the account holds a credential its holder
+ * did not choose, and the first sign-in reaches nothing until it is replaced. Nothing here
+ * stores, echoes or logs what was sent.
  */
 
 import { z } from "zod";
 
 import { adminRoleSchema } from "./auth";
 import { request, type ApiResult } from "./client";
-import { ADMINS_PREFIX } from "./constants";
+import { ADMINS_PREFIX, MAX_PASSWORD_CHARS, MIN_PASSWORD_CHARS } from "./constants";
+import { reasonedRequestSchema } from "./reveal";
 
 /* The role vocabulary is declared beside `MeResponse`, its first consumer, and imported here
    rather than spelled a second time: two tuples of one closed vocabulary drift, and the drift
@@ -132,12 +157,63 @@ export const adminRosterSchema = z.object({
 export type AdminRoster = z.infer<typeof adminRosterSchema>;
 
 /* -------------------------------------------------------------------------- */
+/* POST /api/admins                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The shortest login this route accepts, and the longest.
+ *
+ * `bayram.admin.schemas.admins.MAX_ADMIN_USERNAME_CHARS` is 32 — half of
+ * `admin_users.username`'s 64 — because the audit boundary refuses any
+ * `[A-Za-z0-9_-]{40,}` run as credential-shaped, and a 44-character login would be a legal
+ * account whose every audit row was rejected.
+ */
+export const MIN_ADMIN_USERNAME_CHARS = 3;
+export const MAX_ADMIN_USERNAME_CHARS = 32;
+
+/**
+ * `ADMIN_USERNAME_PATTERN`, restated so a form refuses before a round trip that would write
+ * no audit row.
+ *
+ * The charset is the step-up scope's, not a house style: the name travels into
+ * `admin_sessions.step_up_scope` as `admin.manage:{username}` and into
+ * `admin_audit_log.subject_id`, and both columns are closed character classes. `:` is
+ * excluded on top of that because it is the scope separator, and `@` is in neither class —
+ * **an email-shaped login cannot be created from this console**, only from the bootstrap CLI.
+ *
+ * Lowercase is required rather than folded, because a scope is compared byte for byte: a
+ * form that sent `Dilnoza` after re-authenticating for `admin.manage:dilnoza` would earn a
+ * 403 nobody can debug. Lowercase the field as the operator types instead of accepting it.
+ */
+export const ADMIN_USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]*[a-z0-9]$/;
+
+/**
+ * `schemas.admins.AdminCreateRequest` — the reason trio, a name, a password and a role.
+ *
+ * There is no `isActive`, no `mustChangePassword` and no `id`: a new account is active, it
+ * always holds a password somebody else chose, and its id is the database's. `role` accepts
+ * `"owner"` here because the SERVER is what refuses it, with a sentence naming the CLI that
+ * does hand ownership over — a client-side narrowing would hide that sentence.
+ */
+export const adminCreateRequestSchema = reasonedRequestSchema.extend({
+  username: z
+    .string()
+    .min(MIN_ADMIN_USERNAME_CHARS)
+    .max(MAX_ADMIN_USERNAME_CHARS)
+    .regex(ADMIN_USERNAME_PATTERN),
+  password: z.string().min(MIN_PASSWORD_CHARS).max(MAX_PASSWORD_CHARS),
+  role: adminRoleSchema,
+});
+export type AdminCreateRequest = z.infer<typeof adminCreateRequestSchema>;
+
+/* -------------------------------------------------------------------------- */
 /* The routes                                                                  */
 /* -------------------------------------------------------------------------- */
 
 /** The route templates, as a failure names them. */
 export const ADMINS_ENDPOINT = {
   list: "GET /api/admins",
+  create: "POST /api/admins",
 } as const;
 
 /**
@@ -154,6 +230,37 @@ export function listAdmins(signal?: AbortSignal): Promise<ApiResult<AdminRoster>
     // No query builder: the route accepts no parameters, so there is no `?` to compose.
     path: ADMINS_PREFIX,
     schema: adminRosterSchema,
+    ...(signal === undefined ? {} : { signal }),
+  });
+}
+
+/**
+ * Add one operator account. **OWNER only, and it needs a live `admin.manage:{username}` grant.**
+ *
+ * Expect `STEP_UP_REQUIRED` on the first attempt and drive `POST /api/auth/step-up` from the
+ * refusal's `details` — then replay this identical body, because a grant authorises an action
+ * on a subject and the server has no memory of the request that was refused. Editing the
+ * username between the two spends the grant on a name nobody asked for and earns another 403.
+ *
+ * On 201 the answer is the row the database wrote — `id`, `createdAt` and `passwordChangedAt`
+ * are its answers, not an echo — and `mustChangePassword` is `true`. Append it to the roster
+ * rather than refetching blind; the account cannot reach anything until its holder replaces
+ * the password.
+ *
+ * The refusals worth branching on: `CONFLICT` (409) for a username already taken or a roster
+ * at `MAX_ADMIN_ACCOUNTS`, and `INVALID_INPUT` (422) for `role: "owner"` — whose message
+ * names the CLI that does move ownership and is worth rendering verbatim.
+ */
+export function createAdmin(
+  body: AdminCreateRequest,
+  signal?: AbortSignal,
+): Promise<ApiResult<AdminAccountView>> {
+  return request({
+    endpoint: ADMINS_ENDPOINT.create,
+    path: ADMINS_PREFIX,
+    method: "POST",
+    body,
+    schema: adminAccountViewSchema,
     ...(signal === undefined ? {} : { signal }),
   });
 }

@@ -187,6 +187,7 @@ export const SUBJECT_TYPE_LABELS: Readonly<Record<AuditSubjectType, string>> = {
   session: "session",
   wizard_draft: "wizard draft",
   system: "system",
+  payment: "payment",
 };
 
 /**
@@ -276,6 +277,10 @@ export const AUDIT_ACTION_FAMILY: Readonly<Record<AuditAction, AuditActionFamily
   "user.purge.done": "customers",
   "user.purge.fail": "customers",
   "credit.grant": "customers",
+  /* Re-sending a payment confirmation is a message to ONE person about their own purchase,
+     which is the same shift-review question `credit.grant` is under: what did we do to a
+     customer today. It is not a `config` action — nothing about the deployment changed. */
+  "payment.notify": "customers",
 
   "moderation.approve": "moderation",
   "moderation.reject": "moderation",
@@ -283,6 +288,12 @@ export const AUDIT_ACTION_FAMILY: Readonly<Record<AuditAction, AuditActionFamily
   "config.validate": "config",
   "config.commit": "config",
   "config.rollback": "config",
+  /* The Payme pause switch is configuration — it is a Redis key that changes what the bot
+     does, in the same class as a committed config version — so it groups with `config.*`
+     rather than earning a family of its own. A tenth family would need `FAMILY_ORDER`, a
+     label and three locale keys for a group of two. */
+  "rail.paused": "config",
+  "rail.resumed": "config",
 
   "retention.extended": "retention",
   "retention.run": "retention",
@@ -455,7 +466,7 @@ export const CHAIN_PROTECTION_NOTES: Readonly<Record<ChainProtection, string>> =
   "hmac-only":
     "Every row is HMAC-chained, so tampering would be detected — but the database has not " +
     "confirmed the revoke, so it would not be prevented. On Postgres that usually means " +
-    "HBD_ADMIN_AUDIT_DSN is empty and migration 0007's REVOKE never ran.",
+    "BAYRAM_ADMIN_AUDIT_DSN is empty and migration 0007's REVOKE never ran.",
 };
 
 /** For a protection mode this build has never heard of. It is printed; it is not explained. */

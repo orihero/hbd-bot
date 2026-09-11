@@ -1,6 +1,6 @@
 """The attribution seam every vendor adapter measures itself through.
 
-``hbd.usage`` exists so that a provider can report what a call cost without a signature
+``bayram.usage`` exists so that a provider can report what a call cost without a signature
 that names an order. Everything asserted here is a property that promise rests on: the
 scope nests and restores, an unbound read is honestly empty rather than a guess, and the
 log line carries both halves of the record — what the vendor did and who it was for — in
@@ -11,8 +11,8 @@ quantity is ``None``, never ``0``: a defaulted zero is what made
 ``generation_attempts.cost_usd`` unreadable, and a regression that "helpfully" defaults one
 of these to zero would put a fabricated number in a column the panel sums.
 
-The last section leaves ``hbd.usage`` to pin the other half of the promise on the one
-implementation that can fail: :class:`~hbd.db.vendor_usage.DbUsageSink`. ``UsageSink`` is
+The last section leaves ``bayram.usage`` to pin the other half of the promise on the one
+implementation that can fail: :class:`~bayram.db.vendor_usage.DbUsageSink`. ``UsageSink`` is
 declared here and its contract — ``record`` returns, always — is a claim about callers of
 this module, so the case where even the fallback log line fails is asserted beside the
 Protocol that makes the claim rather than only beside the table.
@@ -27,8 +27,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from hbd.contracts import CostSource, UsageTask, Vendor, VendorOperation
-from hbd.usage import (
+from bayram.contracts import CostSource, UsageTask, Vendor, VendorOperation
+from bayram.usage import (
     LOGGING_USAGE_SINK,
     USAGE_EVENT,
     LoggingUsageSink,
@@ -180,7 +180,7 @@ def test_the_record_is_frozen_so_a_measurement_cannot_be_edited_after_the_fact()
 def test_the_record_declares_no_field_the_row_cannot_store() -> None:
     # Arrange — VendorUsage is the row minus the columns the sink fills in itself. A field
     # added here without a column is a measurement that is logged and silently not persisted.
-    from hbd.db.models.vendor_usage import VendorUsageRow
+    from bayram.db.models.vendor_usage import VendorUsageRow
 
     # Act
     declared = {field.name for field in fields(VendorUsage)}
@@ -251,7 +251,7 @@ async def test_the_default_sink_logs_the_call_with_whatever_scope_is_current(
 
     # Act
     with (
-        caplog.at_level(logging.INFO, logger="hbd.usage"),
+        caplog.at_level(logging.INFO, logger="bayram.usage"),
         usage_scope(order_id=_ORDER_ID, task=UsageTask.MODERATION),
     ):
         await sink.record(_usage())
@@ -308,7 +308,7 @@ async def test_a_sink_whose_logging_fails_still_returns_rather_than_failing_the_
     # Arrange — the persisting sink's docstring promises the WHOLE body is guarded, and an
     # adapter awaits record() on every return path including its failure paths. A sink that
     # raised would turn "the metrics row did not persist" into "the customer's song failed".
-    from hbd.db import vendor_usage as sink_module
+    from bayram.db import vendor_usage as sink_module
 
     logger = _LoggerThatFailsOnTheUsageLine()
     monkeypatch.setattr(sink_module, "_log", logger)

@@ -8,15 +8,15 @@ structurally blind to the class of defect this catches: a stylesheet the browser
 an inline style with no nonce, a scroll lock that silently does nothing.
 
 **What is real here, and it is nearly everything.** The ASGI application is
-:func:`hbd.admin.app.create_app` with its lifespan entered, which means the real
+:func:`bayram.admin.app.create_app` with its lifespan entered, which means the real
 ``SecurityHeadersMiddleware`` mints the real per-response nonce and stamps the real
 ``CSP_TEMPLATE``; the real ``_serve_spa_index`` renders the real built bundle out of
-``src/hbd/admin/static``; the real routers answer with the real §12.3 masking; the login is
+``src/bayram/admin/static``; the real routers answer with the real §12.3 masking; the login is
 a real argon2 verify against a real ``admin_users`` row written by the real
-``accounts.insert_first_owner`` — the statement ``hbd.admin.bootstrap`` uses. Nothing about
+``accounts.insert_first_owner`` — the statement ``bayram.admin.bootstrap`` uses. Nothing about
 the policy, the shell or the wire format is re-stated on this side, so the gate cannot
 drift from the middleware: the browser reads the header the middleware wrote, and the
-manifest publishes :data:`~hbd.admin.middleware.security_headers.CSP_TEMPLATE` itself for
+manifest publishes :data:`~bayram.admin.middleware.security_headers.CSP_TEMPLATE` itself for
 the assertion that the header is the whole policy rather than a lookalike.
 
 **What is faked is exactly what the unit suite fakes**, and for the same reason: the
@@ -28,7 +28,7 @@ happens to listen on a port.
 **http://127.0.0.1 is not a shortcut.** The session and CSRF cookies are ``__Host-``
 prefixed and therefore ``Secure``; Chrome treats ``127.0.0.1`` as a potentially trustworthy
 origin and stores them over plain http, which is the same allowance
-``AdminSettings.is_cookie_secure``'s docstring already relies on. ``HBD_ADMIN_PUBLIC_ORIGIN``
+``AdminSettings.is_cookie_secure``'s docstring already relies on. ``BAYRAM_ADMIN_PUBLIC_ORIGIN``
 is set to the same origin, so the ``ORIGIN_REJECTED`` check is live for every write the
 browser makes — the login POST included.
 
@@ -50,16 +50,16 @@ from uuid import UUID
 
 import uvicorn
 
-from hbd.admin.app import SPA_INDEX, create_app
-from hbd.admin.container import AdminContainer
-from hbd.admin.middleware.security_headers import CSP_TEMPLATE
-from hbd.admin.schemas.common import MIN_PASSWORD_CHARS
-from hbd.admin.security.passwords import hash_password
-from hbd.config import ENV_PREFIX
-from hbd.contracts import OrderState
-from hbd.db.admin import accounts
-from hbd.db.base import utc_now
-from hbd.errors import ErrorCode
+from bayram.admin.app import SPA_INDEX, create_app
+from bayram.admin.container import AdminContainer
+from bayram.admin.middleware.security_headers import CSP_TEMPLATE
+from bayram.admin.schemas.common import MIN_PASSWORD_CHARS
+from bayram.admin.security.passwords import hash_password
+from bayram.config import ENV_PREFIX
+from bayram.contracts import OrderState
+from bayram.db.admin import accounts
+from bayram.db.base import utc_now
+from bayram.errors import ErrorCode
 from tests.test_admin.conftest import (
     NOW,
     FakeRedis,
@@ -81,7 +81,7 @@ from tests.test_admin.test_orders_router import (
 __all__ = ["EXPECTED", "MANIFEST_PATH", "build_manifest", "main", "seed"]
 
 HOST: Final[str] = "127.0.0.1"
-PORT: Final[int] = int(os.environ.get("HBD_E2E_PORT", "8099"))
+PORT: Final[int] = int(os.environ.get("BAYRAM_E2E_PORT", "8099"))
 ORIGIN: Final[str] = f"http://{HOST}:{PORT}"
 
 #: The console's repo-relative home. ``parents[2]`` is the repository root.
@@ -89,7 +89,7 @@ _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 
 #: Where the Playwright side reads everything it must not hard-code. Gitignored.
 MANIFEST_PATH: Final[Path] = Path(
-    os.environ.get("HBD_E2E_MANIFEST", str(_REPO_ROOT / "admin-ui" / "e2e" / ".manifest.json"))
+    os.environ.get("BAYRAM_E2E_MANIFEST", str(_REPO_ROOT / "admin-ui" / "e2e" / ".manifest.json"))
 )
 
 #: The bootstrapped OWNER. ``insert_first_owner`` always sets ``must_change_password``, so
@@ -154,7 +154,7 @@ EXPECTED: Final[dict[str, object]] = {
 
 
 async def _bootstrap_owner(container: AdminContainer) -> UUID:
-    """Create the first OWNER through the statement ``hbd.admin.bootstrap`` uses.
+    """Create the first OWNER through the statement ``bayram.admin.bootstrap`` uses.
 
     ``accounts.insert_first_owner`` rather than a bare ``create``: it is the §12.6
     conditional insert, it is what the CLI calls, and it is what decides that the account
@@ -219,7 +219,7 @@ async def seed(container: AdminContainer) -> dict[str, Any]:
             db, order=failed, recipient_name_display=NAME_OKTAM, recipient_name_raw=NAME_OKTAM
         )
         # The pulse's failure mix is grouped from `generation_attempts.error_code`, not from
-        # `orders.failed_reason` (`hbd.db.admin.metrics.failure_breakdown`), so a failed
+        # `orders.failed_reason` (`bayram.db.admin.metrics.failure_breakdown`), so a failed
         # ORDER alone leaves that panel on its empty state. One failed attempt is what makes
         # the panel render a real `ErrorCodeBadge` for the smoke to read.
         await seed_attempt(
@@ -312,12 +312,12 @@ def build_manifest(seeded: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _strip_hbd_environment() -> None:
-    """No ``HBD_`` variable from the developer's shell reaches this process.
+def _strip_bayram_environment() -> None:
+    """No ``BAYRAM_`` variable from the developer's shell reaches this process.
 
     The same isolation ``tests/test_admin/conftest.py`` applies per test. Settings are
     passed explicitly below, but pydantic-settings still reads the environment for any
-    field a caller left out, and a stray ``HBD_ADMIN_PUBLIC_ORIGIN`` would 403 every write
+    field a caller left out, and a stray ``BAYRAM_ADMIN_PUBLIC_ORIGIN`` would 403 every write
     the browser makes with no hint as to why.
     """
     for name in tuple(os.environ):
@@ -335,7 +335,7 @@ async def _serve() -> int:
         )
         return 2
 
-    _strip_hbd_environment()
+    _strip_bayram_environment()
     settings = make_settings(admin_public_origin=ORIGIN)
     async with open_container(settings, FakeRedis(), MemoryRateLimits()) as container:
         await _bootstrap_owner(container)

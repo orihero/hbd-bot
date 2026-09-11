@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.contracts import Language
-from hbd.names.phonetic import respell_phonetically
+from bayram.contracts import Language
+from bayram.names.phonetic import respell_phonetically
 
 CASES = [
     ("Gʻulomjon", "Ghoolomjon"),

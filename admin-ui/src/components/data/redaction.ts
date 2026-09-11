@@ -7,7 +7,7 @@
  *
  * ## What this is and is not
  *
- * §12.3 puts masking SERVER-side, in `hbd/admin/serializers/redaction.py`, at the response
+ * §12.3 puts masking SERVER-side, in `bayram/admin/serializers/redaction.py`, at the response
  * boundary: "not a CSS blur, not a client toggle — an unmasked value must never be in a JSON
  * payload the operator did not explicitly request". That is the control that matters, and
  * this one cannot substitute for it: by the time a viewer sees a value it is already in the

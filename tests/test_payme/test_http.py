@@ -32,11 +32,11 @@ import httpx
 import pytest
 from arq import ArqRedis
 
-from hbd.payme.app import PAYME_PATH, create_app
-from hbd.payme.container import PaymeContainer, build_payme_container
-from hbd.payme.protocol import JSONRPC_VERSION, PaymeErrorCode, RpcRequest
-from hbd.payme.service import PaymeService
-from hbd.payme.settings import PAYME_ENV_FILE_VAR, PaymeSettings, build_payme_settings
+from bayram.payme.app import PAYME_PATH, create_app
+from bayram.payme.container import PaymeContainer, build_payme_container
+from bayram.payme.protocol import JSONRPC_VERSION, PaymeErrorCode, RpcRequest
+from bayram.payme.service import PaymeService
+from bayram.payme.settings import PAYME_ENV_FILE_VAR, PaymeSettings, build_payme_settings
 
 _MEMORY_URL: Final[str] = "sqlite+aiosqlite:///:memory:"
 #: 36 characters, invented. See the module docstring.
@@ -548,7 +548,7 @@ async def test_readyz_reports_degraded_rather_than_raising_when_redis_is_down(
 async def test_malformed_parameters_map_to_business_codes_and_not_to_a_422(
     client: httpx.AsyncClient, method: str, params: dict[str, Any], expected: int
 ) -> None:
-    """The table in :mod:`hbd.payme.service`'s docstring, asserted rather than described.
+    """The table in :mod:`bayram.payme.service`'s docstring, asserted rather than described.
 
     ``"amount": true`` is on the list for a specific Python trap: ``isinstance(True, int)`` is
     ``True``, so a body carrying a boolean amount would otherwise be read as one tiyin.

@@ -40,23 +40,26 @@ from arq import ArqRedis
 from redis.asyncio import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 
-from hbd.admin import queue as queue_module
-from hbd.admin.container import build_admin_container
-from hbd.admin.errors import status_for
-from hbd.admin.queue import (
+from bayram.admin import queue as queue_module
+from bayram.admin.container import build_admin_container
+from bayram.admin.errors import status_for
+from bayram.admin.queue import (
     EXPAND_JOB_NAME,
+    PAYMENT_NOTIFY_JOB_NAME,
     SEND_JOB_NAME,
     TEST_SEND_JOB_NAME,
     AdminQueue,
     ArqAdminQueue,
     NullAdminQueue,
     job_id_for_expand,
+    job_id_for_payment_notification,
     job_id_for_send,
     job_id_for_test_send,
 )
-from hbd.contracts import Err, Ok, Result
-from hbd.errors import ErrorCode, StorageError
-from hbd.runtime import broadcast_job as worker_module
+from bayram.contracts import Err, Ok, Result
+from bayram.errors import ErrorCode, StorageError
+from bayram.runtime import broadcast_job as worker_module
+from bayram.runtime import payme_jobs
 from tests.test_admin.conftest import FakeRedis, make_settings
 
 #: A fixed instant, because the expansion job carries it and a test that asserts on it must
@@ -67,6 +70,11 @@ BROADCAST_ID: Final[UUID] = UUID("0f0f6f52-1c1a-4e3b-9d21-0c4b0b1a7c11")
 #: process boundary as an object is a shape the worker cannot widen later.
 BROADCAST_ID_TEXT: Final[str] = str(BROADCAST_ID)
 OPERATOR_TELEGRAM_ID: Final[int] = 987_654_321
+#: One payment's rail-facing reference: 24 opaque hex characters, and the ONLY identifier the
+#: notification seam is allowed to carry. Its counterpart, the intent's ``idempotency_key``,
+#: contains ``TELEGRAM_ID`` — which is why the assertions below look for that number's absence.
+PUBLIC_REF: Final[str] = "9f13c0a72b4e8d5610fa37cc"
+TELEGRAM_ID: Final[int] = 770_000_123
 #: What ARQ hands back for an accepted job. Different from every id this module mints, so a
 #: test cannot pass by reading its own input back.
 HANDLE_ID: Final[str] = "arq-generated-handle"
@@ -231,7 +239,7 @@ async def test_a_duplicate_job_id_is_success_because_the_work_is_already_running
 ) -> None:
     fake = _FakeArq(duplicate=True)
 
-    with caplog.at_level(logging.INFO, logger="hbd.admin.queue"):
+    with caplog.at_level(logging.INFO, logger="bayram.admin.queue"):
         result = await queue_over(fake).enqueue_send(BROADCAST_ID)
 
     assert value_of(result) == job_id_for_send(BROADCAST_ID)
@@ -332,6 +340,112 @@ async def test_closing_the_null_queue_releases_nothing_and_raises_nothing() -> N
 
 
 # ---------------------------------------------------------------------------
+# The fourth method: one payment's confirmation, where a duplicate is the ANSWER
+# ---------------------------------------------------------------------------
+async def test_a_payment_notification_names_the_reference_and_the_deterministic_id() -> None:
+    """The reference and nothing else crosses the seam.
+
+    ``public_ref`` is 24 opaque hex characters; the intent's ``idempotency_key`` is shaped
+    ``topup:{telegram_user_id}:{scope}:{seq}`` and would have put a customer's Telegram id into
+    a Redis key name and into the worker's own log lines. That is what ``public_ref`` was minted
+    to prevent, so it is asserted here rather than trusted.
+    """
+    fake = _FakeArq()
+
+    result = await queue_over(fake).enqueue_payment_notification(PUBLIC_REF)
+
+    assert isinstance(result, Ok)
+    assert result.value == HANDLE_ID
+    [(function, args, job_id)] = fake.calls
+    assert (function, args) == (PAYMENT_NOTIFY_JOB_NAME, (PUBLIC_REF,))
+    assert job_id == job_id_for_payment_notification(PUBLIC_REF)
+    assert str(TELEGRAM_ID) not in f"{args}{job_id}"
+
+
+async def test_a_duplicate_notification_is_reported_as_a_duplicate_and_not_as_success() -> None:
+    """The one place this seam does NOT read ARQ's ``None`` as "the work is under way".
+
+    For the three campaign jobs a duplicate IS what the caller asked for. Here the operator
+    pressed "re-send the confirmation" and has to be told whether they queued a message or
+    landed on one already in flight — the panel reports it as ``isReplay``, and collapsing it
+    to the job id would leave that unanswerable without asking ARQ a second question that races
+    the worker.
+    """
+    fake = _FakeArq(duplicate=True)
+
+    result = await queue_over(fake).enqueue_payment_notification(PUBLIC_REF)
+
+    assert isinstance(result, Ok)
+    assert result.value is None
+
+
+async def test_an_unreachable_redis_refuses_the_notification_rather_than_raising() -> None:
+    """An ``Err``, so ``unwrap`` renders the 503 that sends an operator to look at Redis.
+
+    Worth asserting separately from the campaign path: this method does not go through
+    ``_enqueue``, so its failure taxonomy is only shared by construction.
+    """
+    fake = _FakeArq(raises=RedisConnectionError("no route to host"))
+
+    result = await queue_over(fake).enqueue_payment_notification(PUBLIC_REF)
+
+    assert isinstance(result, Err)
+    assert isinstance(result.error, StorageError)
+    assert status_for(result.error) == 503
+
+
+async def test_the_null_queue_records_a_notification_by_its_reference() -> None:
+    """``public_ref`` and never ``broadcast_id``: two nullable subject fields, one set per row.
+
+    A single stringly ``subject`` would let a test that meant to assert on a campaign pass on a
+    reference that happened to be equal.
+    """
+    queue = NullAdminQueue()
+
+    result = await queue.enqueue_payment_notification(PUBLIC_REF)
+
+    assert isinstance(result, Ok)
+    assert result.value == job_id_for_payment_notification(PUBLIC_REF)
+    [call] = queue.calls
+    assert (call.job, call.public_ref, call.broadcast_id) == (
+        PAYMENT_NOTIFY_JOB_NAME,
+        PUBLIC_REF,
+        None,
+    )
+
+
+async def test_a_deployment_with_no_worker_refuses_the_notification_and_records_it() -> None:
+    queue = NullAdminQueue(refusing=True)
+
+    result = await queue.enqueue_payment_notification(PUBLIC_REF)
+
+    assert isinstance(result, Err)
+    assert status_for(result.error) == 503
+    assert [call.public_ref for call in queue.calls] == [PUBLIC_REF]
+
+
+def test_the_restated_notification_job_name_and_id_match_the_workers_own() -> None:
+    """The price of the import ban, paid twice and guarded once.
+
+    ``bayram.runtime.payme_jobs`` imports ``aiogram.Bot`` at module level — sending the message
+    IS its job — so importing it from :mod:`bayram.admin.queue` would put the Telegram client in
+    the admin process's import graph, which is what D10 forbids and what
+    ``test_the_seam_can_reach_nothing_that_sends_a_message`` fails on. So the job name and the
+    id function are spelled twice, on opposite sides of a process boundary, and ARQ dispatches
+    by string: a rename that compiled on both sides would leave customers unannounced with the
+    money already banked, and the deduplication that collapses the gateway's enqueue, the
+    worker's backstop sweep and the panel's press onto ONE job would silently stop working.
+
+    This file may import both, so the comparison lives here — the duplication is
+    ``bayram.admin.queue``'s, and so is the guard.
+    """
+    # Arrange / Act / Assert
+    assert PAYMENT_NOTIFY_JOB_NAME == payme_jobs.PAYME_NOTIFY_JOB_NAME
+    assert job_id_for_payment_notification(PUBLIC_REF) == payme_jobs.payme_notify_job_id(PUBLIC_REF)
+    assert payme_jobs.notify_payment_settled.__name__ == PAYMENT_NOTIFY_JOB_NAME
+
+
+# ---------------------------------------------------------------------------
 # The container: two Redis handles, and one release per resource
 # ---------------------------------------------------------------------------
 async def test_the_container_holds_an_arq_queue() -> None:
@@ -369,7 +483,7 @@ async def test_a_queue_that_will_not_close_does_not_take_the_other_handles_with_
         built, redis=cast("Redis[str]", panel_redis), queue=_UncloseableQueue()
     )
 
-    with caplog.at_level(logging.WARNING, logger="hbd.admin.container"):
+    with caplog.at_level(logging.WARNING, logger="bayram.admin.container"):
         await container.aclose()
 
     assert panel_redis.closed is True
@@ -403,7 +517,7 @@ def test_the_seam_can_reach_nothing_that_sends_a_message() -> None:
     forbidden = [
         name
         for name in imported
-        if name.startswith(("aiogram", "hbd.bot", "hbd.runtime", "hbd.pipeline"))
+        if name.startswith(("aiogram", "bayram.bot", "bayram.runtime", "bayram.pipeline"))
     ]
     assert not forbidden, f"the admin queue must not import {forbidden}"
 
@@ -412,7 +526,7 @@ def test_the_restated_job_names_match_the_ones_the_worker_registers() -> None:
     """The other half of the import ban above: three literals nothing compiles together.
 
     ``test_the_seam_can_reach_nothing_that_sends_a_message`` forbids this module from
-    importing ``hbd.runtime``, which is the only thing that could have let one side read the
+    importing ``bayram.runtime``, which is the only thing that could have let one side read the
     other's constants. The price of that ban is that the three job names are spelled TWICE,
     on opposite sides of a process boundary, and ARQ dispatches by string — so a rename that
     compiled on both sides would leave every campaign enqueued under a name the worker does

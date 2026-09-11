@@ -62,7 +62,7 @@ import { useAuthStore } from "@/state/auth";
 /** Matches the `lg` breakpoint Tailwind uses elsewhere in this app. */
 const COMPACT_QUERY = "(max-width: 1023.98px)";
 
-const COLLAPSED_KEY = "hbd.dashboard.navRailCollapsed";
+const COLLAPSED_KEY = "bayram.dashboard.navRailCollapsed";
 
 /** The kit's item metrics, to the decimal. Shared by every item in both layouts. */
 const ITEM_TYPE = "font-sans text-xs font-medium leading-[16.392px] tracking-[-0.36px]";
@@ -127,7 +127,7 @@ function BrandLockup({ compact }: { readonly compact: boolean }): JSX.Element {
       <BrandMark className="h-10 w-10 shrink-0" />
       {compact ? null : (
         <span className="font-wordmark text-[18.89px] font-medium leading-[26.44px] text-wordmark">
-          hbd
+          Bayram
         </span>
       )}
     </span>

@@ -1,4 +1,4 @@
-"""``hbd.db.admin.credits`` — the account read, the ledger page, and the two absences.
+"""``bayram.db.admin.credits`` — the account read, the ledger page, and the two absences.
 
 The assertions that carry this file are the ones about **absence**, because every other
 behaviour here is shared with the list endpoints and already asserted for them:
@@ -25,12 +25,12 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import is_ok
-from hbd.db.admin import credits
-from hbd.db.admin.page import PageRequest, decode_cursor
-from hbd.db.enums import CreditEntryKind, CreditReason
-from hbd.db.models.credit_account import CreditAccountRow
-from hbd.db.models.credit_ledger import CreditLedgerRow
+from bayram.contracts import is_ok
+from bayram.db.admin import credits
+from bayram.db.admin.page import PageRequest, decode_cursor
+from bayram.db.enums import CreditEntryKind, CreditReason
+from bayram.db.models.credit_account import CreditAccountRow
+from bayram.db.models.credit_ledger import CreditLedgerRow
 
 _TELEGRAM_ID: Final[int] = 88_000_222
 _OTHER_ID: Final[int] = 88_000_333

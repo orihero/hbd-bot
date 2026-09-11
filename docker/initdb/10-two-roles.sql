@@ -14,11 +14,11 @@
 -- is not a control at all when the app connects as the owner. It also has to be revoked
 -- from someone: with one role there is nobody to name.
 --
--- So: migrations run as `hbd` (HBD_DB_MIGRATION_URL), and the bot, the worker and the admin
--- API connect as `hbd_app` (HBD_DATABASE_URL). A compromised application credential can
+-- So: migrations run as `hbd` (BAYRAM_DB_MIGRATION_URL), and the bot, the worker and the admin
+-- API connect as `hbd_app` (BAYRAM_DATABASE_URL). A compromised application credential can
 -- then read and write the product's tables and still cannot rewrite the record of what
--- operators did. Leave HBD_DB_MIGRATION_URL unset and everything still runs — migrations
--- fall back to HBD_DATABASE_URL with a WARNING, 0007 skips the REVOKE, and /audit/verify
+-- operators did. Leave BAYRAM_DB_MIGRATION_URL unset and everything still runs — migrations
+-- fall back to BAYRAM_DATABASE_URL with a WARNING, 0007 skips the REVOKE, and /audit/verify
 -- reports chainProtection "hmac-only". A control that is not deployed is reported as not
 -- deployed, never implied.
 --

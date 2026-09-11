@@ -1,6 +1,6 @@
 """The per-account daily lyric budget, driven through the real wizard.
 
-Everything here runs against a REAL :class:`~hbd.db.lyric_budget.SqlLyricBudget` over an
+Everything here runs against a REAL :class:`~bayram.db.lyric_budget.SqlLyricBudget` over an
 in-memory SQLite database rather than a recording fake, and that is the point of the module
 rather than thoroughness for its own sake. The defect this unit closes is that the only
 existing cap lives on the DRAFT and ``reset_to_welcome`` throws the draft away — so the test
@@ -30,19 +30,19 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.callbacks import NavAction, NavCB
-from hbd.bot.deps import BotDeps
-from hbd.bot.draft import WizardDraft, load_draft
-from hbd.bot.i18n import translate
-from hbd.bot.keyboards import start_over_keyboard
-from hbd.bot.states import Wizard
-from hbd.config import Settings
-from hbd.contracts import Language
-from hbd.db.engine import create_session_factory
-from hbd.db.lyric_budget import SqlLyricBudget
-from hbd.db.models import Base
-from hbd.lyric_budget import LyricBudgetPolicy
+from bayram.bot.app import build_dispatcher
+from bayram.bot.callbacks import NavAction, NavCB
+from bayram.bot.deps import BotDeps
+from bayram.bot.draft import WizardDraft, load_draft
+from bayram.bot.i18n import translate
+from bayram.bot.keyboards import start_over_keyboard
+from bayram.bot.states import Wizard
+from bayram.config import Settings
+from bayram.contracts import Language
+from bayram.db.engine import create_session_factory
+from bayram.db.lyric_budget import SqlLyricBudget
+from bayram.db.models import Base
+from bayram.lyric_budget import LyricBudgetPolicy
 from tests.test_bot.conftest import (
     USER_ID,
     FakeProfiles,
@@ -144,7 +144,7 @@ def dispatcher(metered_deps: BotDeps, storage: MemoryStorage) -> Dispatcher:
 async def writes_on_record(sessions: async_sessionmaker[AsyncSession]) -> int:
     """What the ``lyric_budgets`` row actually says. Read outside every handler on purpose.
 
-    Raw SQL rather than the mapped row: Rule 15 (``hbd/db/__init__.py``) keeps every ``*Row``
+    Raw SQL rather than the mapped row: Rule 15 (``bayram/db/__init__.py``) keeps every ``*Row``
     inside persistence, and a test outside ``tests/test_db`` that imported one to read a
     column would be the first exception to it.
     """
@@ -157,7 +157,7 @@ async def writes_on_record(sessions: async_sessionmaker[AsyncSession]) -> int:
 
 
 async def current_draft(state: FSMContext) -> WizardDraft | None:
-    from hbd.contracts import Ok
+    from bayram.contracts import Ok
 
     result = load_draft(await state.get_data())
     return result.value if isinstance(result, Ok) else None

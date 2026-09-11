@@ -89,7 +89,7 @@ function appendParam(search: URLSearchParams, key: string, value: QueryValue): v
 /**
  * Read the CSRF token the server set.
  *
- * `__Host-hbd_csrf` is the ONE cookie that is not HttpOnly, and that is the whole point: the
+ * `__Host-bayram_csrf` is the ONE cookie that is not HttpOnly, and that is the whole point: the
  * SPA reads it and echoes it in `X-CSRF-Token`, which a cross-site form cannot do. The
  * server compares the header against the token STORED on the session row — not against the
  * cookie — so an attacker who can write a cookie for the registrable domain still fails.
@@ -302,7 +302,7 @@ export async function errorFailure(
 
 /**
  * Only for a body that never went through `render_envelope`. The mapping mirrors
- * `hbd/admin/errors.py`'s Starlette routing table, including the one that surprises people:
+ * `bayram/admin/errors.py`'s Starlette routing table, including the one that surprises people:
  * **405 is `CONFLICT`**, not a method error of its own.
  */
 function codeForStatus(status: number): ApiErrorCode {

@@ -9,8 +9,8 @@ exactly one section is the hook and that the hook actually says the name.
 
 from __future__ import annotations
 
-from hbd.contracts import Language, LyricDraft
-from hbd.pipeline.lyric_shape import (
+from bayram.contracts import Language, LyricDraft
+from bayram.pipeline.lyric_shape import (
     DEFAULT_TITLE,
     MAX_LABEL_CHARS,
     MAX_LINE_CHARS,

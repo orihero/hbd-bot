@@ -31,23 +31,23 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError, TelegramRetryAfter
 from aiogram.methods import SendMessage
 
-from hbd.contracts import BroadcastRecipientState, BroadcastState, Language, is_ok
-from hbd.db.base import utc_now
-from hbd.db.broadcasts import BroadcastBody, SqlBroadcasts, pause
-from hbd.db.enums import AdminRole, AuditAction
-from hbd.db.models.admin_audit import AdminAuditRow
-from hbd.db.models.admin_user import AdminUserRow
-from hbd.db.models.broadcast import BroadcastRow
-from hbd.db.models.user import UserRow
-from hbd.runtime import broadcast_job
-from hbd.runtime.broadcast_job import (
+from bayram.contracts import BroadcastRecipientState, BroadcastState, Language, is_ok
+from bayram.db.base import utc_now
+from bayram.db.broadcasts import BroadcastBody, SqlBroadcasts, pause
+from bayram.db.enums import AdminRole, AuditAction
+from bayram.db.models.admin_audit import AdminAuditRow
+from bayram.db.models.admin_user import AdminUserRow
+from bayram.db.models.broadcast import BroadcastRow
+from bayram.db.models.user import UserRow
+from bayram.runtime import broadcast_job
+from bayram.runtime.broadcast_job import (
     SEND_JOB_NAME,
     send_broadcast_chunk,
     send_broadcast_test,
     sweep_due_broadcasts,
 )
-from hbd.runtime.container import AppContainer
-from hbd.runtime.pacer import SendPacer
+from bayram.runtime.container import AppContainer
+from bayram.runtime.pacer import SendPacer
 from tests.test_runtime.conftest import (
     FIRST_ACCOUNT,
     BroadcastSession,
@@ -65,13 +65,13 @@ pytestmark = pytest.mark.anyio
 #: A 32-character key, which is the minimum the panel's own field accepts. The value is
 #: irrelevant to every assertion here — what matters is whether the worker HAS one.
 _CHAIN_KEY: Final[str] = "k" * 32
-_CHAIN_KEY_VAR: Final[str] = "HBD_ADMIN_AUDIT_HMAC_KEY"
+_CHAIN_KEY_VAR: Final[str] = "BAYRAM_ADMIN_AUDIT_HMAC_KEY"
 
 
 def _blocked_by_customer(chat_id: int) -> TelegramForbiddenError:
     """Telegram's refusal for an account that blocked the bot, worded as Telegram words it.
 
-    The wording is what ``hbd.bot.delivery.is_blocked_by_customer`` classifies on, and this
+    The wording is what ``bayram.bot.delivery.is_blocked_by_customer`` classifies on, and this
     test writes it out rather than importing the constant: the predicate's own test pins the
     string, and a second test that shared the constant would agree with the code by
     construction even if both were wrong about what Telegram says.
@@ -567,7 +567,7 @@ async def test_a_worker_with_no_chain_key_still_finishes_the_campaign(
     # deployment: the chain key belongs to the panel, and a worker without it loses the
     # accountability COPY of the outcome, never the campaign itself.
     monkeypatch.delenv(_CHAIN_KEY_VAR, raising=False)
-    monkeypatch.setenv("HBD_ENV_FILE", str(tmp_path / "absent.env"))
+    monkeypatch.setenv("BAYRAM_ENV_FILE", str(tmp_path / "absent.env"))
     campaign, _ = await _ready_campaign(broadcast_container, accounts=2)
 
     # Act

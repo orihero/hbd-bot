@@ -53,18 +53,18 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.callbacks import NavAction, NavCB
-from hbd.bot.deps import BotDeps
-from hbd.bot.handlers.checkout import DOUBLE_TAP_WINDOW, PURCHASE_SEQ_KEY
-from hbd.bot.i18n import translate
-from hbd.bot.pricing import Pricing
-from hbd.bot.states import Wizard
-from hbd.checkout import CheckoutProvider, Product, Purchase, PurchaseFulfiller, PurchaseRequest
-from hbd.config import Settings
-from hbd.contracts import Err, Language, Result, err, ok
-from hbd.entitlements import CreditBalance
-from hbd.errors import StorageError
+from bayram.bot.app import build_dispatcher
+from bayram.bot.callbacks import NavAction, NavCB
+from bayram.bot.deps import BotDeps
+from bayram.bot.handlers.checkout import DOUBLE_TAP_WINDOW, PURCHASE_SEQ_KEY
+from bayram.bot.i18n import translate
+from bayram.bot.pricing import Pricing
+from bayram.bot.states import Wizard
+from bayram.checkout import CheckoutProvider, Product, Purchase, PurchaseFulfiller, PurchaseRequest
+from bayram.config import Settings
+from bayram.contracts import Err, Language, Result, err, ok
+from bayram.entitlements import CreditBalance
+from bayram.errors import StorageError
 from tests.test_bot.conftest import (
     FAKE_PLAN_ENDS_AT,
     FIXED_MOMENT,
@@ -1107,7 +1107,7 @@ async def test_a_paid_render_is_never_queued_because_the_meter_could_not_be_read
     ``build_offer`` answers ``None`` for a failed read, so the Confirm screen kept its
     ordinary summary and its 🎬 Record it button; the second-line check read the same failing
     meter through the same helper and also said "not paywalled"; and because
-    ``HBD_CREDITS_ENFORCED`` ships false, the worker covers the shortfall with an
+    ``BAYRAM_CREDITS_ENFORCED`` ships false, the worker covers the shortfall with an
     ``UNENFORCED_RENDER`` grant and sings. One unreadable row, one 7 000 UZS render given
     away — with the customer's balance untouched, so nobody could even tell afterwards.
 

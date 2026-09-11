@@ -9,7 +9,7 @@ import httpx
 import orjson
 import pytest
 
-from hbd.errors import (
+from bayram.errors import (
     ErrorCode,
     ProviderError,
     ProviderInvalidResponseError,
@@ -19,7 +19,7 @@ from hbd.errors import (
     ProviderTimeoutError,
     ProviderUnavailableError,
 )
-from hbd.providers.music.failures import (
+from bayram.providers.music.failures import (
     MAX_ERROR_BODY_CHARS,
     describe_error_body,
     map_status_error,

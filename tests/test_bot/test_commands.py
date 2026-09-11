@@ -19,30 +19,30 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
-from hbd.bot.app import publish_commands
-from hbd.bot.callbacks import (
+from bayram.bot.app import publish_commands
+from bayram.bot.callbacks import (
     GenreCB,
     NavAction,
     NavCB,
     OccasionCB,
     VocalGenderCB,
 )
-from hbd.bot.deps import BotDeps
-from hbd.bot.draft import load_draft
-from hbd.bot.handlers.commands import (
+from bayram.bot.deps import BotDeps
+from bayram.bot.draft import load_draft
+from bayram.bot.handlers.commands import (
     BOT_COMMANDS,
     handle_forget,
     handle_help,
     handle_privacy,
     handle_support,
 )
-from hbd.bot.handlers.submitting import ORDER_ID_KEY
-from hbd.bot.i18n import FALLBACK_LANGUAGE, translate
-from hbd.bot.states import Wizard
-from hbd.config import Settings
-from hbd.contracts import Genre, Language, Occasion, Result, VoiceGender, err, is_ok
-from hbd.db.retention import DEFAULT_RETENTION_POLICY
-from hbd.errors import StorageError
+from bayram.bot.handlers.submitting import ORDER_ID_KEY
+from bayram.bot.i18n import FALLBACK_LANGUAGE, translate
+from bayram.bot.states import Wizard
+from bayram.config import Settings
+from bayram.contracts import Genre, Language, Occasion, Result, VoiceGender, err, is_ok
+from bayram.db.retention import DEFAULT_RETENTION_POLICY
+from bayram.errors import StorageError
 from tests.test_bot.conftest import (
     USER_ID,
     FakeProfiles,
@@ -62,7 +62,7 @@ from tests.test_bot.test_wizard_flow import (
     walk_to_name,
 )
 
-SUPPORT_CONTACT = "@hbd_support"
+SUPPORT_CONTACT = "@bayram_support"
 
 #: The bullet the privacy notice puts in front of the credit record. A marker rather than a
 #: phrase: the four dated clocks each have one, and this is the fifth.

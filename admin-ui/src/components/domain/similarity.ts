@@ -1,7 +1,7 @@
 /**
  * Bucketing `matchConfidence` for `<SimilarityHistogram>` (§11.2, `/generations/names`).
  *
- * The screen's question is "what should `HBD_NAME_CANDIDATE_ORDER` be", and the histogram
+ * The screen's question is "what should `BAYRAM_NAME_CANDIDATE_ORDER` be", and the histogram
  * answers the half of it that the bake-off bars cannot: where the verifier's similarity
  * scores actually pile up relative to `name_match_min_similarity`. A bimodal distribution
  * with the threshold in the trough is a healthy verifier; a single lump straddling the

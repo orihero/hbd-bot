@@ -35,14 +35,14 @@ from alembic.script import ScriptDirectory
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.checkout import Plan, Product, Purchase
-from hbd.contracts import is_err, is_ok
-from hbd.db.credit_erasure import forget_account
-from hbd.db.enums import CreditReason, PlanKind
-from hbd.db.models import CreditLedgerRow, PlanPurchaseRow
-from hbd.db.purchases import CHECKOUT_ACTOR, SqlPurchaseLedger
-from hbd.entitlements import EntitlementPolicy
-from hbd.errors import ErrorCode
+from bayram.checkout import Plan, Product, Purchase
+from bayram.contracts import is_err, is_ok
+from bayram.db.credit_erasure import forget_account
+from bayram.db.enums import CreditReason, PlanKind
+from bayram.db.models import CreditLedgerRow, PlanPurchaseRow
+from bayram.db.purchases import CHECKOUT_ACTOR, SqlPurchaseLedger
+from bayram.entitlements import EntitlementPolicy
+from bayram.errors import ErrorCode
 from tests.test_db.conftest import MovableClock
 from tests.test_db.test_migrations import _config
 

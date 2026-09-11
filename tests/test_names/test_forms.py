@@ -6,8 +6,8 @@ import dataclasses
 
 import pytest
 
-from hbd.contracts import MAX_CANDIDATE_CHARS, NameStrategy
-from hbd.names.forms import DisplayForm, SubmitForm
+from bayram.contracts import MAX_CANDIDATE_CHARS, NameStrategy
+from bayram.names.forms import DisplayForm, SubmitForm
 
 
 def test_a_display_form_carries_the_canonical_spelling() -> None:

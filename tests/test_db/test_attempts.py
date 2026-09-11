@@ -5,18 +5,18 @@ from __future__ import annotations
 from datetime import timedelta
 from uuid import UUID, uuid4
 
-from hbd.contracts import (
+from bayram.contracts import (
     CostSource,
     Language,
     NameCandidate,
     NameStrategy,
     is_ok,
 )
-from hbd.db.admin.sql import TimeWindow
-from hbd.db.attempts import GenerationAttempt, GenerationAttemptRepository, StrategyStat
-from hbd.db.enums import GenerationKind
-from hbd.db.models.generation_attempt import TRANSCRIPT_LENGTH
-from hbd.db.repository import SqlKitRepository
+from bayram.db.admin.sql import TimeWindow
+from bayram.db.attempts import GenerationAttempt, GenerationAttemptRepository, StrategyStat
+from bayram.db.enums import GenerationKind
+from bayram.db.models.generation_attempt import TRANSCRIPT_LENGTH
+from bayram.db.repository import SqlKitRepository
 from tests.test_db.conftest import MovableClock, new_order
 
 
@@ -164,7 +164,7 @@ async def test_strategy_stats_is_empty_before_anything_is_recorded(
 async def test_strategy_stats_can_be_narrowed_to_a_window_so_the_ranking_is_current(
     attempts: GenerationAttemptRepository, clock: MovableClock
 ) -> None:
-    """The bake-off answers "what should ``HBD_NAME_CANDIDATE_ORDER`` be **now**".
+    """The bake-off answers "what should ``BAYRAM_NAME_CANDIDATE_ORDER`` be **now**".
 
     ASCII won a month ago and has been losing since. Over the whole record it still leads,
     which is a finding about a pipeline that no longer exists; over this month it does not.

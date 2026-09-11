@@ -3,7 +3,7 @@
 Every test here is about the same property from a different side — that a row on
 ``bot_membership_events`` records a PASSAGE and not a state, so a count of them never
 changes retroactively. That property is what the events table exists for, and it is bought
-entirely by the predicate-guarded ``UPDATE`` in :mod:`hbd.db.churn`; a refactor to
+entirely by the predicate-guarded ``UPDATE`` in :mod:`bayram.db.churn`; a refactor to
 read-then-write would pass none of the second, third or last tests below.
 
 The separation of ``users.is_blocked`` (the OPERATOR barred an account) from
@@ -19,12 +19,12 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import BotBlockSource, BotMembershipEvent, Ok
-from hbd.db.churn import SqlBotBlocks, anonymise_bot_membership_events
-from hbd.db.credits import set_blocked, touch
-from hbd.db.models.bot_membership_event import BotMembershipEventRow
-from hbd.db.models.user import UserRow
-from hbd.db.users_sql import DEFAULT_UI_LANGUAGE
+from bayram.contracts import BotBlockSource, BotMembershipEvent, Ok
+from bayram.db.churn import SqlBotBlocks, anonymise_bot_membership_events
+from bayram.db.credits import set_blocked, touch
+from bayram.db.models.bot_membership_event import BotMembershipEventRow
+from bayram.db.models.user import UserRow
+from bayram.db.users_sql import DEFAULT_UI_LANGUAGE
 
 pytestmark = pytest.mark.anyio
 

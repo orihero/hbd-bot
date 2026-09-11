@@ -332,7 +332,7 @@ export function revealFailureAdvice(failure: ApiFailure): string | null {
       // glitch — and re-trying it just writes another rejection.
       return "Your session has ended. Sign in again; nothing was disclosed.";
     case "ORIGIN_REJECTED":
-      return "The panel is being served from an origin the API does not recognise. That is a deployment setting (HBD_ADMIN_PUBLIC_ORIGIN), not anything you did — trying again will not help.";
+      return "The panel is being served from an origin the API does not recognise. That is a deployment setting (BAYRAM_ADMIN_PUBLIC_ORIGIN), not anything you did — trying again will not help.";
     case "FORBIDDEN":
       return ROLE_REFUSAL_NOTE;
     case "REAUTH_RATE_LIMITED":

@@ -8,10 +8,10 @@ from uuid import uuid4
 import pytest
 from arq.worker import Retry
 
-from hbd.config import Settings
-from hbd.contracts import Order
-from hbd.errors import ErrorCode, PipelineError, StorageError
-from hbd.pipeline.worker import (
+from bayram.config import Settings
+from bayram.contracts import Order
+from bayram.errors import ErrorCode, PipelineError, StorageError
+from bayram.pipeline.worker import (
     JOB_NAME,
     PIPELINE_CTX_KEY,
     REPOSITORY_CTX_KEY,

@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.config import DEFAULT_NAME_CANDIDATE_ORDER, Settings
-from hbd.contracts import MAX_CANDIDATE_CHARS, Language, NameStrategy, RecipientName, Script
-from hbd.names.candidates import build_candidates, derive_submit_form
-from hbd.names.forms import DisplayForm
+from bayram.config import DEFAULT_NAME_CANDIDATE_ORDER, Settings
+from bayram.contracts import MAX_CANDIDATE_CHARS, Language, NameStrategy, RecipientName, Script
+from bayram.names.candidates import build_candidates, derive_submit_form
+from bayram.names.forms import DisplayForm
 
 GULOMJON = DisplayForm(text="Gʻulomjon")
 

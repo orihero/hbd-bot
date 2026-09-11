@@ -7,15 +7,15 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.bot.name_entry import (
+from bayram.bot.name_entry import (
     NAME_INVALID_KEY,
     NAME_TOO_LONG_KEY,
     NAME_TOO_MANY_WORDS_KEY,
     NAME_UNRESOLVED_KEY,
     resolve_typed_name,
 )
-from hbd.contracts import Err, Language, NameStrategy, Ok, RecipientName, Result, Script
-from hbd.names.resolve import MAX_NAME_WORDS, resolve_name
+from bayram.contracts import Err, Language, NameStrategy, Ok, RecipientName, Result, Script
+from bayram.names.resolve import MAX_NAME_WORDS, resolve_name
 
 DEFAULT_ORDER = (
     NameStrategy.STRIPPED,

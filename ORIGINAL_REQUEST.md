@@ -13,7 +13,7 @@ Integrity mode: development
 ## Requirements
 
 ### R1. Type-Safe Reactive i18n Subsystem
-Implement a strongly-typed i18n store in `admin-dashboard/src/i18n/` integrated with the existing Zustand store and `localStorage` persistence (`hbd.dashboard.locale`), with fallback to English. The subsystem must support type-checked translation keys, parameter interpolation (e.g. `{count}`), and update the root document language attribute (`<html lang="...">`).
+Implement a strongly-typed i18n store in `admin-dashboard/src/i18n/` integrated with the existing Zustand store and `localStorage` persistence (`bayram.dashboard.locale`), with fallback to English. The subsystem must support type-checked translation keys, parameter interpolation (e.g. `{count}`), and update the root document language attribute (`<html lang="...">`).
 Dictionaries must provide complete translations for:
 - English (`en` - source of truth)
 - Russian (`ru`)
@@ -42,7 +42,7 @@ Replace all hardcoded English strings with localized translation keys across all
 ### Compilation and Linting
 - [ ] `cd admin-dashboard && npm run typecheck` passes with zero TypeScript errors.
 - [ ] `cd admin-dashboard && npm run lint` passes with zero ESLint violations.
-- [ ] `cd admin-dashboard && npm run build` successfully compiles and outputs production assets into `src/hbd/admin/static/`.
+- [ ] `cd admin-dashboard && npm run build` successfully compiles and outputs production assets into `src/bayram/admin/static/`.
 
 ### Functional Verification
 - [ ] Switching languages updates the UI immediately across navigation, table columns, action buttons, and screen content without requiring a page reload.

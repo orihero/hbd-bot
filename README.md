@@ -1,9 +1,9 @@
-# HBD Bot
+# Bayram — Tabriklar, Qoʻshiqlar
 
 A Telegram bot for the Uzbekistan market. A user types a recipient's full name, answers
 four short structured questions, and receives a **celebration kit**:
 
-- one AI-generated song (~90 s — `HBD_SONG_LENGTH_MS`) that names the recipient,
+- one AI-generated song (~90 s — `BAYRAM_SONG_LENGTH_MS`) that names the recipient,
 - a lyric sheet,
 
 with the recipient's name **pronounced correctly**. That last part is the entire product.
@@ -45,9 +45,9 @@ stamped only by the 90-day sweep, and that column alone is now what `is_identity
 reads — an order that never collected a name must not report itself to an operator, or to an
 erasure proof, as personal data deleted on schedule.
 
-> **Greetings are switched off.** `HBD_GREETINGS_PER_KIT` defaults to **0**, so a kit is the
+> **Greetings are switched off.** `BAYRAM_GREETINGS_PER_KIT` defaults to **0**, so a kit is the
 > song and the sheet, and no TTS call is made at all. The spoken-greeting subsystem
-> (`hbd.providers.tts`, personas, OGG/Opus voice notes) is fully built and tested and comes
+> (`bayram.providers.tts`, personas, OGG/Opus voice notes) is fully built and tested and comes
 > back by raising that one setting to 1–5. Note this contradicts SOW §4.5 (FR-38–FR-45),
 > which makes song+speech the differentiator; it was switched off by product decision on
 > 2026-08-28, not by accident.
@@ -71,7 +71,7 @@ ffmpeg, real SQLite repository, real files — with only the vendor adapters (mu
 and the LLM) swapped for fakes. No API key is read, no request leaves the machine, nothing
 is spent. It prints the candidate orthographies, the acoustic verification loop re-rolling
 the name, the paths of the assets it just wrote, and the lyric sheet in full. Those assets
-are the song and the sheet and nothing else: `HBD_GREETINGS_PER_KIT` is 0, as above, so the
+are the song and the sheet and nothing else: `BAYRAM_GREETINGS_PER_KIT` is 0, as above, so the
 orchestrator skips the greeting stages entirely. Raise it to 1–5 and that many OGG/Opus
 voice notes appear in the same list.
 
@@ -81,13 +81,13 @@ It needs **ffmpeg on PATH** and nothing else (`brew install ffmpeg`).
 
 ```bash
 cp .env.example .env
-# in .env:  HBD_USE_FAKE_PROVIDERS=true
-#           HBD_TELEGRAM_BOT_TOKEN=<a real token from @BotFather>
-#           HBD_DATABASE_URL=sqlite+aiosqlite:///./var/hbd.db
+# in .env:  BAYRAM_USE_FAKE_PROVIDERS=true
+#           BAYRAM_TELEGRAM_BOT_TOKEN=<a real token from @BotFather>
+#           BAYRAM_DATABASE_URL=sqlite+aiosqlite:///./var/bayram.db
 make dev
 ```
 
-With `HBD_USE_FAKE_PROVIDERS=true` the bot keeps the wizard in memory, runs each order as
+With `BAYRAM_USE_FAKE_PROVIDERS=true` the bot keeps the wizard in memory, runs each order as
 a background task in its own process, and writes to SQLite — no Redis, no Postgres, no
 worker, no vendor. Message the bot, walk the wizard, and the kit arrives in the chat.
 A Telegram token is the one thing a *chat* demo genuinely cannot fake; `make demo` needs
@@ -100,14 +100,14 @@ console, which is a static bundle the API serves itself. `.env` belongs to the f
 the admin API reads **`.env.admin`** and nothing else.
 
 ```bash
-cp .env.example .env && $EDITOR .env              # real keys; HBD_USE_FAKE_PROVIDERS=false
+cp .env.example .env && $EDITOR .env              # real keys; BAYRAM_USE_FAKE_PROVIDERS=false
 cp .env.admin.example .env.admin && $EDITOR .env.admin   # no vendor keys here — see below
 
 docker compose up -d                              # postgres 16 (two roles) + redis 7
-export HBD_DB_MIGRATION_URL="postgresql+asyncpg://hbd:hbd@localhost:5432/hbd"
-export HBD_DATABASE_URL="postgresql+asyncpg://hbd_app:hbd_app@localhost:5432/hbd"
+export BAYRAM_DB_MIGRATION_URL="postgresql+asyncpg://hbd:hbd@localhost:5432/hbd"
+export BAYRAM_DATABASE_URL="postgresql+asyncpg://hbd_app:hbd_app@localhost:5432/hbd"
 make migrate                                      # alembic upgrade head, as the owner role
-make ui-build                                     # console → src/hbd/admin/static/ — every deploy
+make ui-build                                     # console → src/bayram/admin/static/ — every deploy
 make admin-bootstrap u=owner                      # the first OWNER; prompts for the password
 
 make dev                                          # terminal 1: the bot
@@ -128,10 +128,10 @@ the usage instead of an argparse error. `--password` is accepted only so it can 
 `--password-file` on a file only you can read; the CLI refuses one whose mode lets the
 group or anybody else read or replace it.
 
-> **Rebuild the console on every deploy.** `src/hbd/admin/static/` is gitignored — a
+> **Rebuild the console on every deploy.** `src/bayram/admin/static/` is gitignored — a
 > committed bundle drifts from `admin-ui/` with nothing to notice — so a fresh checkout has
 > no console at all, and a stale one is whatever the last build left behind. It is not only
-> a cosmetic staleness: `admin-ui/index.html` carries a `__HBD_CSP_NONCE__` placeholder that
+> a cosmetic staleness: `admin-ui/index.html` carries a `__BAYRAM_CSP_NONCE__` placeholder that
 > the API swaps for this response's style nonce, and a bundle built before that existed has
 > no placeholder to swap. `render_shell` serves such a shell **unchanged** and logs
 > `WARNING admin.spa.nonce_placeholder_missing` rather than returning 500 — deliberately, so
@@ -142,7 +142,7 @@ group or anybody else read or replace it.
 > that event, then `make ui-build`.
 
 > **The admin API reads `.env.admin`, not `.env`, and that is the point.** There is no field
-> on `AdminSettings` that could hold `HBD_TELEGRAM_BOT_TOKEN`, `HBD_ELEVENLABS_API_KEY` or
+> on `AdminSettings` that could hold `BAYRAM_TELEGRAM_BOT_TOKEN`, `BAYRAM_ELEVENLABS_API_KEY` or
 > either LLM key, so the panel has no code path to a vendor credential. Pointing it at the
 > shared `.env` would hand it all four by accident. In prod, any one of them within reach of
 > the process — exported, *or written into `.env.admin`* — is a boot refusal naming the
@@ -151,10 +151,10 @@ group or anybody else read or replace it.
 > Every operational action that needs a credential is an ARQ job the worker performs. The
 > API sends nothing to Telegram and calls no vendor.
 >
-> Three fields have no usable default: `HBD_ADMIN_ENABLED` is `false` until somebody turns
-> the panel on, `HBD_ADMIN_AUDIT_HMAC_KEY` is required and has no default to forget to
+> Three fields have no usable default: `BAYRAM_ADMIN_ENABLED` is `false` until somebody turns
+> the panel on, `BAYRAM_ADMIN_AUDIT_HMAC_KEY` is required and has no default to forget to
 > change (`python -c "import secrets; print(secrets.token_urlsafe(48))"`), and
-> `HBD_ADMIN_PUBLIC_ORIGIN` is required outside dev. `.env.admin.example` documents the rest
+> `BAYRAM_ADMIN_PUBLIC_ORIGIN` is required outside dev. `.env.admin.example` documents the rest
 > with the reasoning attached.
 
 > **Two Postgres roles, or the audit log's immutability is theatre.** `hbd` owns the tables
@@ -169,10 +169,10 @@ group or anybody else read or replace it.
 > create the two roles by hand with real secrets — the password in that file is a local
 > development password.
 >
-> Two variables switch the control on: `HBD_DB_MIGRATION_URL` (the owner DSN, which
-> `migrations/env.py` uses when set) and `HBD_ADMIN_AUDIT_DSN` in `.env.admin`, whose
+> Two variables switch the control on: `BAYRAM_DB_MIGRATION_URL` (the owner DSN, which
+> `migrations/env.py` uses when set) and `BAYRAM_ADMIN_AUDIT_DSN` in `.env.admin`, whose
 > presence is how a deployment declares the split exists. Leave either unset and everything
-> still runs: migrations fall back to `HBD_DATABASE_URL` with a WARNING, `0007` skips the
+> still runs: migrations fall back to `BAYRAM_DATABASE_URL` with a WARNING, `0007` skips the
 > REVOKE and logs why, and `/audit/verify` reports `chainProtection: "hmac-only"` — which
 > the panel shows verbatim. A control that is not deployed is reported as not deployed,
 > never implied.
@@ -182,9 +182,9 @@ group or anybody else read or replace it.
 > Postgres can answer instead of ours. Pick a free port and pass it to both:
 >
 > ```bash
-> HBD_POSTGRES_PORT=55432 docker compose up -d
-> export HBD_TEST_POSTGRES_URL="postgresql+asyncpg://hbd:hbd@localhost:55432/hbd"
-> export HBD_DATABASE_URL="postgresql+asyncpg://hbd:hbd@localhost:55432/hbd"
+> BAYRAM_POSTGRES_PORT=55432 docker compose up -d
+> export BAYRAM_TEST_POSTGRES_URL="postgresql+asyncpg://hbd:hbd@localhost:55432/hbd"
+> export BAYRAM_DATABASE_URL="postgresql+asyncpg://hbd:hbd@localhost:55432/hbd"
 > ```
 >
 > The Postgres-backed tests skip rather than fail when no *project* database answers, so a
@@ -198,10 +198,10 @@ group or anybody else read or replace it.
 
 Two axes, and conflating them is the usual mistake.
 
-`HBD_ENVIRONMENT` (`dev` | `staging` | `prod`) is a value **inside** a config file, and it
-is what the code branches on: at `prod`, `HBD_USE_FAKE_PROVIDERS` is refused, panel `DEBUG`
-is refused, `HBD_ADMIN_PUBLIC_ORIGIN` is required, and an admin process that can reach a
-vendor credential refuses to boot. `HBD_ENV_FILE` and `HBD_ADMIN_ENV_FILE` decide **which
+`BAYRAM_ENVIRONMENT` (`dev` | `staging` | `prod`) is a value **inside** a config file, and it
+is what the code branches on: at `prod`, `BAYRAM_USE_FAKE_PROVIDERS` is refused, panel `DEBUG`
+is refused, `BAYRAM_ADMIN_PUBLIC_ORIGIN` is required, and an admin process that can reach a
+vendor credential refuses to boot. `BAYRAM_ENV_FILE` and `BAYRAM_ADMIN_ENV_FILE` decide **which
 file** is read. They are process-environment variables — a dotenv file cannot name the
 dotenv file about to be read — and they default to `.env` and `.env.admin`, so a checkout
 that has only ever had those two behaves exactly as it always has.
@@ -211,7 +211,7 @@ The split by *process* is the older and more important one, and it survives both
 |             | bot + worker       | admin API              |
 | ----------- | ------------------ | ---------------------- |
 | development | `.env`             | `.env.admin`           |
-| production  | `/etc/hbd/bot.env` | `/etc/hbd/admin.env`   |
+| production  | `/etc/bayram/bot.env` | `/etc/bayram/admin.env`   |
 
 `make` wraps the two variables in one `ENV` flag:
 
@@ -225,7 +225,7 @@ make dev ENV=prod            # …and the same for worker, migrate, revision, ad
 
 `ENV=dev` is the default and maps to the bare names, so nothing changes for anyone who
 never passes the flag. Only `dev` and `prod` are in use; `staging` is a supported third
-value of `HBD_ENVIRONMENT` with nothing built for it yet.
+value of `BAYRAM_ENVIRONMENT` with nothing built for it yet.
 
 > **`ENV=prod make dev` is a loaded gun, deliberately.** It points a real bot token, real
 > vendor keys and a real database at a process running from your working tree. Both boot
@@ -233,7 +233,7 @@ value of `HBD_ENVIRONMENT` with nothing built for it yet.
 > `admin.boot.ok` carries the same pair — so the terminal says which configuration is live
 > before you type anything into the bot.
 
-> **`HBD_DB_MIGRATION_URL` now comes from that file too.** It used to be read from
+> **`BAYRAM_DB_MIGRATION_URL` now comes from that file too.** It used to be read from
 > `os.environ` alone, so the line `.env.example` documents did nothing unless it was also
 > exported by hand — and `make migrate ENV=prod` would have migrated a production database
 > as whichever role the shell happened to be carrying. `migrations/env.py` reads the
@@ -241,10 +241,10 @@ value of `HBD_ENVIRONMENT` with nothing built for it yet.
 > `Settings`: the bot and the worker must never hold the owner credential.
 
 Production is three systemd units on one VPS, with the secrets in root-owned `0640` files
-under `/etc/hbd/` rather than in `EnvironmentFile=` — which would put them in
+under `/etc/bayram/` rather than in `EnvironmentFile=` — which would put them in
 `systemctl show` and `/proc/<pid>/environ`. The units and the full runbook are in
-[`deploy/`](deploy/README.md); `hbd-admin.service` carries
-`InaccessiblePaths=/etc/hbd/bot.env`, so the vendor-key separation is enforced by the
+[`deploy/`](deploy/README.md); `bayram-admin.service` carries
+`InaccessiblePaths=/etc/bayram/bot.env`, so the vendor-key separation is enforced by the
 kernel as well as by the panel's own boot refusal.
 
 ### The admin console in development
@@ -258,14 +258,14 @@ make ui           # terminal 4: the console on :5173, proxying /api to :8080
 ```
 
 It needs `make admin` running in another shell, and
-`HBD_ADMIN_PUBLIC_ORIGIN=http://localhost:5173` in `.env.admin`. The dev proxy forwards the
+`BAYRAM_ADMIN_PUBLIC_ORIGIN=http://localhost:5173` in `.env.admin`. The dev proxy forwards the
 browser's real `Origin` (`changeOrigin: false`), so the API's origin check is live in
 development too — that is deliberate. A 403 `ORIGIN_REJECTED` at sign-in means that
 variable, not the proxy flag.
 
-`make dev` is `python -m hbd.main`; `make worker` is
-`python -m arq hbd.worker.WorkerSettings`; `make admin` is
-`python -m uvicorn hbd.admin.app:app --host 127.0.0.1 --port 8080`.
+`make dev` is `python -m bayram.main`; `make worker` is
+`python -m arq bayram.worker.WorkerSettings`; `make admin` is
+`python -m uvicorn bayram.admin.app:app --host 127.0.0.1 --port 8080`.
 
 ### Checks
 
@@ -275,7 +275,7 @@ make lint        # ruff
 make typecheck   # mypy --strict over src and tests
 make cov         # unit tests with the 80% gate
 make test-all    # adds the integration tests (need ffmpeg; some need Postgres)
-make cov-admin   # the same run, re-reported against src/hbd/admin alone, gated at 85%
+make cov-admin   # the same run, re-reported against src/bayram/admin alone, gated at 85%
 make check       # lint + typecheck + cov — the Python half, and all `make check` is
 ```
 
@@ -284,16 +284,29 @@ runs ruff, `mypy --strict` and the coverage run, and nothing that involves Node 
 browser. Two more sets exist and neither is reachable from it:
 
 ```bash
-make ui-check    # the console's own gates: tsc, eslint, vitest and tokens:check
-make ui-e2e      # the browser gate: Playwright, the built console, the production CSP
+make ui-check        # the deployed console's gates: tsc, eslint, vitest, the locale suite
+make legacy-ui-check # the legacy console's gates, including tokens:check
+make ui-e2e          # the browser gate: Playwright, the built console, the production CSP
 ```
 
-`tokens:check` is in `ui-check` rather than only in `vitest` because it checks two things
-the Vitest gate does not: the `on` / `at best on` FORM each `tokens.css` annotation must
-take, derived from the token's WCAG bar, and the wider `{6,8}` must-annotate scan. It is
-also what makes one deliberate failure loud: a malformed selector takes
-`src/styles/tokenContrast.test.ts` to *zero* tests on purpose, and `vitest run` reports a
-file that contributed no tests as a pass.
+**Each gate runs its own package's scripts, and the two packages do not have the same ones.**
+`ui-check` targets `admin-dashboard/` — the console that is actually deployed — and runs four:
+`typecheck`, `lint`, `test:unit` (Vitest, the components) and `test` (the tsx harness that
+asserts 100% key parity and interpolation-token consistency across `en`/`ru`/`uz`). Neither
+runner subsumes the other. `legacy-ui-check` targets `admin-ui/`, which is where
+`tools/annotate-tokens.mts` and the stylesheet it measures live.
+
+`tokens:check` is in `legacy-ui-check` rather than only in that package's `vitest` because it
+checks two things the Vitest gate does not: the `on` / `at best on` FORM each `tokens.css`
+annotation must take, derived from the token's WCAG bar, and the wider `{6,8}` must-annotate
+scan. It is also what makes one deliberate failure loud: a malformed selector takes
+`admin-ui/src/styles/tokenContrast.test.ts` to *zero* tests on purpose, and `vitest run`
+reports a file that contributed no tests as a pass.
+
+Until 2026-09-10 `ui-check` ran `admin-ui`'s script list against `admin-dashboard`, so it
+**failed on a green tree** at `tokens:check` — a script `admin-dashboard` does not declare —
+and, because that line came last, never reached `test:unit` at all: the deployed console's
+component suite was guarded by no target.
 
 `make ui-e2e` stays outside `make check` for one concrete reason: it needs a ~150 MB
 Chromium that `make ui-e2e-install` downloads, and a first `make check` on a new machine
@@ -324,10 +337,19 @@ app over the same in-memory SQLite and dictionary Redis the Python unit suite us
 Neither needs Postgres, Redis, network, a vendor key or ffmpeg. Run `make ui-e2e-install`
 once first, to fetch the Chromium build Playwright drives.
 
+**`make ui-e2e` is currently unrunnable and the paragraph above describes what it was built
+to do rather than what it does today.** Both e2e targets run `npm run e2e*` in
+`admin-dashboard/`, which declares neither script: the Playwright config, the `e2e/` specs and
+the CSP assertions all live in `admin-ui/`, and the font-coverage spec asserts on that
+package's own font pipeline. Re-pointing the targets is not the fix — it would run the legacy
+console's specs against the deployed console's bundle — so **the CSP and the SPA nonce are
+guarded by nothing** until `e2e/csp.ts` and `e2e/smoke.spec.ts` are ported into
+`admin-dashboard/`.
+
 Measured on this machine while writing this section, with the commands above: `make lint`
 clean; `make typecheck` clean over **430 files**; `make cov` collects **4788 unit tests**
 (4785 passed, 2 skipped) at **96%** repo-wide, and `make cov-admin` re-reports the same run
-at **99%** on `src/hbd/admin/*`; `npx vitest run` green over **815 tests in 73 files**;
+at **99%** on `src/bayram/admin/*`; `npx vitest run` green over **815 tests in 73 files**;
 `make ui-e2e` 2 passed. Those counts move with every commit that adds a test — the commands
 print the current ones, and it is the *clean* that matters, not the number. One unit test —
 `tests/test_runtime/test_entrypoints.py` — wants ffmpeg on PATH despite the convention
@@ -340,61 +362,61 @@ ffmpeg host check, one live-model moderation probe, and 18 Postgres tests that n
 
 ## Module map
 
-Every module depends on the foundation, and on nothing else in `src/hbd/` except through
-a `Protocol`. Only `hbd.runtime` knows which concrete vendor is behind which protocol.
+Every module depends on the foundation, and on nothing else in `src/bayram/` except through
+a `Protocol`. Only `bayram.runtime` knows which concrete vendor is behind which protocol.
 
 ### Foundation
 
 | File | Owns |
 |---|---|
-| `src/hbd/contracts.py` | Every frozen model, the `Result` type, and all eight `Protocol` interfaces. The one file every module imports. |
-| `src/hbd/config.py` | All settings: keys, model ids, timeouts, retry bounds, loudness targets, chunk durations, free-tier caps, and **the name-candidate order**. |
-| `src/hbd/errors.py` | `HbdError` and its subclasses. Every error carries a customer-safe `user_message_key` *and* full operator context, and declares itself retryable or terminal. |
-| `src/hbd/logging.py` | JSON logs, one correlation id per order via `contextvars`, secret redaction at the formatter. |
+| `src/bayram/contracts.py` | Every frozen model, the `Result` type, and all eight `Protocol` interfaces. The one file every module imports. |
+| `src/bayram/config.py` | All settings: keys, model ids, timeouts, retry bounds, loudness targets, chunk durations, free-tier caps, and **the name-candidate order**. |
+| `src/bayram/errors.py` | `BayramError` and its subclasses. Every error carries a customer-safe `user_message_key` *and* full operator context, and declares itself retryable or terminal. |
+| `src/bayram/logging.py` | JSON logs, one correlation id per order via `contextvars`, secret redaction at the formatter. |
 
 ### Modules
 
 | Module | Responsibility |
 |---|---|
-| `hbd.names` | **The differentiator.** Canonicalise the typed name, emit ranked candidate orthographies, hold the display/submitted split. Pure functions; no network. |
-| `hbd.i18n` | JSON locale catalogues, CLDR plurals, the U+02BB orthography guard. |
-| `hbd.providers.llm` | Gemini 3.7 Flash (paid tier, strict JSON) with an OpenAI-compatible fallback behind the identical contract. Plus `FakeLlmProvider`. |
-| `hbd.providers.music` | ElevenLabs Eleven Music. Builds the `CompositionPlan`, submits it, and re-renders the name chunk alone via inpainting. Plus `FakeMusicProvider`. |
-| `hbd.providers.tts` | ElevenLabs v3 for all four languages, behind one `LanguageRoutingTts`. Also hosts `ElevenLabsScribe` (STT), used **only** to verify the rendered name. |
-| `hbd.audio` | ffmpeg: two-pass loudnorm, silence trim, fades, libopus 32k/48k/mono voice notes. |
-| `hbd.db` | Postgres via SQLAlchemy 2.x async + Alembic. `SqlKitRepository`, retention policy, the purge job. |
-| `hbd.storage` | `LocalFileStorage` — the object-storage leg, filesystem-backed. Confined keys, atomic writes, never raises. |
-| `hbd.pipeline` | The orchestrator: one `Brief` in, one `Kit` out, including the acoustic verification loop and its bounded re-rolls. |
-| `hbd.bot` | aiogram 3.x wizard, four locales, progress, delivery. |
-| `hbd.payments` | The RENDER gate — `PaymentProvider.authorize` answers "may this order be rendered?" against a credit already owned. `NoopPaymentProvider` always authorises. |
-| `hbd.checkout` | The BUYING seam — `CheckoutProvider.charge` answers "did money change hands?", and the vendor-neutral redirect vocabulary (`PaymentIntent`, `PaymentIntentOpener`). Imports no HTTP client and **may never import `hbd.db`**. |
-| `hbd.payme` | The Payme Merchant API: the pure wire layer (protocol, errors, Basic auth, the link builder), the inbound JSON-RPC service, its ASGI app and its own composition root, and the operator CLI. Ships switched off. |
-| `hbd.admin` | The operator panel: a FastAPI JSON API (third process, `make admin`) plus the React/Vite console in `admin-ui/`. Read-only in this build. Holds no vendor credential and sends nothing to Telegram — every action that needs one is an ARQ job. |
-| `hbd.runtime` | **The composition root.** Builds real or fake vendors from config, owns the container, the queue seam and the job that generates *and delivers*. |
+| `bayram.names` | **The differentiator.** Canonicalise the typed name, emit ranked candidate orthographies, hold the display/submitted split. Pure functions; no network. |
+| `bayram.i18n` | JSON locale catalogues, CLDR plurals, the U+02BB orthography guard. |
+| `bayram.providers.llm` | Gemini 3.7 Flash (paid tier, strict JSON) with an OpenAI-compatible fallback behind the identical contract. Plus `FakeLlmProvider`. |
+| `bayram.providers.music` | ElevenLabs Eleven Music. Builds the `CompositionPlan`, submits it, and re-renders the name chunk alone via inpainting. Plus `FakeMusicProvider`. |
+| `bayram.providers.tts` | ElevenLabs v3 for all four languages, behind one `LanguageRoutingTts`. Also hosts `ElevenLabsScribe` (STT), used **only** to verify the rendered name. |
+| `bayram.audio` | ffmpeg: two-pass loudnorm, silence trim, fades, libopus 32k/48k/mono voice notes. |
+| `bayram.db` | Postgres via SQLAlchemy 2.x async + Alembic. `SqlKitRepository`, retention policy, the purge job. |
+| `bayram.storage` | `LocalFileStorage` — the object-storage leg, filesystem-backed. Confined keys, atomic writes, never raises. |
+| `bayram.pipeline` | The orchestrator: one `Brief` in, one `Kit` out, including the acoustic verification loop and its bounded re-rolls. |
+| `bayram.bot` | aiogram 3.x wizard, four locales, progress, delivery. |
+| `bayram.payments` | The RENDER gate — `PaymentProvider.authorize` answers "may this order be rendered?" against a credit already owned. `NoopPaymentProvider` always authorises. |
+| `bayram.checkout` | The BUYING seam — `CheckoutProvider.charge` answers "did money change hands?", and the vendor-neutral redirect vocabulary (`PaymentIntent`, `PaymentIntentOpener`). Imports no HTTP client and **may never import `bayram.db`**. |
+| `bayram.payme` | The Payme Merchant API: the pure wire layer (protocol, errors, Basic auth, the link builder), the inbound JSON-RPC service, its ASGI app and its own composition root, and the operator CLI. Ships switched off. |
+| `bayram.admin` | The operator panel: a FastAPI JSON API (third process, `make admin`) plus the React/Vite console in `admin-ui/`. Read-only in this build. Holds no vendor credential and sends nothing to Telegram — every action that needs one is an ARQ job. |
+| `bayram.runtime` | **The composition root.** Builds real or fake vendors from config, owns the container, the queue seam and the job that generates *and delivers*. |
 
 ### Entry points
 
 | Command | Module | What it is |
 |---|---|---|
-| `make dev` | `hbd.main` | The bot process. Long polling. |
-| `make worker` | `hbd.worker` | The ARQ worker. Owns a send-only `Bot`. |
-| `make demo` | `hbd.demo` | One kit, offline, printed to the terminal. |
-| `make admin` | `hbd.admin.app` | The admin API on `127.0.0.1:8080`, behind uvicorn. Reads `.env.admin`; serves the console out of `src/hbd/admin/static/`. |
-| `make payme` | `hbd.payme.app` | The Payme gateway on `127.0.0.1:8091`, behind uvicorn. Reads `.env.payme`. Refuses to start unless `HBD_PAYME_ENABLED=true`, which is not the default. |
-| `make admin-bootstrap u=<username>` | `hbd.admin.bootstrap` | The first OWNER account, and the way back from losing one (`args="--reset-owner"`). Prompts for the password; never takes one in `argv`. |
-| `make ui-install` / `make ui` / `make ui-build` | `admin-ui/` | Install the console's Node dependencies; run its dev server on `:5173`; build it into the API's static directory. |
-| `make ui-e2e` / `make ui-e2e-install` | `admin-ui/`, `tests/e2e/` | The browser gate — Playwright against the built console and the real API under the production CSP, plus the font-coverage check; and the one-off Chromium download it needs. Not part of `make check`. |
+| `make dev` | `bayram.main` | The bot process. Long polling. |
+| `make worker` | `bayram.worker` | The ARQ worker. Owns a send-only `Bot`. |
+| `make demo` | `bayram.demo` | One kit, offline, printed to the terminal. |
+| `make admin` | `bayram.admin.app` | The admin API on `127.0.0.1:8080`, behind uvicorn. Reads `.env.admin`; serves the console out of `src/bayram/admin/static/`. |
+| `make payme` | `bayram.payme.app` | The Payme gateway on `127.0.0.1:8091`, behind uvicorn. Reads `.env.payme`. Refuses to start unless `BAYRAM_PAYME_ENABLED=true`, which is not the default. |
+| `make admin-bootstrap u=<username>` | `bayram.admin.bootstrap` | The first OWNER account, and the way back from losing one (`args="--reset-owner"`). Prompts for the password; never takes one in `argv`. |
+| `make ui-install` / `make ui` / `make ui-build` | `admin-dashboard/` | Install the deployed console's Node dependencies; run its dev server on `:5174`; build it into the API's static directory. `make legacy-ui` / `make legacy-ui-build` are the same three for `admin-ui/`, which is deprecated. |
+| `make ui-e2e` / `make ui-e2e-install` | `admin-ui/`, `tests/e2e/` | The browser gate — Playwright against the built console and the real API under the production CSP, plus the font-coverage check; and the one-off Chromium download it needs. Not part of `make check`, and **not runnable today**: both recipes call scripts only `admin-ui/` declares while `$(UI)` is `admin-dashboard/`. |
 
-The one flag that changes everything is `HBD_USE_FAKE_PROVIDERS`. It is **all-or-nothing**
+The one flag that changes everything is `BAYRAM_USE_FAKE_PROVIDERS`. It is **all-or-nothing**
 by design — a half-fake run spends money on a result nobody can trust — and it is refused
-outright when `HBD_ENVIRONMENT=prod`.
+outright when `BAYRAM_ENVIRONMENT=prod`.
 
 ### Two payment seams, and four processes
 
 **There are two payment seams and they answer different questions.**
-`hbd.payments.PaymentProvider.authorize` is the RENDER gate — *"may this order be
+`bayram.payments.PaymentProvider.authorize` is the RENDER gate — *"may this order be
 rendered?"*, asked once per order against a credit the customer already owns, and
-`NoopPaymentProvider` always says yes. `hbd.checkout.CheckoutProvider.charge` is the BUYING
+`NoopPaymentProvider` always says yes. `bayram.checkout.CheckoutProvider.charge` is the BUYING
 seam — *"did money change hands for a product?"*, asked on a button tap, with a receipt and a
 credit grant behind it. Overloading one with the other would give a single seam two meanings,
 and the first person to fake it for one meaning would silently disable the other.
@@ -405,10 +427,10 @@ API is *inbound*: its methods are calls Payme makes against a server we write.
 
 | Process | Holds | Faces |
 |---|---|---|
-| `hbd.main` | the Telegram token and three vendor keys | outbound only — long polling, nothing inbound |
-| `arq hbd.worker` | the same four | outbound only |
-| `hbd.admin.app` | **no vendor credential at all** | an operator's browser, behind a login |
-| `hbd.payme.app` | one secret: the Payme cashbox key | **the public internet, unauthenticated** |
+| `bayram.main` | the Telegram token and three vendor keys | outbound only — long polling, nothing inbound |
+| `arq bayram.worker` | the same four | outbound only |
+| `bayram.admin.app` | **no vendor credential at all** | an operator's browser, behind a login |
+| `bayram.payme.app` | one secret: the Payme cashbox key | **the public internet, unauthenticated** |
 
 The gateway is a fourth container rather than a route on the panel because its one credential
 is a different *kind* of credential — an inbound verification secret whose theft mints
@@ -417,8 +439,8 @@ Telegram token, which is why telling a customer their payment landed is an ARQ j
 performs. `CheckoutProvider.charge` itself **opens no socket**: Payme has no create-payment-link
 API for the standard checkout, so a checkout link is base64 of a `;`-joined string.
 
-**All of it ships switched off.** `HBD_CHECKOUT_PROVIDER` defaults to `stub` and
-`HBD_PAYME_ENABLED` to `false`, so the stub rail is still what runs: still constructed at the
+**All of it ships switched off.** `BAYRAM_CHECKOUT_PROVIDER` defaults to `stub` and
+`BAYRAM_PAYME_ENABLED` to `false`, so the stub rail is still what runs: still constructed at the
 composition root, still wired into `BotDeps`, still under test.
 
 ---
@@ -433,7 +455,7 @@ Pronunciation control is not a vendor feature, so we assemble one:
    fold to the canonical form.
 2. **Emit ranked candidates.** Canonical, U+02BB-stripped, ASCII apostrophe, Cyrillic
    transliteration, syllable-hyphenated, phonetic respelling. **The ranking is
-   configuration** — `HBD_NAME_CANDIDATE_ORDER`, default
+   configuration** — `BAYRAM_NAME_CANDIDATE_ORDER`, default
    `stripped,canonical,hyphenated,ascii,phonetic`. A bake-off result is applied by
    reordering that variable, never by editing code.
 3. **Isolate the name.** It gets its own ~8 s chunk (`Chunk.is_name_chunk`), so a
@@ -441,7 +463,7 @@ Pronunciation control is not a vendor feature, so we assemble one:
 4. **Close the loop acoustically.** The rendered name chunk goes through STT and is
    compared to the intended name after normalisation. A mismatch silently re-rolls that
    chunk with the *next* candidate before the customer hears anything. Retries are bounded
-   by `HBD_NAME_VERIFICATION_MAX_ATTEMPTS`; when they run out we deliver anyway.
+   by `BAYRAM_NAME_VERIFICATION_MAX_ATTEMPTS`; when they run out we deliver anyway.
 5. **Never conflate display with submitted.** `RecipientName.display` is perfect U+02BB
    and is the only form a human ever sees. `NameCandidate.text` is what we post to a
    vendor and is internal. Two values, two fields, no exceptions.
@@ -475,29 +497,29 @@ Honest list, so nobody rediscovers these under pressure.
   sign with. The S3/R2 settings that used to sit in `.env.example` were read by nothing and
   have been removed; the backend that replaces `LocalFileStorage` behind the same protocol
   brings its own configuration back with it.
-- **Two i18n systems exist.** `hbd.bot.i18n` (Python catalogues, four locales, complete,
-  used by every screen) and `hbd.i18n` (JSON catalogues, CLDR plurals, strict mode, also
+- **Two i18n systems exist.** `bayram.bot.i18n` (Python catalogues, four locales, complete,
+  used by every screen) and `bayram.i18n` (JSON catalogues, CLDR plurals, strict mode, also
   complete). Their key sets have diverged. The bot's is the shipped copy deck; converging
-  them is a single-seam change in `hbd/bot/i18n.py::translate` plus a copy migration, and
+  them is a single-seam change in `bayram/bot/i18n.py::translate` plus a copy migration, and
   it was too large to do safely as part of integration.
-- **Two content writers exist.** `hbd.pipeline.content.LlmContentWriter` (what the
-  orchestrator actually uses) and `hbd.providers.llm.writer.write_kit` (a one-shot
+- **Two content writers exist.** `bayram.pipeline.content.LlmContentWriter` (what the
+  orchestrator actually uses) and `bayram.providers.llm.writer.write_kit` (a one-shot
   lyrics + scripts + respellings call). Both are tested; only the first is wired.
-- **`hbd.pipeline.worker.generate_kit` is superseded.** It runs the pipeline but does not
-  deliver. The shipped job is `hbd.runtime.jobs.generate_and_deliver`. Wiring a worker to
+- **`bayram.pipeline.worker.generate_kit` is superseded.** It runs the pipeline but does not
+  deliver. The shipped job is `bayram.runtime.jobs.generate_and_deliver`. Wiring a worker to
   the old one would generate kits that never reach a customer.
 - **Rate limiting and the free-tier caps are not enforced**, and their settings are gone.
-  `HBD_MAX_ORDERS_PER_USER_PER_DAY` and the four `HBD_FREE_*` knobs were read by nothing, so
+  `BAYRAM_MAX_ORDERS_PER_USER_PER_DAY` and the four `BAYRAM_FREE_*` knobs were read by nothing, so
   they were removed rather than left looking load-bearing. Enforcement needs
   `KitRepository.list_orders_for_user` in `BotDeps`, and adds its own config back.
-  The one exception is `hbd.bot.handlers.lyrics.MAX_LYRIC_WRITES`: the lyric preview bills an
+  The one exception is `bayram.bot.handlers.lyrics.MAX_LYRIC_WRITES`: the lyric preview bills an
   LLM *before* the payment gate, so a per-session cap on how many lyrics one wizard may ask
   for lives in the draft. It is a spend cap, not a rate limiter, and it does not survive a
   `/start`. Neither it nor the daily budget applies on the bring-your-own-lyrics path, which
   is not an omission: that path makes no vendor call to cap.
 - **Retention is a policy object, not configuration.** `RetentionPolicy` in
   `db/retention.py` owns the six periods as dataclass defaults, and `purge_expired` uses
-  them. The `HBD_RETENTION_*` settings duplicated those numbers and were wired to nothing —
+  them. The `BAYRAM_RETENTION_*` settings duplicated those numbers and were wired to nothing —
   the config block even claimed "the purge job reads these" — so they were removed. Making
   them operator-tunable means building the settings-to-policy bridge that never existed.
 - **In fake mode the audio is digital silence**, so the silence-trim pass removes

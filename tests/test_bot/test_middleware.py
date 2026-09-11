@@ -6,8 +6,8 @@ The guard: an unhandled exception inside an aiogram handler is logged by the fra
 then *nothing happens* — the chat simply goes quiet, which reads as a dead bot. Every test
 in the first half asserts that a sentence came out instead.
 
-:func:`~hbd.bot.middleware.resolve_language_or_none` versus
-:func:`~hbd.bot.middleware.resolve_language`: the difference between the two is a
+:func:`~bayram.bot.middleware.resolve_language_or_none` versus
+:func:`~bayram.bot.middleware.resolve_language`: the difference between the two is a
 one-character type change that fixed a real clobber, and it is only visible in a test that
 asks for the ``None``. ``resolve_language`` answers the FALLBACK language whenever there is
 no draft, so when the gate offered *that* into ``users.ui_language`` the drain stamped
@@ -40,15 +40,15 @@ from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
-from hbd.bot.deps import DEPS_KEY, BotDeps
-from hbd.bot.draft import UI_LANGUAGE_KEY, WizardDraft
-from hbd.bot.gate import InboundGateMiddleware, TouchQueue
-from hbd.bot.i18n import FALLBACK_LANGUAGE, translate
-from hbd.bot.middleware import ErrorGuardMiddleware, resolve_language, resolve_language_or_none
-from hbd.config import Settings
-from hbd.contracts import Language, Result, ok
-from hbd.entitlements import CreditBalance
-from hbd.errors import ModerationRejectedError, ProviderTimeoutError
+from bayram.bot.deps import DEPS_KEY, BotDeps
+from bayram.bot.draft import UI_LANGUAGE_KEY, WizardDraft
+from bayram.bot.gate import InboundGateMiddleware, TouchQueue
+from bayram.bot.i18n import FALLBACK_LANGUAGE, translate
+from bayram.bot.middleware import ErrorGuardMiddleware, resolve_language, resolve_language_or_none
+from bayram.config import Settings
+from bayram.contracts import Language, Result, ok
+from bayram.entitlements import CreditBalance
+from bayram.errors import ModerationRejectedError, ProviderTimeoutError
 from tests.test_bot.conftest import (
     BOT_ID,
     CHAT_ID,

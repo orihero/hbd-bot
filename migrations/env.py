@@ -2,8 +2,8 @@
 
 Three decisions worth knowing:
 
-* **Migrations connect as the owner role when there is one.** ``HBD_DB_MIGRATION_URL`` is
-  read first and ``HBD_DATABASE_URL`` is the fallback, with a WARNING naming what is not
+* **Migrations connect as the owner role when there is one.** ``BAYRAM_DB_MIGRATION_URL`` is
+  read first and ``BAYRAM_DATABASE_URL`` is the fallback, with a WARNING naming what is not
   deployed. This is §4.5's two-role split, and without it the audit log's ``REVOKE`` in
   migration ``0007`` has nothing to revoke *from*: run as the application role, that role
   owns every table it created, and revoking a privilege from a table's owner is undone by
@@ -12,14 +12,14 @@ Three decisions worth knowing:
   object is an invitation to.
 
   It is read from the process environment first and from the dotenv file
-  ``hbd.config.env_file()`` selects second. The file half is not a convenience: the variable
-  was ``os.environ``-only, so the ``HBD_DB_MIGRATION_URL=`` line every ``.env.example``
+  ``bayram.config.env_file()`` selects second. The file half is not a convenience: the variable
+  was ``os.environ``-only, so the ``BAYRAM_DB_MIGRATION_URL=`` line every ``.env.example``
   documents did nothing unless it was also exported by hand, and `make migrate ENV=prod`
   would have silently migrated a production database as the wrong role — or as the *dev*
   role, whichever the shell happened to be carrying.
-* **The application DSN comes from ``hbd.config``, never from ``alembic.ini``.** One place
+* **The application DSN comes from ``bayram.config``, never from ``alembic.ini``.** One place
   configures a database, and a tracked file can never grow a password. A missing
-  ``HBD_DATABASE_URL`` fails here with the same ``ConfigError`` the application would raise,
+  ``BAYRAM_DATABASE_URL`` fails here with the same ``ConfigError`` the application would raise,
   naming the variable.
 * **``render_as_batch=True``.** SQLite cannot ``ALTER TABLE`` in the ways a migration
   routinely needs; batch mode rewrites the table instead. Production is Postgres, where the
@@ -34,7 +34,7 @@ ships the deploy log.
 truncation in production.
 
 ``render_item`` keeps application types out of the generated files. A migration that
-imports ``hbd.db.base.UtcDateTime`` breaks the moment that class is renamed or moved — and
+imports ``bayram.db.base.UtcDateTime`` breaks the moment that class is renamed or moved — and
 it breaks *historically*, on a migration that already ran everywhere, which is the worst
 kind of breakage to debug. ``UtcDateTime`` is a ``timestamptz`` with a Python-side guard,
 so the DDL it emits is exactly ``sa.DateTime(timezone=True)`` and that is what gets written.
@@ -54,9 +54,9 @@ from dotenv import dotenv_values
 from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from hbd.config import env_file, load_settings
-from hbd.db.base import UtcDateTime
-from hbd.db.models import Base
+from bayram.config import env_file, load_settings
+from bayram.db.base import UtcDateTime
+from bayram.db.models import Base
 
 config = context.config
 
@@ -82,7 +82,7 @@ def _render_item(type_: str, obj: Any, autogen_context: AutogenContext) -> str |
 #: is what makes migration ``0007``'s ``REVOKE`` on ``admin_audit_log`` mean something
 #: (§4.5, §12.4). Unset, everything still works and the panel reports the audit chain as
 #: ``"hmac-only"`` — a control that is not deployed is reported as not deployed.
-MIGRATION_URL_VAR: Final[str] = "HBD_DB_MIGRATION_URL"
+MIGRATION_URL_VAR: Final[str] = "BAYRAM_DB_MIGRATION_URL"
 
 _LOGGER: Final = logging.getLogger("alembic.env")
 
@@ -94,7 +94,7 @@ _SINGLE_ROLE_WARNING: Final[str] = (
 
 
 def _owner_url() -> str:
-    """``HBD_DB_MIGRATION_URL`` from the process environment, else from the dotenv file.
+    """``BAYRAM_DB_MIGRATION_URL`` from the process environment, else from the dotenv file.
 
     Same precedence pydantic-settings gives every other variable, so the owner DSN and the
     application DSN are configured the same way and ``ENV=prod make migrate`` reads both

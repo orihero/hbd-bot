@@ -8,8 +8,8 @@ from uuid import uuid4
 
 import pytest
 
-from hbd.config import Settings
-from hbd.contracts import (
+from bayram.config import Settings
+from bayram.contracts import (
     Brief,
     CompositionPlan,
     NameCandidate,
@@ -18,20 +18,20 @@ from hbd.contracts import (
     Result,
     Script,
 )
-from hbd.errors import (
+from bayram.errors import (
     ProviderRejectedContentError,
     ProviderTimeoutError,
     ProviderUnavailableError,
 )
-from hbd.pipeline.events import PipelineStage, ProgressReporter, ProgressStatus
-from hbd.pipeline.name_stage import (
+from bayram.pipeline.events import PipelineStage, ProgressReporter, ProgressStatus
+from bayram.pipeline.name_stage import (
     VERIFICATION_EVENT,
     SongRender,
     best_similarity,
     render_song,
 )
-from hbd.pipeline.plan_builder import build_composition_plan
-from hbd.pipeline.retry import RetryPolicy
+from bayram.pipeline.plan_builder import build_composition_plan
+from bayram.pipeline.retry import RetryPolicy
 from tests.conftest import UZBEK_NAME_CANONICAL, candidate_of, make_brief, make_lyrics, recipient_of
 from tests.test_pipeline.conftest import (
     FakeMusicProvider,
@@ -353,7 +353,7 @@ async def test_a_missing_stored_song_handle_is_reported_once_not_silently(
         studio.stt.pronunciations[spelling] = "Zamira"
 
     # Act
-    with caplog.at_level(logging.WARNING, logger="hbd.pipeline.name_stage"):
+    with caplog.at_level(logging.WARNING, logger="bayram.pipeline.name_stage"):
         result = await _run(studio)
 
     # Assert
@@ -368,7 +368,7 @@ async def test_a_stored_song_handle_produces_no_warning(
     studio: Studio, caplog: pytest.LogCaptureFixture
 ) -> None:
     # Act
-    with caplog.at_level(logging.WARNING, logger="hbd.pipeline.name_stage"):
+    with caplog.at_level(logging.WARNING, logger="bayram.pipeline.name_stage"):
         await _run(studio)
 
     # Assert
@@ -382,7 +382,7 @@ async def test_every_completed_loop_emits_one_verification_line(
 ) -> None:
     """The re-roll rate is read from this line; ``verdicts`` is aggregated nowhere else."""
     # Act
-    with caplog.at_level(logging.INFO, logger="hbd.pipeline.name_stage"):
+    with caplog.at_level(logging.INFO, logger="bayram.pipeline.name_stage"):
         result = await _run(studio)
 
     # Assert

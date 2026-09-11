@@ -9,7 +9,7 @@ The watermark block at the bottom pins the newer and sharper reason this boundar
 The bot prints its own watermark into the customer's chat — under the lyric preview, around
 every delivered lyric sheet — immediately above a screen that says "send me your own as a
 message". Selecting all of it and pasting it back is ordinary behaviour, and it used to put
-"✨ Generate yours at @hbduzbot" into a ``LyricSection`` and from there into the vendor
+"✨ Generate yours at @bayram_uzbot" into a ``LyricSection`` and from there into the vendor
 chunk text, where it would have been sung. Nothing in the suite pasted anything before, so
 the leak was green.
 """
@@ -18,17 +18,17 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.bot.i18n import translate
-from hbd.bot.lyrics_entry import (
+from bayram.bot.i18n import translate
+from bayram.bot.lyrics_entry import (
     LYRICS_TOO_LONG_KEY,
     LYRICS_TOO_SHORT_KEY,
     MAX_LYRIC_CHARS,
     MIN_LYRIC_CHARS,
     parse_typed_lyrics,
 )
-from hbd.contracts import Err, Language, LyricDraft, Ok, Result
-from hbd.pipeline.lyric_shape import MAX_LINES_PER_SECTION, MAX_LYRIC_SECTIONS
-from hbd.watermark import SHEET_RULE, WATERMARK_HANDLE, contains_watermark
+from bayram.contracts import Err, Language, LyricDraft, Ok, Result
+from bayram.pipeline.lyric_shape import MAX_LINES_PER_SECTION, MAX_LYRIC_SECTIONS
+from bayram.watermark import SHEET_RULE, WATERMARK_HANDLE, contains_watermark
 
 DISPLAY = "Gʻulomjon"  # U+02BB, the canonical spelling the hook must carry
 
@@ -147,7 +147,7 @@ def test_the_title_comes_from_the_caller_and_is_never_guessed_from_the_paste() -
 # ---------------------------------------------------------------------------
 # This is the one place untrusted text becomes a ``LyricDraft``, and the bot has put its own
 # watermark into the customer's chat directly above a screen inviting a paste. The defect
-# these tests pin: nothing filtered, so "✨ Generate yours at @hbduzbot" pasted back became a
+# these tests pin: nothing filtered, so "✨ Generate yours at @bayram_uzbot" pasted back became a
 # section, then a vendor chunk, and was sung. ``contains_watermark`` is the assertion because
 # it is the same predicate the vendor-payload tests use — if it is ever widened, this
 # boundary is widened with it.
@@ -194,7 +194,7 @@ def test_a_forwarded_lyric_sheet_pasted_back_loses_its_rules_and_keeps_its_song(
 
     ``SHEET_RULE`` is generated rather than translated — the ``lyrics.txt`` artefact carries
     no language — so it arrives identically whichever locale the recipient then pastes it
-    in. Before the filter this paste produced ``'--- Generate yours at @hbduzbot ---'`` as
+    in. Before the filter this paste produced ``'--- Generate yours at @bayram_uzbot ---'`` as
     both the first and the last chunk of the vendor plan.
     """
     # Arrange
@@ -237,10 +237,10 @@ def test_a_paste_that_is_nothing_but_watermark_is_refused_as_too_short(
 def test_a_customers_own_sentence_naming_the_bot_loses_that_line_and_keeps_the_rest() -> None:
     """DECIDED: the line goes, whoever typed it. The rest of the lyric is untouched.
 
-    ``contains_watermark`` is deliberately generous, so "thanks to @hbduzbot for this" —
+    ``contains_watermark`` is deliberately generous, so "thanks to @bayram_uzbot for this" —
     genuinely the customer's own words, in the customer's own thank-you verse — is dropped
     along with the pasted-back ones. That is the choice, and the reason is that the
-    invariant is about what gets SUNG, not about who typed it: a voice singing "at hbduzbot"
+    invariant is about what gets SUNG, not about who typed it: a voice singing "at bayram_uzbot"
     ruins the song identically either way, and there is no signal in a Telegram message that
     could tell the two apart. The cost is one line of a multi-line paste, silently; the cost
     of the other choice is a customer hearing an advertisement in their birthday song.
@@ -248,7 +248,7 @@ def test_a_customers_own_sentence_naming_the_bot_loses_that_line_and_keeps_the_r
     and could not be told which of the words on their screen we objected to.
     """
     # Arrange
-    typed = "The candles are lit tonight\nthanks to @hbduzbot for this\nand the table is laid"
+    typed = "The candles are lit tonight\nthanks to @bayram_uzbot for this\nand the table is laid"
 
     # Act
     draft = value_of(parse(typed))

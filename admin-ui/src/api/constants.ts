@@ -4,10 +4,10 @@
  * server still wins, and the disagreement shows up as a 422 rather than as silent drift.
  */
 
-/** `hbd.admin.deps.API_PREFIX`. Same origin, always — never an absolute URL (§11.1). */
+/** `bayram.admin.deps.API_PREFIX`. Same origin, always — never an absolute URL (§11.1). */
 export const API_PREFIX = "/api";
 
-/** `hbd.admin.deps.AUTH_PREFIX`. */
+/** `bayram.admin.deps.AUTH_PREFIX`. */
 export const AUTH_PREFIX = "/api/auth";
 
 /** The two probes live OUTSIDE `/api`. */
@@ -15,17 +15,17 @@ export const HEALTHZ_PATH = "/healthz";
 export const READYZ_PATH = "/readyz";
 
 /* --------------------------------------------------------------------------
- * Headers and cookies — hbd/admin/csrf.py, hbd/admin/middleware/correlation.py
+ * Headers and cookies — bayram/admin/csrf.py, bayram/admin/middleware/correlation.py
  * -------------------------------------------------------------------------- */
 
 /** Echoed on every non-GET; read out of the (non-HttpOnly) CSRF cookie. */
 export const CSRF_HEADER_NAME = "X-CSRF-Token";
 
 /** The only cookie the SPA can read. The session cookie is HttpOnly and must stay so. */
-export const CSRF_COOKIE_NAME = "__Host-hbd_csrf";
+export const CSRF_COOKIE_NAME = "__Host-bayram_csrf";
 
 /** HttpOnly. Named here for documentation only — JavaScript cannot and must not read it. */
-export const SESSION_COOKIE_NAME = "__Host-hbd_session";
+export const SESSION_COOKIE_NAME = "__Host-bayram_session";
 
 /** On every response, and equal to `error.correlationId` in a failure body. */
 export const CORRELATION_HEADER = "X-Correlation-ID";
@@ -37,7 +37,7 @@ export const RETRY_AFTER_HEADER = "Retry-After";
 export const CORRELATION_ID_PATTERN = /^[0-9a-f]{32}$/;
 
 /* --------------------------------------------------------------------------
- * Pagination — hbd/db/admin/page.py
+ * Pagination — bayram/db/admin/page.py
  * -------------------------------------------------------------------------- */
 
 export const MIN_PAGE_LIMIT = 1;
@@ -67,7 +67,7 @@ export const MAX_ADMIN_ACCOUNTS = 500;
 
 /**
  * `q` longer than this is a 422 from the server, not a narrower list — see
- * `MAX_SEARCH_CHARS` in `hbd/db/admin/sql.py`, where 64 is chosen as longer than any
+ * `MAX_SEARCH_CHARS` in `bayram/db/admin/sql.py`, where 64 is chosen as longer than any
  * correlation id (32) or telegram id (19 digits). Cap the INPUT with it so a pasted
  * paragraph is truncated in the box the operator can see, rather than rejected wholesale.
  */
@@ -86,7 +86,7 @@ export const MAX_STEP_UP_SCOPE_CHARS = 128;
 export const MAX_MESSAGE_CHARS = 300;
 
 /* --------------------------------------------------------------------------
- * Masking — hbd/admin/serializers/redaction.py
+ * Masking — bayram/admin/serializers/redaction.py
  * -------------------------------------------------------------------------- */
 
 /**
@@ -118,7 +118,7 @@ export const LAST_ORDER_COLUMN_LABEL = "last order";
 
 /**
  * Copy for the tri-state booleans (`isRetryable`, `isFailedReasonRetryable`). `null` means
- * no class in `hbd.errors` claims the code — render this and offer no retry. It is not
+ * no class in `bayram.errors` claims the code — render this and offer no retry. It is not
  * "not retryable", which is a decision; it is the absence of one.
  */
 export const UNKNOWN_RETRYABILITY_LABEL = "unknown";
@@ -138,7 +138,7 @@ export const SOURCE_UNAVAILABLE_LABEL = "not enabled in this deployment";
 export const REASON_WITHHELD_LABEL = "a reason was recorded, you may not read it";
 
 /* --------------------------------------------------------------------------
- * The reveal — hbd/admin/schemas/reveal.py, hbd/admin/security/budget.py
+ * The reveal — bayram/admin/schemas/reveal.py, bayram/admin/security/budget.py
  * -------------------------------------------------------------------------- */
 
 /**
@@ -160,7 +160,7 @@ export const MAX_REASON_REF_CHARS = 64;
  * than by a 422.
  *
  * It is NOT the whole truth and the disagreement is the plan's, not a bug here:
- * `hbd/db/admin/audit.py`'s `_CREDENTIAL_SHAPES` additionally refuses any
+ * `bayram/db/admin/audit.py`'s `_CREDENTIAL_SHAPES` additionally refuses any
  * `[A-Za-z0-9_-]{40,}` run, so a 40-character slug satisfies this pattern and is still
  * refused at the audit boundary — as a 422 naming the field, with no plaintext returned and
  * no audit row written. `LONG_REASON_REF_CHARS` is where that second rule starts.

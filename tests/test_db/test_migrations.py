@@ -39,9 +39,9 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import Connection, inspect
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from hbd.config import get_settings
-from hbd.db.engine import ping as db_ping
-from hbd.db.models import Base
+from bayram.config import get_settings
+from bayram.db.engine import ping as db_ping
+from bayram.db.models import Base
 
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _ALEMBIC_INI: Final[Path] = _REPO_ROOT / "migrations" / "alembic.ini"
@@ -52,13 +52,13 @@ _ALEMBIC_TABLE: Final[str] = "alembic_version"
 
 #: Matches docker-compose.yml. Overridable so CI can point at its own instance.
 _POSTGRES_URL: Final[str] = os.environ.get(
-    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
+    "BAYRAM_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
 )
 
 _REQUIRED_ENV: Final[tuple[str, ...]] = (
-    "HBD_TELEGRAM_BOT_TOKEN",
-    "HBD_ELEVENLABS_API_KEY",
-    "HBD_LLM_API_KEY",
+    "BAYRAM_TELEGRAM_BOT_TOKEN",
+    "BAYRAM_ELEVENLABS_API_KEY",
+    "BAYRAM_LLM_API_KEY",
 )
 
 #: The six tables the product cannot run without. Asserted as a SUBSET, never as the whole
@@ -153,10 +153,10 @@ def _clean_settings_cache() -> Iterator[None]:
 
 
 def _prepare_env(url: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Point ``env.py`` at ``url`` the same way production does — through ``hbd.config``.
+    """Point ``env.py`` at ``url`` the same way production does — through ``bayram.config``.
 
     **The developer's own dotenv file is taken out of reach first**, and that is not
-    tidiness. ``env.py`` prefers ``HBD_DB_MIGRATION_URL`` — the OWNER role's DSN — over the
+    tidiness. ``env.py`` prefers ``BAYRAM_DB_MIGRATION_URL`` — the OWNER role's DSN — over the
     application DSN set below, and reads it from the process environment and then from the
     dotenv file. A developer who has followed either README instruction has that variable
     pointed at their real Postgres, and without these two lines every test in this module
@@ -164,13 +164,13 @@ def _prepare_env(url: str, monkeypatch: pytest.MonkeyPatch) -> None:
     upgrade succeeded, the assertion failed against an empty temp file, and the two
     downgrade tests were one passing assertion away from running ``downgrade base`` on it.
 
-    ``HBD_ENV_FILE`` at a path that does not exist is the whole neutralisation — it is what
-    ``hbd.config.env_file()`` returns, so it disables ``.env`` for the settings the
+    ``BAYRAM_ENV_FILE`` at a path that does not exist is the whole neutralisation — it is what
+    ``bayram.config.env_file()`` returns, so it disables ``.env`` for the settings the
     migration builds as well.
     """
-    monkeypatch.setenv("HBD_ENV_FILE", str(_ALEMBIC_INI.parent / "no-such.env"))
-    monkeypatch.delenv("HBD_DB_MIGRATION_URL", raising=False)
-    monkeypatch.setenv("HBD_DATABASE_URL", url)
+    monkeypatch.setenv("BAYRAM_ENV_FILE", str(_ALEMBIC_INI.parent / "no-such.env"))
+    monkeypatch.delenv("BAYRAM_DB_MIGRATION_URL", raising=False)
+    monkeypatch.setenv("BAYRAM_DATABASE_URL", url)
     for name in _REQUIRED_ENV:
         monkeypatch.setenv(name, "migration-test-value")
     # Settings are cached process-wide; the env above only takes effect once it is dropped.
@@ -286,7 +286,7 @@ def test_every_migration_defines_a_real_downgrade() -> None:
 
 
 def test_no_migration_imports_application_code() -> None:
-    # Arrange — a migration importing hbd.* breaks when hbd.* is refactored, and it breaks
+    # Arrange — a migration importing bayram.* breaks when bayram.* is refactored, and it breaks
     # historically, on a revision that already ran everywhere. env.py renders our own
     # column types as plain SQLAlchemy ones precisely so this stays true.
     versions = sorted(_VERSIONS_DIR.glob("*.py"))
@@ -296,7 +296,7 @@ def test_no_migration_imports_application_code() -> None:
         path.name
         for path in versions
         if any(
-            line.startswith(("import hbd", "from hbd"))
+            line.startswith(("import bayram", "from bayram"))
             for line in path.read_text(encoding="utf-8").splitlines()
         )
     ]
@@ -324,7 +324,7 @@ def test_the_new_table_is_registered_as_well_as_migrated() -> None:
     # Assert
     assert _USER_PROFILES_TABLE in registered, (
         f"{_USER_PROFILES_TABLE} is created by revision 0014 but no model declares it; "
-        "import UserProfileRow in src/hbd/db/models/__init__.py"
+        "import UserProfileRow in src/bayram/db/models/__init__.py"
     )
 
 
@@ -344,7 +344,7 @@ def test_the_vendor_usage_table_is_registered_as_well_as_migrated() -> None:
     # Assert
     assert _VENDOR_USAGE_TABLE in registered, (
         f"{_VENDOR_USAGE_TABLE} is created by revision 0016 but no model declares it; "
-        "import VendorUsageRow in src/hbd/db/models/__init__.py"
+        "import VendorUsageRow in src/bayram/db/models/__init__.py"
     )
 
 
@@ -374,7 +374,7 @@ def test_the_payme_rail_tables_are_registered_as_well_as_migrated() -> None:
     assert missing == [], (
         f"{missing} are created by revision 0023 but no model declares them; import "
         "PaymentIntentRow, PaymeTransactionRow and PaymeRpcLogRow in "
-        "src/hbd/db/models/__init__.py"
+        "src/bayram/db/models/__init__.py"
     )
 
 
@@ -403,7 +403,7 @@ def test_the_broadcast_tables_are_registered_as_well_as_migrated() -> None:
     assert missing == [], (
         f"{missing} are created by revision 0024 but no model declares them; import "
         "BroadcastRow, BroadcastBodyRow and BroadcastRecipientRow in "
-        "src/hbd/db/models/__init__.py"
+        "src/bayram/db/models/__init__.py"
     )
 
 

@@ -5,7 +5,7 @@ clock, so a window boundary is crossed by moving a number rather than by sleepin
 
 The single most important assertion in this file is
 ``test_a_counter_store_that_raises_lets_the_update_through``: this limiter FAILS OPEN, which
-is the exact opposite of ``hbd.admin.security.ratelimit``'s fail-closed login limiter. Both
+is the exact opposite of ``bayram.admin.security.ratelimit``'s fail-closed login limiter. Both
 rules are correct for what they guard, and neither is a default anyone should flip.
 """
 
@@ -15,9 +15,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from hbd.config import Settings
-from hbd.errors import ConfigError
-from hbd.ratelimit import (
+from bayram.config import Settings
+from bayram.errors import ConfigError
+from bayram.ratelimit import (
     DEFAULT_INBOUND_POLICY,
     InboundPolicy,
     InMemoryWindowCounterStore,
@@ -211,7 +211,7 @@ async def test_the_verdict_says_how_long_the_window_has_left() -> None:
 
 
 async def test_a_counter_store_that_raises_lets_the_update_through() -> None:
-    """FAIL OPEN. The opposite of ``hbd.admin.security.ratelimit``, and deliberately so.
+    """FAIL OPEN. The opposite of ``bayram.admin.security.ratelimit``, and deliberately so.
 
     A customer must not be unable to order a song because a counter could not be written;
     an operator must not be able to log in with no working limiter. Same shape, opposite
@@ -359,7 +359,7 @@ async def test_the_policy_is_read_off_settings() -> None:
 
 async def test_an_object_that_is_not_settings_falls_back_to_the_shipped_policy() -> None:
     """``resolve_inbound_policy`` takes ``object`` on purpose — this module is a leaf and
-    may not import ``hbd.config`` — so it has to survive being handed anything at all."""
+    may not import ``bayram.config`` — so it has to survive being handed anything at all."""
     # Arrange / Act / Assert
     assert resolve_inbound_policy(None) == DEFAULT_INBOUND_POLICY
     assert resolve_inbound_policy(object()) == DEFAULT_INBOUND_POLICY

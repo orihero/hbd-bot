@@ -55,11 +55,11 @@ from aiogram.types import (
     UserProfilePhotos,
 )
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.deps import BotDeps
-from hbd.checkout import Plan, PlanState, Purchase, PurchaseRequest
-from hbd.config import Settings
-from hbd.contracts import (
+from bayram.bot.app import build_dispatcher
+from bayram.bot.deps import BotDeps
+from bayram.checkout import Plan, PlanState, Purchase, PurchaseRequest
+from bayram.config import Settings
+from bayram.contracts import (
     Brief,
     Language,
     LyricDraft,
@@ -71,9 +71,9 @@ from hbd.contracts import (
     err,
     ok,
 )
-from hbd.entitlements import CreditBalance
-from hbd.errors import HbdError, PaymentError, PipelineError
-from hbd.user_profiles import AVATAR_MIME, UserProfile
+from bayram.entitlements import CreditBalance
+from bayram.errors import BayramError, PaymentError, PipelineError
+from bayram.user_profiles import AVATAR_MIME, UserProfile
 from tests.conftest import recipient_of
 
 BOT_TOKEN = "42:AAF-test-token-value-not-a-real-one"
@@ -175,7 +175,7 @@ class RecordingSession(BaseSession):
             message_id=getattr(method, "message_id", None) or self._next_message_id,
             date=FIXED_MOMENT,
             chat=Chat(id=CHAT_ID, type="private"),
-            from_user=User(id=BOT_ID, is_bot=True, first_name="hbd"),
+            from_user=User(id=BOT_ID, is_bot=True, first_name="Bayram"),
             text=getattr(method, "text", None),
             reply_markup=markup if isinstance(markup, InlineKeyboardMarkup) else None,
         )
@@ -224,7 +224,7 @@ class RecordingSubmitter:
         return tuple(str(order.id) for order, _chat, _message in self.submitted)
 
     async def submit(self, order: Order, *, chat_id: int, progress_message_id: int) -> Result[str]:
-        from hbd.contracts import err
+        from bayram.contracts import err
 
         if self.failure is not None:
             return err(PipelineError("queue unavailable", cause=self.failure))
@@ -269,13 +269,13 @@ def canned_lyrics(brief: Brief, *, take: int) -> LyricDraft:
 class RecordingContentWriter:
     """A fake lyric writer. Records the briefs it was asked to write for.
 
-    The wizard now calls a :class:`~hbd.pipeline.ports.ContentWriter` on the customer's
+    The wizard now calls a :class:`~bayram.pipeline.ports.ContentWriter` on the customer's
     screen, so the bot tests need one that answers instantly and predictably. Set
     ``failure`` to a typed error and every subsequent call comes back as an ``Err``, which
     is how the "the writer fell over mid-wizard" path is exercised without a vendor.
     """
 
-    def __init__(self, *, failure: HbdError | None = None) -> None:
+    def __init__(self, *, failure: BayramError | None = None) -> None:
         self.briefs: list[Brief] = []
         self.failure = failure
 
@@ -311,7 +311,7 @@ class DecliningPaymentProvider:
     async def authorize(
         self, *, order_id: Any, amount_minor: int, currency: str, telegram_user_id: int
     ) -> Result[Any]:
-        from hbd.contracts import PaymentAuthorization
+        from bayram.contracts import PaymentAuthorization
 
         return ok(
             PaymentAuthorization(
@@ -332,7 +332,7 @@ FAKE_PLAN_ENDS_AT: Final[datetime] = datetime(2026, 4, 20, 9, 0, 0, tzinfo=UTC)
 
 
 class RecordingCheckout:
-    """A :class:`~hbd.checkout.CheckoutProvider` that records what it was asked to charge.
+    """A :class:`~bayram.checkout.CheckoutProvider` that records what it was asked to charge.
 
     Structurally the same shape as ``StubCheckoutProvider`` — it contacts nothing either —
     and it exists for the one thing the stub cannot express: ``is_paid=False``. A redirect
@@ -392,7 +392,7 @@ class RecordingCheckout:
 
 
 class FakePurchases:
-    """An in-memory :class:`~hbd.checkout.PurchaseFulfiller`. Idempotent on the key, like the real one.
+    """An in-memory :class:`~bayram.checkout.PurchaseFulfiller`. Idempotent on the key, like the real one.
 
     The ledger it stands in for deduplicates on a unique index over ``idempotency_key``, and
     that is the property every double-tap assertion in this suite rests on — so this fake
@@ -410,7 +410,7 @@ class FakePurchases:
     survives an exception it will never see while proving nothing about the failure it will.
     """
 
-    def __init__(self, *, credits: int = 0, failure: HbdError | None = None) -> None:
+    def __init__(self, *, credits: int = 0, failure: BayramError | None = None) -> None:
         #: The balance this account reads back at. Moved by a fulfilled single song.
         self.credits = credits
         #: Returned by every method while set.
@@ -491,7 +491,7 @@ _FAKE_USER_ID_NAMESPACE: Final[UUID] = UUID("6f9619ff-8b86-d011-b42d-00c04fc964f
 
 #: The language a profile row is born with when something reached :meth:`FakeProfiles.record_contact`
 #: without a language choice ever being recorded. Named rather than inlined for the same reason
-#: ``hbd.db.credits`` names its own: "the language a row is born with" must have exactly one
+#: ``bayram.db.credits`` names its own: "the language a row is born with" must have exactly one
 #: spelling, or the fallback drifts from the production one and the fake starts answering a
 #: question the real store answers differently.
 FAKE_BIRTH_LANGUAGE: Final[Language] = Language.UZ_LATN
@@ -517,7 +517,7 @@ def _fresh_profile(telegram_user_id: int, ui_language: Language) -> UserProfile:
     """The row an account is BORN with: a language and nothing else.
 
     Every optional field is spelled out rather than defaulted, because
-    :class:`~hbd.user_profiles.UserProfile` has no defaults and must not grow any — a default
+    :class:`~bayram.user_profiles.UserProfile` has no defaults and must not grow any — a default
     would let a field added to the port slip into every fake row unnoticed, and the fake would
     then agree with a store that had never learned to write it.
     """
@@ -541,7 +541,7 @@ def _fresh_profile(telegram_user_id: int, ui_language: Language) -> UserProfile:
 
 
 class FakeProfiles:
-    """An in-memory :class:`~hbd.user_profiles.UserProfileStore`. Starts EMPTY.
+    """An in-memory :class:`~bayram.user_profiles.UserProfileStore`. Starts EMPTY.
 
     Empty is the interesting state and therefore the default: a store that came pre-populated
     would make every walker skip onboarding, which is the fail-open path the suite already
@@ -561,7 +561,7 @@ class FakeProfiles:
     and the wizard's own clock fixture is already frozen there.
     """
 
-    def __init__(self, *, failure: HbdError | None = None) -> None:
+    def __init__(self, *, failure: BayramError | None = None) -> None:
         self.rows: dict[int, UserProfile] = {}
         #: Returned by every method while set. Drives the C1-5 fail-open assertions.
         self.failure = failure
@@ -583,13 +583,13 @@ class FakeProfiles:
         same statement. A test that wants the language-only intermediate calls
         :meth:`record_language` instead, which is what the customer's tap does.
 
-        ``ui_language`` defaults to :attr:`~hbd.contracts.Language.EN` and NOT to the product's
+        ``ui_language`` defaults to :attr:`~bayram.contracts.Language.EN` and NOT to the product's
         Uzbek default, deliberately: English is the language the assertions in this suite are
         written in, and a default that matched ``settings.default_ui_language`` would let a
         screen rendered from the fallback and a screen rendered from the stored choice look
         identical — which is precisely the bug C1-5's fail-open path can introduce.
 
-        ``**overrides`` is a plain kwargs splat onto :class:`~hbd.user_profiles.UserProfile`'s
+        ``**overrides`` is a plain kwargs splat onto :class:`~bayram.user_profiles.UserProfile`'s
         own field names, so a misspelled field is a ``TypeError`` at the call site rather than
         a silently ignored intention.
         """
@@ -690,7 +690,7 @@ class FakeProfiles:
 
         The attempt is always recorded on :attr:`avatars` and the ROW is stamped only when the
         real store would have stored the bytes — there is a profile row and the MIME is
-        :data:`~hbd.user_profiles.AVATAR_MIME`. Splitting the two is what lets a test assert
+        :data:`~bayram.user_profiles.AVATAR_MIME`. Splitting the two is what lets a test assert
         both halves of the production contract: that the fetcher sends exactly the one content
         type the tree defines, and that anything else is discarded rather than served later
         under a guessed content type.
@@ -909,7 +909,7 @@ def make_callback(data: str, *, message_id: int = 20) -> CallbackQuery:
             message_id=message_id,
             date=FIXED_MOMENT,
             chat=Chat(id=CHAT_ID, type="private"),
-            from_user=User(id=BOT_ID, is_bot=True, first_name="hbd"),
+            from_user=User(id=BOT_ID, is_bot=True, first_name="Bayram"),
             text="previous screen",
         ),
     )
@@ -937,7 +937,7 @@ AVATAR_FILE_PATH: Final[str] = "photos/file_0.jpg"
 
 #: A JPEG's first bytes and then some filler. Not a valid image, and it does not need to be —
 #: nothing in this tree decodes it — but it starts with the real ``\xff\xd8\xff`` SOI marker so
-#: that a future sniffer would agree with :data:`~hbd.user_profiles.AVATAR_MIME` rather than
+#: that a future sniffer would agree with :data:`~bayram.user_profiles.AVATAR_MIME` rather than
 #: quietly disagree with it.
 AVATAR_BYTES: Final[bytes] = b"\xff\xd8\xff\xe0jpeg-ish"
 

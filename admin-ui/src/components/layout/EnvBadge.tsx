@@ -70,7 +70,7 @@
  * ## Unknown is a state, not a default
  *
  * If `/api/config` has not answered — or answered `CAPABILITY_DISABLED`, which it does when
- * `HBD_ADMIN_CONFIG_ENABLED` is off — the badge says so. Falling back to `dev` would be a
+ * `BAYRAM_ADMIN_CONFIG_ENABLED` is off — the badge says so. Falling back to `dev` would be a
  * confident lie in exactly the situation the badge exists to prevent.
  */
 

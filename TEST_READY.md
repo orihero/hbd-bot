@@ -15,7 +15,7 @@ The comprehensive opaque-box E2E test suite for Admin Dashboard Multilingual Loc
 
 The test suite validates:
 1. **Type-Safe i18n Store**: `useI18n()`, `setLocale()`, dynamic parameter interpolation (`{param}`), and `t()` translation engine.
-2. **Persistence & Fallback**: Browser `localStorage` storage under key `hbd.dashboard.locale`, `navigator.language` fallback (`uz*` -> `uz`, `ru*` -> `ru`), and root `<html lang="...">` synchronization.
+2. **Persistence & Fallback**: Browser `localStorage` storage under key `bayram.dashboard.locale`, `navigator.language` fallback (`uz*` -> `uz`, `ru*` -> `ru`), and root `<html lang="...">` synchronization.
 3. **Dictionary Parity & Typographic Accuracy**: 100% key parity across English (`en.ts`), Russian (`ru.ts`), and Uzbek Latin (`uz.ts`) across all 11 namespaces, zero empty strings, parameter token match, standard Latin diacritics (`oʻ`, `gʻ`), and Cyrillic encoding integrity.
 4. **PlanIQ LanguageSwitcher**: Segmented selector supporting `UZ`, `RU`, `EN` with PlanIQ tokens (`bg-accent text-ink-900`), accessible `aria-label`, and placements in `LoginPage`, `WideRail`, and `CompactBar`.
 5. **Full Screen Coverage**: Localization across Auth, Navigation Shell, Dashboard (18 stat cards + 6 charts), Chats, Users, Generations, Audit, Admins, Reveal/Step-Up, and Shared Error/Feedback components.
@@ -91,7 +91,7 @@ admin-dashboard/tests/
   [T1.1.3] ⏳ PENDING F1: setLocale switches active locale reactively to 'uz' (Awaiting Milestone M1)
   [T1.1.4] ⏳ PENDING F1: t(key) translates static keys according to active locale (Awaiting Milestone M1)
   [T1.1.5] ⏳ PENDING F1: t(key, params) dynamically interpolates single and multiple parameters (Awaiting Milestone M1)
-  [T1.2.1] ⏳ PENDING F2: persistence writes to key 'hbd.dashboard.locale' (Awaiting Milestone M1)
+  [T1.2.1] ⏳ PENDING F2: persistence writes to key 'bayram.dashboard.locale' (Awaiting Milestone M1)
   [T1.2.2] ⏳ PENDING F2: fallback detects browser language when localStorage is empty (Awaiting Milestone M1)
   [T1.2.3] ⏳ PENDING F2: fallback selects 'en' when browser language is unsupported (Awaiting Milestone M1)
   [T1.2.4] ⏳ PENDING F2: document.documentElement.lang synchronizes with locale (Awaiting Milestone M1)

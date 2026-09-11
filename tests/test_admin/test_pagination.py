@@ -31,14 +31,14 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.routers.assets import ASSETS_PATH
-from hbd.admin.routers.audit import AUDIT_PATH
-from hbd.admin.routers.generations import GENERATIONS_PATH
-from hbd.admin.routers.orders import ORDER_ASSETS_PATH, ORDER_ATTEMPTS_PATH, ORDERS_PATH
-from hbd.admin.routers.users import USER_ORDERS_PATH, USERS_PATH
-from hbd.contracts import is_err, is_ok
-from hbd.db.admin.page import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.routers.assets import ASSETS_PATH
+from bayram.admin.routers.audit import AUDIT_PATH
+from bayram.admin.routers.generations import GENERATIONS_PATH
+from bayram.admin.routers.orders import ORDER_ASSETS_PATH, ORDER_ATTEMPTS_PATH, ORDERS_PATH
+from bayram.admin.routers.users import USER_ORDERS_PATH, USERS_PATH
+from bayram.contracts import is_err, is_ok
+from bayram.db.admin.page import (
     DEFAULT_PAGE_LIMIT,
     MAX_PAGE_LIMIT,
     MIN_PAGE_LIMIT,
@@ -47,7 +47,7 @@ from hbd.db.admin.page import (
     encode_cursor,
     page_request,
 )
-from hbd.db.enums import AdminRole
+from bayram.db.enums import AdminRole
 from tests.test_admin.conftest import NOW, PASSWORD, create_account, sign_in
 from tests.test_admin.test_audit_router import seed as seed_audit_entries
 from tests.test_admin.test_orders_router import (

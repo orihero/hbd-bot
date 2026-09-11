@@ -26,7 +26,7 @@ import {
   MIN_PASSWORD_CHARS,
 } from "./constants";
 
-/** `hbd.admin.errors.AdminRole` — four members, value == lowercase name. */
+/** `bayram.admin.errors.AdminRole` — four members, value == lowercase name. */
 export const ADMIN_ROLE_VALUES = ["owner", "admin", "support", "viewer"] as const;
 export const adminRoleSchema = z.enum(ADMIN_ROLE_VALUES);
 
@@ -74,7 +74,7 @@ export const AUTH_ENDPOINT = {
 
 /**
  * The only unauthenticated body this API accepts. Needs a matching `Origin` — a 403
- * `ORIGIN_REJECTED` in dev means `HBD_ADMIN_PUBLIC_ORIGIN`, not this call.
+ * `ORIGIN_REJECTED` in dev means `BAYRAM_ADMIN_PUBLIC_ORIGIN`, not this call.
  *
  * `LOGIN_RATE_LIMITED` carries a `Retry-After`, which the failure exposes as `retryAfterS`.
  */

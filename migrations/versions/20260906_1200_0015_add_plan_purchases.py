@@ -15,19 +15,19 @@ an invariant the suite asserts after every operation, so expiring unused plan so
 mean a sweep writing a compensating DEBIT — and with no lots that sweep could only GUESS
 whether it was burning plan money or a 7 000 soʻm top-up the customer paid cash for. It
 would guess wrong for exactly the customers who bought both. So nothing is granted up front:
-``hbd.db.credits._mint_plan_song`` takes ONE song out of a row in this table inside the
+``bayram.db.credits._mint_plan_song`` takes ONE song out of a row in this table inside the
 render debit's own transaction, guarded by ``UPDATE … WHERE songs_used = :seen``, exactly
 the way the rolling allowance has always been minted. Use-it-or-lose-it becomes a read-time
 predicate on ``plan_ends_at``, and there is nothing to claw back, ever.
 
 **The personal-data checklist item, head on.** ``telegram_user_id`` IS personal data, and it
-is ``nullable=True`` for precisely that reason: ``hbd.db.credit_erasure.forget_account`` is
+is ``nullable=True`` for precisely that reason: ``bayram.db.credit_erasure.forget_account`` is
 this table's erasure branch and it NULLs the column rather than deleting the row, following
 ``credit_ledger`` (0006) exactly. A receipt is an audit fact — it answers "was this customer
 charged for songs that never arrived?" months later, including for a dispute the customer
 themselves raises — so deleting it would make ``/forget`` mean "refund me" and would destroy
 that answer for everyone. There is therefore no ``*_expires_at`` on this table and no branch
-in ``hbd.db.purge``: the identity comes off on request, the anonymous aggregate stays, and
+in ``bayram.db.purge``: the identity comes off on request, the anonymous aggregate stays, and
 ``tests/test_db/test_privacy_constraints.py`` is satisfied the same way it already is by
 ``credit_accounts`` and ``credit_ledger``.
 
@@ -38,7 +38,7 @@ read by the two plan queries and by nothing else, so naming it ``plan_expires_at
 demand a retention branch for a date whose entire point is that nothing ever collects it.
 
 **``CreditReason`` gains two members in this revision and there is no DDL for them.**
-``TOPUP_PURCHASE`` and ``PLAN_SONG`` are stored through ``hbd.db.base.enum_type``, which
+``TOPUP_PURCHASE`` and ``PLAN_SONG`` are stored through ``bayram.db.base.enum_type``, which
 renders ``sa.Enum(..., native_enum=False, length=32)`` — a plain ``VARCHAR(32)`` with
 ``create_constraint`` off — so the set of legal values is enforced in the mapper and nowhere
 in the database. That is not new and is not an oversight: it is why ``UNENFORCED_RENDER``
@@ -74,7 +74,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(), nullable=False),
         # Nullable so that /forget has somewhere to go. See the module docstring.
         sa.Column("telegram_user_id", sa.BigInteger(), nullable=True),
-        # Spelled literally rather than imported from hbd.db.enums: a migration that imports
+        # Spelled literally rather than imported from bayram.db.enums: a migration that imports
         # application code breaks historically, on a revision that already ran everywhere
         # (tests/test_db/test_migrations.py::test_no_migration_imports_application_code).
         sa.Column(

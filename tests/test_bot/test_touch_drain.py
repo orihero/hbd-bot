@@ -21,10 +21,10 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-import hbd.bot.gate as gate_module
-from hbd.bot.gate import TouchDrain, TouchQueue, UserTouch
-from hbd.contracts import Language, Result, err, ok
-from hbd.errors import StorageError
+import bayram.bot.gate as gate_module
+from bayram.bot.gate import TouchDrain, TouchQueue, UserTouch
+from bayram.contracts import Language, Result, err, ok
+from bayram.errors import StorageError
 
 USER_ID = 1_000_777
 MOMENT = datetime(2026, 3, 21, 9, 0, 0, tzinfo=UTC)

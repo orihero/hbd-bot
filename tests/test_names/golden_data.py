@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
-from hbd.contracts import Language, NameStrategy, Script
+from bayram.contracts import Language, NameStrategy, Script
 
 __all__ = ["GoldenName", "GOLDEN_NAMES"]
 

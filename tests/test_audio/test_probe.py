@@ -10,8 +10,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hbd.audio.probe import ffprobe_args, parse_ffprobe_report, with_loudness
-from hbd.contracts import AudioProbe, is_err, is_ok
+from bayram.audio.probe import ffprobe_args, parse_ffprobe_report, with_loudness
+from bayram.contracts import AudioProbe, is_err, is_ok
 
 SOURCE = Path("/tmp/song.ogg")
 

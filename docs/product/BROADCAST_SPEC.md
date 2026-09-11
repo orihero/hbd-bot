@@ -16,7 +16,7 @@ Facts established by reconnaissance over this repository and re-verified before 
 
 | Fact | Consequence |
 | --- | --- |
-| `grep -rn "enqueue_job\|create_pool\|ArqRedis" src/hbd/admin/` → **zero hits** | There is no admin→ARQ seam. It must be built (§3.6). |
+| `grep -rn "enqueue_job\|create_pool\|ArqRedis" src/bayram/admin/` → **zero hits** | There is no admin→ARQ seam. It must be built (§3.6). |
 | Migration head is `0023`; ids are hand-set 4-digit serials | The new revision is `0024`. |
 | `AuditAction` is a closed StrEnum with no broadcast member; `SUBJECT_TYPES` is a closed frozenset without `broadcast` | Both must be extended (§6.4). |
 | `Permission`, `StepUpAction`, `STEP_UP_ACTIONS`, `RBAC_MATRIX` are closed and cross-asserted by tests | Three new permissions + one step-up action (§3.1). |
@@ -40,9 +40,9 @@ Facts established by reconnaissance over this repository and re-verified before 
 
 | File | Contents |
 | --- | --- |
-| `src/hbd/db/admin/segment.py` | `FIELDS` registry, `SegmentError`, `compile_segment()`, `sort_expression()`, `SEGMENT_LIMITS`. Pure SQLAlchemy; imports no FastAPI. |
-| `src/hbd/admin/schemas/segment.py` | `SegmentModel`/`RuleModel`/`GroupModel`/`SortModel` pydantic wire models (subclass `ApiModel`), `decode_segment()` / `encode_segment()` base64url codec, `MAX_SEGMENT_CHARS`. |
-| `src/hbd/db/admin/users.py` | `UserFilters` gains one field: `segment: CompiledSegment | None`. `_filtered()` gains three lines. |
+| `src/bayram/db/admin/segment.py` | `FIELDS` registry, `SegmentError`, `compile_segment()`, `sort_expression()`, `SEGMENT_LIMITS`. Pure SQLAlchemy; imports no FastAPI. |
+| `src/bayram/admin/schemas/segment.py` | `SegmentModel`/`RuleModel`/`GroupModel`/`SortModel` pydantic wire models (subclass `ApiModel`), `decode_segment()` / `encode_segment()` base64url codec, `MAX_SEGMENT_CHARS`. |
+| `src/bayram/db/admin/users.py` | `UserFilters` gains one field: `segment: CompiledSegment | None`. `_filtered()` gains three lines. |
 
 The DSL is a **document**, not a query string. Both consumers hand the same document to the same compiler:
 
@@ -98,7 +98,7 @@ One compiler, one registry, one refusal list. A field that the Users screen cann
 | `not_within_last_days` | instant | `col < now - timedelta(days=n)` **or** `col IS NULL` — see §1.4 |
 | `within_next_days` | instant | `now <= col < now + timedelta(days=n)` |
 
-`n` is `int`, `1 ≤ n ≤ 3650`. Every instant value must be RFC3339 **with an offset** — reuse `hbd.admin.window.require_aware`, so the 422 message is byte-identical to the one `?from=` already produces and the frontend needs no second error path.
+`n` is `int`, `1 ≤ n ≤ 3650`. Every instant value must be RFC3339 **with an offset** — reuse `bayram.admin.window.require_aware`, so the 422 message is byte-identical to the one `?from=` already produces and the frontend needs no second error path.
 
 **The NULL rule, stated once and applied everywhere:** `not_within_last_days` and `lt`/`before` on a nullable instant **include NULL rows**, because "has not ordered in 90 days" must contain "has never ordered". `within_last_days` and `gt`/`after` **exclude** them. This is written into each `FieldSpec` as `null_is_stale: bool` rather than decided per call site, and the frontend prints it in the rule row ("includes accounts that never did this").
 
@@ -175,7 +175,7 @@ exhausted  EXISTS(plan_ends_at > :now) AND NOT EXISTS(plan_ends_at > :now AND so
 lapsed     EXISTS(any)                 AND NOT EXISTS(plan_ends_at > :now)
 ```
 
-`PlanStatus` is a new `StrEnum` in `hbd.checkout` (leaf, next to `PlanState`), derived from `plan_sql.current_plan`/`live_plan`'s two existing predicates so there is one definition of "live". Values ≤ 32 chars.
+`PlanStatus` is a new `StrEnum` in `bayram.checkout` (leaf, next to `PlanState`), derived from `plan_sql.current_plan`/`live_plan`'s two existing predicates so there is one definition of "live". Values ≤ 32 chars.
 
 **There is no renewal in this product** — no auto-renew, no `renewed_at`, no recurring billing. `lapsed` is therefore the only truthful spelling of "did not renew", and the UI label must say so: **"Plan expired and not repurchased"**, not "Did not renew". Getting this wrong is how a campaign goes out saying "your subscription lapsed" to people who never had one.
 
@@ -244,7 +244,7 @@ All of these key on nullable `telegram_user_id` (nulled by `/forget`). The corre
 Today's cursor is `{at, id}` and the order is hard-wired to `(created_at DESC, id DESC)`. Sorting on anything else requires the cursor to carry the sort value. This is **additive**; old cursors keep decoding.
 
 ```python
-# src/hbd/db/admin/page.py  (additions)
+# src/bayram/db/admin/page.py  (additions)
 @dataclass(frozen=True, slots=True)
 class SortSpec:
     key: str                     # a SORT_KEYS member
@@ -274,7 +274,7 @@ Three rules that make this safe:
 ### 1.7 Compilation, and why it cannot be injected into
 
 ```python
-# src/hbd/db/admin/segment.py
+# src/bayram/db/admin/segment.py
 @dataclass(frozen=True, slots=True)
 class CompiledSegment:
     predicate: ColumnElement[bool] | None
@@ -311,7 +311,7 @@ One migration. `0024` carries the whole broadcast machinery. There is no consent
 
 ### 2.1 `broadcasts` — the campaign record (rev 0024)
 
-`src/hbd/db/models/broadcast.py`
+`src/bayram/db/models/broadcast.py`
 
 | Column | Type | Notes |
 | --- | --- | --- |
@@ -336,7 +336,7 @@ One migration. `0024` carries the whole broadcast machinery. There is no consent
 
 Indexes: templated `ix_broadcasts_state`, `ix_broadcasts_scheduled_for`, `ix_broadcasts_created_at` (from the mixin). Composite `ix_broadcasts_state_scheduled_for(state, scheduled_for)` for the "what is due" scan — the shape `ix_payment_intents_state_valid_until` already uses.
 
-`BroadcastState` / `BroadcastKind` go in `hbd.contracts` (**not** in a leaf module — the enum-length sweep only walks `hbd.contracts` and `hbd.db.*`, which is why `BotBlockSource` lives there). All values ≤ 32 chars.
+`BroadcastState` / `BroadcastKind` go in `bayram.contracts` (**not** in a leaf module — the enum-length sweep only walks `bayram.contracts` and `bayram.db.*`, which is why `BotBlockSource` lives there). All values ≤ 32 chars.
 
 ### 2.2 `broadcast_bodies` and `broadcast_recipients` (rev 0024)
 
@@ -364,7 +364,7 @@ Constraints: `uq_broadcast_bodies_broadcast_id_language`, `ck_broadcast_bodies_t
 | `language` | `enum_type(Language)` NOT NULL | Snapshotted at expansion; the body is chosen from this. |
 | `state` | `enum_type(BroadcastRecipientState)` NOT NULL | `pending` → `sending` → `sent` \| `failed` \| `skipped_blocked` \| `undeliverable` \| `unknown` |
 | `attempts` | `SmallInteger` NOT NULL default 0 | |
-| `error_code` | `String(ERROR_CODE_LENGTH)` NULL | A closed `hbd.errors` member or a Telegram class token — **never** a response body excerpt (`usage.py:109-111`'s argument: a vendor error body can quote the prompt). |
+| `error_code` | `String(ERROR_CODE_LENGTH)` NULL | A closed `bayram.errors` member or a Telegram class token — **never** a response body excerpt (`usage.py:109-111`'s argument: a vendor error body can quote the prompt). |
 | `sent_at` | `UtcDateTime` NULL | |
 | `created_at` / `updated_at` | mixin | |
 
@@ -382,10 +382,10 @@ Rev 0024 also adds `purge_runs.broadcast_recipients_deleted INTEGER NOT NULL DEF
 
 - Filename `20260910_HHMM_0024_add_broadcast_tables.py`; set `revision`/`down_revision` **by hand** (`make revision` mints a random hash) and rename the file's `_NNNN_` segment.
 - `revision: str = "0024"`, `down_revision: str | None = "0023"`, the `str | Sequence[str] | None` spelling from `script.py.mako`.
-- No `import hbd` — enums literal: `sa.Enum("draft", "expanding", "ready", "sending", "paused", "completed", "cancelled", "failed", name="broadcaststate", native_enum=False, length=32)`. Timestamps literal `sa.DateTime(timezone=True)`.
+- No `import bayram` — enums literal: `sa.Enum("draft", "expanding", "ready", "sending", "paused", "completed", "cancelled", "failed", name="broadcaststate", native_enum=False, length=32)`. Timestamps literal `sa.DateTime(timezone=True)`.
 - Everything through `op.batch_alter_table`; templated names via `batch_op.f(...)`; composite names as module constants spelled identically in `__table_args__`.
 - Real `downgrade()` — drop indexes in `reversed()` order, then the `purge_runs` column, then the tables child-first.
-- Register all three models in `src/hbd/db/models/__init__.py` (import **and** `__all__`) **in the same commit**, or the whole suite passes against a schema that lacks the tables.
+- Register all three models in `src/bayram/db/models/__init__.py` (import **and** `__all__`) **in the same commit**, or the whole suite passes against a schema that lacks the tables.
 
 ---
 
@@ -393,7 +393,7 @@ Rev 0024 also adds `purge_runs.broadcast_recipients_deleted INTEGER NOT NULL DEF
 
 ### 3.1 Permissions, step-up, audit (edit these first — nothing else compiles without them)
 
-`src/hbd/admin/security/permissions.py`:
+`src/bayram/admin/security/permissions.py`:
 
 ```python
 BROADCAST_READ  = "broadcast.read"
@@ -407,7 +407,7 @@ Permission.BROADCAST_SEND:  _row(admin=_WS, owner=_WS),
 ```
 `StepUpAction.BROADCAST_SEND = "broadcast.send"` + `STEP_UP_ACTIONS[Permission.BROADCAST_SEND] = StepUpAction.BROADCAST_SEND`. Its own action, never a reuse of `USER_BLOCK` — the `CREDIT_GRANT` comment makes exactly this argument and the same confused-deputy risk applies.
 
-`src/hbd/db/enums.py` — new `AuditAction` members (all ≤ 32 chars):
+`src/bayram/db/enums.py` — new `AuditAction` members (all ≤ 32 chars):
 ```
 BROADCAST_CREATE   = "broadcast.create"
 BROADCAST_SCHEDULE = "broadcast.schedule"     # the INTENT row
@@ -418,11 +418,11 @@ BROADCAST_SENT     = "broadcast.sent"         # the OUTCOME row, written by the 
 BROADCAST_TEST     = "broadcast.test"
 ```
 
-`src/hbd/db/admin/audit.py` — add `"broadcast"` to `SUBJECT_TYPES`. `BROADCAST_SUBJECT_TYPE: Final[str] = "broadcast"` is spelled once, in `routers/broadcasts.py`, and imported by the worker (the `USER_SUBJECT_TYPE` precedent).
+`src/bayram/db/admin/audit.py` — add `"broadcast"` to `SUBJECT_TYPES`. `BROADCAST_SUBJECT_TYPE: Final[str] = "broadcast"` is spelled once, in `routers/broadcasts.py`, and imported by the worker (the `USER_SUBJECT_TYPE` precedent).
 
 ### 3.2 The routers
 
-`src/hbd/admin/routers/broadcasts.py` — **three factories**, one permission each, per the house rule.
+`src/bayram/admin/routers/broadcasts.py` — **three factories**, one permission each, per the house rule.
 
 ```python
 BROADCASTS_PATH:            Final[str] = f"{API_PREFIX}/broadcasts"
@@ -436,7 +436,7 @@ BROADCAST_CANCEL_PATH:      Final[str] = f"{BROADCAST_PATH}/cancel"
 BROADCAST_TEST_SEND_PATH:   Final[str] = f"{BROADCAST_PATH}/test-send"
 ```
 
-`src/hbd/admin/routers/segments.py`:
+`src/bayram/admin/routers/segments.py`:
 ```python
 SEGMENT_PREVIEW_PATH: Final[str] = f"{API_PREFIX}/segments/preview"
 SEGMENT_FIELDS_PATH:  Final[str] = f"{API_PREFIX}/segments/fields"
@@ -465,7 +465,7 @@ Router split: `build_broadcasts_read_router()` (`BROADCAST_READ`), `build_broadc
 
 ### 3.3 Request/response schemas
 
-`src/hbd/admin/schemas/broadcasts.py`, every model subclassing `ApiModel` (camelCase aliases, `frozen`, `extra="forbid"`), every projection a free `to_*_view()` function:
+`src/bayram/admin/schemas/broadcasts.py`, every model subclassing `ApiModel` (camelCase aliases, `frozen`, `extra="forbid"`), every projection a free `to_*_view()` function:
 
 ```python
 class BroadcastBodyInput(ApiModel):
@@ -548,14 +548,14 @@ def _schedule_entry(admin, *, record, body, audience_size) -> AuditEntry:
 
 ### 3.5 DB read/write layer
 
-- `src/hbd/db/admin/broadcasts.py` — `list_broadcasts` / `count_broadcasts` / `get_broadcast` / `list_recipients` / `count_recipients` / `count_segment_exactly` / `segment_breakdown`. Session first and positional, everything else keyword-only, never commits, never catches. `_filtered()` + `_filtered_with_bodies()` split as usual.
-- `src/hbd/db/broadcasts.py` — the **worker's** write side: `create`, `mark_scheduled`, `expand_chunk`, `claim_chunk`, `settle_recipient`, `roll_up_counters`, `mark_finished`. Module-level functions taking `AsyncSession`; a `SqlBroadcasts` facade wrapping them in `run_guarded` for the worker's never-throw boundary.
+- `src/bayram/db/admin/broadcasts.py` — `list_broadcasts` / `count_broadcasts` / `get_broadcast` / `list_recipients` / `count_recipients` / `count_segment_exactly` / `segment_breakdown`. Session first and positional, everything else keyword-only, never commits, never catches. `_filtered()` + `_filtered_with_bodies()` split as usual.
+- `src/bayram/db/broadcasts.py` — the **worker's** write side: `create`, `mark_scheduled`, `expand_chunk`, `claim_chunk`, `settle_recipient`, `roll_up_counters`, `mark_finished`. Module-level functions taking `AsyncSession`; a `SqlBroadcasts` facade wrapping them in `run_guarded` for the worker's never-throw boundary.
 - `count_segment_exactly` is a plain `SELECT count(*) FROM (…)` over `_filtered`, **not** `bounded_total`. `account_totals` already refuses the cap for the same reason (`overview.py:111-116`); a broadcast that says "10,000+" is a broadcast nobody can approve.
 
 ### 3.6 The admin→ARQ seam (new, and the only genuinely novel plumbing)
 
 ```python
-# src/hbd/admin/queue.py
+# src/bayram/admin/queue.py
 class AdminQueue(Protocol):
     async def enqueue_expand(self, broadcast_id: UUID, *, now: datetime) -> Result[str]: ...
     async def enqueue_test_send(self, broadcast_id: UUID, *, telegram_user_id: int) -> Result[str]: ...
@@ -574,8 +574,8 @@ Built in `build_admin_container` as a **separate** `ArqRedis` via `await create_
 
 ### 3.7 Registration (four edits, or the enumeration test fails)
 
-1. `src/hbd/admin/routers/__init__.py` — import + `__all__` for all four builders.
-2. `src/hbd/admin/app.py` — the alphabetical import block, then four `application.include_router(...)` lines in `create_app`, **no `prefix=`**, grouped with a comment (module ships more than one router).
+1. `src/bayram/admin/routers/__init__.py` — import + `__all__` for all four builders.
+2. `src/bayram/admin/app.py` — the alphabetical import block, then four `application.include_router(...)` lines in `create_app`, **no `prefix=`**, grouped with a comment (module ships more than one router).
 3. `tests/test_admin/test_routes_enumeration.py` — every row into `MOUNTED_ROUTES` as `(method, PATH_CONSTANT, Permission.X)`; every non-GET also into `MUTATIONS`.
 4. `admin-dashboard/src/api/broadcasts.ts` + `segments.ts` (§5.5).
 
@@ -585,7 +585,7 @@ Built in `build_admin_container` as a **separate** `ArqRedis` via `await create_
 
 ### 4.1 Three jobs, on the existing machinery
 
-`src/hbd/runtime/broadcast_job.py`, following `activity_job.py` exactly: module-level `JOB_NAME` constants, `CONTAINER_CTX_KEY`/`BOT_CTX_KEY` **re-stated not imported** (circular-import avoidance, with the comment saying so), a local `_require_container(ctx)`, a JSON-safe `dict[str, Any]` summary return, and the closing `assert fn.__name__ == JOB_NAME` for each.
+`src/bayram/runtime/broadcast_job.py`, following `activity_job.py` exactly: module-level `JOB_NAME` constants, `CONTAINER_CTX_KEY`/`BOT_CTX_KEY` **re-stated not imported** (circular-import avoidance, with the comment saying so), a local `_require_container(ctx)`, a JSON-safe `dict[str, Any]` summary return, and the closing `assert fn.__name__ == JOB_NAME` for each.
 
 | Job | Name | Role |
 | --- | --- | --- |
@@ -616,8 +616,8 @@ loop:
 ### 4.3 Rate limiting — the first outbound pacer in this codebase
 
 ```python
-# src/hbd/runtime/pacer.py
-SEND_BUDGET_KEY: Final[str] = "hbd:send:budget"
+# src/bayram/runtime/pacer.py
+SEND_BUDGET_KEY: Final[str] = "bayram:send:budget"
 ```
 
 A Redis fixed-window counter of the `RedisWindowCounterStore.increment_by(key, n, ttl_s=2)` shape (`admin/security/ratelimit.py:246`) keyed on `f"{SEND_BUDGET_KEY}:{int(now)}"`. Before each send: `if increment_by(key, 1, ttl_s=2) > settings.broadcast_send_rate_per_s: sleep until the next second`. Cross-replica because it is Redis, which the in-memory inbound store explicitly is not.
@@ -793,7 +793,7 @@ Step indicator: the existing `Segmented` component. No stepper library, no form 
 
 - **In neither** `tables_with_personal_data` **nor** `tables_erased_on_request`, with a comment block in `tests/test_db/test_privacy_constraints.py` in the shape of the four existing exemptions, arguing it explicitly.
 - **No `*_expires_at` column.** That suffix is reserved for legal clocks a sweep reads, and claiming one here would oblige a `RetentionPolicy` field and a `SweepCounts` entry for a schedule this table does not have.
-- **Bounded by a cutoff**, not a clock: `BROADCAST_RECIPIENT_RETENTION_DAYS: Final[int] = 400` in `hbd/db/purge.py`, a `_broadcast_recipients_due(now)` predicate written **once** and read by both the delete branch and `rows_past_expiry_statements` (the module's own stated rule), a `PurgeReport.broadcast_recipients_deleted` field, and the matching `purge_runs` column from rev 0024. `SweepCounts` in `admin/schemas/retention.py` gains the field too — it is `extra="forbid"` with every field required precisely so a forgotten clock fails loudly.
+- **Bounded by a cutoff**, not a clock: `BROADCAST_RECIPIENT_RETENTION_DAYS: Final[int] = 400` in `bayram/db/purge.py`, a `_broadcast_recipients_due(now)` predicate written **once** and read by both the delete branch and `rows_past_expiry_statements` (the module's own stated rule), a `PurgeReport.broadcast_recipients_deleted` field, and the matching `purge_runs` column from rev 0024. `SweepCounts` in `admin/schemas/retention.py` gains the field too — it is `extra="forbid"` with every field required precisely so a forgotten clock fails loudly.
 - **`/forget` anonymises in place.** `credit_erasure.forget_account` gains `broadcast_recipients` to its list of `UPDATE … SET telegram_user_id = NULL` tables. The counts survive (a completed campaign's arithmetic must not change retroactively), the identity does not. `broadcasts` and `broadcast_bodies` hold no customer data at all and are untouched.
 
 ### 6.3 Out of scope for the initial build

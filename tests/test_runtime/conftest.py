@@ -39,28 +39,28 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.methods import TelegramMethod
 
-from hbd.config import Settings
-from hbd.contracts import BroadcastKind, Language, Result, err, ok
-from hbd.db.broadcasts import (
+from bayram.config import Settings
+from bayram.contracts import BroadcastKind, Language, Result, err, ok
+from bayram.db.broadcasts import (
     BroadcastActor,
     BroadcastBody,
     NewBroadcast,
     create_broadcast,
     expand_chunk,
 )
-from hbd.db.enums import AuditReasonCode
-from hbd.db.models.broadcast import BroadcastRow
-from hbd.db.models.broadcast_recipient import BroadcastRecipientRow
-from hbd.db.models.user import UserRow
-from hbd.entitlements import (
+from bayram.db.enums import AuditReasonCode
+from bayram.db.models.broadcast import BroadcastRow
+from bayram.db.models.broadcast_recipient import BroadcastRecipientRow
+from bayram.db.models.user import UserRow
+from bayram.entitlements import (
     ChargeOutcome,
     CreditBalance,
     EntitlementError,
     InsufficientCreditsError,
     SettlementOutcome,
 )
-from hbd.errors import HbdError
-from hbd.runtime.container import AppContainer, build_container
+from bayram.errors import BayramError
+from bayram.runtime.container import AppContainer, build_container
 from tests.test_bot.conftest import BOT_TOKEN, RecordingSession
 
 __all__ = [
@@ -107,7 +107,7 @@ type Movement = tuple[str, UUID | None, int]
 
 
 class RecordingEntitlementStore:
-    """In-memory ``hbd.entitlements.EntitlementStore``. Never raises, never touches a DB.
+    """In-memory ``bayram.entitlements.EntitlementStore``. Never raises, never touches a DB.
 
     ``runtime_checkable`` verifies member PRESENCE only, so an ``isinstance`` assertion will
     happily accept this class after the protocol has drifted away from it. ``mypy --strict``
@@ -122,7 +122,7 @@ class RecordingEntitlementStore:
         #: database outage, which is retryable. The distinction is what the ARQ ladder reads
         #: off ``Err.is_retryable``, so a test that only ever sees an entitlement refusal
         #: cannot prove the gate stopped second-guessing it.
-        self.charge_failure: HbdError | None = None
+        self.charge_failure: BayramError | None = None
         #: Every write, in order: ("debit"|"refund"|"consume"|"grant", order_id, delta).
         self.movements: list[Movement] = []
         #: Net position per order, which is what decides replay in the real ledger too.

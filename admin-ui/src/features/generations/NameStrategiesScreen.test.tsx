@@ -237,7 +237,7 @@ describe("NameStrategiesScreen", () => {
     // nothing are ABSENT from the endpoint's array and keep their declared positions last.
     const value = await screen.findByTestId("candidate-order-value");
     expect(value).toHaveTextContent(
-      "HBD_NAME_CANDIDATE_ORDER=canonical,ascii,phonetic,stripped,cyrillic,hyphenated",
+      "BAYRAM_NAME_CANDIDATE_ORDER=canonical,ascii,phonetic,stripped,cyrillic,hyphenated",
     );
   });
 

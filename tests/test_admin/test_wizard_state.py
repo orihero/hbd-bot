@@ -29,10 +29,10 @@ from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.redis import RedisStorage
 from redis.asyncio import Redis
 
-from hbd.admin.errors import AdminErrorCode, AdminProblem, ProblemError
-from hbd.admin.wizard_state import FSM_KEY_BUILDER, read_wizard_state, storage_key_for
-from hbd.bot.draft import DRAFT_KEY, WizardDraft
-from hbd.contracts import Language, NameCandidate, NameStrategy, Occasion, RecipientName, Script
+from bayram.admin.errors import AdminErrorCode, AdminProblem, ProblemError
+from bayram.admin.wizard_state import FSM_KEY_BUILDER, read_wizard_state, storage_key_for
+from bayram.bot.draft import DRAFT_KEY, WizardDraft
+from bayram.contracts import Language, NameCandidate, NameStrategy, Occasion, RecipientName, Script
 from tests.test_admin.conftest import FakeRedis
 
 TELEGRAM_USER_ID: Final[int] = 987_654_321

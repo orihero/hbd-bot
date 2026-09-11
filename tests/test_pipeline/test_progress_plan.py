@@ -13,9 +13,9 @@ this test is what proves the move did not leave one of them behind.
 
 from __future__ import annotations
 
-from hbd.bot.i18n import translate
-from hbd.contracts import Language
-from hbd.pipeline.events import (
+from bayram.bot.i18n import translate
+from bayram.contracts import Language
+from bayram.pipeline.events import (
     GREETING_STAGES,
     STAGE_MESSAGE_KEYS,
     STAGE_ORDER,

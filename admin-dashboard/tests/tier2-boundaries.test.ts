@@ -298,7 +298,7 @@ export async function runTier2Tests(): Promise<TestCaseResult[]> {
           store.setLocale(loc);
           assertEqual(store.locale, loc, `Store locale must match ${loc}`);
           assertEqual(env.doc.documentElement.lang, loc, `DOM lang must match ${loc}`);
-          assertEqual(env.storage.getItem("hbd.dashboard.locale"), loc, `Storage must match ${loc}`);
+          assertEqual(env.storage.getItem("bayram.dashboard.locale"), loc, `Storage must match ${loc}`);
         }
       } finally {
         restoreTestEnv();

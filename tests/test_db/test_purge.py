@@ -18,7 +18,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import (
+from bayram.contracts import (
     BroadcastKind,
     BroadcastRecipientState,
     BroadcastState,
@@ -29,9 +29,9 @@ from hbd.contracts import (
     is_err,
     is_ok,
 )
-from hbd.db.attempts import GenerationAttempt, GenerationAttemptRepository
-from hbd.db.enums import GenerationKind, NameSource
-from hbd.db.models import (
+from bayram.db.attempts import GenerationAttempt, GenerationAttemptRepository
+from bayram.db.enums import GenerationKind, NameSource
+from bayram.db.models import (
     AssetRow,
     BriefRow,
     BroadcastRecipientRow,
@@ -40,11 +40,11 @@ from hbd.db.models import (
     NameRecordRow,
     OrderRow,
 )
-from hbd.db.names import NameRecordDraft, NameRecordRepository
-from hbd.db.purge import purge_expired
-from hbd.db.repository import SqlKitRepository
-from hbd.db.retention import DEFAULT_RETENTION_POLICY, RetentionClass, RetentionPolicy
-from hbd.storage import archive_key
+from bayram.db.names import NameRecordDraft, NameRecordRepository
+from bayram.db.purge import purge_expired
+from bayram.db.repository import SqlKitRepository
+from bayram.db.retention import DEFAULT_RETENTION_POLICY, RetentionClass, RetentionPolicy
+from bayram.storage import archive_key
 from tests.conftest import make_brief, make_candidates, make_lyrics
 from tests.test_db.conftest import MovableClock, build_kit, new_order
 
@@ -244,10 +244,10 @@ async def test_a_recorded_key_is_handed_over_verbatim_rather_than_reconstructed(
 @pytest.mark.parametrize(
     "stored_path",
     [
-        "C:\\Users\\hbd\\song.mp3",  # a Windows path: the whole string is one "name"
-        "/var/lib/hbd/song file.mp3",  # a space is not a shape the pipeline produces
+        "C:\\Users\\bayram\\song.mp3",  # a Windows path: the whole string is one "name"
+        "/var/lib/bayram/song file.mp3",  # a space is not a shape the pipeline produces
         "",  # a corrupt row: no path at all
-        "/var/lib/hbd/" + "x" * 129 + ".mp3",  # longer than any name it writes
+        "/var/lib/bayram/" + "x" * 129 + ".mp3",  # longer than any name it writes
     ],
 )
 async def test_a_legacy_path_that_is_not_a_pipeline_filename_yields_no_key(
@@ -294,7 +294,7 @@ async def test_a_reconstructed_key_is_built_from_the_filename_and_nothing_else(
         await session.execute(
             sa.update(AssetRow)
             .where(AssetRow.order_id == order.id)
-            .values(storage_key=None, path="/var/lib/hbd/../../../etc/song.mp3")
+            .values(storage_key=None, path="/var/lib/bayram/../../../etc/song.mp3")
         )
 
     # Act

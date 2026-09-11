@@ -22,7 +22,7 @@ So this file is organised around what the probes REFUSE to produce.
   is only true because nothing parses it. That is asserted here rather than trusted.
 * No successful-looking probe out of a failure. Six failure shapes are driven through a
   ``MockTransport`` and every one of them produces ``reading=None`` with an error code from
-  the closed ``hbd.errors`` taxonomy.
+  the closed ``bayram.errors`` taxonomy.
 * No spending of the management credential beyond the one thing it was accepted for. The
   account's prepaid pool is read from ``/api/v1/credits`` — a fifth secret the module
   docstring once refused, now held under the fences asserted below: the call is made only
@@ -39,9 +39,9 @@ from typing import Any, Final
 import httpx
 import pytest
 
-from hbd.contracts import BalanceUnit, Vendor
-from hbd.errors import ErrorCode
-from hbd.runtime.vendor_balance_probes import (
+from bayram.contracts import BalanceUnit, Vendor
+from bayram.errors import ErrorCode
+from bayram.runtime.vendor_balance_probes import (
     ELEVENLABS_PROBE_NAME,
     OPENROUTER_CREDITS_PATH,
     OPENROUTER_KEY_PATH,
@@ -293,7 +293,7 @@ def test_the_vendors_own_vocabulary_passes_through_and_a_blank_one_does_not() ->
     ["https://openrouter.ai/api/v1", "https://openrouter.ai", "https://openrouter.ai/api/v1/"],
 )
 def test_both_spellings_of_the_base_url_resolve_to_one_endpoint(base_url: str) -> None:
-    # ``HBD_LLM_BASE_URL`` ships versioned and a host-only value is just as legal. Naive
+    # ``BAYRAM_LLM_BASE_URL`` ships versioned and a host-only value is just as legal. Naive
     # concatenation gives ``/api/v1/v1/key`` and a 404 whose HTML body then defeats any
     # attempt to read the real cause.
     assert openrouter_probe_url(base_url, OPENROUTER_KEY_PATH) == (

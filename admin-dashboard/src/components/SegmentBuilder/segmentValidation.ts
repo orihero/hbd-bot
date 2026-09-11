@@ -9,7 +9,7 @@
  * That is the failure this module exists to prevent: the same rules, applied on every
  * keystroke, each one carrying the PATH of the rule that broke it.
  *
- * The refusals are transcribed from `hbd/db/admin/segment.py` — `_check_limits`, `_as_members`,
+ * The refusals are transcribed from `bayram/db/admin/segment.py` — `_check_limits`, `_as_members`,
  * `_as_days`, `_as_pair`, `_compile_rule`'s registry lookup and capability check, and
  * `_check_sort`'s `SORT_KEYS` membership — plus the two `GroupModel`/`SegmentModel` shape rules
  * (`a group must carry at least one rule`, and the version literal). Where the server and this

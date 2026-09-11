@@ -16,9 +16,9 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.db.admin import accounts
-from hbd.db.enums import AdminRole
-from hbd.db.models import AdminUserRow
+from bayram.db.admin import accounts
+from bayram.db.enums import AdminRole
+from bayram.db.models import AdminUserRow
 from tests.test_db.conftest import MovableClock
 
 _HASH = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$fake-digest-for-tests"

@@ -33,7 +33,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardMarkup
 
-from hbd.bot.callbacks import (
+from bayram.bot.callbacks import (
     GenreCB,
     LanguageCB,
     LanguageSlot,
@@ -42,14 +42,14 @@ from hbd.bot.callbacks import (
     OccasionCB,
     VocalGenderCB,
 )
-from hbd.bot.draft import UI_LANGUAGE_KEY, WizardDraft, load_draft
-from hbd.bot.handlers.common import privacy_text, support_text
-from hbd.bot.i18n import language_label, translate
-from hbd.bot.keyboards import MENU_BUTTON_KEYS, main_menu_keyboard
-from hbd.bot.states import Wizard
-from hbd.config import Settings
-from hbd.contracts import Genre, Language, Occasion, VoiceGender, is_ok
-from hbd.db.retention import DEFAULT_RETENTION_POLICY
+from bayram.bot.draft import UI_LANGUAGE_KEY, WizardDraft, load_draft
+from bayram.bot.handlers.common import privacy_text, support_text
+from bayram.bot.i18n import language_label, translate
+from bayram.bot.keyboards import MENU_BUTTON_KEYS, main_menu_keyboard
+from bayram.bot.states import Wizard
+from bayram.config import Settings
+from bayram.contracts import Genre, Language, Occasion, VoiceGender, is_ok
+from bayram.db.retention import DEFAULT_RETENTION_POLICY
 from tests.test_bot.conftest import (
     USER_ID,
     FakeProfiles,

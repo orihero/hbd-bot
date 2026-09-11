@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.config import DEFAULT_NAME_CANDIDATE_ORDER
-from hbd.contracts import (
+from bayram.config import DEFAULT_NAME_CANDIDATE_ORDER
+from bayram.contracts import (
     MAX_RECIPIENT_NAME_CHARS,
     Language,
     NameStrategy,
@@ -15,8 +15,8 @@ from hbd.contracts import (
     is_err,
     is_ok,
 )
-from hbd.errors import ErrorCode
-from hbd.names.resolve import MAX_NAME_WORDS, display_form, resolve_name
+from bayram.errors import ErrorCode
+from bayram.names.resolve import MAX_NAME_WORDS, display_form, resolve_name
 
 ORDER = DEFAULT_NAME_CANDIDATE_ORDER
 

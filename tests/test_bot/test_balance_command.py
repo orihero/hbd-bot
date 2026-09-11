@@ -29,14 +29,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.deps import BotDeps
-from hbd.bot.i18n import translate
-from hbd.bot.states import Wizard
-from hbd.config import Settings
-from hbd.contracts import Language
-from hbd.entitlements import DEFAULT_ENTITLEMENT_POLICY
-from hbd.errors import StorageError
+from bayram.bot.app import build_dispatcher
+from bayram.bot.deps import BotDeps
+from bayram.bot.i18n import translate
+from bayram.bot.states import Wizard
+from bayram.config import Settings
+from bayram.contracts import Language
+from bayram.entitlements import DEFAULT_ENTITLEMENT_POLICY
+from bayram.errors import StorageError
 from tests.test_bot.conftest import (
     BOT_ID,
     CHAT_ID,

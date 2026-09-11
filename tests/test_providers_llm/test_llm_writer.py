@@ -9,11 +9,11 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.contracts import Err, Language, NameStrategy, Ok, err
-from hbd.errors import ErrorCode, ProviderTimeoutError
-from hbd.providers.llm.schemas import KitDraft, KitPlanPayload, PersonaBrief
-from hbd.providers.llm.task_settings import LlmTaskSettings
-from hbd.providers.llm.writer import build_kit_request, map_kit_payload, write_kit
+from bayram.contracts import Err, Language, NameStrategy, Ok, err
+from bayram.errors import ErrorCode, ProviderTimeoutError
+from bayram.providers.llm.schemas import KitDraft, KitPlanPayload, PersonaBrief
+from bayram.providers.llm.task_settings import LlmTaskSettings
+from bayram.providers.llm.writer import build_kit_request, map_kit_payload, write_kit
 from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_name, recipient_of
 from tests.test_providers_llm.conftest import (
     StubLlmProvider,

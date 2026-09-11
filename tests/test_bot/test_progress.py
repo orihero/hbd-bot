@@ -11,8 +11,8 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.methods import EditMessageText, TelegramMethod
 
-from hbd.bot.i18n import translate
-from hbd.bot.progress import (
+from bayram.bot.i18n import translate
+from bayram.bot.progress import (
     EMPTY_BLOCK,
     FILLED_BLOCK,
     PROGRESS_BAR_WIDTH,
@@ -21,8 +21,8 @@ from hbd.bot.progress import (
     render_progress,
     timed_out_text,
 )
-from hbd.contracts import Language
-from hbd.pipeline.events import (
+from bayram.contracts import Language
+from bayram.pipeline.events import (
     STAGE_MESSAGE_KEYS,
     STAGE_ORDER,
     PipelineStage,

@@ -349,7 +349,7 @@ export async function runAllEmpiricalTests(): Promise<boolean> {
 
       assertEqual(useI18n.getState().locale, "ru", "Choosing must set the store");
       assertEqual(env.doc.documentElement.lang, "ru", "Choosing must set <html lang>");
-      assertEqual(env.storage.getItem("hbd.dashboard.locale"), "ru", "Choosing must persist");
+      assertEqual(env.storage.getItem("bayram.dashboard.locale"), "ru", "Choosing must persist");
     });
 
     await runEmpiricalTest("SYNC-02", "An external store mutation reaches every reader", "SYNC", () => {

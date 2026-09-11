@@ -10,7 +10,7 @@ invent, because every one of them is a number an operator would act on:
   fall the moment traffic arrives;
 * ``isCostTelemetry`` is **false** against rows carrying the column defaults and flips to
   true the instant one row carries a real cost — measured, never declared;
-* a failure code no class in ``hbd.errors`` claims answers ``isRetryable: null``, which is
+* a failure code no class in ``bayram.errors`` claims answers ``isRetryable: null``, which is
   a third answer and not a quiet ``false``;
 * a day with no orders is missing from the series rather than present as a zero;
 * a name-analytics window with nothing in it reports ``hasRecordedAttempts`` so the SPA can
@@ -36,9 +36,9 @@ import pytest
 from fastapi.routing import APIRoute
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.deps import RequirePermission, require_permission
-from hbd.admin.routers.dashboard import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.deps import RequirePermission, require_permission
+from bayram.admin.routers.dashboard import (
     CAPABILITIES_PATH,
     FAILURES_PATH,
     LATENCY_PATH,
@@ -48,13 +48,21 @@ from hbd.admin.routers.dashboard import (
     PULSE_PATH,
     build_dashboard_router,
 )
-from hbd.admin.security.permissions import ROLE_PERMISSIONS, Permission
-from hbd.contracts import Genre, Language, NameStrategy, Occasion, OrderState, Script, VoiceGender
-from hbd.db.enums import AdminRole, GenerationKind
-from hbd.db.models.brief import BriefRow
-from hbd.db.models.generation_attempt import GenerationAttemptRow
-from hbd.db.models.order import OrderRow
-from hbd.db.models.user import UserRow
+from bayram.admin.security.permissions import ROLE_PERMISSIONS, Permission
+from bayram.contracts import (
+    Genre,
+    Language,
+    NameStrategy,
+    Occasion,
+    OrderState,
+    Script,
+    VoiceGender,
+)
+from bayram.db.enums import AdminRole, GenerationKind
+from bayram.db.models.brief import BriefRow
+from bayram.db.models.generation_attempt import GenerationAttemptRow
+from bayram.db.models.order import OrderRow
+from bayram.db.models.user import UserRow
 from tests.test_admin.conftest import (
     PASSWORD,
     FakeRedis,

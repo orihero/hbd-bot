@@ -14,7 +14,7 @@
  * is an em dash. A `??` collapsing any two of them is the bug this cell exists to avoid.
  *
  * **failure.** `failedReason` is closed-vocabulary operator triage text and
- * `isFailedReasonRetryable` is TRI-state: `null` means no class in `hbd.errors` claims the
+ * `isFailedReasonRetryable` is TRI-state: `null` means no class in `bayram.errors` claims the
  * code, which `ErrorCodeBadge` renders as `?` unknown — never as "terminal". "Is retrying
  * worth anything" is the operator's real decision and it is one glyph away.
  *

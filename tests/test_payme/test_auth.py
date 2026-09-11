@@ -34,9 +34,9 @@ from typing import Final
 
 import pytest
 
-import hbd.payme.auth
-from hbd.payme.auth import MAX_LOGGED_LOGIN, presented_login, verify_basic
-from hbd.payme.protocol import DEFAULT_AUTH_LOGIN
+import bayram.payme.auth
+from bayram.payme.auth import MAX_LOGGED_LOGIN, presented_login, verify_basic
+from bayram.payme.protocol import DEFAULT_AUTH_LOGIN
 
 #: A placeholder cashbox key of the documented length. Not a real credential and it does not
 #: need to be — see the module docstring.
@@ -198,7 +198,7 @@ def test_the_auth_module_contains_no_logging_call_at_all() -> None:
     # passing the moment somebody adds one that happens not to fire on the inputs listed above.
     # Parsing the source catches the call itself, including one added inside a branch no test
     # reaches — which is exactly where a debug line printing the expected credential would go.
-    source = Path(hbd.payme.auth.__file__).read_text(encoding="utf-8")
+    source = Path(bayram.payme.auth.__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
 
     # Act
@@ -210,6 +210,6 @@ def test_the_auth_module_contains_no_logging_call_at_all() -> None:
     } | {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom) and node.module}
 
     # Assert — no logging machinery is reachable from this module, so there is nothing here for
-    # a secret to be written to. ``hbd.logging`` is barred by the same rule as ``logging``.
+    # a secret to be written to. ``bayram.logging`` is barred by the same rule as ``logging``.
     assert "logging" not in imported
-    assert "hbd.logging" not in imported
+    assert "bayram.logging" not in imported

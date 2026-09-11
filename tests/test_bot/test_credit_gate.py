@@ -28,15 +28,15 @@ from aiogram import Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.callbacks import NavAction, NavCB
-from hbd.bot.deps import BotDeps
-from hbd.bot.i18n import translate
-from hbd.bot.states import Wizard
-from hbd.config import Settings
-from hbd.contracts import Language, Result, err, ok
-from hbd.entitlements import ChargeOutcome, CreditBalance, SettlementOutcome
-from hbd.errors import HbdError, StorageError
+from bayram.bot.app import build_dispatcher
+from bayram.bot.callbacks import NavAction, NavCB
+from bayram.bot.deps import BotDeps
+from bayram.bot.i18n import translate
+from bayram.bot.states import Wizard
+from bayram.config import Settings
+from bayram.contracts import Language, Result, err, ok
+from bayram.entitlements import ChargeOutcome, CreditBalance, SettlementOutcome
+from bayram.errors import BayramError, StorageError
 from tests.test_bot.conftest import (
     FakeProfiles,
     RecordingContentWriter,
@@ -56,14 +56,14 @@ NEXT_GRANT_DAY = "2026-04-07"
 class FakeEntitlements:
     """A meter the bot can read, which shouts if the bot ever writes to it.
 
-    Structurally a :class:`hbd.entitlements.EntitlementStore`. ``in_flight`` is DERIVED
+    Structurally a :class:`bayram.entitlements.EntitlementStore`. ``in_flight`` is DERIVED
     from ``open_orders`` minus the order being confirmed, exactly as the real ledger
     derives it from unsettled debits, so a test can seed "this account already has a song
     being made" without the excluded-order rule quietly making it zero.
     """
 
     def __init__(
-        self, *, credits: int = 3, is_blocked: bool = False, failure: HbdError | None = None
+        self, *, credits: int = 3, is_blocked: bool = False, failure: BayramError | None = None
     ) -> None:
         self.credits = credits
         self.is_blocked = is_blocked
@@ -315,7 +315,7 @@ async def test_a_dark_meter_lets_an_empty_account_straight_through(
     clock: Callable[[], datetime],
 ) -> None:
     """The shipped configuration. The merge must not be what starts refusing customers."""
-    # Arrange — wired and readable, but HBD_CREDITS_ENFORCED is off
+    # Arrange — wired and readable, but BAYRAM_CREDITS_ENFORCED is off
     credits = FakeEntitlements(credits=0)
     dispatcher = build_dispatcher(wire(settings, submitter, credits, clock), storage=storage)
     await walk_to_confirm(dispatcher, bot)
@@ -340,10 +340,10 @@ async def test_a_blocked_account_is_refused_even_with_credits_and_the_meter_dark
 
     The account is blocked mid-session, AFTER the walk, and that is the honest shape rather
     than a convenience. Since WU8 an account that is already blocked never reaches this
-    screen at all — ``hbd.bot.gate`` refuses the ``/start`` — so the case this gate is the
+    screen at all — ``bayram.bot.gate`` refuses the ``/start`` — so the case this gate is the
     last defence for is the one where the block lands while someone is part-way through:
     the inbound gate is still holding a cached "not blocked" for up to
-    ``HBD_INBOUND_BLOCK_CACHE_S``, and the Confirm screen reads the meter live.
+    ``BAYRAM_INBOUND_BLOCK_CACHE_S``, and the Confirm screen reads the meter live.
     """
     # Arrange
     credits = FakeEntitlements(credits=99)

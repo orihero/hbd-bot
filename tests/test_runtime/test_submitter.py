@@ -14,11 +14,11 @@ from uuid import UUID
 
 import pytest
 
-from hbd.contracts import Err, Ok, Order, Result, err, ok
-from hbd.errors import ConfigError, ErrorCode, StorageError
-from hbd.pipeline.worker import job_id_for
-from hbd.runtime.jobs import KIT_JOB_NAME
-from hbd.runtime.submitter import ArqOrderSubmitter, InProcessOrderSubmitter
+from bayram.contracts import Err, Ok, Order, Result, err, ok
+from bayram.errors import ConfigError, ErrorCode, StorageError
+from bayram.pipeline.worker import job_id_for
+from bayram.runtime.jobs import KIT_JOB_NAME
+from bayram.runtime.submitter import ArqOrderSubmitter, InProcessOrderSubmitter
 
 CHAT_ID = 555
 MESSAGE_ID = 42

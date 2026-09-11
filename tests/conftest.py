@@ -21,8 +21,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from hbd.config import ENV_PREFIX, Settings
-from hbd.contracts import (
+from bayram.config import ENV_PREFIX, Settings
+from bayram.contracts import (
     AssetKind,
     Brief,
     Chunk,
@@ -45,8 +45,8 @@ from hbd.contracts import (
     SpokenScript,
     VoiceGender,
 )
-from hbd.logging import configure_logging
-from hbd.pipeline.name_stage import SongRender
+from bayram.logging import configure_logging
+from bayram.pipeline.name_stage import SongRender
 
 # A fixed instant so any snapshot involving timestamps is stable.
 FIXED_NOW = datetime(2026, 3, 21, 9, 0, 0, tzinfo=UTC)
@@ -79,10 +79,10 @@ def _reset_root_logger() -> Iterator[None]:
 def settings_env() -> dict[str, str]:
     """The minimum set of required variables, as they appear in the environment."""
     return {
-        "HBD_TELEGRAM_BOT_TOKEN": "123456:test-token-value-for-unit-tests-only",
-        "HBD_DATABASE_URL": "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test",
-        "HBD_ELEVENLABS_API_KEY": "test-elevenlabs-key",
-        "HBD_LLM_API_KEY": "test-llm-key",
+        "BAYRAM_TELEGRAM_BOT_TOKEN": "123456:test-token-value-for-unit-tests-only",
+        "BAYRAM_DATABASE_URL": "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test",
+        "BAYRAM_ELEVENLABS_API_KEY": "test-elevenlabs-key",
+        "BAYRAM_LLM_API_KEY": "test-llm-key",
     }
 
 
@@ -90,7 +90,7 @@ def settings_env() -> dict[str, str]:
 def settings(settings_env: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> Settings:
     """A fully valid Settings built in-process.
 
-    Isolated twice over: the real ``.env`` is disabled, and every ``HBD_`` variable is
+    Isolated twice over: the real ``.env`` is disabled, and every ``BAYRAM_`` variable is
     stripped from the environment, so a developer's shell cannot change a test outcome.
     """
     for name in tuple(os.environ):
@@ -98,10 +98,10 @@ def settings(settings_env: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> S
             monkeypatch.delenv(name, raising=False)
     return Settings(
         _env_file=None,
-        telegram_bot_token=settings_env["HBD_TELEGRAM_BOT_TOKEN"],
-        database_url=settings_env["HBD_DATABASE_URL"],
-        elevenlabs_api_key=settings_env["HBD_ELEVENLABS_API_KEY"],
-        llm_api_key=settings_env["HBD_LLM_API_KEY"],
+        telegram_bot_token=settings_env["BAYRAM_TELEGRAM_BOT_TOKEN"],
+        database_url=settings_env["BAYRAM_DATABASE_URL"],
+        elevenlabs_api_key=settings_env["BAYRAM_ELEVENLABS_API_KEY"],
+        llm_api_key=settings_env["BAYRAM_LLM_API_KEY"],
     )
 
 
@@ -233,7 +233,7 @@ def make_cover_asset(tmp_path: Path, **overrides: Any) -> GeneratedAsset:
     A shaped helper rather than four repeated overrides at every call site, because
     ``AssetKind.COVER`` was modelled long before anything produced one and every field that
     differs from a song — the mime, the suffix, the absent loudness — is a place a test can
-    quietly disagree with what ``hbd.audio.cover`` actually writes.
+    quietly disagree with what ``bayram.audio.cover`` actually writes.
 
     The payload begins with the JPEG start-of-image marker so a reader that sniffs the
     bytes sees a picture, but it is NOT a decodable JPEG: rendering a real one belongs in

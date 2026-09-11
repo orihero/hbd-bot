@@ -1,0 +1,53 @@
+# The admin API. Binds 127.0.0.1 only — put Caddy or nginx in front of it for TLS. Binding
+# 0.0.0.0 publishes a username/password login to the internet and nothing in the panel is
+# designed for that.
+#
+# TWO THINGS ENFORCE THE VENDOR-KEY SEPARATION, AND THEY ARE INDEPENDENT ON PURPOSE.
+#
+#   1. BAYRAM_ADMIN_ENV_FILE points at /etc/bayram/admin.env, a DIFFERENT file from the bot's.
+#      AdminSettings has no field that could hold a vendor credential, and the lifespan
+#      refuses to boot in prod if one is within reach — in the environment or in that file.
+#   2. InaccessiblePaths=/etc/bayram/bot.env. The application-level refusal is a check this
+#      process performs on itself; this one is the kernel's, and it survives a future edit
+#      that points BAYRAM_ADMIN_ENV_FILE at the wrong file. Belt and braces, because the whole
+#      reason this is a third process is to keep the blast radius of a panel compromise
+#      away from four credentials.
+#
+# Every operational action that needs a credential is an ARQ job bayram-worker performs.
+
+[Unit]
+Description=Bayram — admin API
+Documentation=file:///srv/bayram/deploy/README.md
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bayram
+Group=bayram
+WorkingDirectory=/srv/bayram
+Environment=BAYRAM_ADMIN_ENV_FILE=/etc/bayram/admin.env
+ExecStart=/srv/bayram/.venv/bin/python -m uvicorn bayram.admin.app:app --host 127.0.0.1 --port 8080
+Restart=always
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+InaccessiblePaths=/etc/bayram/bot.env
+
+[Install]
+WantedBy=multi-user.target

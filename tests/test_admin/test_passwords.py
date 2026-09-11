@@ -22,8 +22,8 @@ from typing import Final
 import pytest
 from argon2 import PasswordHasher
 
-from hbd.admin.security import passwords
-from hbd.admin.security.passwords import (
+from bayram.admin.security import passwords
+from bayram.admin.security.passwords import (
     MAX_PASSWORD_BYTES,
     PasswordVerification,
     build_hasher,
@@ -35,7 +35,7 @@ from hbd.admin.security.passwords import (
 
 _PASSWORD: Final[str] = "correct horse battery staple ʻ"
 _WRONG: Final[str] = "correct horse battery stapl"
-_PLACEHOLDER: Final[str] = "hbd-admin-nonexistent-account-placeholder"
+_PLACEHOLDER: Final[str] = "bayram-admin-nonexistent-account-placeholder"
 
 
 @pytest.fixture
@@ -107,7 +107,7 @@ def test_a_corrupt_stored_hash_fails_the_login_and_is_logged(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A 500 here would tell an attacker which row is broken; a WARNING tells us instead."""
-    with caplog.at_level(logging.WARNING, logger="hbd.admin.security.passwords"):
+    with caplog.at_level(logging.WARNING, logger="bayram.admin.security.passwords"):
         outcome = verify_password(_PASSWORD, "not-an-argon2-hash", hasher=hasher)
 
     assert outcome.is_valid is False

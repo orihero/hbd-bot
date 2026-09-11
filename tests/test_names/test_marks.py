@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.names.marks import (
+from bayram.names.marks import (
     APOSTROPHE_VARIANTS,
     MODIFIER_APOSTROPHE,
     TURNED_COMMA,

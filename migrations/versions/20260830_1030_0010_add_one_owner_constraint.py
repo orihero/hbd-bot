@@ -4,7 +4,7 @@ Revision ID: 0010
 Revises: 0009
 Create Date: 2026-08-30
 
-``python -m hbd.admin.bootstrap`` guarded its first insert with
+``python -m bayram.admin.bootstrap`` guarded its first insert with
 ``INSERT … SELECT … WHERE NOT EXISTS (SELECT 1 FROM admin_users)`` and treated a rowcount of
 zero as the refusal. That is atomic against every *committed* row and nothing else: under
 Postgres' READ COMMITTED two overlapping transactions each see an empty table and each
@@ -34,7 +34,7 @@ mean an operator losing access without a record of why.
 
 Both dialects get the same predicate. SQLite has supported partial indexes since 3.8.0 and
 evaluates a bare integer column as a boolean, so one string serves both; it is spelled out
-literally rather than imported from ``hbd.db.models.admin_user`` because a migration must
+literally rather than imported from ``bayram.db.models.admin_user`` because a migration must
 not import application code (a test asserts it) and must keep working after that module is
 renamed.
 """
@@ -53,7 +53,7 @@ depends_on: Sequence[str] | None = None
 
 _TABLE = "admin_users"
 _INDEX = "ix_admin_users_active_owner"
-#: Mirrors ``hbd.db.models.admin_user.ACTIVE_OWNER_PREDICATE``. ``'owner'`` is the *value*
+#: Mirrors ``bayram.db.models.admin_user.ACTIVE_OWNER_PREDICATE``. ``'owner'`` is the *value*
 #: ``enum_type(AdminRole)`` persists, not the Python member name.
 _ACTIVE_OWNER = "role = 'owner' AND is_active"
 

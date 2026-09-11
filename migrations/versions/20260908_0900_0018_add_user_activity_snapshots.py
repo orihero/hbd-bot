@@ -54,7 +54,7 @@ re-derive the harmlessness of.
 365 rows a year, so there is nothing to bound; the long history IS the product, and a cutoff
 would delete exactly the year-over-year comparison the table exists to make possible; and
 there is no personal data here, so no legal schedule applies. Nothing is added to
-``hbd.db.purge`` — no constant, no ``PurgeReport`` field, no ``purge_runs`` column, no entry
+``bayram.db.purge`` — no constant, no ``PurgeReport`` field, no ``purge_runs`` column, no entry
 in ``rows_past_expiry_statements`` — and that module's own docstring names this table as
 deliberately unswept, exactly as it already does for ``user_profiles``. The ``*_expires_at``
 suffix is avoided for the usual reason: it obliges a sweep BY NAME in
@@ -69,7 +69,7 @@ gets NO ROW, never a zero. Anyone who later "fixes" the empty chart by seeding r
 
 **No application imports anywhere in this file.** ``sa.DateTime(timezone=True)`` is spelled
 literally because that is what ``UtcDateTime`` renders (see ``migrations/env.py``), and
-``test_no_migration_imports_application_code`` fails a migration that reaches into ``hbd.*``.
+``test_no_migration_imports_application_code`` fails a migration that reaches into ``bayram.*``.
 """
 
 from __future__ import annotations

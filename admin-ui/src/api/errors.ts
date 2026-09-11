@@ -21,7 +21,7 @@ import { MAX_MESSAGE_CHARS } from "./constants";
 /* -------------------------------------------------------------------------- */
 
 /**
- * `hbd.admin.errors.AdminErrorCode` — 17 members, value == name.
+ * `bayram.admin.errors.AdminErrorCode` — 17 members, value == name.
  *
  * `REAUTH_RATE_LIMITED`, `SERVICE_UNAVAILABLE` and `INTERNAL_ERROR` are absent from §6.2's
  * snippet in the plan and present in the code; the code is authoritative (contract D4).
@@ -49,7 +49,7 @@ export const ADMIN_ERROR_CODES = [
 export type AdminErrorCode = (typeof ADMIN_ERROR_CODES)[number];
 
 /**
- * `hbd.errors.ErrorCode` — the pipeline taxonomy. The whole enum can appear in `code`; only
+ * `bayram.errors.ErrorCode` — the pipeline taxonomy. The whole enum can appear in `code`; only
  * ten of them carry a status mapping and anything else surfaces as a 500.
  */
 export const PIPELINE_ERROR_CODES = [
@@ -151,7 +151,7 @@ export const RETRYABLE_ERROR_CODES: readonly ApiErrorCode[] = [
 /* -------------------------------------------------------------------------- */
 
 /**
- * `hbd/admin/errors.py:render_envelope`. EVERY failure comes back in this shape — 404, 405
+ * `bayram/admin/errors.py:render_envelope`. EVERY failure comes back in this shape — 404, 405
  * (rendered as `CONFLICT`), 422 and 500 included.
  *
  * `details` is the ONE key in the whole API that is genuinely absent rather than `null` when

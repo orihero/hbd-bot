@@ -39,25 +39,26 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 
-from hbd.admin.app import create_app
-from hbd.admin.container import AdminContainer
-from hbd.admin.deps import require_permission
-from hbd.admin.errors import AdminErrorCode
-from hbd.admin.routers.admins import ADMINS_PATH
-from hbd.admin.routers.audit import AUDIT_PATH
-from hbd.admin.routers.reveal import REVEAL_PATH
-from hbd.admin.routers.users import WIZARD_STATE_PATH
-from hbd.admin.security.permissions import (
+from bayram.admin.app import create_app
+from bayram.admin.container import AdminContainer
+from bayram.admin.deps import require_permission
+from bayram.admin.errors import AdminErrorCode
+from bayram.admin.routers.admins import ADMINS_PATH
+from bayram.admin.routers.audit import AUDIT_PATH
+from bayram.admin.routers.reveal import REVEAL_PATH
+from bayram.admin.routers.users import WIZARD_STATE_PATH
+from bayram.admin.security.permissions import (
     RBAC_MATRIX,
     ROLE_PERMISSIONS,
+    STEP_UP_ACTIONS,
     AccessDecision,
     Permission,
     check_role,
     grant_for,
     is_permitted,
 )
-from hbd.db.enums import AdminRole, AuditAction, AuditReasonCode
-from hbd.db.models.admin_audit import AdminAuditRow, AuditOutcome
+from bayram.db.enums import AdminRole, AuditAction, AuditReasonCode
+from bayram.db.models.admin_audit import AdminAuditRow, AuditOutcome
 from tests.test_admin.conftest import (
     ORIGIN,
     PASSWORD,
@@ -163,6 +164,21 @@ EXPECTED_DECISIONS: Final[
     # The four account writes' cell. No route declares it in this slice; the decision it
     # produces is asserted here and over HTTP by ``step_up_guarded_client`` below.
     Permission.ADMIN_MANAGE: (_NO, _NO, _NO, _SU),
+    # The role half ``POST /admins`` declares at the router: an OWNER passes it with no
+    # grant at all, which is what makes the handler's step-up reachable. The other three
+    # roles are a flat FORBIDDEN, never a step-up prompt.
+    Permission.ADMIN_MANAGE_WRITE: (_NO, _NO, _NO, _OK),
+    # The two rail cells, and the first operator actions in this table that are ALLOWED at the
+    # router rather than answering ``_SU`` there. Neither is the role half of a ``W+S`` row:
+    # neither appears in ``STEP_UP_ACTIONS`` at all, which is asserted below and is the point.
+    #
+    # RAIL_CONTROL: ADMIN and OWNER, refused flat for VIEWER and SUPPORT — a dead end the SPA
+    # must not turn into a re-authentication prompt, because no grant would ever help them.
+    Permission.RAIL_CONTROL: (_NO, _NO, _OK, _OK),
+    # PAYMENT_NOTIFY reaches SUPPORT, and that one cell is the whole reason it is not a third
+    # route on RAIL_CONTROL: SUPPORT takes the "I paid and nothing happened" call, and folding
+    # the two would have handed them the switch that stops the business selling.
+    Permission.PAYMENT_NOTIFY: (_NO, _OK, _OK, _OK),
 }
 
 #: Every ``(permission, role)`` pair, flattened once so the parameter list is the matrix.
@@ -186,6 +202,7 @@ _IDENTIFIERS: Final[Mapping[str, object]] = {
     "attempt_id": uuid4(),
     "telegram_user_id": 770_000_123,
     "broadcast_id": uuid4(),
+    "intent_id": uuid4(),
 }
 
 
@@ -249,6 +266,29 @@ def test_the_outcome_table_covers_every_permission_and_no_others() -> None:
 
     # Assert
     assert set(EXPECTED_DECISIONS) == set(Permission) == set(RBAC_MATRIX)
+
+
+def test_the_rail_switch_is_not_a_step_up_cell_and_must_not_become_one() -> None:
+    """``RAIL_CONTROL`` must stay out of ``STEP_UP_ACTIONS``, and this is where a "tightening"
+    fails loudly instead of shipping a 403 nobody can clear.
+
+    ``check_role`` is what a router-level guard calls; it holds no subject and therefore no
+    grant, so any permission listed in ``STEP_UP_ACTIONS`` answers ``STEP_UP_REQUIRED``
+    unconditionally — for ever, at OWNER, while LOOKING correct because that is exactly what
+    the matrix predicts. A reviewer who later decides pause deserves a step-up must split the
+    row the way every other ``W+S`` row here is split (``RAIL_CONTROL_WRITE`` at the router,
+    ``RAIL_CONTROL`` enforced in the handler via ``deps.enforce_step_up``) rather than adding
+    this member to the mapping. ``permissions.py`` carries the same warning beside the cell.
+
+    ``PAYMENT_NOTIFY`` is asserted with it for one reason: it is the cell SUPPORT holds, and a
+    step-up on it would put a password box between a support agent and the single most common
+    answer to "I paid and nothing happened".
+    """
+    # Arrange / Act / Assert
+    assert Permission.RAIL_CONTROL not in STEP_UP_ACTIONS
+    assert Permission.PAYMENT_NOTIFY not in STEP_UP_ACTIONS
+    assert EXPECTED_DECISIONS[Permission.RAIL_CONTROL] == (_NO, _NO, _OK, _OK)
+    assert EXPECTED_DECISIONS[Permission.PAYMENT_NOTIFY] == (_NO, _OK, _OK, _OK)
 
 
 @pytest.mark.parametrize(("permission", "role", "expected"), _CELLS)

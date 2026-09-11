@@ -389,7 +389,7 @@ export function ChatsPage(): JSX.Element {
                                 ) : (
                                   <>
                                     <Bot className="h-3.5 w-3.5 text-accent" />
-                                    <span className="font-semibold text-accent">{t("chats.hbdBot")}</span>
+                                    <span className="font-semibold text-accent">{t("chats.bayramBot")}</span>
                                   </>
                                 )}
 

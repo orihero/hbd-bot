@@ -13,18 +13,18 @@ from aiogram.fsm.storage.memory import (
 )
 from aiogram.fsm.storage.redis import RedisEventIsolation, RedisStorage
 
-from hbd.bot.app import (
+from bayram.bot.app import (
     WIZARD_STATE_TTL,
     build_bot,
     build_dispatcher,
     build_event_isolation,
     build_storage,
 )
-from hbd.bot.deps import DEPS_KEY, BotDeps
-from hbd.bot.i18n import translate
-from hbd.config import Settings
-from hbd.contracts import Language
-from hbd.db.retention import DEFAULT_RETENTION_POLICY
+from bayram.bot.deps import DEPS_KEY, BotDeps
+from bayram.bot.i18n import translate
+from bayram.config import Settings
+from bayram.contracts import Language
+from bayram.db.retention import DEFAULT_RETENTION_POLICY
 from tests.test_bot.conftest import (
     FakeProfiles,
     RecordingContentWriter,

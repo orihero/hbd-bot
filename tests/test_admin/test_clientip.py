@@ -16,13 +16,13 @@ from typing import Final
 
 import pytest
 
-from hbd.admin.security.clientip import (
+from bayram.admin.security.clientip import (
     MAX_FORWARDED_ENTRIES,
     is_trusted_peer,
     parse_trusted_proxies,
     resolve_client_ip,
 )
-from hbd.errors import ConfigError
+from bayram.errors import ConfigError
 
 _PROXY: Final[str] = "10.0.0.9"
 _CLIENT: Final[str] = "203.0.113.7"

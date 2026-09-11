@@ -19,7 +19,7 @@ an implementation detail.
   page we do not control and would never see in our own logs.
 
 The state-enum totality tests are the quiet ones and they are the ones that would bite: a
-member added to :class:`hbd.payme.protocol.PaymeState` without a matching entry in
+member added to :class:`bayram.payme.protocol.PaymeState` without a matching entry in
 ``WIRE_STATE`` surfaces as a ``KeyError`` inside a settlement transaction, on the money path,
 after a card has been charged.
 """
@@ -35,15 +35,15 @@ from typing import Any, Final
 
 import pytest
 
-import hbd.payme
-import hbd.payme.auth
-import hbd.payme.errors
-import hbd.payme.link
-import hbd.payme.protocol
-import hbd.payme.rules
-from hbd.checkout import PaymentIntentState
-from hbd.errors import HbdError
-from hbd.payme.errors import (
+import bayram.payme
+import bayram.payme.auth
+import bayram.payme.errors
+import bayram.payme.link
+import bayram.payme.protocol
+import bayram.payme.rules
+from bayram.checkout import PaymentIntentState
+from bayram.errors import BayramError
+from bayram.payme.errors import (
     PaymeAccountFault,
     PaymeAmountMismatch,
     PaymeFault,
@@ -51,7 +51,7 @@ from hbd.payme.errors import (
     PaymeStateRefusal,
     PaymeTransactionNotFound,
 )
-from hbd.payme.protocol import (
+from bayram.payme.protocol import (
     ACCOUNT_MESSAGES,
     DEFAULT_ACCOUNT_FIELD,
     JSONRPC_VERSION,
@@ -68,7 +68,7 @@ from hbd.payme.protocol import (
     render_success,
     to_ms,
 )
-from hbd.payme.rules import (
+from bayram.payme.rules import (
     ACCOUNT_FAULT,
     DEFAULT_TRANSACTION_TIMEOUT_MS,
     WIRE_STATE,
@@ -250,7 +250,7 @@ def test_a_moment_becomes_thirteen_digits_of_milliseconds() -> None:
 
 def test_the_clock_round_trips_and_comes_back_timezone_aware() -> None:
     # Arrange — ``from_ms``'s output goes straight into ``payme_transactions.payme_time``, and
-    # ``hbd.db.base.UtcDateTime`` raises on a naive bind by design.
+    # ``bayram.db.base.UtcDateTime`` raises on a naive bind by design.
 
     # Act
     restored = from_ms(to_ms(_NOW))
@@ -394,7 +394,7 @@ def test_the_account_range_is_exactly_the_five_codes_that_carry_data() -> None:
     # Arrange — the -31050..-31099 range is the only family that must carry ``data`` and a
     # message map, so "which codes are in it" and "which codes have messages" must be the same
     # question. -31054 is deliberately unallocated: the duplicate-transaction case goes through
-    # the settable ``HBD_PAYME_DUPLICATE_TRANSACTION_CODE`` because Payme's own materials
+    # the settable ``BAYRAM_PAYME_DUPLICATE_TRANSACTION_CODE`` because Payme's own materials
     # contradict each other about it.
     account_range = {code for code in PaymeErrorCode if -31_099 <= code <= -31_050}
 
@@ -430,8 +430,8 @@ def test_the_method_names_are_the_exact_wire_spellings() -> None:
 # ---------------------------------------------------------------------------
 # The refusals
 # ---------------------------------------------------------------------------
-def test_every_fault_is_an_hbderror_so_run_guarded_already_catches_it() -> None:
-    # Arrange — ``run_guarded`` catches NotFoundError, HbdError, IntegrityError, SQLAlchemyError
+def test_every_fault_is_an_bayramerror_so_run_guarded_already_catches_it() -> None:
+    # Arrange — ``run_guarded`` catches NotFoundError, BayramError, IntegrityError, SQLAlchemyError
     # and pydantic's ValidationError. A fresh exception base would fall through all five and be
     # rendered as -32400 "internal error" instead of the refusal certification is asserting.
     faults = [
@@ -444,7 +444,7 @@ def test_every_fault_is_an_hbderror_so_run_guarded_already_catches_it() -> None:
 
     # Act / Assert
     for fault in faults:
-        assert isinstance(fault, HbdError)
+        assert isinstance(fault, BayramError)
         assert isinstance(fault, PaymeFault)
         assert fault.is_retryable is False
 
@@ -479,24 +479,24 @@ def test_an_account_fault_carries_the_subfield_name_that_becomes_error_data() ->
     fault = PaymeAccountFault(
         "issued for another cashbox",
         rpc_code=PaymeErrorCode.ACCOUNT_WRONG_MERCHANT,
-        account_field="hbd_ref",
+        account_field="bayram_ref",
     )
 
     # Assert
     assert fault.rpc_code == -31055
-    assert fault.account_field == "hbd_ref"
+    assert fault.account_field == "bayram_ref"
     assert PaymeAccountFault("x").account_field == DEFAULT_ACCOUNT_FIELD
 
 
 def test_adding_context_to_a_fault_preserves_its_code_and_its_subfield_name() -> None:
-    # Arrange — ``HbdError.with_context`` rebuilds via ``type(self)(...)`` with the five base
+    # Arrange — ``BayramError.with_context`` rebuilds via ``type(self)(...)`` with the five base
     # keyword arguments only, so without the override in ``PaymeFault`` a -31055 would silently
     # become a -31050 on its way into a log line, and the wrong number is then the one Payme is
     # told about.
     fault = PaymeAccountFault(
         "issued for another cashbox",
         rpc_code=PaymeErrorCode.ACCOUNT_WRONG_MERCHANT,
-        account_field="hbd_ref",
+        account_field="bayram_ref",
     )
 
     # Act
@@ -505,7 +505,7 @@ def test_adding_context_to_a_fault_preserves_its_code_and_its_subfield_name() ->
     # Assert
     assert isinstance(enriched, PaymeAccountFault)
     assert enriched.rpc_code == -31055
-    assert enriched.account_field == "hbd_ref"
+    assert enriched.account_field == "bayram_ref"
     assert enriched.context["public_ref"] == "9f2c4d6a8b0e1f3c5d7a9b0c"
 
 
@@ -527,7 +527,7 @@ def test_no_fault_invents_a_locale_key_of_its_own() -> None:
     }
 
     # Assert — every one of them inherits the generic key that already exists in all four
-    # catalogues. ``None`` was the alternative and it is not available: ``HbdError`` declares
+    # catalogues. ``None`` was the alternative and it is not available: ``BayramError`` declares
     # the attribute as ``str``.
     assert set(keys.values()) == {"error.generic"}
 
@@ -546,7 +546,7 @@ def test_localised_builds_the_three_keys_in_the_documented_order() -> None:
 # The layering claim the package docstring makes
 # ---------------------------------------------------------------------------
 def _first_party_imports(module: ModuleType) -> set[str]:
-    """Every ``hbd.*`` module ``module`` imports, including under ``if TYPE_CHECKING``.
+    """Every ``bayram.*`` module ``module`` imports, including under ``if TYPE_CHECKING``.
 
     Parsed from the source rather than read off ``sys.modules``, for the reason
     ``tests/test_checkout/test_layering.py`` gives at length: a runtime check is green on a
@@ -562,42 +562,42 @@ def _first_party_imports(module: ModuleType) -> set[str]:
             imported.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module is not None:
             imported.add(node.module)
-    return {name for name in imported if name.split(".")[0] == "hbd"}
+    return {name for name in imported if name.split(".")[0] == "bayram"}
 
 
 @pytest.mark.parametrize(
     "module",
     [
-        hbd.payme,
-        hbd.payme.protocol,
-        hbd.payme.errors,
-        hbd.payme.auth,
-        hbd.payme.link,
-        hbd.payme.rules,
+        bayram.payme,
+        bayram.payme.protocol,
+        bayram.payme.errors,
+        bayram.payme.auth,
+        bayram.payme.link,
+        bayram.payme.rules,
     ],
     ids=lambda module: str(module.__name__),
 )
 def test_the_wire_layer_imports_only_the_leaves_its_package_docstring_names(
     module: ModuleType,
 ) -> None:
-    # Arrange — the package docstring's central claim: this package may see ``hbd.contracts``,
-    # ``hbd.checkout``, ``hbd.errors`` and ``hbd.logging``, and may NEVER see ``hbd.db`` or
-    # ``hbd.admin``. Persistence implements these ports from the other direction; a reach the
+    # Arrange — the package docstring's central claim: this package may see ``bayram.contracts``,
+    # ``bayram.checkout``, ``bayram.errors`` and ``bayram.logging``, and may NEVER see ``bayram.db`` or
+    # ``bayram.admin``. Persistence implements these ports from the other direction; a reach the
     # other way is an import cycle that fails at composition-root boot, on a deployment, with a
-    # traceback naming neither module. ``hbd.admin`` is barred for a different and stronger
+    # traceback naming neither module. ``bayram.admin`` is barred for a different and stronger
     # reason: it is a different process holding a different secret, and the import graph is
     # what keeps that separation from being merely an intention.
     permitted = {
-        "hbd.contracts",
-        "hbd.checkout",
-        "hbd.errors",
-        "hbd.logging",
-        "hbd.payme",
-        "hbd.payme.protocol",
-        "hbd.payme.errors",
-        "hbd.payme.auth",
-        "hbd.payme.link",
-        "hbd.payme.rules",
+        "bayram.contracts",
+        "bayram.checkout",
+        "bayram.errors",
+        "bayram.logging",
+        "bayram.payme",
+        "bayram.payme.protocol",
+        "bayram.payme.errors",
+        "bayram.payme.auth",
+        "bayram.payme.link",
+        "bayram.payme.rules",
     }
 
     # Act
@@ -607,15 +607,15 @@ def test_the_wire_layer_imports_only_the_leaves_its_package_docstring_names(
     # argued for here, in the test about layering, instead of arriving as a line at the top of
     # a module nobody re-reads.
     assert imported <= permitted, sorted(imported - permitted)
-    assert not {name for name in imported if name.startswith(("hbd.db", "hbd.admin"))}
+    assert not {name for name in imported if name.startswith(("bayram.db", "bayram.admin"))}
 
 
 #: The three modules the package docstring names as DOORS: a composition root, a readiness
-#: probe and an operator tool. Everything else in ``hbd.payme`` must name ``hbd.db`` nowhere in
+#: probe and an operator tool. Everything else in ``bayram.payme`` must name ``bayram.db`` nowhere in
 #: its own source, and this is the list that has to be edited — with an argument — before a
 #: fourth one can exist.
 _PERSISTENCE_DOORS: Final[frozenset[str]] = frozenset(
-    {"hbd.payme.container", "hbd.payme.app", "hbd.payme.cli"}
+    {"bayram.payme.container", "bayram.payme.app", "bayram.payme.cli"}
 )
 
 
@@ -626,10 +626,10 @@ def test_only_the_three_named_doors_reach_persistence() -> None:
     CLOSED permitted set, which can only be written for the modules with a small, stable
     dependency list — the wire layer. It therefore says nothing about ``service``, ``settings``,
     ``ports``, ``provider``, ``pause`` or ``harness``, and those are the ones a later change is
-    likely to reach into ``hbd.db`` from: ``provider`` wants a row, ``harness`` wants a count.
+    likely to reach into ``bayram.db`` from: ``provider`` wants a row, ``harness`` wants a count.
 
     So this test asserts the weaker claim over the WHOLE package: nothing but the three doors
-    names ``hbd.db``, and nothing at all names ``hbd.admin``. ``harness`` is deliberately on the
+    names ``bayram.db``, and nothing at all names ``bayram.admin``. ``harness`` is deliberately on the
     strict side of the line — it reaches persistence only through ``container``, which is what
     keeps "how many doors are there?" answerable by reading this frozenset.
 
@@ -637,21 +637,21 @@ def test_only_the_three_named_doors_reach_persistence() -> None:
     this test on the day it lands rather than on the day somebody remembers to add it here.
     """
     # Arrange — every module in the shipped package, by import path.
-    package_dir = Path(str(hbd.payme.__file__)).parent
+    package_dir = Path(str(bayram.payme.__file__)).parent
     modules = sorted(
-        f"hbd.payme.{path.stem}" for path in package_dir.glob("*.py") if path.stem != "__init__"
+        f"bayram.payme.{path.stem}" for path in package_dir.glob("*.py") if path.stem != "__init__"
     )
     assert len(modules) >= 10, modules  # the inventory in the package docstring
 
     # Act / Assert
     for name in modules:
         imported = _first_party_imports(importlib.import_module(name))
-        reaches_db = {item for item in imported if item.startswith("hbd.db")}
+        reaches_db = {item for item in imported if item.startswith("bayram.db")}
         if name in _PERSISTENCE_DOORS:
             assert reaches_db, f"{name} is listed as a door but reaches no persistence"
         else:
             assert not reaches_db, f"{name} reaches {sorted(reaches_db)}"
-        assert not {item for item in imported if item.startswith("hbd.admin")}, name
+        assert not {item for item in imported if item.startswith("bayram.admin")}, name
 
     # Assert — and the doors are the ones the docstring names, not whatever happens to be true.
     assert set(modules) >= _PERSISTENCE_DOORS

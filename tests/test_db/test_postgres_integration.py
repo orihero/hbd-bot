@@ -6,7 +6,7 @@ at all — so a query that works there can still fail on the engine that matters
 runs the whole lifecycle (order → kit → purge) on the schema Alembic actually built, on
 Postgres 16, through asyncpg.
 
-Requires ``docker compose up -d``. Point ``HBD_TEST_POSTGRES_URL`` elsewhere if 5432 is
+Requires ``docker compose up -d``. Point ``BAYRAM_TEST_POSTGRES_URL`` elsewhere if 5432 is
 already taken on the host.
 """
 
@@ -23,24 +23,24 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from hbd.contracts import NameStrategy, OrderState, is_err, is_ok
-from hbd.db.attempts import GenerationAttemptRepository
-from hbd.db.credit_sql import verify_balances
-from hbd.db.credits import SqlCreditLedger
-from hbd.db.engine import create_engine, create_session_factory, ping
-from hbd.db.enums import CreditEntryKind
-from hbd.db.models import Base, BriefRow, CreditAccountRow, CreditLedgerRow
-from hbd.db.purge import purge_expired
-from hbd.db.repository import SqlKitRepository
-from hbd.db.retention import RetentionClass
-from hbd.entitlements import ChargeOutcome, EntitlementPolicy, InsufficientCreditsError
+from bayram.contracts import NameStrategy, OrderState, is_err, is_ok
+from bayram.db.attempts import GenerationAttemptRepository
+from bayram.db.credit_sql import verify_balances
+from bayram.db.credits import SqlCreditLedger
+from bayram.db.engine import create_engine, create_session_factory, ping
+from bayram.db.enums import CreditEntryKind
+from bayram.db.models import Base, BriefRow, CreditAccountRow, CreditLedgerRow
+from bayram.db.purge import purge_expired
+from bayram.db.repository import SqlKitRepository
+from bayram.db.retention import RetentionClass
+from bayram.entitlements import ChargeOutcome, EntitlementPolicy, InsufficientCreditsError
 from tests.conftest import UZBEK_NAME_CANONICAL, recipient_of
 from tests.test_db.conftest import MovableClock, build_kit, new_order
 
 pytestmark = pytest.mark.integration
 
 _POSTGRES_URL: Final[str] = os.environ.get(
-    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
+    "BAYRAM_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
 )
 
 

@@ -24,9 +24,9 @@
  *     this screen, ever — a zero there would say a vendor worked free.
  *
  * Out of the box that third state covers MOST of the screen but not all of it, and the
- * difference matters to the copy: `hbd/config.py` ships `music_usd_per_minute` at `0.15`, so
+ * difference matters to the copy: `bayram/config.py` ships `music_usd_per_minute` at `0.15`, so
  * the music leg is priced from a placeholder rate and reports `costSource: "estimated"`,
- * while `HBD_ELEVENLABS_USD_PER_CHARACTER` and all four token rates ship at `0.0`, leaving
+ * while `BAYRAM_ELEVENLABS_USD_PER_CHARACTER` and all four token rates ship at `0.0`, leaving
  * speech, transcription and every LLM group unpriced until an operator sets a rate. So the
  * common shipped page is a MIXTURE — an estimated music row beside unpriced speech rows —
  * and never a screen on which the word "priced" is meaningless.

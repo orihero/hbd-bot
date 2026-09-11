@@ -605,7 +605,7 @@ appears exactly once in the whole repo (`e2e/smoke.spec.ts:67`, for `overflow`/`
   `fullyParallel: false`, `reuseExistingServer: false` (one server, one seed, whole run) and Playwright
   orders spec files alphabetically, so `appearance` would run *before* `smoke`, consume the rotation,
   and make smoke's rotation step fail against an already-cleared `must_change_password`. The config
-  already reads `HBD_E2E_PORT` from the environment and passes it to the harness, so a second project
+  already reads `BAYRAM_E2E_PORT` from the environment and passes it to the harness, so a second project
   with its own `webServer` on a second port is a small, honest change.
   *(Rejected: extracting an "idempotent" `signIn()` helper that tries the rotated password first and
   falls back to bootstrap. It edits `smoke.spec.ts`, which this plan elsewhere refuses to relax, and an
@@ -622,7 +622,7 @@ appears exactly once in the whole repo (`e2e/smoke.spec.ts:67`, for `overflow`/`
   gallery starts nearly empty and is **populated as each primitive is extracted in PQ4**; it is the
   acceptance evidence for PQ5 and PQ6.
 - `package.json` — `tokens:annotate`, `tokens:check`, `e2e:appearance`, `e2e:gallery`. The last two
-  must run `npm run build` first: `vite.config.ts:106` outputs into `src/hbd/admin/static`, and a stale
+  must run `npm run build` first: `vite.config.ts:106` outputs into `src/bayram/admin/static`, and a stale
   bundle would assert the old palette and pass.
 - `eslint.config.js:130-142` — `INK_MARK_MESSAGE` hardcodes "3.52:1 at worst" while `tokens.css:101`
   says 3.65 and the true light worst is 3.646 (global worst 3.563, dark). Already stale. Have the tool
@@ -847,7 +847,7 @@ the PQ1 gallery in the same commit.
   Migrate `EmptyState:41`, `ErrorState:90`, `ErrorBoundary:73`, `AsyncBoundary:130`.
 - **NEW** `src/components/util/Field.tsx` + `Input`/`Select`/`Textarea` — **`size: 'sm' | 'md'`**, not
   `density`. `usePrefsStore.ts:39` already exports `density: Density` with the literals
-  `'compact' | 'comfortable'`, persisted under `hbd.admin.prefs` and read by `DataTable.tsx:272` and
+  `'compact' | 'comfortable'`, persisted under `bayram.admin.prefs` and read by `DataTable.tsx:272` and
   `Skeleton.tsx:111` to pick `--row-h` vs `--row-h-compact`; reusing the identical name and literals
   for field padding would make every future `density` reference in the tree ambiguous. `isInvalid`
   renders an **`--error-tint` ground, never a red border**. PlanIQ draws no invalid state anywhere; the

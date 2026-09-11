@@ -5,7 +5,7 @@ file proves they RUN, which is a different claim and the one that was false befo
 work: ``cron_jobs`` is where a correct job goes to be dead code, and the retention sweep is
 already on record as having spent a release with no caller at all.
 
-Three things are asserted here that no test of ``hbd.db.activity`` can reach.
+Three things are asserted here that no test of ``bayram.db.activity`` can reach.
 
 * The cron entry EXISTS, is named the string arq dispatches by, and carries the schedule the
   module documents. arq matches ``functions`` to ``cron_jobs`` by function NAME, so a rename
@@ -29,19 +29,19 @@ from typing import Any, Final
 import pytest
 import sqlalchemy as sa
 
-from hbd.config import ENV_PREFIX, Settings
-from hbd.contracts import Language
-from hbd.db.credits import touch
-from hbd.db.models.user_activity_snapshot import UserActivitySnapshotRow
-from hbd.errors import PipelineError
-from hbd.runtime.activity_job import (
+from bayram.config import ENV_PREFIX, Settings
+from bayram.contracts import Language
+from bayram.db.credits import touch
+from bayram.db.models.user_activity_snapshot import UserActivitySnapshotRow
+from bayram.errors import PipelineError
+from bayram.runtime.activity_job import (
     ACTIVITY_SNAPSHOT_CRON_HOUR,
     ACTIVITY_SNAPSHOT_CRON_MINUTE,
     ACTIVITY_SNAPSHOT_JOB_NAME,
     record_activity_snapshot,
 )
-from hbd.runtime.container import AppContainer, build_container
-from hbd.runtime.jobs import build_kit_worker_settings
+from bayram.runtime.container import AppContainer, build_container
+from bayram.runtime.jobs import build_kit_worker_settings
 
 pytestmark = pytest.mark.anyio
 
@@ -52,7 +52,7 @@ _MIDNIGHT_ISH: Final[datetime] = datetime(2026, 9, 8, 0, 7, tzinfo=UTC)
 
 @pytest.fixture(autouse=True)
 def _isolated_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """A developer's own ``HBD_`` variables must not decide what the shipped default is."""
+    """A developer's own ``BAYRAM_`` variables must not decide what the shipped default is."""
     for name in tuple(os.environ):
         if name.startswith(ENV_PREFIX):
             monkeypatch.delenv(name, raising=False)

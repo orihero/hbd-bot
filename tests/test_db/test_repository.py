@@ -9,7 +9,7 @@ from uuid import uuid4
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import (
+from bayram.contracts import (
     AssetKind,
     KitRepository,
     Language,
@@ -19,11 +19,11 @@ from hbd.contracts import (
     is_err,
     is_ok,
 )
-from hbd.db.models import AssetRow, BriefRow, OrderRow, UserRow
-from hbd.db.models.order import FAILED_REASON_LENGTH
-from hbd.db.repository import MAX_ORDER_HISTORY, SqlKitRepository
-from hbd.errors import ErrorCode
-from hbd.pipeline.assets import storage_key
+from bayram.db.models import AssetRow, BriefRow, OrderRow, UserRow
+from bayram.db.models.order import FAILED_REASON_LENGTH
+from bayram.db.repository import MAX_ORDER_HISTORY, SqlKitRepository
+from bayram.errors import ErrorCode
+from bayram.pipeline.assets import storage_key
 from tests.conftest import (
     UZBEK_NAME_CANONICAL,
     UZBEK_NAME_TYPED,
@@ -129,7 +129,7 @@ async def test_creating_an_order_does_not_change_the_interface_language(
     """An order is evidence the account is alive. It is not evidence about what its owner reads.
 
     ``_ensure_user`` used to live in this module and its existing-row branch touched
-    ``last_seen_at`` and nothing else; it is now ``hbd.db.users_sql.ensure_user``, called from
+    ``last_seen_at`` and nothing else; it is now ``bayram.db.users_sql.ensure_user``, called from
     ``_create_order`` with ``is_language_authoritative=False`` (C0-13 / C1-1). That rewrite is
     exactly the place where the behaviour could change silently — an upsert whose ``SET``
     clause carried ``ui_language`` unconditionally is one line shorter and looks more correct

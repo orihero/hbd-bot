@@ -11,16 +11,16 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.contracts import CostSource
-from hbd.errors import ConfigError
-from hbd.providers.llm.pricing import TokenPricing
+from bayram.contracts import CostSource
+from bayram.errors import ConfigError
+from bayram.providers.llm.pricing import TokenPricing
 
 USD_PER_MILLION_PROMPT = 0.15
 USD_PER_MILLION_COMPLETION = 0.60
 
 
 def test_an_unconfigured_rate_card_reports_no_cost_at_all() -> None:
-    # Arrange — the shipped default: no HBD_LLM_USD_PER_MILLION_* is set anywhere.
+    # Arrange — the shipped default: no BAYRAM_LLM_USD_PER_MILLION_* is set anywhere.
     pricing = TokenPricing()
 
     # Act

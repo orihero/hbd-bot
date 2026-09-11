@@ -31,8 +31,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from hbd.checkout import PaymentIntent, PaymentIntentOpener, PaymentIntentState, Product
-from hbd.contracts import Result, is_ok, ok
+from bayram.checkout import PaymentIntent, PaymentIntentOpener, PaymentIntentState, Product
+from bayram.contracts import Result, is_ok, ok
 
 #: A fixed instant. Nothing here reads wall time, so nothing here can go red at midnight.
 _NOW = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)

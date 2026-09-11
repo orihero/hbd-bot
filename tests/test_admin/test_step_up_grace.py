@@ -23,11 +23,11 @@ from uuid import uuid4
 
 import pytest
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.deps import CurrentAdmin, require_permission
-from hbd.admin.errors import AdminErrorCode, AdminProblem, ProblemError
-from hbd.admin.security import permissions
-from hbd.admin.security.permissions import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.deps import CurrentAdmin, require_permission
+from bayram.admin.errors import AdminErrorCode, AdminProblem, ProblemError
+from bayram.admin.security import permissions
+from bayram.admin.security.permissions import (
     STEP_UP_ACTIONS,
     STEP_UP_FRESH_MAX_AGE_S,
     AccessDecision,
@@ -39,9 +39,9 @@ from hbd.admin.security.permissions import (
     check_access,
     max_age_for_action,
 )
-from hbd.admin.sessions import SessionSnapshot
-from hbd.db.base import utc_now
-from hbd.db.enums import AdminRole
+from bayram.admin.sessions import SessionSnapshot
+from bayram.db.base import utc_now
+from bayram.db.enums import AdminRole
 
 from .conftest import (
     PASSWORD,

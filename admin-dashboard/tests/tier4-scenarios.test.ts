@@ -51,11 +51,11 @@ export async function runTier4Tests(): Promise<TestCaseResult[]> {
         assertEqual(mod.t("auth.login.forgotPassword"), "Parolni unutdingizmi?");
         assertEqual(mod.t("auth.login.resetHint"), "Parolni tiklash uchun egasiga murojaat qiling.");
         assertEqual(mod.t("auth.login.signIn"), "Kirish");
-        assertEqual(mod.t("auth.console.heroTitle"), "hbd tugʻilgan kun qoʻshiqlari boti operator konsoli");
+        assertEqual(mod.t("auth.console.heroTitle"), "Bayram tugʻilgan kun qoʻshiqlari boti operator konsoli");
 
         // 4. Invariants verified
         assertEqual(env.doc.documentElement.lang, "uz");
-        assertEqual(env.storage.getItem("hbd.dashboard.locale"), "uz");
+        assertEqual(env.storage.getItem("bayram.dashboard.locale"), "uz");
       } finally {
         restoreTestEnv();
       }
@@ -83,7 +83,7 @@ export async function runTier4Tests(): Promise<TestCaseResult[]> {
         assertEqual(mod.t("nav.items.admins"), "Администраторы");
 
         // 2. Dashboard main headers and period pickers
-        assertEqual(mod.t("dashboard.title"), "Дашборд HBD");
+        assertEqual(mod.t("dashboard.title"), "Дашборд Bayram");
         assertEqual(mod.t("dashboard.periods.today"), "Сегодня");
         assertEqual(mod.t("dashboard.periods.week"), "Неделя");
         assertEqual(mod.t("dashboard.periods.month"), "Месяц");
@@ -132,7 +132,7 @@ export async function runTier4Tests(): Promise<TestCaseResult[]> {
         // 2. Thread preview badges & sender tags
         assertEqual(mod.t("chats.audioMessage"), "🎵 Audio xabar");
         assertEqual(mod.t("chats.customer"), "Mijoz");
-        assertEqual(mod.t("chats.hbdBot"), "HBD Bot");
+        assertEqual(mod.t("chats.bayramBot"), "Bayram");
         const callbackBadge = mod.t("chats.callback", { data: "select_style" });
         assertEqual(callbackBadge, "🔘 Callback: select_style");
 

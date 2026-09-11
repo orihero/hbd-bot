@@ -16,11 +16,11 @@ import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.memory import MemoryStorage
 
-import hbd.main as main_module
-from hbd.config import Settings
-from hbd.errors import ConfigError
-from hbd.runtime.container import build_container
-from hbd.runtime.jobs import (
+import bayram.main as main_module
+from bayram.config import Settings
+from bayram.errors import ConfigError
+from bayram.runtime.container import build_container
+from bayram.runtime.jobs import (
     ACTIVITY_SNAPSHOT_JOB_NAME,
     BOT_CTX_KEY,
     CONTAINER_CTX_KEY,
@@ -36,8 +36,8 @@ from hbd.runtime.jobs import (
     build_kit_worker_settings,
     generate_and_deliver,
 )
-from hbd.runtime.startup import verify_host
-from hbd.runtime.submitter import InProcessOrderSubmitter
+from bayram.runtime.startup import verify_host
+from bayram.runtime.submitter import InProcessOrderSubmitter
 
 
 def _registered_name(entry: Any) -> str:
@@ -152,10 +152,10 @@ async def test_shutdown_reports_a_stubborn_resource_rather_than_masking_the_rest
 def test_an_invalid_environment_exits_with_a_code_rather_than_a_traceback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Arrange: strip every HBD_ variable so required settings are genuinely missing.
+    # Arrange: strip every BAYRAM_ variable so required settings are genuinely missing.
     import os
 
-    from hbd.config import ENV_PREFIX
+    from bayram.config import ENV_PREFIX
 
     for name in tuple(os.environ):
         if name.startswith(ENV_PREFIX):
@@ -199,7 +199,7 @@ async def test_the_worker_registers_the_job_the_submitter_enqueues(settings: Set
     # The four broadcast entries are the same decision taken a second time, for the second
     # process that queues work into this worker: the ADMIN PANEL. It is denied a Telegram
     # token by design, so composing a campaign and sending it are necessarily two processes
-    # — and ``hbd.admin.queue`` names these jobs as STRINGS it restates rather than imports.
+    # — and ``bayram.admin.queue`` names these jobs as STRINGS it restates rather than imports.
     # A rename that compiled on both sides of that gap would silently stop every campaign,
     # which is exactly what reading this list by name prevents.
     assert [_registered_name(fn) for fn in worker_settings.functions] == [
@@ -266,7 +266,7 @@ def test_the_job_function_name_matches_the_name_the_submitter_uses() -> None:
 @pytest.mark.integration
 async def test_the_offline_demo_produces_a_complete_kit(tmp_path: Path) -> None:
     # Arrange / Act: the command the README tells an operator to run.
-    from hbd.demo import run_demo
+    from bayram.demo import run_demo
 
     code = await run_demo(data_root=tmp_path)
 

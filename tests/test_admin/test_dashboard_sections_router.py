@@ -33,8 +33,8 @@ import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.routers.dashboard import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.routers.dashboard import (
     AUDIENCE_PATH,
     FINANCE_PATH,
     PERFORMANCE_PATH,
@@ -42,8 +42,8 @@ from hbd.admin.routers.dashboard import (
     SERIES_PATH,
     VENDOR_PATH,
 )
-from hbd.admin.settings import AdminSettings
-from hbd.contracts import (
+from bayram.admin.settings import AdminSettings
+from bayram.contracts import (
     BotBlockSource,
     BotMembershipEvent,
     CostSource,
@@ -52,15 +52,15 @@ from hbd.contracts import (
     Vendor,
     VendorOperation,
 )
-from hbd.db.enums import AdminRole, CreditEntryKind, CreditReason, PlanKind, TopupKind
-from hbd.db.models.bot_membership_event import BotMembershipEventRow
-from hbd.db.models.credit_ledger import CreditLedgerRow
-from hbd.db.models.order import OrderRow
-from hbd.db.models.plan_purchase import PlanPurchaseRow
-from hbd.db.models.topup_purchase import TopupPurchaseRow
-from hbd.db.models.user import UserRow
-from hbd.db.models.user_activity_snapshot import UserActivitySnapshotRow
-from hbd.db.models.vendor_usage import VendorUsageRow
+from bayram.db.enums import AdminRole, CreditEntryKind, CreditReason, PlanKind, TopupKind
+from bayram.db.models.bot_membership_event import BotMembershipEventRow
+from bayram.db.models.credit_ledger import CreditLedgerRow
+from bayram.db.models.order import OrderRow
+from bayram.db.models.plan_purchase import PlanPurchaseRow
+from bayram.db.models.topup_purchase import TopupPurchaseRow
+from bayram.db.models.user import UserRow
+from bayram.db.models.user_activity_snapshot import UserActivitySnapshotRow
+from bayram.db.models.vendor_usage import VendorUsageRow
 from tests.test_admin.conftest import (
     FakeRedis,
     MemoryRateLimits,
@@ -1406,7 +1406,7 @@ def test_a_bare_rate_and_an_unsourced_cost_are_not_constructible() -> None:
     # aspirational: the violation raises at construction, so no reviewer has to notice it.
     from pydantic import ValidationError
 
-    from hbd.admin.schemas.overview import FxRateView, RatioView, TrendView, UsdCost
+    from bayram.admin.schemas.overview import FxRateView, RatioView, TrendView, UsdCost
 
     illegal: tuple[Any, ...] = (
         lambda: RatioView(value=0.5, numerator=1, denominator=0),

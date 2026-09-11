@@ -14,7 +14,7 @@ piece of it.
 asserted against ``Storage.open_range`` itself, which is the seam §12.7 opened so the admin
 package would never need ``LocalFileStorage._resolve`` — and
 :func:`test_the_admin_package_reaches_for_no_private_storage_member` walks the AST of every
-module under ``src/hbd/admin`` to prove it never does.
+module under ``src/bayram/admin`` to prove it never does.
 
 **Nothing serves customer text as ``text/plain``.** §12.1 T7: a same-origin body of
 customer-written free text is a stored-XSS primitive that bypasses React entirely, so the
@@ -50,16 +50,16 @@ import httpx
 import pytest
 import sqlalchemy as sa
 
-import hbd.storage as storage_module
-from hbd.admin import routers as routers_package
-from hbd.admin.container import ARCHIVE_DIRNAME, AdminContainer
-from hbd.admin.deps import AUTH_PREFIX
-from hbd.admin.errors import AdminErrorCode
-from hbd.admin.routers import assets as assets_router
-from hbd.admin.routers.assets import ASSET_STREAM_PATH, ASSET_TEXT_PATH, ASSETS_PATH
-from hbd.admin.security.budget import RevealBudgetScope, reveal_budget_key
-from hbd.admin.security.permissions import StepUpAction
-from hbd.admin.services.assets import (
+import bayram.storage as storage_module
+from bayram.admin import routers as routers_package
+from bayram.admin.container import ARCHIVE_DIRNAME, AdminContainer
+from bayram.admin.deps import AUTH_PREFIX
+from bayram.admin.errors import AdminErrorCode
+from bayram.admin.routers import assets as assets_router
+from bayram.admin.routers.assets import ASSET_STREAM_PATH, ASSET_TEXT_PATH, ASSETS_PATH
+from bayram.admin.security.budget import RevealBudgetScope, reveal_budget_key
+from bayram.admin.security.permissions import StepUpAction
+from bayram.admin.services.assets import (
     ASSET_STREAM_WINDOW_S,
     FILENAME_PATTERN,
     LYRIC_TEXT_MIME,
@@ -70,19 +70,19 @@ from hbd.admin.services.assets import (
     parse_range,
     reveal_window_key,
 )
-from hbd.contracts import AssetKind, Err, Language, LyricDraft, LyricSection, OrderState
-from hbd.db.admin.audit import SUBJECT_TYPES
-from hbd.db.base import utc_now
-from hbd.db.enums import AdminRole, AuditAction
-from hbd.db.mapping import lyrics_to_payload
-from hbd.db.models.admin_audit import AdminAuditRow
-from hbd.db.models.asset import AssetRow
-from hbd.db.models.order import OrderRow
-from hbd.db.models.user import UserRow
-from hbd.db.retention import RetentionClass
-from hbd.errors import ErrorCode, NotFoundError, ValidationError
-from hbd.pipeline.assets import LYRIC_SHEET_MIME, render_lyric_sheet
-from hbd.storage import LocalFileStorage, archive_key
+from bayram.contracts import AssetKind, Err, Language, LyricDraft, LyricSection, OrderState
+from bayram.db.admin.audit import SUBJECT_TYPES
+from bayram.db.base import utc_now
+from bayram.db.enums import AdminRole, AuditAction
+from bayram.db.mapping import lyrics_to_payload
+from bayram.db.models.admin_audit import AdminAuditRow
+from bayram.db.models.asset import AssetRow
+from bayram.db.models.order import OrderRow
+from bayram.db.models.user import UserRow
+from bayram.db.retention import RetentionClass
+from bayram.errors import ErrorCode, NotFoundError, ValidationError
+from bayram.pipeline.assets import LYRIC_SHEET_MIME, render_lyric_sheet
+from bayram.storage import LocalFileStorage, archive_key
 from tests.test_admin.conftest import (
     PASSWORD,
     FakeRedis,
@@ -118,7 +118,7 @@ LYRIC_LINE: Final[str] = "Gʻulomjonga tugʻilgan kuningiz muborak boʻlsin"
 LONG_GRACE_S: Final[int] = 900
 
 #: The logger whose ``event`` fields the fail-open tests read.
-_SERVICE_LOGGER: Final[str] = "hbd.admin.services.assets"
+_SERVICE_LOGGER: Final[str] = "bayram.admin.services.assets"
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +194,7 @@ class Clock:
 def clock(monkeypatch: pytest.MonkeyPatch) -> Iterator[Clock]:
     """Move the router's ``now`` forward without moving the wall clock.
 
-    Only :mod:`hbd.admin.routers.assets` is patched, so the session and the step-up grant are
+    Only :mod:`bayram.admin.routers.assets` is patched, so the session and the step-up grant are
     still written against the real clock — which is what makes "the audit window elapsed" and
     "the grant expired" two different, separately testable facts.
     """
@@ -248,7 +248,7 @@ async def seed_asset(container: AdminContainer, *, order: OrderRow, **kw: Any) -
             variant_index=kw.pop("variant_index", 0),
             # Absolute, and from the worker's filesystem rather than the panel's — which is
             # the shape T4 is about: only ``Path(path).name`` is ever used.
-            path=kw.pop("path", f"/srv/hbd/var/workspace/{order.id}/{SONG_FILENAME}"),
+            path=kw.pop("path", f"/srv/bayram/var/workspace/{order.id}/{SONG_FILENAME}"),
             storage_key=kw.pop("storage_key", None),
             mime=kw.pop("mime", "audio/mpeg"),
             # Deliberately wrong, and deliberately the default the column actually carries:
@@ -434,7 +434,7 @@ def assert_names_no_path(response: httpx.Response, *, panel: Panel, order_id: UU
 
     Five separate pieces, because leaking any one of them is a step towards the next: the
     storage root, its parent, the object key, the order id's place in that key, and the
-    filename. ``operator_message`` is what crosses the wire for an ``HbdError`` — ``context``
+    filename. ``operator_message`` is what crosses the wire for an ``BayramError`` — ``context``
     is dropped by ``errors._details_of`` — so this passes only while every message the
     storage layer produces stays a constant.
     """
@@ -558,7 +558,7 @@ def test_a_usable_row_yields_the_one_shared_spelling_of_the_key() -> None:
     media = AssetMedia(
         asset_id=uuid4(),
         order_id=order_id,
-        path=f"/srv/hbd/var/workspace/{order_id}/{SONG_FILENAME}",
+        path=f"/srv/bayram/var/workspace/{order_id}/{SONG_FILENAME}",
         mime="audio/mpeg",
         payload=None,
     )
@@ -715,9 +715,9 @@ def test_everything_the_admin_package_imports_from_storage_is_public_api() -> No
 
 def test_the_panel_reads_the_same_archive_directory_the_worker_writes() -> None:
     # Arrange — the name is restated in ``admin.container`` rather than imported, because
-    # ``hbd.runtime.container`` builds the provider set at import and §4.2 keeps this process
+    # ``bayram.runtime.container`` builds the provider set at import and §4.2 keeps this process
     # free of vendor adapters. A test can afford the import; the process cannot.
-    from hbd.runtime.container import ARCHIVE_DIRNAME as WORKER_ARCHIVE_DIRNAME
+    from bayram.runtime.container import ARCHIVE_DIRNAME as WORKER_ARCHIVE_DIRNAME
 
     # Act / Assert — a drift here streams from a directory nothing writes into, and every
     # asset in the fleet is a 404 nobody can explain.
@@ -733,7 +733,7 @@ async def ready_lyric_sheet(panel: Panel) -> AssetRow:
         panel.container,
         order=order,
         kind=AssetKind.LYRIC_SHEET,
-        path=f"/srv/hbd/var/workspace/{order.id}/lyrics.txt",
+        path=f"/srv/bayram/var/workspace/{order.id}/lyrics.txt",
         mime=LYRIC_SHEET_MIME,
         payload=lyrics_to_payload(lyric_draft()),
     )
@@ -828,6 +828,7 @@ async def test_no_mounted_route_answers_with_a_text_plain_body(panel: Panel) -> 
         "asset_id": asset.id,
         "attempt_id": uuid4(),
         "broadcast_id": uuid4(),
+        "intent_id": uuid4(),
     }
 
     # Act / Assert
@@ -842,7 +843,7 @@ async def test_no_mounted_route_answers_with_a_text_plain_body(panel: Panel) -> 
 def test_no_mounted_route_declares_a_text_plain_response(panel: Panel) -> None:
     # Arrange — the structural half. The sweep above can only see the answers it provoked;
     # this one reads what every route says it may return, including branches no fixture hits.
-    from hbd.admin.app import create_app
+    from bayram.admin.app import create_app
 
     application = create_app(container=panel.container)
 
@@ -1334,7 +1335,7 @@ async def test_a_lyric_row_with_no_payload_is_a_404_after_the_reveal_is_audited(
         panel.container,
         order=order,
         kind=AssetKind.LYRIC_SHEET,
-        path=f"/srv/hbd/var/workspace/{order.id}/lyrics.txt",
+        path=f"/srv/bayram/var/workspace/{order.id}/lyrics.txt",
         mime=LYRIC_SHEET_MIME,
         payload=None,
     )
@@ -1359,7 +1360,7 @@ async def test_a_lyric_payload_that_no_longer_validates_is_a_404_not_a_500(
         panel.container,
         order=order,
         kind=AssetKind.LYRIC_SHEET,
-        path=f"/srv/hbd/var/workspace/{order.id}/lyrics.txt",
+        path=f"/srv/bayram/var/workspace/{order.id}/lyrics.txt",
         mime=LYRIC_SHEET_MIME,
         payload={"title": "only half a draft"},
     )

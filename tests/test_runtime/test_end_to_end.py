@@ -6,7 +6,7 @@ real wizard, the real name subsystem, the real orchestrator, real ffmpeg, the re
 repository, real files on disk, and the real delivery code. It is the only test that can
 catch two green modules disagreeing — which is the entire failure mode of a parallel build.
 
-**Onboarding runs here against a REAL** :class:`~hbd.db.user_profiles.SqlUserProfiles`. Every
+**Onboarding runs here against a REAL** :class:`~bayram.db.user_profiles.SqlUserProfiles`. Every
 other bot test in the suite runs on the in-memory ``FakeProfiles``, which cannot catch a column
 that is not nullable, a session that is never committed, a phone number that does not survive
 its own round trip, or an avatar written under a key the admin panel later cannot rebuild.
@@ -30,8 +30,8 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.callbacks import (
+from bayram.bot.app import build_dispatcher
+from bayram.bot.callbacks import (
     GenreCB,
     LanguageCB,
     LanguageSlot,
@@ -40,15 +40,15 @@ from hbd.bot.callbacks import (
     OccasionCB,
     VocalGenderCB,
 )
-from hbd.bot.deps import BotDeps
-from hbd.bot.i18n import translate
-from hbd.config import Settings
-from hbd.contracts import Genre, Language, Occasion, Ok, VoiceGender
-from hbd.pipeline.content import LlmContentWriter
-from hbd.runtime.container import AppContainer, build_container
-from hbd.runtime.jobs import BOT_CTX_KEY, CONTAINER_CTX_KEY, generate_and_deliver
-from hbd.runtime.submitter import InProcessOrderSubmitter
-from hbd.user_profiles import avatar_key
+from bayram.bot.deps import BotDeps
+from bayram.bot.i18n import translate
+from bayram.config import Settings
+from bayram.contracts import Genre, Language, Occasion, Ok, VoiceGender
+from bayram.pipeline.content import LlmContentWriter
+from bayram.runtime.container import AppContainer, build_container
+from bayram.runtime.jobs import BOT_CTX_KEY, CONTAINER_CTX_KEY, generate_and_deliver
+from bayram.runtime.submitter import InProcessOrderSubmitter
+from bayram.user_profiles import avatar_key
 from tests.test_bot.conftest import (
     AVATAR_BYTES,
     BOT_TOKEN,
@@ -223,7 +223,7 @@ async def test_a_customer_walking_the_wizard_receives_a_complete_kit(
     halves and broken in the product.
 
     ``ui_language`` is read back through the JOIN onto ``users``, which is where that column
-    lives and stays; it is the one field on :class:`~hbd.user_profiles.UserProfile` that no
+    lives and stays; it is the one field on :class:`~bayram.user_profiles.UserProfile` that no
     ``user_profiles`` row holds, so it is the one a store could plausibly answer with a
     default and nobody would notice.
     """
@@ -266,7 +266,7 @@ async def test_the_face_the_bot_fetched_is_readable_through_the_archive_handle(
     for ever because the storage handle the bot wrote through and the handle the route reads
     through were two objects over two roots, or because the key was spelled twice.
 
-    Read through ``container.storage`` and keyed with :func:`~hbd.user_profiles.avatar_key`
+    Read through ``container.storage`` and keyed with :func:`~bayram.user_profiles.avatar_key`
     from the profile's own ``user_id``, which is exactly what the route does — the key is not
     stored on the row, so rebuilding it is the only way either side can find the bytes.
 

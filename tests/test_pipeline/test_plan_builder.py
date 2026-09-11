@@ -7,8 +7,8 @@ from uuid import UUID
 
 import pytest
 
-from hbd.config import Settings
-from hbd.contracts import (
+from bayram.config import Settings
+from bayram.contracts import (
     MAX_CHUNKS_PER_PLAN,
     MIN_SONG_DURATION_MS,
     Brief,
@@ -20,7 +20,7 @@ from hbd.contracts import (
     NameStrategy,
     Result,
 )
-from hbd.pipeline.plan_builder import (
+from bayram.pipeline.plan_builder import (
     build_composition_plan,
     derive_seed,
     substitute_name,
@@ -145,7 +145,7 @@ def test_re_roll_falls_back_to_the_bare_candidate_when_the_old_spelling_is_absen
     ghost = NameCandidate(text="NotInTheChunk", strategy=NameStrategy.ASCII, rank=0)
 
     # Act
-    with caplog.at_level(logging.WARNING, logger="hbd.pipeline.plan_builder"):
+    with caplog.at_level(logging.WARNING, logger="bayram.pipeline.plan_builder"):
         rerolled = value_of(with_name_candidate(plan, previous=ghost, candidate=stranger))
 
     # Assert

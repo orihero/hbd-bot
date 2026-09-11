@@ -5,8 +5,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from hbd.errors import ProviderTimeoutError
-from hbd.pipeline.events import (
+from bayram.errors import ProviderTimeoutError
+from bayram.pipeline.events import (
     STAGE_MESSAGE_KEYS,
     STAGE_ORDER,
     NullProgressSink,

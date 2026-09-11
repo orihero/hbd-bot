@@ -7,7 +7,7 @@
  * clocks rather than as two blobs of numbers is what lets an operator answer the question
  * they came with — *which* clock is behind — instead of only *whether* something is.
  *
- * The `clock` text on each row is what the sweep in `src/hbd/db/purge.py` actually keys on,
+ * The `clock` text on each row is what the sweep in `src/bayram/db/purge.py` actually keys on,
  * not a guess: `_purge_brief_notes` clears the note **and** the approved lyric on the brief
  * text clock, `_purge_attempt_transcripts` runs the song transcript on that same clock while
  * `_purge_attempt_identities` runs the name on the identity clock sixty days later, and the

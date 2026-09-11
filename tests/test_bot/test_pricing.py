@@ -16,7 +16,7 @@ invisible until somebody has been charged the wrong amount.
 
 ``format_amount`` also never renders a currency word. That word differs across the four
 locales — UZS, сум, soʻm, сўм — and lives in the catalogues where translators can reach it;
-a price baked into those catalogues would disagree with ``HBD_SINGLE_SONG_PRICE_MINOR`` the
+a price baked into those catalogues would disagree with ``BAYRAM_SINGLE_SONG_PRICE_MINOR`` the
 day an operator changed it, while a price interpolated into them cannot.
 """
 
@@ -24,8 +24,8 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.bot.pricing import GROUPING_SPACE, CheckoutOffer, Pricing, format_amount
-from hbd.config import Settings
+from bayram.bot.pricing import GROUPING_SPACE, CheckoutOffer, Pricing, format_amount
+from bayram.config import Settings
 
 #: Any URL parses; nothing here touches a database. ``database_url`` is simply the one
 #: required field on the settings model.
@@ -137,7 +137,7 @@ def test_an_operator_who_reprices_moves_the_button_label_with_them() -> None:
 # The offer
 # ---------------------------------------------------------------------------
 def test_a_checkout_offer_carries_only_finished_renderable_values() -> None:
-    # Arrange — this object exists so ``hbd.bot.screens`` stays a pure function of the draft.
+    # Arrange — this object exists so ``bayram.bot.screens`` stays a pure function of the draft.
     # ``plan_ends_on`` is a plain YYYY-MM-DD string and not a datetime, because formatting a
     # date is a rendering decision and this value object exists so the renderer makes none.
     settings = Settings(_env_file=None, database_url=_DATABASE_URL)

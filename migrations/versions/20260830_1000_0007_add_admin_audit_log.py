@@ -19,7 +19,7 @@ silently every hour, and an append-only table holding operator free text grows w
 Four conditions, all required:
 
 1. the dialect is Postgres — on SQLite there is no privilege system to use;
-2. ``HBD_ADMIN_AUDIT_DSN`` is non-empty, which is how a deployment declares that the separate
+2. ``BAYRAM_ADMIN_AUDIT_DSN`` is non-empty, which is how a deployment declares that the separate
    owner role of §4.5 exists;
 3. that application role actually exists in ``pg_roles``;
 4. it is **not** ``current_user`` — revoking a privilege from a table's own owner is undone by
@@ -31,13 +31,13 @@ for want of the two-role setup, and ``/audit/verify`` reports ``chainProtection:
 by asking Postgres about the privileges rather than by trusting this file. A control that is
 not deployed is reported as not deployed.
 
-The role name is read from ``HBD_DB_APP_ROLE`` or, failing that, from the userinfo of
-``HBD_DATABASE_URL``, and it is matched against a strict identifier pattern before it is ever
+The role name is read from ``BAYRAM_DB_APP_ROLE`` or, failing that, from the userinfo of
+``BAYRAM_DATABASE_URL``, and it is matched against a strict identifier pattern before it is ever
 spliced into DDL — ``REVOKE`` takes no bind parameter for a role name, so the pattern is the
 whole injection defence and a malformed value raises rather than being quoted and hoped for.
 
 The enums are spelled out as non-native ``VARCHAR``s rather than imported from
-``hbd.db.enums``: migrations must not import application code (a test asserts it), and a
+``bayram.db.enums``: migrations must not import application code (a test asserts it), and a
 native Postgres enum would make every later member a lock-taking ``ALTER TYPE``.
 """
 
@@ -64,14 +64,14 @@ _AUDIT = "admin_audit_log"
 _ANCHORS = "audit_chain_anchors"
 
 #: Declares that the separate owner role of §4.5 exists. Empty means it does not.
-_AUDIT_DSN_ENV: Final[str] = "HBD_ADMIN_AUDIT_DSN"
+_AUDIT_DSN_ENV: Final[str] = "BAYRAM_ADMIN_AUDIT_DSN"
 #: The role the application connects as, and therefore the one the privileges are taken from.
-_APP_ROLE_ENV: Final[str] = "HBD_DB_APP_ROLE"
-_APP_DSN_ENV: Final[str] = "HBD_DATABASE_URL"
+_APP_ROLE_ENV: Final[str] = "BAYRAM_DB_APP_ROLE"
+_APP_DSN_ENV: Final[str] = "BAYRAM_DATABASE_URL"
 #: A SQL identifier, and nothing else. ``REVOKE`` accepts no bind parameter for a role.
 _ROLE_PATTERN: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]{0,62}$")
 
-#: Mirrors ``hbd.db.admin.audit.PURGE_FUNCTION_NAME``, spelled literally because a migration
+#: Mirrors ``bayram.db.admin.audit.PURGE_FUNCTION_NAME``, spelled literally because a migration
 #: must keep working after the module it mirrors is refactored or deleted.
 _PURGE_FUNCTION: Final[str] = "hbd_purge_audit_log"
 _PURGE_SIGNATURE: Final[str] = f"{_PURGE_FUNCTION}(integer)"
@@ -91,7 +91,7 @@ _LEGACY_PURGE_SIGNATURE: Final[str] = f"{_PURGE_FUNCTION}(timestamptz, integer)"
 _ADMIN_ROLES: Final[tuple[str, ...]] = ("owner", "admin", "support", "viewer")
 _OUTCOMES: Final[tuple[str, ...]] = ("ok", "denied", "error")
 _ANCHOR_KINDS: Final[tuple[str, ...]] = ("head", "truncation")
-#: ``hbd.db.enums.AuditAction`` at revision 0007. Later members widen this list in a later
+#: ``bayram.db.enums.AuditAction`` at revision 0007. Later members widen this list in a later
 #: revision or, since the column is a plain ``VARCHAR(32)``, in none at all.
 _ACTIONS: Final[tuple[str, ...]] = (
     "login.success",
@@ -158,7 +158,7 @@ RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $hbd$
+AS $bayram$
 DECLARE
     deleted integer;
     bounded integer;
@@ -181,7 +181,7 @@ BEGIN
     GET DIAGNOSTICS deleted = ROW_COUNT;
     RETURN deleted;
 END;
-$hbd$
+$bayram$
 """
 
 #: The 90-day reason sweep, same shape and same reasoning: no cutoff, a clamped limit, and a
@@ -193,7 +193,7 @@ RETURNS integer
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = pg_catalog, public
-AS $hbd$
+AS $bayram$
 DECLARE
     purged integer;
     bounded integer;
@@ -220,7 +220,7 @@ BEGIN
     GET DIAGNOSTICS purged = ROW_COUNT;
     RETURN purged;
 END;
-$hbd$
+$bayram$
 """
 
 
@@ -283,7 +283,7 @@ def _create_audit_table() -> None:
         for column in ("at", "actor_id", "subject_id", "correlation_id", "reason_expires_at"):
             batch_op.create_index(batch_op.f(f"ix_{_AUDIT}_{column}"), [column], unique=False)
         # The expiry sweep is one predicate over this column; the panel's default list is the
-        # composite. Both are named by the convention in src/hbd/db/base.py.
+        # composite. Both are named by the convention in src/bayram/db/base.py.
         batch_op.create_index(batch_op.f(f"ix_{_AUDIT}_expires_at"), ["expires_at"], unique=False)
         batch_op.create_index(
             batch_op.f(f"ix_{_AUDIT}_action_at"), ["action", "at"], unique=False

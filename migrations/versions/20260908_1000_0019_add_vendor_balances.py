@@ -99,7 +99,7 @@ there is no window predicate because the table holds no history; and nothing fil
 indexed ``cost_usd`` for a query that finds NOTHING twelve times a minute: an index earns its
 keep on the rows it does not find only when the table is large, and this one never will be.
 
-**NO RETENTION CUTOFF, AND NOTHING IS ADDED TO ``hbd.db.purge`` — read the absence as a
+**NO RETENTION CUTOFF, AND NOTHING IS ADDED TO ``bayram.db.purge`` — read the absence as a
 decision, not an oversight.** The table is bounded BY CONSTRUCTION: its primary key is a
 five-member enum crossed with a boolean, so it can hold at most ten rows ever and holds three
 in this deployment, and a row is UPDATEd in place rather than appended. Registering a cutoff
@@ -115,7 +115,7 @@ sweep BY NAME in ``tests/test_db/test_audit_retention.py``.
 
 **NOT PERSONAL DATA.** Every column is a closed enum, a number, a boolean, an instant, a
 machine id, a bounded string from the vendor's own vocabulary or a bounded error code from
-the ``hbd.errors`` taxonomy — the row is about OUR account with a vendor, not about a
+the ``bayram.errors`` taxonomy — the row is about OUR account with a vendor, not about a
 customer. One field was available and is deliberately NOT stored: OpenRouter's ``data.label``
 is the operator's own free-text name for the key and reads in practice like "Sardor laptop
 dev key". It is the only field on either vendor's response that could carry a person's name,

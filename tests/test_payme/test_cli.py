@@ -33,6 +33,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Final
 from uuid import uuid4
 
@@ -46,17 +47,18 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
-from hbd.checkout import PaymentIntent, Product, PurchaseRequest
-from hbd.contracts import Language, is_err, is_ok
-from hbd.db.engine import create_session_factory
-from hbd.db.enums import CreditEntryKind
-from hbd.db.models import Base, CreditLedgerRow
-from hbd.db.models.payme_rpc_log import PaymeRpcLogRow
-from hbd.db.models.payment_intent import PaymentIntentRow
-from hbd.db.models.topup_purchase import TopupPurchaseRow
-from hbd.db.payme import SqlPaymeLedger
-from hbd.errors import CheckoutPausedError, StorageError
-from hbd.payme.cli import (
+from bayram.checkout import PaymentIntent, Product, PurchaseRequest
+from bayram.contracts import Language, is_err, is_ok
+from bayram.db.engine import create_session_factory
+from bayram.db.enums import CreditEntryKind
+from bayram.db.models import Base, CreditLedgerRow
+from bayram.db.models.payme_rpc_log import PaymeRpcLogRow
+from bayram.db.models.payment_intent import PaymentIntentRow
+from bayram.db.models.topup_purchase import TopupPurchaseRow
+from bayram.db.payme import SqlPaymeLedger
+from bayram.errors import CheckoutPausedError, StorageError
+from bayram.payme import cli, ports
+from bayram.payme.cli import (
     EXIT_MISMATCH,
     EXIT_OK,
     EXIT_REFUSED,
@@ -75,11 +77,15 @@ from hbd.payme.cli import (
     main,
     plan,
 )
-from hbd.payme.pause import PAUSED_VALUE, PAYME_PAUSE_KEY, is_paused, set_paused
-from hbd.payme.protocol import CancelReason
-from hbd.payme.provider import PaymeCheckoutProvider
+from bayram.payme.pause import PAUSED_VALUE, PAYME_PAUSE_KEY, is_paused, set_paused
+from bayram.payme.protocol import CancelReason
+from bayram.payme.provider import PaymeCheckoutProvider
 from tests.conftest import FIXED_NOW
 from tests.test_db.conftest import MovableClock
+
+#: The literal the single-definition test scans for. Spelled with the quotes so the scan finds
+#: a DEFINITION and not the docstrings and comments that discuss the prefix by name.
+_OPERATOR_PREFIX_LITERAL: Final[str] = '= "operator:"'
 
 #: Well outside 2**31, matching the rest of this package's suites: an accidental ``Integer``
 #: column on the payment path would not fail loudly, it would truncate the id of whoever paid.
@@ -393,6 +399,41 @@ async def test_settle_on_an_already_paid_intent_writes_nothing_and_says_so(
     assert not row.settle_note.startswith(OPERATOR_SETTLE_PREFIX)
 
 
+def test_the_operator_settle_prefix_has_exactly_one_definition_in_the_source() -> None:
+    """Three modules read or write this prefix; a second spelling breaks the invariant.
+
+    ``db/payme.py`` WRITES ``operator:<ref>``; this CLI's ``_operator_settlements`` and the
+    admin panel's ``db.admin.payment_intents.settlement_snapshot`` both SELECT on
+    ``settle_note LIKE 'operator:%'``. The identity an operator is allowed to assert is
+    ``performed + operator == receipts``, so the moment two of those three spell the prefix
+    differently the reconciliation starts reporting every use of the recovery button as a
+    defect — and a monitoring line nobody trusts is worse than no line at all.
+
+    It used to be spelled twice, on the argument that the ledger kept its copy private and an
+    underscore import would be a promise about another module's internals. Promoting it into
+    ``bayram.payme.ports`` — which ``bayram.db`` and this package both import already, and
+    neither may skip — answers that objection.
+
+    Asserted over the SOURCE rather than over the values, because equal values are exactly what
+    a re-introduced copy would have on the day it is written; the defect only appears later,
+    when one of them is edited. The same reason ``db/admin/audit.py``'s single-writer rule is
+    pinned by a source scan.
+    """
+    # Arrange
+    source_root = Path(cli.__file__).resolve().parents[2]
+
+    # Act — every place in the shipped package that spells the prefix as a literal.
+    spellings = {
+        path.relative_to(source_root)
+        for path in source_root.rglob("*.py")
+        if _OPERATOR_PREFIX_LITERAL in path.read_text(encoding="utf-8")
+    }
+
+    # Assert — one definition, and it is the public one both halves import.
+    assert spellings == {Path("bayram/payme/ports.py")}
+    assert cli.OPERATOR_SETTLE_PREFIX is ports.OPERATOR_SETTLE_PREFIX
+
+
 async def test_settle_without_a_note_refuses_before_anything_is_built() -> None:
     """A missing ``--note`` never reaches a database, and neither does an empty one.
 
@@ -531,7 +572,7 @@ async def test_a_pause_that_cannot_be_written_refuses_instead_of_lying(
 
 
 async def test_a_hand_written_zero_in_redis_does_not_pause_the_rail(switch: FakeSwitch) -> None:
-    # Arrange — somebody typed `redis-cli SET hbd:payme:paused 0` meaning "off".
+    # Arrange — somebody typed `redis-cli SET bayram:payme:paused 0` meaning "off".
     switch.values[PAYME_PAUSE_KEY] = "0"
 
     # Act / Assert — it means what they meant.

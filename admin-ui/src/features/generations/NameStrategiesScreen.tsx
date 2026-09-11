@@ -1,5 +1,5 @@
 /**
- * `/generations/names` — "What should `HBD_NAME_CANDIDATE_ORDER` be?" (§11.2)
+ * `/generations/names` — "What should `BAYRAM_NAME_CANDIDATE_ORDER` be?" (§11.2)
  *
  * §11.2's dominant signal is "per-strategy bake-off bars + a similarity histogram with the
  * threshold marked, **linking straight to `/config`**". Both are above the fold and side by
@@ -102,7 +102,7 @@ export const THRESHOLD_CONFIG_LINK_LABEL = "name_match_min_similarity in config 
 
 /** What the cliff tile says when the deployment never published the worker's threshold. */
 export const THRESHOLD_UNPUBLISHED_HINT =
-  "This deployment publishes no threshold, so there is no band to count inside. Set HBD_ADMIN_NAME_MATCH_MIN_SIMILARITY to the worker's value.";
+  "This deployment publishes no threshold, so there is no band to count inside. Set BAYRAM_ADMIN_NAME_MATCH_MIN_SIMILARITY to the worker's value.";
 
 /** The window, as an operator would say it. `null` is the whole record. */
 function windowLabel(

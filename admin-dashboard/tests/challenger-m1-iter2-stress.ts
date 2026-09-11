@@ -548,7 +548,7 @@ async function runSuite() {
         const target = (["uz", "ru", "en"] as const)[i % 3];
         window.dispatchEvent(
           new StorageEvent("storage", {
-            key: "hbd.dashboard.locale",
+            key: "bayram.dashboard.locale",
             newValue: target,
           }),
         );

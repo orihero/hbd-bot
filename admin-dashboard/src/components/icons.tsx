@@ -23,7 +23,7 @@ export function BrandMark({ className }: IconProps) {
   return (
     <img
       src={logoUrl}
-      alt="hbd logo"
+      alt="Bayram logo"
       className={clsx("rounded-full object-cover shrink-0 select-none", className)}
       aria-hidden="true"
       draggable={false}

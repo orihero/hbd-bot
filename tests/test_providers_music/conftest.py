@@ -15,8 +15,8 @@ from typing import Any
 import httpx
 import orjson
 
-from hbd.contracts import Chunk, CompositionPlan, Language, LyricDraft, LyricSection
-from hbd.providers.music.elevenlabs import ElevenLabsMusicProvider
+from bayram.contracts import Chunk, CompositionPlan, Language, LyricDraft, LyricSection
+from bayram.providers.music.elevenlabs import ElevenLabsMusicProvider
 
 TEST_API_KEY = "test-elevenlabs-key"
 TEST_BASE_URL = "https://api.elevenlabs.test"

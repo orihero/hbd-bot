@@ -11,6 +11,9 @@ import { AuditScreen } from "@/features/audit/AuditScreen";
 import { BroadcastDetailScreen } from "@/features/broadcasts/BroadcastDetailScreen";
 import { BroadcastsScreen } from "@/features/broadcasts/BroadcastsScreen";
 import { BroadcastWizardScreen } from "@/features/broadcasts/wizard/BroadcastWizardScreen";
+import { CallsScreen } from "@/features/billing/CallsScreen";
+import { IntentDossierScreen } from "@/features/billing/IntentDossierScreen";
+import { IntentsScreen } from "@/features/billing/IntentsScreen";
 import { ChangePasswordPage } from "@/features/auth/ChangePasswordPage";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { DashboardPage } from "@/features/dashboard/DashboardPage";
@@ -20,7 +23,9 @@ import { ChatsPage } from "@/features/chats/ChatsPage";
 import { UserDetailScreen } from "@/features/users/UserDetailScreen";
 import { UsersScreen } from "@/features/users/UsersScreen";
 
-/* Eight screens: lazy loading would add chunk boundaries and buy nothing at this size. */
+/* Every screen is eager: lazy loading would add chunk boundaries and buy nothing at this size.
+   (The count this line used to carry went stale twice — campaigns, then the rail — so it is
+   gone. The claim is about the size of the bundle, not about how many entries are below.) */
 export const router = createBrowserRouter([
   /*
    * `/login` is deliberately OUTSIDE `AppShell`. A sign-in screen has nothing to navigate to
@@ -74,6 +79,22 @@ export const router = createBrowserRouter([
            * rendering inside it, so nesting would keep a fifty-row page — and its five-second
            * poll — mounted behind a screen that never shows it.
            */
+          /*
+           * The Payme rail. `/billing` IS the payments list — the section's front door is the
+           * table, narrowed by the filter panel and left by the lookup, and the pause switch
+           * rides in its toolbar.
+           *
+           * `/billing/intents` is no longer a route: it is only the dossier's parent segment.
+           * `/billing/calls` is declared before the dossier pattern so a literal sibling can
+           * never be read as a payment id.
+           *
+           * The dossier is a SIBLING of the list rather than a child: it replaces the list,
+           * so nesting would keep a fifty-row page mounted and polling behind a screen that
+           * never shows it.
+           */
+          { path: PATH.rail, element: <IntentsScreen /> },
+          { path: PATH.railCalls, element: <CallsScreen /> },
+          { path: PATH.railIntentDetail, element: <IntentDossierScreen /> },
           { path: PATH.broadcasts, element: <BroadcastsScreen /> },
           { path: PATH.broadcastNew, element: <BroadcastWizardScreen /> },
           { path: PATH.broadcastDetail, element: <BroadcastDetailScreen /> },

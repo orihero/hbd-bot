@@ -19,7 +19,7 @@ is stated in that test rather than left implied.
 
 **And the step-up has to work through a real route.** ``require_step_up`` and
 ``check_step_up`` were unit-tested in Phase 1 with **zero handler callers** anywhere in
-``src/hbd``: ``POST /api/auth/step-up`` wrote ``admin_sessions.step_up_scope`` and no route
+``src/bayram``: ``POST /api/auth/step-up`` wrote ``admin_sessions.step_up_scope`` and no route
 ever read the column back. The tests in the last section drive the real step-up route to get
 a real grant and then call a real handler, because that is the only shape that catches the
 two failures a hand-built ``StepUpGrant`` cannot: an action spelled as a ``Permission``
@@ -51,9 +51,9 @@ import pytest
 import sqlalchemy as sa
 from fastapi import APIRouter, Depends
 
-from hbd.admin.app import create_app
-from hbd.admin.container import AdminContainer
-from hbd.admin.deps import (
+from bayram.admin.app import create_app
+from bayram.admin.container import AdminContainer
+from bayram.admin.deps import (
     Admin,
     Container,
     enforce_reveal_budget,
@@ -61,8 +61,8 @@ from hbd.admin.deps import (
     require_permission,
     reveal_budget_limits,
 )
-from hbd.admin.errors import AdminErrorCode
-from hbd.admin.security.budget import (
+from bayram.admin.errors import AdminErrorCode
+from bayram.admin.security.budget import (
     DEFAULT_MAX_CONVERSATIONS_PER_DAY,
     DEFAULT_MAX_RECORDS_PER_HOUR,
     MAX_RECORDS_PER_REVEAL,
@@ -74,9 +74,9 @@ from hbd.admin.security.budget import (
     charge_reveal_budget,
     reveal_budget_key,
 )
-from hbd.admin.security.permissions import Permission, StepUpAction
-from hbd.db.base import utc_now
-from hbd.errors import ErrorCode
+from bayram.admin.security.permissions import Permission, StepUpAction
+from bayram.db.base import utc_now
+from bayram.errors import ErrorCode
 from tests.test_admin.conftest import (
     ORIGIN,
     PASSWORD,
@@ -100,7 +100,7 @@ _ACTOR: Final[str] = "reveal-operator"
 _SUBJECT_A: Final[str] = "0f9a3b1c-1111-4222-8333-444455556666"
 _SUBJECT_B: Final[str] = "0f9a3b1c-9999-4222-8333-444455556666"
 _PROBE_PATH: Final[str] = "/api/test-probe/reveal/{subject_id}"
-_BUDGET_LOGGER: Final[str] = "hbd.admin.security.budget"
+_BUDGET_LOGGER: Final[str] = "bayram.admin.security.budget"
 _TIGHT: Final[RevealBudgetLimits] = RevealBudgetLimits(
     max_records_per_hour=10, max_conversations_per_day=2
 )
@@ -340,7 +340,7 @@ def test_the_key_carries_a_digest_of_the_actor_rather_than_the_name() -> None:
     key = reveal_budget_key(RevealBudgetScope.RECORDS, username=_ACTOR, now=NOW)
 
     assert _ACTOR not in key
-    assert key.startswith("hbd:admin:budget:records:")
+    assert key.startswith("bayram:admin:budget:records:")
     assert key.split(":")[-2] == str(int(NOW.timestamp()) // REVEAL_RECORDS_WINDOW_S)
 
 

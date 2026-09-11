@@ -29,7 +29,7 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import ValidationError
 
-from hbd.admin.schemas.broadcasts import (
+from bayram.admin.schemas.broadcasts import (
     MAX_BODIES,
     TELEGRAM_TAGS,
     BroadcastBodyInput,
@@ -42,18 +42,18 @@ from hbd.admin.schemas.broadcasts import (
     to_broadcast_view,
     to_recipient_view,
 )
-from hbd.contracts import BroadcastKind, BroadcastRecipientState, BroadcastState, Language
-from hbd.db.admin.broadcasts import broadcast_body_view
-from hbd.db.admin.views import BroadcastBodyView as BroadcastBodyRecord
-from hbd.db.admin.views import (
+from bayram.contracts import BroadcastKind, BroadcastRecipientState, BroadcastState, Language
+from bayram.db.admin.broadcasts import broadcast_body_view
+from bayram.db.admin.views import BroadcastBodyView as BroadcastBodyRecord
+from bayram.db.admin.views import (
     BroadcastDetail,
     BroadcastListItem,
     BroadcastProgress,
     BroadcastRecipientItem,
 )
-from hbd.db.enums import AuditReasonCode
-from hbd.db.models.broadcast import BROADCAST_TITLE_LENGTH
-from hbd.db.models.broadcast_body import (
+from bayram.db.enums import AuditReasonCode
+from bayram.db.models.broadcast import BROADCAST_TITLE_LENGTH
+from bayram.db.models.broadcast_body import (
     BROADCAST_BODY_LENGTH,
     BROADCAST_CAPTION_LENGTH,
     BroadcastBodyRow,
@@ -104,7 +104,7 @@ _BROADCAST_ID: Final[UUID] = UUID("11111111-1111-1111-1111-111111111111")
 def _item(**overrides: object) -> BroadcastListItem:
     """A campaign as the READ LAYER hands it over, with every field set.
 
-    The projections take :mod:`hbd.db.admin.views` dataclasses and not ORM rows — the
+    The projections take :mod:`bayram.db.admin.views` dataclasses and not ORM rows — the
     convention every other list in this package follows — so this is the value a handler
     actually has. Nothing is left out, because a field omitted here is a field the projection
     under test would read as ``None`` for a column the database never leaves null.
@@ -188,7 +188,7 @@ def _detail(
     progress: BroadcastProgress | None = None,
     **overrides: object,
 ) -> BroadcastDetail:
-    """A campaign detail exactly as :func:`~hbd.db.admin.broadcasts.get_broadcast` assembles it."""
+    """A campaign detail exactly as :func:`~bayram.db.admin.broadcasts.get_broadcast` assembles it."""
     return BroadcastDetail(
         broadcast=_item(**overrides),
         bodies=bodies,
@@ -441,7 +441,7 @@ def test_the_text_is_stored_byte_for_byte_as_it_was_typed() -> None:
     [
         pytest.param("https://example.com/promo?a=1#top", id="https-with-query"),
         pytest.param("http://example.com/", id="http"),
-        pytest.param("https://t.me/hbd_bot", id="a-telegram-link"),
+        pytest.param("https://t.me/bayram_uzbot", id="a-telegram-link"),
     ],
 )
 def test_a_real_absolute_url_is_accepted(url: str) -> None:

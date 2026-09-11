@@ -9,16 +9,16 @@ import httpx
 import orjson
 import pytest
 
-from hbd.contracts import Chunk, CostSource, HealthState, MusicProvider, is_err, is_ok
-from hbd.errors import ErrorCode
-from hbd.providers.music.elevenlabs import (
+from bayram.contracts import Chunk, CostSource, HealthState, MusicProvider, is_err, is_ok
+from bayram.errors import ErrorCode
+from bayram.providers.music.elevenlabs import (
     API_KEY_HEADER,
     IDEMPOTENCY_HEADER,
     PROVIDER_NAME,
     ElevenLabsMusicProvider,
     mime_for_output_format,
 )
-from hbd.providers.music.usage import USAGE_EVENT
+from bayram.providers.music.usage import USAGE_EVENT
 from tests.test_providers_music.conftest import (
     AUDIO_BODY,
     TEST_BASE_URL,
@@ -32,7 +32,7 @@ from tests.test_providers_music.conftest import (
     usage_line,
 )
 
-LOGGER_NAME = "hbd.providers.music.elevenlabs"
+LOGGER_NAME = "bayram.providers.music.elevenlabs"
 IDEMPOTENCY_KEY = "order-123-compose-1"
 
 

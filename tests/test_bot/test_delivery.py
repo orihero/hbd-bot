@@ -11,8 +11,8 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.methods import SendMessage, TelegramMethod
 
-from hbd.bot.callbacks import NavAction, NavCB
-from hbd.bot.delivery import (
+from bayram.bot.callbacks import NavAction, NavCB
+from bayram.bot.delivery import (
     BLOCKED_BY_CUSTOMER_KEY,
     MAX_CAPTION_CHARS,
     MAX_MESSAGE_CHARS,
@@ -21,12 +21,12 @@ from hbd.bot.delivery import (
     deliver_kit,
     order_reference,
 )
-from hbd.bot.i18n import escape_html, translate
-from hbd.contracts import AssetKind, Err, Kit, Language, LyricSection, Ok
-from hbd.errors import ErrorCode
-from hbd.pipeline.events import PipelineStage
-from hbd.pipeline.outcome import PipelineGap
-from hbd.watermark import WATERMARK_HANDLE
+from bayram.bot.i18n import escape_html, translate
+from bayram.contracts import AssetKind, Err, Kit, Language, LyricSection, Ok
+from bayram.errors import ErrorCode
+from bayram.pipeline.events import PipelineStage
+from bayram.pipeline.outcome import PipelineGap
+from bayram.watermark import WATERMARK_HANDLE
 from tests.conftest import UZBEK_NAME_CANONICAL, make_asset, make_lyrics
 from tests.test_bot.conftest import CHAT_ID, RecordingSession, buttons
 
@@ -38,7 +38,7 @@ async def deliver(bot: Bot, kit: Kit, **overrides: object) -> object:
 def watermark(key: str, language: Language = Language.EN) -> str:
     """The rendered watermark line, read the way delivery reads it.
 
-    Asserted against instead of a raw ``"@hbduzbot"`` literal so that rewording
+    Asserted against instead of a raw ``"@bayram_uzbot"`` literal so that rewording
     ``watermark.song`` in a catalogue moves the test with the copy, and so a locale that
     silently lost the key fails here rather than shipping an unmarked song.
     """

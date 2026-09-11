@@ -2,7 +2,7 @@
 
 The debit is taken once, at ``AUTHORIZING``, by ``CreditGatedPaymentProvider``. Closing it
 is a separate decision made much later and by a different module, because only
-``hbd.runtime.jobs`` can see whether the kit actually reached the customer. That decision
+``bayram.runtime.jobs`` can see whether the kit actually reached the customer. That decision
 has an exploit on either side of it, which is why it gets a module of its own rather than a
 couple of extra assertions in ``test_jobs``:
 
@@ -31,12 +31,12 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from arq.worker import Retry
 
-from hbd.bot.i18n import translate
-from hbd.contracts import Kit, Ok, Order, Result, err, ok
-from hbd.entitlements import SettlementOutcome
-from hbd.errors import PipelineError, ProviderTimeoutError, StorageError
-from hbd.payments import PIPELINE_ACTOR
-from hbd.runtime.jobs import generate_and_deliver
+from bayram.bot.i18n import translate
+from bayram.contracts import Kit, Ok, Order, Result, err, ok
+from bayram.entitlements import SettlementOutcome
+from bayram.errors import PipelineError, ProviderTimeoutError, StorageError
+from bayram.payments import PIPELINE_ACTOR
+from bayram.runtime.jobs import generate_and_deliver
 from tests.test_bot.conftest import CHAT_ID, RecordingSession
 from tests.test_runtime.conftest import RecordingEntitlementStore
 
@@ -411,7 +411,7 @@ async def test_a_ledger_that_raises_on_the_failure_path_still_says_why(
 
     ``_run_pipeline`` settles first on purpose (jobs.py:280-282) so that "you have not lost
     anything" is already true when the customer reads it rather than eventually true. That
-    ordering is only safe because :func:`hbd.runtime.jobs._settle` swallows everything, and
+    ordering is only safe because :func:`bayram.runtime.jobs._settle` swallows everything, and
     this is the test that holds it to that. The delivered-path test above cannot: there
     settlement runs *after* the send, so a raise costs the customer nothing they have not
     already received, and the branch that actually matters would stay unproven.

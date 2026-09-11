@@ -5,7 +5,7 @@
  *    verb has to change, or an operator reads "chain holds" about 10,000 rows out of a
  *    million as if it were about the million.
  * 2. `chainProtection` is rendered VERBATIM. `"hmac-only"` is what the server reports when
- *    `HBD_ADMIN_AUDIT_DSN` is empty and the migration therefore skipped the `REVOKE` — a
+ *    `BAYRAM_ADMIN_AUDIT_DSN` is empty and the migration therefore skipped the `REVOKE` — a
  *    control that is not deployed is reported as not deployed, not humanised into a phrase
  *    that could be either.
  */

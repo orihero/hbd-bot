@@ -32,21 +32,21 @@ import httpx
 import pytest
 import sqlalchemy as sa
 
-from hbd.checkout import PaymentIntent, Product
-from hbd.contracts import is_ok
-from hbd.db.base import utc_now
-from hbd.db.enums import CreditEntryKind, PaymentIntentState, PaymeState
-from hbd.db.models import CreditLedgerRow
-from hbd.db.models.payme_rpc_log import PaymeRpcLogRow
-from hbd.db.models.payme_transaction import PaymeTransactionRow
-from hbd.db.models.payment_intent import PaymentIntentRow
-from hbd.db.models.topup_purchase import TopupPurchaseRow
-from hbd.errors import StorageError
-from hbd.payme.app import PAYME_PATH, create_app
-from hbd.payme.container import PaymeContainer, SqlRpcJournal, build_payme_container
-from hbd.payme.protocol import CancelReason, PaymeErrorCode, to_ms
-from hbd.payme.service import PaymeService
-from hbd.payme.settings import PAYME_ENV_FILE_VAR, PaymeSettings, build_payme_settings
+from bayram.checkout import PaymentIntent, Product
+from bayram.contracts import is_ok
+from bayram.db.base import utc_now
+from bayram.db.enums import CreditEntryKind, PaymentIntentState, PaymeState
+from bayram.db.models import CreditLedgerRow
+from bayram.db.models.payme_rpc_log import PaymeRpcLogRow
+from bayram.db.models.payme_transaction import PaymeTransactionRow
+from bayram.db.models.payment_intent import PaymentIntentRow
+from bayram.db.models.topup_purchase import TopupPurchaseRow
+from bayram.errors import StorageError
+from bayram.payme.app import PAYME_PATH, create_app
+from bayram.payme.container import PaymeContainer, SqlRpcJournal, build_payme_container
+from bayram.payme.protocol import CancelReason, PaymeErrorCode, to_ms
+from bayram.payme.service import PaymeService
+from bayram.payme.settings import PAYME_ENV_FILE_VAR, PaymeSettings, build_payme_settings
 from tests.test_payme.test_http import _basic
 
 _MEMORY_URL: Final[str] = "sqlite+aiosqlite:///:memory:"
@@ -524,7 +524,7 @@ async def test_a_failure_in_the_sale_write_leaves_no_receipt_and_no_flipped_tran
         "CreateTransaction",
         {"id": identifier, "time": now_ms(), "amount": _PRICE, "account": account(intent)},
     )
-    monkeypatch.setattr("hbd.db.payme.write_single_sale", _boom)
+    monkeypatch.setattr("bayram.db.payme.write_single_sale", _boom)
 
     # Act
     body = await call(client, "PerformTransaction", {"id": identifier})
@@ -553,7 +553,7 @@ async def test_a_recovered_perform_after_a_failure_still_settles_exactly_once(
         "CreateTransaction",
         {"id": identifier, "time": now_ms(), "amount": _PRICE, "account": account(intent)},
     )
-    monkeypatch.setattr("hbd.db.payme.write_single_sale", _boom)
+    monkeypatch.setattr("bayram.db.payme.write_single_sale", _boom)
     await call(client, "PerformTransaction", {"id": identifier})
     monkeypatch.undo()
 

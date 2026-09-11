@@ -13,7 +13,7 @@ Two properties are asserted throughout, and the second is the one that is easy t
 * a **refused** request still writes its row. Refusals raise, and the request transaction
   rolls back on an exception, so a failure row written inside it would vanish along with the
   failure. Those rows go through their own committed transaction — see
-  ``hbd.admin.audit_sink``.
+  ``bayram.admin.audit_sink``.
 """
 
 from __future__ import annotations
@@ -22,10 +22,16 @@ import httpx
 import pytest
 import sqlalchemy as sa
 
-from hbd.admin.container import AdminContainer
-from hbd.db.enums import AdminRole, AuditAction
-from hbd.db.models.admin_audit import AdminAuditRow, AuditOutcome
+from bayram.admin.container import AdminContainer
+from bayram.admin.routers.billing import (
+    INTENT_NOTIFY_PATH,
+    RAIL_PAUSE_PATH,
+    RAIL_RESUME_PATH,
+)
+from bayram.db.enums import AdminRole, AuditAction, AuditReasonCode
+from bayram.db.models.admin_audit import AdminAuditRow, AuditOutcome
 from tests.test_admin.conftest import (
+    NOW,
     ORIGIN,
     PASSWORD,
     USERNAME,
@@ -33,6 +39,7 @@ from tests.test_admin.conftest import (
     csrf_headers,
     sign_in,
 )
+from tests.test_db.rail_helpers import add, make_intent, make_topup_receipt, settle
 
 
 async def _rows(container: AdminContainer) -> list[AdminAuditRow]:
@@ -261,7 +268,7 @@ async def test_the_chain_still_verifies_after_a_login_password_change_and_logout
 ) -> None:
     # Arrange — the sequence §12.6 names, written through the real routes rather than by a
     # test helper, because a second writer that skipped the HMAC is the failure mode.
-    from hbd.db.admin.audit import verify_chain
+    from bayram.db.admin.audit import verify_chain
 
     await create_account(container)
     await sign_in(client)
@@ -303,3 +310,86 @@ async def test_a_credential_shaped_username_does_not_take_the_login_route_down(
 
     # Assert — the sign-in is refused the way every sign-in is refused, not with a 500.
     assert response.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# The payment rail's two writers — §12.6 for a surface that is not authentication
+# ---------------------------------------------------------------------------
+async def test_flipping_the_rail_switch_is_audited_against_the_configuration(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """A Redis key with no history at all, made accountable by the one table that has some.
+
+    The switch itself records nothing — ``bayram.payme.pause`` writes a bare key with no TTL and
+    no trace of who set it — so this row is the ONLY durable answer to "who paused the rail, and
+    why". That is also why pause and resume are two paths rather than one body with a boolean:
+    a ``{"isPaused": false}`` would be a resume audited as a pause, and there is nothing else
+    anywhere that could contradict it.
+
+    ``subject_type`` is ``"config"`` from the closed vocabulary rather than a member of its own:
+    the switch IS configuration, and there is exactly one per deployment, so "every time anybody
+    touched it" stays an indexed equality on ``(subject_type, subject_id)``.
+    """
+    # Arrange
+    await create_account(container, role=AdminRole.ADMIN)
+    assert (await sign_in(client)).status_code == 200
+
+    # Act — pause, then resume, so the ORDER is asserted as well as the rows.
+    for path in (RAIL_PAUSE_PATH, RAIL_RESUME_PATH):
+        response = await client.post(
+            path,
+            json={"reasonCode": AuditReasonCode.INCIDENT.value, "reasonRef": "INC-441"},
+            headers=csrf_headers(client),
+        )
+        assert response.status_code == 200, path
+
+    # Assert
+    rows = [row for row in await _rows(container) if row.action is not AuditAction.LOGIN_SUCCESS]
+    assert [row.action for row in rows] == [AuditAction.RAIL_PAUSED, AuditAction.RAIL_RESUMED]
+    for row in rows:
+        assert row.outcome is AuditOutcome.OK
+        assert row.subject_type == "config"
+        assert row.subject_id == "payme_rail"
+        assert row.actor_id is not None
+        assert row.reason_ref == "INC-441"
+        # No ``field_names``: the vocabulary names DATABASE columns and what moved is a Redis
+        # key no column corresponds to. Naming one would be a shape the log cannot honour.
+        assert row.field_names is None
+
+
+async def test_re_sending_a_confirmation_is_audited_against_the_payment(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """And the ``subject_id`` is asserted as STORED rather than as passed.
+
+    ``db/admin/audit.py::_CREDENTIAL_SHAPES`` refuses any unbroken 40-character
+    ``[A-Za-z0-9_-]`` run and any 64 hex characters, and ``audit_sink._append`` answers a
+    refusal by logging at ERROR and rewriting the row with ``subject_id=None`` — so an action
+    can succeed while its audit trail quietly stops naming what it was about. A dashed 36-char
+    UUID is neither shape; the 24-hex ``public_ref`` is the value that would have been closer to
+    the line, and the intent's ``idempotency_key`` is not a candidate at all because it contains
+    the customer's Telegram id.
+    """
+    # Arrange — one settled payment nobody has announced, which is the population served.
+    intent = settle(make_intent(now=NOW), at=NOW)
+    await add(container.session_factory, intent, make_topup_receipt(intent, at=NOW))
+    await create_account(container, role=AdminRole.SUPPORT)
+    assert (await sign_in(client)).status_code == 200
+
+    # Act
+    response = await client.post(
+        INTENT_NOTIFY_PATH.format(intent_id=intent.id),
+        json={"reasonCode": AuditReasonCode.CUSTOMER_REQUEST.value},
+        headers=csrf_headers(client),
+    )
+
+    # Assert
+    assert response.status_code == 200
+    [row] = [
+        entry for entry in await _rows(container) if entry.action is AuditAction.PAYMENT_NOTIFY
+    ]
+    assert row.subject_type == "payment"
+    assert row.subject_id is not None
+    assert row.subject_id == str(intent.id)
+    assert row.record_count == 1
+    assert row.outcome is AuditOutcome.OK

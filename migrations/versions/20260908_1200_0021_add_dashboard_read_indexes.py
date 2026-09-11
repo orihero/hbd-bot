@@ -46,7 +46,7 @@ active tail instead of a scan of every account that ever said hello.
 ``last_seen_at`` from the inbound Telegram path, so this is an index on the hottest-written
 column in the schema, and on Postgres an UPDATE that moves an indexed column loses
 HOT-update eligibility: each touch now also writes a b-tree entry and leaves a dead one. What
-makes it affordable already exists in the tree — ``TouchDrain`` (``src/hbd/bot/gate.py``)
+makes it affordable already exists in the tree — ``TouchDrain`` (``src/bayram/bot/gate.py``)
 coalesces to ONE upsert per account per MINUTE, because "a minute is the resolution
 ``last_seen_at`` is actually read at" — so the index takes at most one entry per active
 account per minute, against a polled dashboard query it saves a full scan on. If that

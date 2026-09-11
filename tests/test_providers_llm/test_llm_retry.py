@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from hbd.contracts import Err, LlmRequest, Ok, Result, err, ok
-from hbd.errors import ProviderRateLimitedError, ProviderRejectedContentError
-from hbd.providers.llm.retry import generate_with_retry
+from bayram.contracts import Err, LlmRequest, Ok, Result, err, ok
+from bayram.errors import ProviderRateLimitedError, ProviderRejectedContentError
+from bayram.providers.llm.retry import generate_with_retry
 from tests.test_providers_llm.conftest import StubLlmProvider
 
 REQUEST = LlmRequest(system_prompt="write json", user_prompt="go")

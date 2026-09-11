@@ -25,17 +25,17 @@ from typing import Any
 import pytest
 import sqlalchemy as sa
 
-from hbd.config import Settings
-from hbd.contracts import AssetKind, OrderState, Result, err
-from hbd.db.admin import retention as retention_queries
-from hbd.db.enums import PurgeTrigger
-from hbd.db.models import AssetRow
-from hbd.db.models.purge_run import PurgeRunRow
-from hbd.db.purge import DEFAULT_PURGE_BATCH_SIZE, PurgeReport
-from hbd.errors import StorageError
-from hbd.runtime.container import ARCHIVE_DIRNAME, AppContainer, build_container
-from hbd.runtime.jobs import build_kit_worker_settings
-from hbd.runtime.retention_job import (
+from bayram.config import Settings
+from bayram.contracts import AssetKind, OrderState, Result, err
+from bayram.db.admin import retention as retention_queries
+from bayram.db.enums import PurgeTrigger
+from bayram.db.models import AssetRow
+from bayram.db.models.purge_run import PurgeRunRow
+from bayram.db.purge import DEFAULT_PURGE_BATCH_SIZE, PurgeReport
+from bayram.errors import StorageError
+from bayram.runtime.container import ARCHIVE_DIRNAME, AppContainer, build_container
+from bayram.runtime.jobs import build_kit_worker_settings
+from bayram.runtime.retention_job import (
     RETENTION_CRON_MINUTE,
     RETENTION_JOB_NAME,
     run_retention_sweep,
@@ -256,7 +256,7 @@ async def test_a_storage_delete_that_fails_is_counted_logged_and_left_visible(
         failing = replace(container, storage=refusing)
 
         # Act
-        with caplog.at_level(logging.ERROR, logger="hbd.runtime.retention_job"):
+        with caplog.at_level(logging.ERROR, logger="bayram.runtime.retention_job"):
             summary = await run_retention_sweep({"container": failing}, now=later)
 
         # Assert — the attempt happened, the failure was counted, and it was said out loud.
@@ -292,7 +292,7 @@ async def test_a_purge_that_returns_err_still_writes_a_row_carrying_the_error_co
         async def _explode(*args: Any, **kwargs: Any) -> Result[PurgeReport]:
             return err(StorageError("the database went away"))
 
-        monkeypatch.setattr("hbd.runtime.retention_job.purge_expired", _explode)
+        monkeypatch.setattr("bayram.runtime.retention_job.purge_expired", _explode)
 
         # Act
         summary = await run_retention_sweep({"container": container}, now=datetime.now(UTC))
@@ -318,10 +318,10 @@ async def test_a_record_that_cannot_be_written_is_logged_rather_than_swallowed(
         async def _refuse(*args: Any, **kwargs: Any) -> None:
             raise RuntimeError("the record table is unreachable")
 
-        monkeypatch.setattr("hbd.runtime.retention_job.retention_queries.record_run", _refuse)
+        monkeypatch.setattr("bayram.runtime.retention_job.retention_queries.record_run", _refuse)
 
         # Act
-        with caplog.at_level(logging.ERROR, logger="hbd.runtime.retention_job"):
+        with caplog.at_level(logging.ERROR, logger="bayram.runtime.retention_job"):
             summary = await run_retention_sweep({"container": container}, now=datetime.now(UTC))
 
         # Assert — the job still reports what it did, and the loss is said out loud.
@@ -384,7 +384,7 @@ async def test_an_unrecognised_trigger_is_recorded_as_cron_rather_than_skipping_
     container = await _container(tmp_path)
     try:
         # Act
-        with caplog.at_level(logging.WARNING, logger="hbd.runtime.retention_job"):
+        with caplog.at_level(logging.WARNING, logger="bayram.runtime.retention_job"):
             await run_retention_sweep(
                 {"container": container},
                 trigger="whatever",  # type: ignore[arg-type]

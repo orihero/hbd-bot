@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.i18n.orthography import (
+from bayram.i18n.orthography import (
     FORBIDDEN_UZ_LATN_CHARS,
     UZ_LATN_MODIFIER_APOSTROPHE,
     UZ_LATN_TURNED_COMMA,

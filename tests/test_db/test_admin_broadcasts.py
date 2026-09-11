@@ -15,9 +15,9 @@ none of them raises anything:
   worker's rollup writes and ``broadcast_recipients`` carries the truth. The detail must
   recount the rows, so the two are seeded to DISAGREE here: a stale rollup is the one state
   where a bar drawn from the parent row lies to an operator watching a send.
-* **A state that vanishes from the bar.** Every :class:`~hbd.contracts.BroadcastRecipientState`
+* **A state that vanishes from the bar.** Every :class:`~bayram.contracts.BroadcastRecipientState`
   is seeded once and the total is compared against ``len(...)``, so adding a member to the
-  enum without teaching :class:`~hbd.db.admin.views.BroadcastProgress` about it fails here
+  enum without teaching :class:`~bayram.db.admin.views.BroadcastProgress` about it fails here
   rather than rounding a possibly-delivered message away in production.
 
 Rows are written through the ORM with every clock stated, following ``test_admin_queries.py``
@@ -34,26 +34,26 @@ from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import (
+from bayram.contracts import (
     BroadcastKind,
     BroadcastRecipientState,
     BroadcastState,
     Language,
     is_ok,
 )
-from hbd.db.admin import broadcasts
-from hbd.db.admin.page import PageRequest, page_request
-from hbd.db.admin.sql import TimeWindow
-from hbd.db.enums import AuditReasonCode
-from hbd.db.models.broadcast import BroadcastRow
-from hbd.db.models.broadcast_body import BroadcastBodyRow
-from hbd.db.models.broadcast_recipient import BroadcastRecipientRow
+from bayram.db.admin import broadcasts
+from bayram.db.admin.page import PageRequest, page_request
+from bayram.db.admin.sql import TimeWindow
+from bayram.db.enums import AuditReasonCode
+from bayram.db.models.broadcast import BroadcastRow
+from bayram.db.models.broadcast_body import BroadcastBodyRow
+from bayram.db.models.broadcast_recipient import BroadcastRecipientRow
 
 _DAY_ONE: Final[datetime] = datetime(2026, 9, 1, 9, 0, tzinfo=UTC)
 _DAY_TWO: Final[datetime] = datetime(2026, 9, 2, 9, 0, tzinfo=UTC)
 _DAY_THREE: Final[datetime] = datetime(2026, 9, 3, 9, 0, tzinfo=UTC)
 #: The document a campaign was composed against, stored verbatim on the row. Its shape is
-#: ``hbd.admin.schemas.segment``'s business; this layer only has to hand it back unchanged.
+#: ``bayram.admin.schemas.segment``'s business; this layer only has to hand it back unchanged.
 _SEGMENT: Final[dict[str, Any]] = {
     "root": {"match": "all", "rules": [{"field": "is_reachable", "op": "is_true"}]},
     "sort": {"key": "joined_at", "direction": "desc"},

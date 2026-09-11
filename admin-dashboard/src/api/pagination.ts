@@ -1,7 +1,7 @@
 /**
  * Keyset pagination, and the query-string rules every filtered list on this API obeys.
  *
- * **There is no page number and there is no offset.** `hbd.db.admin.page` walks
+ * **There is no page number and there is no offset.** `bayram.db.admin.page` walks
  * `(created_at, id)` and hands back an opaque cursor; a caller that invented `?page=3` would
  * get a 422 for an unknown parameter's sake at best, and at worst a stable-looking URL that
  * means something different every time a row is written. So the only way forward is
@@ -22,13 +22,13 @@
 
 import { z } from "zod";
 
-/** `hbd.db.admin.page.MIN_PAGE_LIMIT` / `MAX_PAGE_LIMIT` / `DEFAULT_PAGE_LIMIT`. */
+/** `bayram.db.admin.page.MIN_PAGE_LIMIT` / `MAX_PAGE_LIMIT` / `DEFAULT_PAGE_LIMIT`. */
 export const MIN_PAGE_LIMIT = 1;
 export const MAX_PAGE_LIMIT = 200;
 export const DEFAULT_PAGE_LIMIT = 50;
 
 /**
- * `hbd.db.admin.page.TOTAL_COUNT_CAP`. A `total` equal to this with `isTotalExact: false` is
+ * `bayram.db.admin.page.TOTAL_COUNT_CAP`. A `total` equal to this with `isTotalExact: false` is
  * "at least this many", and the two are the only honest way to say so.
  */
 export const TOTAL_COUNT_CAP = 10_000;

@@ -10,7 +10,7 @@ Checklist before merging a migration (SoW DAT-4, DAT-5):
   cannot deploy on a Friday.
 * No column named for a recipient's birth year, in any form. ``tests/test_db`` fails the
   build if one appears.
-* Any new personal-data column gets a retention clock and a branch in ``hbd.db.purge``.
+* Any new personal-data column gets a retention clock and a branch in ``bayram.db.purge``.
 """
 
 from __future__ import annotations

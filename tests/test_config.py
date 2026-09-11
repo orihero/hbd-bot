@@ -16,7 +16,7 @@ from typing import Final
 
 import pytest
 
-from hbd.config import (
+from bayram.config import (
     ENV_PREFIX,
     REQUIRED_VENDOR_SECRET_FIELDS,
     VENDOR_SECRET_FIELDS,
@@ -24,7 +24,7 @@ from hbd.config import (
     build_settings,
     load_settings,
 )
-from hbd.errors import ConfigError
+from bayram.errors import ConfigError
 
 _DATABASE_URL: Final[str] = "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
 
@@ -65,7 +65,7 @@ def test_load_settings_still_requires_them(tmp_path: Path, monkeypatch: pytest.M
     # Arrange — ``env_file=".env"`` is resolved relative to the working directory, so the
     # developer's own .env would otherwise supply exactly what this asserts is absent.
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("HBD_DATABASE_URL", _DATABASE_URL)
+    monkeypatch.setenv("BAYRAM_DATABASE_URL", _DATABASE_URL)
 
     # Act / Assert — the bot's and the worker's boot path is unchanged by the refactor.
     with pytest.raises(ConfigError, match="TELEGRAM_BOT_TOKEN"):
@@ -99,7 +99,7 @@ def test_an_empty_vendor_key_is_refused_as_loudly_as_a_missing_one() -> None:
 # ---------------------------------------------------------------------------
 def test_an_override_wins_over_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     # Arrange
-    monkeypatch.setenv("HBD_SONG_LENGTH_MS", "60000")
+    monkeypatch.setenv("BAYRAM_SONG_LENGTH_MS", "60000")
 
     # Act — this is how the config overlay validates a candidate change.
     settings = build_settings(_overrides(song_length_ms=120_000), require_vendor_secrets=False)

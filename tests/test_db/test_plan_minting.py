@@ -1,7 +1,7 @@
 """Spending a plan: one song per charge, minted lazily, and never once clawed back.
 
 The plan ledger's whole safety argument is that nothing is granted up front. Buying the
-starter plan writes ONE row and no credits; ``hbd.db.credits.charge`` takes a single song
+starter plan writes ONE row and no credits; ``bayram.db.credits.charge`` takes a single song
 out of that row, inside its own transaction, at the moment the render is paid for. What that
 buys is stated as tests rather than as prose:
 
@@ -35,13 +35,13 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import is_err, is_ok
-from hbd.db.credit_sql import read_balance, verify_balances
-from hbd.db.credits import SqlCreditLedger
-from hbd.db.enums import CreditEntryKind, CreditReason, PlanKind
-from hbd.db.models import CreditLedgerRow, PlanPurchaseRow
-from hbd.entitlements import ChargeOutcome, EntitlementPolicy, SettlementOutcome
-from hbd.errors import ErrorCode
+from bayram.contracts import is_err, is_ok
+from bayram.db.credit_sql import read_balance, verify_balances
+from bayram.db.credits import SqlCreditLedger
+from bayram.db.enums import CreditEntryKind, CreditReason, PlanKind
+from bayram.db.models import CreditLedgerRow, PlanPurchaseRow
+from bayram.entitlements import ChargeOutcome, EntitlementPolicy, SettlementOutcome
+from bayram.errors import ErrorCode
 from tests.test_db.conftest import MovableClock
 
 _USER: Final[int] = 8_912_345_678_901

@@ -1,4 +1,4 @@
-# HBD Admin Panel — Implementation Plan (final, post-review)
+# Bayram Admin Panel — Implementation Plan (final, post-review)
 
 > **Status.** This is the settled plan. It supersedes the pre-review draft. Every claim about
 > the existing codebase in this document was checked against the working tree at
@@ -9,14 +9,14 @@
 
 ## 1. What this is and why
 
-hbd-bot generates personalised birthday songs. Today it runs as two host processes — an aiogram bot
-(`python -m hbd.main`) and an ARQ worker (`python -m arq hbd.worker.WorkerSettings`) — against
+bayram-bot generates personalised birthday songs. Today it runs as two host processes — an aiogram bot
+(`python -m bayram.main`) and an ARQ worker (`python -m arq bayram.worker.WorkerSettings`) — against
 Postgres and Redis, with no HTTP surface of any kind. Operating it means `psql`, `redis-cli`, and
 reading JSON logs. There is no way to see why an order failed, no way to retry it, no way to read
-what a customer actually typed, no way to change `HBD_NAME_CANDIDATE_ORDER` without a redeploy, and
+what a customer actually typed, no way to change `BAYRAM_NAME_CANDIDATE_ORDER` without a redeploy, and
 no way to erase one person's data on request.
 
-This plan adds a third process: a FastAPI JSON API (`src/hbd/admin/`) and a React/Vite SPA served
+This plan adds a third process: a FastAPI JSON API (`src/bayram/admin/`) and a React/Vite SPA served
 from the same origin. It gives the team four powers — read everything, act on orders and users, edit
 runtime config without a redeploy, and moderate flagged content before generation — plus a chat log
 so a conversation can be read end to end.
@@ -49,7 +49,7 @@ These are settled. They are stated here as constraints on the work, not as optio
 
 | # | Decision |
 |---|---|
-| D1 | **Stack.** FastAPI JSON API as a new package in this repo (`src/hbd/admin/`) + a separate React/Vite SPA (Tailwind + shadcn/ui) in `admin-ui/`, built into `src/hbd/admin/static/` and served same-origin by the API. |
+| D1 | **Stack.** FastAPI JSON API as a new package in this repo (`src/bayram/admin/`) + a separate React/Vite SPA (Tailwind + shadcn/ui) in `admin-ui/`, built into `src/bayram/admin/static/` and served same-origin by the API. |
 | D2 | **Visuals.** Modern, vibrant, attention-grabbing dark-first operator console. Saturated accents, dense data, live-feeling motion. Explicitly not a generic CRUD skin. |
 | D3 | **Power 1 — read everything.** Users, orders, briefs, generation attempts, assets with inline audio playback, cost, latency, failure codes, name-verification outcomes. |
 | D4 | **Power 2 — operational actions.** Retry a failed order, re-enqueue a job, block/unblock a user, purge a user's personal data, force-deliver a kit. Requires an audit-log table. |
@@ -65,9 +65,9 @@ These are settled. They are stated here as constraints on the work, not as optio
 Repo constraints that bind every line of this plan (each verified against the working tree):
 
 - Python 3.12 only. `mypy --strict` over `src` **and** `tests`. ruff with `ASYNC` and `TRY` enabled,
-  line length 100. Coverage `fail_under = 80` over `src/hbd`, branch coverage.
+  line length 100. Coverage `fail_under = 80` over `src/bayram`, branch coverage.
 - Files under 800 lines (200–400 typical), functions under 50, immutable patterns, no silently
-  swallowed errors. Errors flow as `Result[T]` from `hbd.contracts`, never as exceptions across a
+  swallowed errors. Errors flow as `Result[T]` from `bayram.contracts`, never as exceptions across a
   boundary.
 - Tests run on SQLite in-memory (`container.py:_create_schema` → `Base.metadata.create_all`;
   `db/engine.py` `SQLITE_MEMORY_URL`); production is Postgres. No native DB enums (`enum_type(E)` →
@@ -78,7 +78,7 @@ Repo constraints that bind every line of this plan (each verified against the wo
   `sa.BigInteger().with_variant(sa.Integer, "sqlite")` — in the model *and* in the migration.
 - Alembic migrations are hand-written, `render_as_batch=True`, `batch_alter_table` throughout,
   `sa.DateTime(timezone=True)` in migration files (never `UtcDateTime`), constraint names from
-  `NAMING_CONVENTION` in `src/hbd/db/base.py:41-47`.
+  `NAMING_CONVENTION` in `src/bayram/db/base.py:41-47`.
 - `tests/test_db/test_privacy_constraints.py` scans live metadata **and every migration file** for
   year-shaped columns and fails the build. Nothing here adds one. Its
   `tables_with_personal_data` set is **hardcoded** (`:149`) and every new table holding customer text
@@ -88,7 +88,7 @@ Repo constraints that bind every line of this plan (each verified against the wo
   `Base.metadata` column-for-column (`:228-243`). **Every migration in this plan breaks these three
   tests unless the same commit updates the file.** §14 lists it as a Modified file in every phase
   that ships DDL.
-- Rule 15 (`src/hbd/db/__init__.py:3-6`): no `*Row` class is imported outside `hbd.db`. Admin queries
+- Rule 15 (`src/bayram/db/__init__.py:3-6`): no `*Row` class is imported outside `bayram.db`. Admin queries
   live inside the DB package and return frozen pydantic view models.
 - `ENUM_LENGTH = 32` (`db/base.py:52`) with a comment asserting "the longest is 17 characters". Two
   `AuditAction` values in this plan are longer than 17 (still well under 32). The comment is updated
@@ -102,10 +102,10 @@ Repo constraints that bind every line of this plan (each verified against the wo
 
 | Capability | Exists today | What we add |
 |---|---|---|
-| HTTP surface | Nothing. No fastapi/starlette/aiohttp in `pyproject.toml` | `src/hbd/admin/` FastAPI app; third process `make admin` on `127.0.0.1:8080` |
-| Admin settings | Nothing — every process calls `load_settings()`, which requires `HBD_TELEGRAM_BOT_TOKEN`, `HBD_ELEVENLABS_API_KEY` and `HBD_LLM_API_KEY` (`config.py:83`, `:90`, `:118`, all `Field(min_length=1)`) | `AdminSettings` in `src/hbd/admin/settings.py`: `database_url`, `redis_url`, `environment`, `log_level`, `is_debug` and the `HBD_ADMIN_*` block. **No vendor field exists on it**, so a missing key is not an error and a present key is not read |
+| HTTP surface | Nothing. No fastapi/starlette/aiohttp in `pyproject.toml` | `src/bayram/admin/` FastAPI app; third process `make admin` on `127.0.0.1:8080` |
+| Admin settings | Nothing — every process calls `load_settings()`, which requires `BAYRAM_TELEGRAM_BOT_TOKEN`, `BAYRAM_ELEVENLABS_API_KEY` and `BAYRAM_LLM_API_KEY` (`config.py:83`, `:90`, `:118`, all `Field(min_length=1)`) | `AdminSettings` in `src/bayram/admin/settings.py`: `database_url`, `redis_url`, `environment`, `log_level`, `is_debug` and the `BAYRAM_ADMIN_*` block. **No vendor field exists on it**, so a missing key is not an error and a present key is not read |
 | Admin auth | Nothing | `admin_users` + `admin_sessions`, argon2id, opaque server-side session cookie, 4 roles, action-scoped step-up re-auth |
-| Order read | `get_order`, `list_orders_for_user(limit≤100)` only. Both go through `to_order` → **raises `PipelineError` when `recipient_name_display IS NULL`** (`db/mapping.py:137-147`) | `hbd/db/admin/orders.py` querying `OrderRow` directly, modelling "identity purged" as a first-class state; filters by state/paid/date/correlation; keyset pagination |
+| Order read | `get_order`, `list_orders_for_user(limit≤100)` only. Both go through `to_order` → **raises `PipelineError` when `recipient_name_display IS NULL`** (`db/mapping.py:137-147`) | `bayram/db/admin/orders.py` querying `OrderRow` directly, modelling "identity purged" as a first-class state; filters by state/paid/date/correlation; keyset pagination |
 | User read/write | `UserRow` is written only by `_ensure_user`, which is called **only from `_create_order`** (`repository.py:130`), and **read by nothing**. `users.is_blocked` has no reader and no writer. `users.last_seen_at` is therefore "last order created", not "last seen" | Full user list/detail, block/unblock (plus the `BlockGateMiddleware` that makes blocking mean something), per-user data inventory, **and an inbound upsert so a user who never confirms an order still has a row to block and a truthful `last_seen_at`** |
 | Generation history | `generation_attempts` exists, but the only production writer is `_replace_verdicts` (`repository.py:345`), which deletes and re-inserts `kind='name_verification'` rows from `verdict_row_values` (`attempts.py:113-127`) with `provider=None` and no cost or latency. `GenerationAttemptRepository.record()` has **zero call sites in `src/`** | Wire `record()` into 4 pipeline sites and extend `NameVerdict` so verification cost/latency survives `_replace_verdicts` (Phase 5). Until then the UI shows an explicit "not instrumented" state, never `$0.00` |
 | Cost / latency | `cost_usd` is always `0.0`, `latency_ms` always `0`. LLM token spend is unaccounted anywhere. STT cost has no field at all | Persisted per-call cost/latency/provider (Phase 5) + dashboards gated on a `capabilities.costTelemetry` flag |
@@ -115,7 +115,7 @@ Repo constraints that bind every line of this plan (each verified against the wo
 | Chat / message log | **Nothing.** No message is stored anywhere | `chat_messages` + inbound outer middleware + outbound session middleware on **both** `Bot` instances |
 | Retention execution | `purge_expired` exists and is **called by nothing**. `WorkerSettings` registers one function and no `cron_jobs`. The retention job is not running | ARQ `cron_jobs` hourly entry + storage deletion + a `purge_runs` record + panel view. Two new sweeps for chat, one for audit reasons, one for audit rows |
 | `has_work_remaining` | `total_rows_affected > 0` (`purge.py:113-115`) — true whenever the sweep did *any* work, false the instant nothing was due. It does not mean what its docstring says | Compare each per-sweep count against `batch_size`; the panel drives its "run again" affordance from a server-side `rowsPastExpiry` count |
-| Per-user erasure | `/forget` clears the FSM draft only; its docstring says so explicitly, and it deliberately re-parks `Wizard.submitting` for an in-flight order because `privacy.forgotten` promises the queued song survives | `purge_user()` in `hbd/db/purge.py` with `exclude_order_ids`, executed by an ARQ job, wired to both `/forget` (scoped, in-flight-safe) and the panel |
+| Per-user erasure | `/forget` clears the FSM draft only; its docstring says so explicitly, and it deliberately re-parks `Wizard.submitting` for an in-flight order because `privacy.forgotten` promises the queued song survives | `purge_user()` in `bayram/db/purge.py` with `exclude_order_ids`, executed by an ARQ job, wired to both `/forget` (scoped, in-flight-safe) and the panel |
 | Runtime config | `Settings` is `frozen=True`; every consumer holds a direct reference. `get_settings()`'s `lru_cache` is dead code — the obstacle is pass-by-value | `SettingsHolder` indirection + `settings_overrides`/`settings_versions` in Postgres + Redis version pub/sub with a mandatory poll backstop |
 | Retention config | `resolve_retention_policy` reads six `retention_*` attributes **that do not exist on `Settings`**, so defaults always apply | Add all eight `retention_*` fields with bounds, **and fix `/privacy` to render from the resolved policy in the same PR** |
 | Moderation | Runs in the worker, after payment, after the lyric was already written. A rejection is a log line and an `Err`. Nothing records a flag | Pre-enqueue human gate only: `OrderState.HELD_FOR_REVIEW` + `moderation_reviews`, inserted between `submitter.submit`'s persist and its enqueue. **No in-pipeline soft-flag path** (§10.3) |
@@ -130,18 +130,18 @@ Repo constraints that bind every line of this plan (each verified against the wo
 ```mermaid
 graph TB
     subgraph browser["Operator's browser"]
-        SPA["React/Vite SPA<br/>admin-ui/ → src/hbd/admin/static/<br/>same origin, cookie auth"]
+        SPA["React/Vite SPA<br/>admin-ui/ → src/bayram/admin/static/<br/>same origin, cookie auth"]
     end
 
     subgraph host["Application host"]
-        BOT["hbd.main — Settings<br/>aiogram bot<br/>+ chat-log capture<br/>+ user upsert + block gate<br/>+ settings watcher"]
-        WORKER["arq hbd.worker.WorkerSettings — Settings<br/>generate_and_deliver<br/>+ purge cron (owns var/ RW)<br/>+ purge_user_data job<br/>+ notify_order_failed job<br/>+ chat-log capture (worker Bot)<br/>+ settings watcher"]
-        API["hbd.admin.app — AdminSettings<br/>FastAPI + uvicorn 127.0.0.1:8080<br/>no ProviderSet, no Bot, no vendor keys<br/>pool 5+5 · var/ mounted :ro<br/>+ settings watcher"]
+        BOT["bayram.main — Settings<br/>aiogram bot<br/>+ chat-log capture<br/>+ user upsert + block gate<br/>+ settings watcher"]
+        WORKER["arq bayram.worker.WorkerSettings — Settings<br/>generate_and_deliver<br/>+ purge cron (owns var/ RW)<br/>+ purge_user_data job<br/>+ notify_order_failed job<br/>+ chat-log capture (worker Bot)<br/>+ settings watcher"]
+        API["bayram.admin.app — AdminSettings<br/>FastAPI + uvicorn 127.0.0.1:8080<br/>no ProviderSet, no Bot, no vendor keys<br/>pool 5+5 · var/ mounted :ro<br/>+ settings watcher"]
     end
 
     subgraph data["Data"]
         PG[("Postgres<br/>app role: INSERT/SELECT on audit<br/>owner role: migrations + audit sweep<br/>orders, briefs, assets,<br/>generation_attempts, users, name_records,<br/>+ admin_users, admin_sessions,<br/>admin_audit_log, audit_chain_anchors,<br/>chat_messages, purge_runs, payments,<br/>moderation_reviews,<br/>settings_versions/_overrides")]
-        REDIS[("Redis<br/>FSM storage + isolation<br/>ARQ queue<br/>admin session mirror (TTL ≤ 60s)<br/>login throttle · reveal budget<br/>hbd:settings:version")]
+        REDIS[("Redis<br/>FSM storage + isolation<br/>ARQ queue<br/>admin session mirror (TTL ≤ 60s)<br/>login throttle · reveal budget<br/>bayram:settings:version")]
         FS[["var/workspace/&lt;order_id&gt;/<br/>var/archive/orders/&lt;order_id&gt;/<br/>RW for worker · :ro for API"]]
     end
 
@@ -161,7 +161,7 @@ graph TB
     API --> PG
     API --> REDIS
     API -.->|"read-only range stream via Storage.open_range"| FS
-    API -->|"INCR + PUBLISH hbd:settings:version"| REDIS
+    API -->|"INCR + PUBLISH bayram:settings:version"| REDIS
     REDIS -.->|"version bump + 30s poll backstop"| BOT
     REDIS -.->|"version bump + 30s poll backstop"| WORKER
 
@@ -179,7 +179,7 @@ third caller of that same function, with three changes.
 
 ### 4.2 `AdminSettings` — the fix that makes the security story true
 
-The draft asserted the admin process "boots without `HBD_ELEVENLABS_API_KEY`" because
+The draft asserted the admin process "boots without `BAYRAM_ELEVENLABS_API_KEY`" because
 `with_providers=False` means no adapters are constructed. **That was false.** `with_providers`
 governs `build_container`; `Settings` validation happens *before* `build_container` is ever called,
 and `telegram_bot_token`, `elevenlabs_api_key` and `llm_api_key` are all `Field(min_length=1)` with
@@ -191,22 +191,22 @@ opposite of the stated blast radius.
 The fix is a separate settings model, not a relaxation of the existing one:
 
 ```python
-# src/hbd/admin/settings.py
+# src/bayram/admin/settings.py
 class AdminSettings(BaseSettings):
     """Everything the admin process needs and nothing it must not hold.
 
-    There is no vendor field on this model, so a leaked HBD_ELEVENLABS_API_KEY in the
+    There is no vendor field on this model, so a leaked BAYRAM_ELEVENLABS_API_KEY in the
     admin host's environment is not merely unread — there is no code path that could read it.
     """
     model_config = SettingsConfigDict(
-        env_prefix="HBD_", env_file=".env.admin", extra="ignore", frozen=True,
+        env_prefix="BAYRAM_", env_file=".env.admin", extra="ignore", frozen=True,
     )
     database_url: str = Field(min_length=1)
     redis_url: str = Field(default="redis://localhost:6379/0")
     environment: str = Field(default="dev")
     log_level: Literal["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"] = "INFO"
     is_debug: bool = False
-    # -- HBD_ADMIN_* block (see §8.6) --------------------------------------
+    # -- BAYRAM_ADMIN_* block (see §8.6) --------------------------------------
     admin_enabled: bool = False
     admin_config_enabled: bool = True
     admin_bind_host: str = "127.0.0.1"
@@ -230,16 +230,16 @@ class AdminSettings(BaseSettings):
 
 - `.env.admin` is a **separate file** so a shared `.env` cannot leak vendor keys into the admin
   process by accident. `.env.example` gains a matching `.env.admin.example`.
-- **Boot assertion.** `hbd/admin/app.py`'s lifespan refuses to start when `environment == "prod"`
-  and any of `HBD_TELEGRAM_BOT_TOKEN`, `HBD_ELEVENLABS_API_KEY`, `HBD_LLM_API_KEY`,
-  `HBD_LLM_FALLBACK_API_KEY` is present in `os.environ`. In `dev`/`staging` it logs a WARNING
+- **Boot assertion.** `bayram/admin/app.py`'s lifespan refuses to start when `environment == "prod"`
+  and any of `BAYRAM_TELEGRAM_BOT_TOKEN`, `BAYRAM_ELEVENLABS_API_KEY`, `BAYRAM_LLM_API_KEY`,
+  `BAYRAM_LLM_FALLBACK_API_KEY` is present in `os.environ`. In `dev`/`staging` it logs a WARNING
   naming the variable, because a shared dev `.env` is normal and a hard failure would push people
   to weaken the check.
-- **Acceptance test.** `AdminSettings` constructs cleanly with `HBD_TELEGRAM_BOT_TOKEN` and
-  `HBD_ELEVENLABS_API_KEY` unset, and `hbd.admin.app.create_app()` boots under the same conditions.
+- **Acceptance test.** `AdminSettings` constructs cleanly with `BAYRAM_TELEGRAM_BOT_TOKEN` and
+  `BAYRAM_ELEVENLABS_API_KEY` unset, and `bayram.admin.app.create_app()` boots under the same conditions.
 
 `build_container` still takes a `Settings`. The admin process does not build a full container; it
-builds a **narrower** one, `build_admin_container(admin_settings)` in `src/hbd/admin/container.py`,
+builds a **narrower** one, `build_admin_container(admin_settings)` in `src/bayram/admin/container.py`,
 which creates only the engine, the session factory, the Redis client, a read-only
 `LocalFileStorage(archive)` and the repositories. It shares `create_engine`/`create_session_factory`
 with `runtime/container.py` so the pool and typing rules cannot drift, and it never touches
@@ -279,18 +279,18 @@ the song is still on disk with the row that pointed at it gone.
 ### 4.5 Two Postgres roles
 
 `docker-compose.yml` currently defines one role (`POSTGRES_USER: hbd`) and `migrations/env.py` reads
-`HBD_DATABASE_URL` through `hbd.config`, so migrations run as the application role — which is also
+`BAYRAM_DATABASE_URL` through `bayram.config`, so migrations run as the application role — which is also
 the table owner. Revoking privileges from a table's owner is reversible by that owner with one
 `GRANT`. Phase 1 therefore ships:
 
-- `HBD_DB_MIGRATION_URL` (owner role, used by `migrations/env.py` when set, falling back to
-  `HBD_DATABASE_URL` so nothing breaks for existing dev setups).
-- `HBD_ADMIN_AUDIT_DSN` on `AdminSettings` — unused today except as the flag that says the two-role
+- `BAYRAM_DB_MIGRATION_URL` (owner role, used by `migrations/env.py` when set, falling back to
+  `BAYRAM_DATABASE_URL` so nothing breaks for existing dev setups).
+- `BAYRAM_ADMIN_AUDIT_DSN` on `AdminSettings` — unused today except as the flag that says the two-role
   setup exists.
 - `docker-compose.yml` gains an init script creating `hbd_app` and granting it everything except
   `UPDATE, DELETE, TRUNCATE` on `admin_audit_log`.
 - A README "production shape" section stating the requirement.
-- **If `HBD_ADMIN_AUDIT_DSN` is empty, migration `0007` skips the `REVOKE` and logs a WARNING**, and
+- **If `BAYRAM_ADMIN_AUDIT_DSN` is empty, migration `0007` skips the `REVOKE` and logs a WARNING**, and
   `/audit/verify` reports `chainProtection: "hmac-only"` in its response. The panel shows that
   verbatim. A control that is not deployed is reported as not deployed, never implied.
 
@@ -303,7 +303,7 @@ Every operational action is an ARQ enqueue, never a direct Telegram send, which 
 
 **Ten new tables** (the draft said seven and then referenced three more it never defined —
 `purge_runs`, `audit_chain_anchors`, and the two settings tables were counted as one). All follow
-`src/hbd/db/base.py` without exception: `sa.Uuid` PKs, `UtcDateTime` for every instant, `enum_type(E)`
+`src/bayram/db/base.py` without exception: `sa.Uuid` PKs, `UtcDateTime` for every instant, `enum_type(E)`
 for every enum, constraint names from `NAMING_CONVENTION`. Append-only tables declare `created_at` by
 hand and do **not** use `TimestampMixin` (matching `AssetRow`, `GenerationAttemptRow`); mutable tables
 use it.
@@ -318,7 +318,7 @@ use it.
    `tables_with_personal_data` in `tests/test_db/test_privacy_constraints.py:149` in the same PR.**
    That set is hardcoded; a new table is silently exempt otherwise.
 
-### 5.1 New enums — `src/hbd/db/enums.py`
+### 5.1 New enums — `src/bayram/db/enums.py`
 
 ```python
 class AdminRole(StrEnum):        VIEWER="viewer"; SUPPORT="support"; OPERATOR="operator"; OWNER="owner"
@@ -352,16 +352,16 @@ Values were shortened where the draft's were long (`retention.run_triggered` →
 `user.purge.requested` → `user.purge.req`) so that **every value is ≤ 20 characters**, comfortably
 inside `ENUM_LENGTH = 32`. `db/base.py:52`'s comment is corrected from "the longest is 17 characters"
 to state the real maximum across all enums, and a new test iterates every `StrEnum` passed to
-`enum_type()` anywhere in `hbd.db` and asserts `max(len(m.value)) <= ENUM_LENGTH`. SQLite silently
+`enum_type()` anywhere in `bayram.db` and asserts `max(len(m.value)) <= ENUM_LENGTH`. SQLite silently
 accepts an over-length `VARCHAR` and Postgres errors; the test closes that divergence.
 
-`OrderState` in `src/hbd/contracts.py` gains one member: `HELD_FOR_REVIEW = "held_for_review"`
+`OrderState` in `src/bayram/contracts.py` gains one member: `HELD_FOR_REVIEW = "held_for_review"`
 (**15 characters**, not 16 as the draft claimed; the column is `VARCHAR(32)` either way — **no DDL
 change**). It is declared after `LYRICS_READY` and before `AUTHORIZED`, so `_PAID_STATES` and the
 `is_paid` latch (`repository.py:65-67`, `:184`) are untouched and the asset retention class is
 unaffected.
 
-### 5.2 `admin_users` — `src/hbd/db/models/admin_user.py`
+### 5.2 `admin_users` — `src/bayram/db/models/admin_user.py`
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -381,7 +381,7 @@ unaffected.
 No personal data (an operator is staff, not a customer), so no retention clock and not in
 `tables_with_personal_data`.
 
-### 5.3 `admin_sessions` — `src/hbd/db/models/admin_session.py`
+### 5.3 `admin_sessions` — `src/bayram/db/models/admin_session.py`
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -407,16 +407,16 @@ control designed to survive session theft would then be the one that does not sc
 `step_up_at` within the grace. `USER_PURGE_*`, `CONFIG_COMMIT` and `CONFIG_ROLLBACK` require a
 **fresh** step-up (grace treated as 0) regardless of any prior one.
 
-**Redis mirror and its invalidation.** `hbd:admin:session:<sha256>` caches **only the
+**Redis mirror and its invalidation.** `bayram:admin:session:<sha256>` caches **only the
 token → `admin_id` + `session_id` mapping**, TTL capped at 60 seconds regardless of session lifetime.
 `is_active`, `role` and `password_changed_at` are read from Postgres on **every** request — those
 three are exactly what makes revocation work, and caching them is what would make a revoked admin
 keep access. Every revoke, deactivate, role change and password change issues
-`DEL hbd:admin:session:<sha256>` for every affected session inside the same request. Postgres is the
+`DEL bayram:admin:session:<sha256>` for every affected session inside the same request. Postgres is the
 record of truth and the revoke list. Tests: revoke-then-request → 401; deactivate-then-request → 401;
 password-change-then-request-on-old-session → 401; each asserted **with the Redis mirror still warm**.
 
-### 5.4 `admin_audit_log` — `src/hbd/db/models/admin_audit.py`
+### 5.4 `admin_audit_log` — `src/bayram/db/models/admin_audit.py`
 
 Append-only. Never updated; deleted only by the 730-day sweep, and `reason_text` nulled by a 90-day
 sweep.
@@ -466,7 +466,7 @@ and the select is required.
 `admin_audit_log` **is** added to `tables_with_personal_data` — `reason_text` can hold a customer's
 name and the test must know that.
 
-### 5.5 `audit_chain_anchors` — `src/hbd/db/models/audit_anchor.py`
+### 5.5 `audit_chain_anchors` — `src/bayram/db/models/audit_anchor.py`
 
 Three rows a day at most; tiny. Exists so a swept prefix is not confused with tampering, and so the
 chain head is recorded somewhere `/audit/verify` can compare against.
@@ -484,7 +484,7 @@ Every anchor is **also emitted as a log line** (`audit chain anchor`, `extra={"s
 the chain head exists outside the database it protects. That log line is the minimum viable
 out-of-band copy and it is required, not optional.
 
-### 5.6 `purge_runs` — `src/hbd/db/models/purge_run.py`
+### 5.6 `purge_runs` — `src/bayram/db/models/purge_run.py`
 
 The draft required this table in three places and defined it in none. It exists so `/retention` is
 reading a record rather than scraping a log line, and so a sweep that silently does nothing is
@@ -512,7 +512,7 @@ visible.
 `purge_runs` rows are kept 365 days and swept by the same job (`_purge_purge_runs`). They hold no
 personal data — counts only.
 
-### 5.7 `chat_messages` — `src/hbd/db/models/chat_message.py`
+### 5.7 `chat_messages` — `src/bayram/db/models/chat_message.py`
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -570,7 +570,7 @@ Advance to 31; both are NULL. Advance to 91; the rows are gone.
 `chat_messages` is added to `tables_with_personal_data`, and a test asserts both clock columns are
 `NOT NULL` **with no server default**, so an insert that omits either fails.
 
-### 5.8 `payments` — `src/hbd/db/models/payment.py`
+### 5.8 `payments` — `src/bayram/db/models/payment.py`
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -583,7 +583,7 @@ Advance to 31; both are NULL. Advance to 91; the rows are gone.
 | `status` | `enum_type(PaymentStatus)` | NO | index |
 | `failure_code` | `String(48)` | YES | `ErrorCode` when `status='failed'` |
 | `call_site` | `String(16)` | NO | `"bot"` or `"pipeline"` |
-| `raw_payload` | `JSON` | YES | provider response, **passed through `hbd.logging.redact()`**; NULL for the no-op |
+| `raw_payload` | `JSON` | YES | provider response, **passed through `bayram.logging.redact()`**; NULL for the no-op |
 | `created_at` | `UtcDateTime` | NO | index; composite `ix_payments_order_id_created_at` |
 
 **No unique constraint on `order_id`.** Every order is authorised twice — bot
@@ -592,7 +592,7 @@ Advance to 31; both are NULL. Advance to 91; the rows are gone.
 which. That dual lifetime is also exactly why pricing is off the config allowlist until the
 `BotDeps` refactor lands (§8.4).
 
-### 5.9 `moderation_reviews` — `src/hbd/db/models/moderation_review.py`
+### 5.9 `moderation_reviews` — `src/bayram/db/models/moderation_review.py`
 
 | Column | Type | Null | Notes |
 |---|---|---|---|
@@ -652,7 +652,7 @@ governor for those. Not folded into `briefs` because `briefs` is subject to eras
 | Column | Type | Null | Notes |
 |---|---|---|---|
 | `id` | `sa.Uuid` | NO | PK |
-| `key` | `String(64)` | NO | UNIQUE; the `Settings` field name, lowercase, no `HBD_` prefix |
+| `key` | `String(64)` | NO | UNIQUE; the `Settings` field name, lowercase, no `BAYRAM_` prefix |
 | `value` | `JSON` | NO | `{"v": <json>}` wrapper — `sa.JSON` without `none_as_null=True` persists `None` as the text `'null'` (the exact trap at `db/models/brief.py:88-96`), and `false`/`0` must be distinguishable from "unset" |
 | `previous_value` | `JSON` | YES | same wrapper; powers per-key revert without touching the version table |
 | `version` | `Integer` | NO | the version that last wrote this key |
@@ -660,7 +660,7 @@ governor for those. Not folded into `briefs` because `briefs` is subject to eras
 | `note` | `String(256)` | NO | default `""` |
 | `created_at` / `updated_at` | `TimestampMixin` | NO | |
 
-**No `HBD_ADMIN_*` key can ever appear in `settings_overrides`**, structurally: those fields live on
+**No `BAYRAM_ADMIN_*` key can ever appear in `settings_overrides`**, structurally: those fields live on
 `AdminSettings`, not on `Settings`, and the override key space is `Settings.model_fields`. The
 watcher additionally rejects any key not in `LIVE_EDITABLE_FIELDS`. See §8.6.
 
@@ -718,7 +718,7 @@ whole.
 |---|---|---|---|
 | `0005` | `..._0005_add_admin_users_sessions_and_purge_runs.py` | `admin_users`, `admin_sessions`, `purge_runs` | 1 |
 | `0006` | `..._0006_add_credit_accounts_and_ledger.py` | `credit_accounts` (natural `telegram_user_id` PK, `balance >= 0` check) and the append-only `credit_ledger` + 5 indexes. **Not** the `payments` ledger below: `payments` records authorisation *calls* (two rows per order, §5.8), `credit_ledger` records entitlement *movement* (one net charge per order). Both decorate the same `PaymentProvider` seam and neither replaces the other | — (entitlements) |
-| `0007` | `..._0007_add_admin_audit_log.py` | `admin_audit_log` + 7 indexes, `audit_chain_anchors`, and — **guarded on `dialect.name == "postgresql"` AND a non-empty `HBD_ADMIN_AUDIT_DSN`** — the `REVOKE UPDATE, DELETE, TRUNCATE … FROM hbd_app` plus the `SECURITY DEFINER` function `hbd_purge_audit_log(cutoff timestamptz, lim int)` the sweep calls. The REVOKE and the function that works around it ship in **one** migration so neither can exist without the other | 1 |
+| `0007` | `..._0007_add_admin_audit_log.py` | `admin_audit_log` + 7 indexes, `audit_chain_anchors`, and — **guarded on `dialect.name == "postgresql"` AND a non-empty `BAYRAM_ADMIN_AUDIT_DSN`** — the `REVOKE UPDATE, DELETE, TRUNCATE … FROM hbd_app` plus the `SECURITY DEFINER` function `hbd_purge_audit_log(cutoff timestamptz, lim int)` the sweep calls. The REVOKE and the function that works around it ship in **one** migration so neither can exist without the other | 1 |
 | `0008` | `..._0008_add_admin_read_indexes.py` | The five read indexes on `orders` and `generation_attempts`. Docstring states it takes a brief table lock — milliseconds at current row counts | 1 |
 | `0009` | `..._0009_add_chat_messages.py` | `chat_messages` + 3 indexes | 3 |
 | `0010` | `..._0010_add_order_dispatch_columns.py` | `orders.chat_id`, `orders.progress_message_id` | 4 |
@@ -729,7 +729,7 @@ whole.
 Index names are hand-written where the convention would exceed Postgres's 63-char identifier limit —
 the repo already does this (`ix_generation_attempts_tuning`).
 
-**Every new model must be imported in `src/hbd/db/models/__init__.py:12-27`** or `Base.metadata` is
+**Every new model must be imported in `src/bayram/db/models/__init__.py:12-27`** or `Base.metadata` is
 incomplete and both the SQLite `create_all` branch and Alembic autogenerate silently miss it.
 
 **And every phase that ships DDL must update `tests/test_db/test_migrations.py` in the same commit.**
@@ -790,12 +790,12 @@ required, scoped to that action.
 
 The draft said it reuses "the existing closed `ErrorCode` taxonomy rather than inventing a second
 one". It cannot: `ErrorCode` (`errors.py:52-77`) has no member for 401, 403 / step-up-required, 409
-conflict, 415, 416 or CSRF rejection — and extending it is worse, because `HbdError` carries
+conflict, 415, 416 or CSRF rejection — and extending it is worse, because `BayramError` carries
 `user_message_key` and the bot renders customer-facing copy from it
 (`jobs.py:181 _tell_the_customer_why`), so an admin-only code would leak into a customer-facing
 taxonomy.
 
-**Decision: a disjoint `AdminErrorCode` StrEnum in `src/hbd/admin/errors.py`.** The envelope's `code`
+**Decision: a disjoint `AdminErrorCode` StrEnum in `src/bayram/admin/errors.py`.** The envelope's `code`
 carries the union.
 
 ```python
@@ -816,7 +816,7 @@ class AdminErrorCode(StrEnum):
 ```
 
 A test asserts `set(AdminErrorCode) & set(ErrorCode) == set()`, and a second asserts no
-`AdminErrorCode` value is ever passed to `hbd.bot.i18n.translate()` (the admin package does not import
+`AdminErrorCode` value is ever passed to `bayram.bot.i18n.translate()` (the admin package does not import
 it; the test enumerates imports to keep it that way).
 
 ```json
@@ -824,7 +824,7 @@ it; the test enumerates imports to keep it that way).
            "correlationId": "9f2c…", "details": {"scope": "user.purge"}}}
 ```
 
-One `unwrap(result)` helper raises a `ProblemException` carrying either an `HbdError` or an
+One `unwrap(result)` helper raises a `ProblemException` carrying either an `BayramError` or an
 `AdminProblem`; one exception handler renders the envelope. No route writes `try/except` — which is
 also what keeps ruff's `TRY` ruleset happy.
 
@@ -835,7 +835,7 @@ also what keeps ruff's `TRY` ruleset happy.
 `FORBIDDEN`/`STEP_UP_REQUIRED`/`CSRF_REJECTED`/`ORIGIN_REJECTED`→403 ·
 `UNSUPPORTED_MEDIA_TYPE`→415 · `RANGE_NOT_SATISFIABLE`→416 · everything else→500.
 
-Every rendered message passes through `hbd.logging.redact()` and is capped at 300 characters before
+Every rendered message passes through `bayram.logging.redact()` and is capped at 300 characters before
 it enters the body **or** the audit row — `_describe_failure` and `_candidates_must_be_unique`
 (`config.py`) interpolate the submitted value into the message, and `/config/validate` is the one
 endpoint whose entire purpose is accepting operator-supplied values.
@@ -938,7 +938,7 @@ draft's known plaintext, at any role.
 | POST | `/moderation/{id}/approve` | `{reasonCode, decisionNote?}` → restore state + enqueue | O +S |
 | POST | `/moderation/{id}/reject` | `{reasonCode, decisionNote}` → FAILED + notify job | O +S |
 | GET | `/config` | Every field: key, effective, envValue, override, tier, type, constraints, description. **Secrets — including `database_url` and `redis_url` — are absent, not masked**; a derived `databaseHost` is returned instead | V |
-| POST | `/config/validate` | Dry run of a change set; 422 with the offending `HBD_*` name | W |
+| POST | `/config/validate` | Dry run of a change set; 422 with the offending `BAYRAM_*` name | W |
 | POST | `/config/commit` | `{changes, reasonCode, …}` → new version, INCR + PUBLISH | W +S (fresh) |
 | GET | `/config/versions` | History | V |
 | POST | `/config/versions/{n}/rollback` | Insert a new version equal to `n` | W +S (fresh) |
@@ -972,8 +972,8 @@ the closing message, every progress edit and the terminal failure message.
 
 | Hook | File | Registered | Sees |
 |---|---|---|---|
-| `ChatLogInboundMiddleware` | `src/hbd/bot/chatlog_inbound.py` | `dispatcher.update.outer_middleware(...)` in `build_dispatcher` (`bot/app.py:116-125`), **after** aiogram's three built-ins | Every inbound `Update`, once, before any filter, with `state`, `raw_state`, `event_context` and `deps` already in `data` |
-| `ChatLogOutboundMiddleware` | `src/hbd/bot/chatlog_outbound.py` | `bot.session.middleware(...)` on the bot `Bot` (`main.py:101`) | Every outgoing Bot API call the bot makes, plus the returned `Message` |
+| `ChatLogInboundMiddleware` | `src/bayram/bot/chatlog_inbound.py` | `dispatcher.update.outer_middleware(...)` in `build_dispatcher` (`bot/app.py:116-125`), **after** aiogram's three built-ins | Every inbound `Update`, once, before any filter, with `state`, `raw_state`, `event_context` and `deps` already in `data` |
+| `ChatLogOutboundMiddleware` | `src/bayram/bot/chatlog_outbound.py` | `bot.session.middleware(...)` on the bot `Bot` (`main.py:101`) | Every outgoing Bot API call the bot makes, plus the returned `Message` |
 | same class | | `bot.session.middleware(...)` on the worker `Bot` (`worker.py:56`) | `send_audio`, `send_voice`, lyric-sheet chunks, closing message, failure message |
 
 The session request middleware is the only real outbound chokepoint: `message.answer()` and
@@ -1043,7 +1043,7 @@ only safe there: both text columns are nulled in one statement, so the `OR` pred
 forever, permanently filling the batch and permanently reporting work remaining. Test: run twice, the
 second run reports zero.
 
-Both sweeps are added to the existing single-transaction sweep list in `src/hbd/db/purge.py:145-153`,
+Both sweeps are added to the existing single-transaction sweep list in `src/bayram/db/purge.py:145-153`,
 each `LIMIT batch_size`. `PurgeReport` gains `chat_bodies_purged` and `chat_messages_deleted` (and,
 from Phase 1, `audit_reasons_purged`, `audit_rows_deleted`, `purge_runs_deleted`; from Phase 6,
 `moderation_details_purged`).
@@ -1064,7 +1064,7 @@ sweep, which is the number an operator actually wants.
    `handle_privacy` currently reads the module constant `DEFAULT_RETENTION_POLICY`
    (`commands.py:91`), not `resolve_retention_policy(deps.settings)`. Phase 3 changes its signature
    to take `deps: BotDeps` (`handle_support` next door already does) and renders every number from
-   the resolved policy. A test sets non-default `HBD_RETENTION_*` values and asserts every number in
+   the resolved policy. A test sets non-default `BAYRAM_RETENTION_*` values and asserts every number in
    the rendered text, in all four locales, equals the resolved policy.
 3. **`purge_user` wired to `/forget`, scoped for in-flight safety** (§9). `handle_forget` clears the
    FSM draft only, and its docstring says so.
@@ -1081,7 +1081,7 @@ the lock expires after 60 s — long enough for a hung write to break the double
 
 So: **the middleware never touches the database.** It builds a frozen `ChatLineDraft` (no I/O) and
 calls `recorder.offer(draft)` — a non-blocking `put_nowait` onto a bounded
-`asyncio.Queue(maxsize=2000)` in `src/hbd/bot/chatlog.py`. On `QueueFull` it drops the oldest,
+`asyncio.Queue(maxsize=2000)` in `src/bayram/bot/chatlog.py`. On `QueueFull` it drops the oldest,
 increments a counter, and logs WARNING once per 100 drops. **Dropping loudly is acceptable; blocking
 the bot is not; swallowing silently violates the repo's no-silent-swallow rule.** The drop counter is
 exposed on the authenticated branch of `/readyz`.
@@ -1115,7 +1115,7 @@ logger would otherwise fail silently and log every subsequent update inconsisten
 ### 8.1 The overlay
 
 `Settings` is `frozen=True` and every consumer holds a direct reference inside another frozen
-dataclass. The minimal honest fix is one level of indirection, in `src/hbd/runtime/overlay.py`:
+dataclass. The minimal honest fix is one level of indirection, in `src/bayram/runtime/overlay.py`:
 
 ```python
 class SettingsHolder:
@@ -1163,7 +1163,7 @@ through `self._settings` (the pipeline is built **per job**, `container.py:66-84
 handlers read through `deps.settings` (per update), and the per-attempt reads at
 `jobs.py:119/132/432`.
 
-`src/hbd/config.py` gains one function and `load_settings` delegates to it:
+`src/bayram/config.py` gains one function and `load_settings` delegates to it:
 
 ```python
 def build_settings(
@@ -1191,7 +1191,7 @@ remove a `Settings` field and its hand-maintained allowlist entry becomes a key 
 allowlist check, constructs cleanly, commits a version, publishes a bump — and does nothing. That is
 §8.4's worst failure mode reached through the front door. Two guards:
 
-- A **module-level** assertion in `src/hbd/admin/config/policy.py`:
+- A **module-level** assertion in `src/bayram/admin/config/policy.py`:
   `assert LIVE_EDITABLE_FIELDS <= set(Settings.model_fields)` — an import-time failure, not a test.
 - `build_settings` validates through a `model_config` copy with `extra="forbid"`, so an unknown key
   is a pydantic error naming the field rather than a silent drop.
@@ -1204,11 +1204,11 @@ variable "maps 1:1 to a field" — true today, incomplete after this.
 
 - Storage of record is **Postgres**, not Redis — it must survive a Redis flush; Redis here is
   `--appendonly yes` but is still the volatile tier.
-- Commit does `INCR hbd:settings:version` then `PUBLISH hbd:settings:changed <version>`. **The
+- Commit does `INCR bayram:settings:version` then `PUBLISH bayram:settings:changed <version>`. **The
   payload is the version integer only**, never the values; the channel is the wrong trust boundary
   and a pub/sub payload has no schema.
-- Each process runs `SettingsWatcher` (`src/hbd/runtime/watcher.py`): a subscriber for speed and **a
-  30 s `GET hbd:settings:version` poll as a required backstop, not an alternative.** Redis pub/sub is
+- Each process runs `SettingsWatcher` (`src/bayram/runtime/watcher.py`): a subscriber for speed and **a
+  30 s `GET bayram:settings:version` poll as a required backstop, not an alternative.** Redis pub/sub is
   fire-and-forget; a subscriber disconnected during the publish never learns. Pub/sub makes
   convergence fast; the poll makes it guaranteed.
 - On a bump: read the rows from Postgres, filter to the allowlist, `build_settings(...)`. **On
@@ -1226,7 +1226,7 @@ variable "maps 1:1 to a field" — true today, incomplete after this.
 
 ### 8.3 Live-editable allowlist
 
-`LIVE_EDITABLE_FIELDS: Final[frozenset[str]]` in `src/hbd/admin/config/policy.py`. It is an
+`LIVE_EDITABLE_FIELDS: Final[frozenset[str]]` in `src/bayram/admin/config/policy.py`. It is an
 **allowlist, not a denylist** — with a denylist, adding a field to `Settings` would silently make it
 editable. Enforced **twice**: the API refuses to write a key outside it, and the watcher ignores a
 row outside it, so a row inserted by hand cannot change a restart-only field behind an operator's
@@ -1330,7 +1330,7 @@ nothing. Silently-ignored edits are the failure mode that makes runtime config w
 2. `candidate = current | changes`; construct `build_settings(candidate, require_vendor_secrets=False)`
    with `extra="forbid"`. A `PydanticValidationError` goes through the existing `_describe_failure`,
    so the operator sees **the same words the process would have printed at boot**, naming every
-   offending `HBD_*` variable, as a 422 on the field — after `redact()` and a 300-char cap (§6.2).
+   offending `BAYRAM_*` variable, as a 422 on the field — after `redact()` and a 300-char cap (§6.2).
 3. Cross-field guards pydantic does not express (`admin/config/guards.py`):
    - every `*_timeout_s` strictly `< queue_job_timeout_s` (900), or a vendor timeout becomes a job
      cancellation at `jobs.py:364-377`;
@@ -1352,21 +1352,21 @@ nothing. Silently-ignored edits are the failure mode that makes runtime config w
 6. Rollback inserts a **new** version whose payload equals version *n*'s. History is append-only; a
    rollback is visible as a rollback. **Version 0 is "no overrides"** and is always valid by
    construction — one click returns every process to pure `.env`.
-7. **Kill switch:** `HBD_ADMIN_CONFIG_ENABLED=false` + restart makes the overlay loader a no-op. It
+7. **Kill switch:** `BAYRAM_ADMIN_CONFIG_ENABLED=false` + restart makes the overlay loader a no-op. It
    is read from `AdminSettings` — i.e. from the process environment — and never through the holder,
    so no override row can reach it. See §8.6.
 
-### 8.6 The `HBD_ADMIN_*` fields have no tier, because they are not on `Settings`
+### 8.6 The `BAYRAM_ADMIN_*` fields have no tier, because they are not on `Settings`
 
 The draft's own exhaustiveness test (`set(Settings.model_fields) == EDITABLE | READ_ONLY | SECRET`)
-forced a tier decision for every `HBD_ADMIN_*` field, and the draft never made one. If any had landed
+forced a tier decision for every `BAYRAM_ADMIN_*` field, and the draft never made one. If any had landed
 in EDITABLE, a stolen admin session could set `admin_public_origin` to an attacker origin and disable
 the CSRF `Origin` check outright, drop `admin_argon2_memory_kib` so every subsequently-set password is
 cheap to crack, extend session lifetimes indefinitely, or flip `admin_config_enabled` back on after it
 was used as the kill switch — which would make the kill switch database-controlled, i.e. not a kill
 switch.
 
-**This is closed structurally by D10.** Every `HBD_ADMIN_*` field lives on `AdminSettings`, not on
+**This is closed structurally by D10.** Every `BAYRAM_ADMIN_*` field lives on `AdminSettings`, not on
 `Settings`. The override key space is `Settings.model_fields`. There is no code path by which a
 `settings_overrides` row reaches an admin field, whatever anyone writes into the table by hand.
 
@@ -1395,7 +1395,7 @@ a no-op for as long as it is on, and leave an unclocked copy behind afterwards. 
 CSV" as the risk to watch for; this is the same risk with a bigger pipe and no record of what was
 emitted.
 
-Second, `log_level: str = Field(default="INFO")` has no validation, so `HBD_LOG_LEVEL=TRACE` passes
+Second, `log_level: str = Field(default="INFO")` has no validation, so `BAYRAM_LOG_LEVEL=TRACE` passes
 pydantic and then `root.setLevel("TRACE")` raises `ValueError` inside the watcher's refresh — outside
 the `ConfigError` contract §8.2 relies on.
 
@@ -1432,7 +1432,7 @@ every action below declares which it uses.
 A parametrised test asserts the expected row count per action on the success path **and** on the
 audit-failure path.
 
-All actions live in `src/hbd/admin/services/actions.py` behind one wrapper so the audit row cannot be
+All actions live in `src/bayram/admin/services/actions.py` behind one wrapper so the audit row cannot be
 forgotten:
 
 ```python
@@ -1451,7 +1451,7 @@ async def audited[T](
 | **Retry a failed order** | `DEL arq:result:generate_kit:<id>` (best-effort), then `enqueue_job("generate_and_deliver", str(id), chat_id, progress_message_id, _job_id=job_id_for(id))`. The names genuinely differ: function `generate_and_deliver` (`jobs.py:86`), job-id prefix `generate_kit:` (`pipeline/worker.py:47`) | Four existing layers inherited: `KitPipeline._replay` probes `get_kit` first and re-delivers for one DB read without re-buying a song; `idempotency_key(order_id, stage, …)` is deterministic; the workspace is deterministic per order with fixed filenames; `_replace_assets`/`_replace_verdicts` are delete-then-insert. **Trap:** ARQ refuses a `_job_id` present in the *result* store, and `queue_result_ttl_s = 3600` — re-enqueuing within an hour silently returns `None`. Hence the `DEL`, or a `:admin-<n>` suffix behind `?force=true` | `ORDER_RETRY`, INTENT+OUTCOME, `field_names=["state"]`, `reason_code` required | O |
 | **Re-enqueue a job** | Same call. Distinct intent: an order stuck in `GENERATING` whose job vanished (worker OOM, result expired mid-run). Refuses `DELIVERED` without `?force=true`, refuses `HELD_FOR_REVIEW` outright | As above | `ORDER_REENQUEUE`, INTENT+OUTCOME | O |
 | **Force-deliver a kit** | Same enqueue. **Precondition checked first: `get_kit(order_id)` must return `Ok`.** If it `Err`s (assets expired, run never completed), 409 `PRECONDITION_FAILED` explaining that this would trigger a full regeneration with real vendor spend, pointing at retry. Without this check, "force-deliver" silently becomes "spend money" | `_replay` makes it one DB read + re-delivery. `DeliveryLedger` dedupes within a process only (in-memory, LRU 1024) so a cross-process retry legitimately resends — the correct trade for "the first one never arrived" | `ORDER_FORCE_DELIVER`, INTENT+OUTCOME | O +S |
-| **Block / unblock a user** | `set_blocked` as an **upsert keyed on `telegram_user_id`**, not a bare UPDATE — see §5.11; a user with no `users` row (never confirmed an order) is exactly who an operator wants to block, and a rowcount-checked UPDATE fails for them. **Plus the other half:** `BlockGateMiddleware`, an outer middleware reading `is_blocked` (cached `SETEX hbd:blocked:<tg_id>` 60 s, invalidated by the action) that sends the localised `error.blocked` instead of calling the handler. It **fails open** — cache and DB both unreachable must not block every customer | Naturally idempotent; blocking a blocked user is a no-op that still writes an audit row (pressing it twice is information) | `USER_BLOCK` / `USER_UNBLOCK`, IN_TRANSACTION | O +S |
+| **Block / unblock a user** | `set_blocked` as an **upsert keyed on `telegram_user_id`**, not a bare UPDATE — see §5.11; a user with no `users` row (never confirmed an order) is exactly who an operator wants to block, and a rowcount-checked UPDATE fails for them. **Plus the other half:** `BlockGateMiddleware`, an outer middleware reading `is_blocked` (cached `SETEX bayram:blocked:<tg_id>` 60 s, invalidated by the action) that sends the localised `error.blocked` instead of calling the handler. It **fails open** — cache and DB both unreachable must not block every customer | Naturally idempotent; blocking a blocked user is a no-op that still writes an audit row (pressing it twice is information) | `USER_BLOCK` / `USER_UNBLOCK`, IN_TRANSACTION | O +S |
 | **Purge a user's personal data** | **An ARQ job, not an inline call** (D11). The API writes `USER_PURGE_REQUESTED`, enqueues `purge_user_data(telegram_user_id, scope, actor_id, reason_code, exclude_order_ids)` and returns `202`. The **worker** — which owns the writable volume — runs `purge_user(...)` and writes `USER_PURGE_COMPLETED` with per-table and per-file counts, or `USER_PURGE_FAILED` with the `ErrorCode`. The UI shows the purge as **in progress** until the completion row lands, never as done on enqueue | Fully idempotent: every step is "null what is not null" / "delete what exists". A second run reports zeros | Three rows total across two processes | W +S (fresh), typed confirmation of the telegram id, `reason_code` mandatory |
 | **Trigger the retention sweep** | Enqueue `run_retention_sweep(trigger="manual")`. Not inline — a 500-batch sweep must not block a request | Batched and bounded; `isBatchFull` plus `rowsPastExpiry` tell the operator to run it again | `RETENTION_RUN`, INTENT+OUTCOME | O |
 | **Approve a moderation review** | One transaction: `decide(status=APPROVED)` (rowcount-guarded), `set_state(order_id, review.held_from_state)`, audit row. Then the enqueue, outside it | The rowcount guard makes a second approve a 409 `CONFLICT` | `MODERATION_APPROVE`, IN_TRANSACTION + an enqueue OUTCOME row | O +S |
@@ -1460,7 +1460,7 @@ async def audited[T](
 ### 9.3 `purge_user` and `/forget`
 
 `purge_user(session_factory, *, telegram_user_id, scope, exclude_order_ids, now)` in
-`hbd/db/purge.py`:
+`bayram/db/purge.py`:
 
 - nulls `briefs` note + approved_lyrics + the six identity columns and stamps both `*_purged_at`;
 - nulls `generation_attempts.name_candidate_text` + `stt_transcript` and stamps both;
@@ -1612,17 +1612,17 @@ URL search params (zod-parsed) for all filter state so an operator can paste "th
 looking at" into Slack.
 
 ```
-hbd-bot/
+bayram-bot/
 ├── admin-ui/                  # Node lives here and nowhere else
 │   ├── src/{api,components,features,hooks,lib,styles}/
-│   └── vite.config.ts         # build.outDir = ../src/hbd/admin/static
-└── src/hbd/admin/static/      # gitignored; force-included in the wheel via
+│   └── vite.config.ts         # build.outDir = ../src/bayram/admin/static
+└── src/bayram/admin/static/      # gitignored; force-included in the wheel via
                                # [tool.hatch.build.targets.wheel] artifacts
 ```
 
-Node stays outside `src/` because hatchling packages `src/hbd` wholesale, and a `node_modules` in
+Node stays outside `src/` because hatchling packages `src/bayram` wholesale, and a `node_modules` in
 there breaks mypy's `files = ["src","tests"]` walk and ruff's `src` setting. New `.gitignore`
-entries: `admin-ui/node_modules/`, `admin-ui/dist/`, `src/hbd/admin/static/`.
+entries: `admin-ui/node_modules/`, `admin-ui/dist/`, `src/bayram/admin/static/`.
 
 **Same origin, always.** Dev: Vite on 5173 proxies `/api` to `127.0.0.1:8080` with
 `changeOrigin: false`. Prod: FastAPI mounts `/assets` (immutable) and serves `index.html`
@@ -1700,7 +1700,7 @@ names.
 | `/users` | "Who are they and are they blocked?" | Total users + 30-day new-user sparkline. **`lastSeenAt` is labelled "last seen" only from Phase 3**, when the inbound upsert gives it a real writer; before that the column header reads "last order" |
 | `/users/:id` | "What happened to my song?" | Full-width banner: status of their most recent order |
 | `/generations` | "Is name verification working?" | Overall verification rate |
-| `/generations/names` | "What should `HBD_NAME_CANDIDATE_ORDER` be?" | Per-strategy bake-off bars + a similarity histogram with the threshold marked, linking straight to `/config` |
+| `/generations/names` | "What should `BAYRAM_NAME_CANDIDATE_ORDER` be?" | Per-strategy bake-off bars + a similarity histogram with the threshold marked, linking straight to `/config` |
 | `/assets` | "What is about to expire?" | Assets expiring within 7 days (storage size is **not** shown — `size_bytes` is always 0) |
 | `/chat`, `/chat/:tgId` | "What did this person actually say?" | Last activity; transcript grouped by `session_id`, callbacks as first-class rows, progress edits collapsed, purged ranges shown as `PurgedRange` with the clock that did it |
 | `/payments` | "How many authorisations, how many declines?" | Authorisation count — **not** revenue; a big "0 UZS" would be the most misleading number in the console |
@@ -1844,7 +1844,7 @@ slashed-zero`.
 **Status pills are never colour alone** — glyph + text + colour, so they survive greyscale and a bad
 projector: `○` draft, `◔` brief_ready, `◑` lyrics_ready, `◆` authorized, `◉` generating (the only
 animated one), `✓` delivered, `✗` failed, `⊘` cancelled, `⚑` held. Error badges add `↻` retryable
-(caution rule) vs `■` terminal (error rule), driven by `HbdError.is_retryable` — the operator's real
+(caution rule) vs `■` terminal (error rule), driven by `BayramError.is_retryable` — the operator's real
 decision is "is retrying worth anything", and that is one glyph away. The pill puts its WORD in
 `--ink` on an `--st-x-tint` ground and the hue in the glyph, so the word clears 4.5:1 whatever the
 state is.
@@ -1935,7 +1935,7 @@ paused.
 
 The v1.1 upgrade is two small changes and **no frontend restructuring**: a `RedisFanoutProgressSink`
 implementing the existing `ProgressSink` protocol publishing serialised `ProgressEvent`s to
-`hbd:progress` (the worker already holds Redis; `redis>=5,<6` is already a dependency), and an
+`bayram:progress` (the worker already holds Redis; `redis>=5,<6` is already a dependency), and an
 `EventSource` on `/api/v1/stream` that pushes into the **same TanStack Query cache** via
 `setQueryData` while the poll drops to 30 s as a backstop. The backstop is mandatory: SSE is
 fire-and-forget and a subscriber disconnected during a publish never learns.
@@ -1948,8 +1948,8 @@ fire-and-forget and a subscriber disconnected during a publish never learns.
 
 | # | Threat | Mitigation |
 |---|---|---|
-| T1 | Credential stuffing / spraying on the one login route | argon2id (`time_cost=3, memory=64MiB, parallelism=4`, all `HBD_ADMIN_ARGON2_*`), **hashed in `asyncio.to_thread`** — 64 MiB and ~50 ms on the event loop blocks every other request, and ruff's `ASYNC` ruleset is there to catch it; **no user enumeration** — an unknown username is verified against a module-level dummy hash so timing and response match; **two Redis counters**: a strict one keyed on `(username, client_ip)` at 10/15 min and a looser global-per-username ceiling at 100/15 min. The draft keyed the strict counter on the attacker-supplied username alone, which lets anyone who knows an operator's username keep that account permanently 429'd — the same DoS primitive the draft rejected a permanent lockout for, with a duty cycle, biting hardest during an incident. Both counters return 429 **without performing the argon2 verify**, or the limiter becomes the CPU-exhaustion vector. A request carrying a currently-valid session for that username is exempt. Every per-username trip logs WARNING naming the username, so the DoS is visible rather than merely effective. `is_active=false` is the hard stop and revokes sessions **and their Redis mirrors** in the same transaction; **no signup route** — the first account comes from `python -m hbd.admin.bootstrap` (§12.6) |
-| T2 | Session theft | **Opaque server-side session, not JWT.** Revocation is a stated requirement (block, purge, config commit); a JWT cannot be revoked and the standard fixes rebuild a session store anyway. 256-bit `token_urlsafe(32)`, only `sha256` stored. Cookies named `__Host-hbd_session` and `__Host-hbd_csrf`, which forces `Secure`, `Path=/` and no `Domain` and structurally prevents subdomain injection. **`SameSite=Lax`, not `Strict`** — see the note below. `Secure` is enforced whenever `environment != "dev"`, not only in prod, and the lifespan **refuses to start** otherwise, mirroring the fake-provider interlock at `providers.py:81`. Idle 1 h sliding + absolute 12 h, both server-side. Rotation on login and on role/password change. IP and UA recorded, **not enforced**. **Action-scoped step-up** (§5.3) before every reveal, purge, force-deliver, block and config commit, with grace 0 for purge and config |
+| T1 | Credential stuffing / spraying on the one login route | argon2id (`time_cost=3, memory=64MiB, parallelism=4`, all `BAYRAM_ADMIN_ARGON2_*`), **hashed in `asyncio.to_thread`** — 64 MiB and ~50 ms on the event loop blocks every other request, and ruff's `ASYNC` ruleset is there to catch it; **no user enumeration** — an unknown username is verified against a module-level dummy hash so timing and response match; **two Redis counters**: a strict one keyed on `(username, client_ip)` at 10/15 min and a looser global-per-username ceiling at 100/15 min. The draft keyed the strict counter on the attacker-supplied username alone, which lets anyone who knows an operator's username keep that account permanently 429'd — the same DoS primitive the draft rejected a permanent lockout for, with a duty cycle, biting hardest during an incident. Both counters return 429 **without performing the argon2 verify**, or the limiter becomes the CPU-exhaustion vector. A request carrying a currently-valid session for that username is exempt. Every per-username trip logs WARNING naming the username, so the DoS is visible rather than merely effective. `is_active=false` is the hard stop and revokes sessions **and their Redis mirrors** in the same transaction; **no signup route** — the first account comes from `python -m bayram.admin.bootstrap` (§12.6) |
+| T2 | Session theft | **Opaque server-side session, not JWT.** Revocation is a stated requirement (block, purge, config commit); a JWT cannot be revoked and the standard fixes rebuild a session store anyway. 256-bit `token_urlsafe(32)`, only `sha256` stored. Cookies named `__Host-bayram_session` and `__Host-bayram_csrf`, which forces `Secure`, `Path=/` and no `Domain` and structurally prevents subdomain injection. **`SameSite=Lax`, not `Strict`** — see the note below. `Secure` is enforced whenever `environment != "dev"`, not only in prod, and the lifespan **refuses to start** otherwise, mirroring the fake-provider interlock at `providers.py:81`. Idle 1 h sliding + absolute 12 h, both server-side. Rotation on login and on role/password change. IP and UA recorded, **not enforced**. **Action-scoped step-up** (§5.3) before every reveal, purge, force-deliver, block and config commit, with grace 0 for purge and config |
 | T3 | IDOR / cross-resource id smuggling | Every path param typed `UUID`/`int` — a non-UUID is 422 before handler code runs, and one identifier per namespace (§6.1). One `require(Permission.X)` dependency applied **at router level**, never per-handler; a route-enumerating test asserts every route outside the exempt set carries exactly one. Resolve-then-check: the row loads, then the *serializer* decides what the role may see, so a VIEWER on a valid order gets 200-with-masked, not 403 and not the data. Order ids are UUIDv5 over a draft fingerprint — deterministic, so they are never treated as a capability |
 | T4 | Path traversal on asset serving | The API accepts an **asset UUID only** — never a filename, key or path. The key is reconstructed server-side as `orders/{order_id}/{Path(row.path).name}` and resolved **only** through the `Storage` protocol's new `open_range` seam (§12.7), which delegates to `LocalFileStorage._resolve` (`storage.py:66-79`) — already rejecting absolute keys, `\`, NUL and `.`/`..` and re-checking containment. We do not re-implement confinement and we do not reach into a private method. `Path(row.path).name` is additionally regex-validated `^[A-Za-z0-9._-]{1,128}$`, because DB-sourced data is untrusted on read (rule 9). `Content-Type` from `assets.mime`, allowlisted to `{audio/mpeg, audio/ogg}` for `/stream` — **`text/plain` is no longer streamed at all** (§12.1 T7). Anything else is 415. Range/206 streams in 64 KiB chunks, never `LocalFileStorage.get` (which reads whole objects). Volume mounted `:ro` |
 | T5 | **SSRF via the config editor** | `*_base_url` fields are hostnames the worker attaches a live API key to. They are **absent from the allowlist**, so the API has no code path that can set them. Secondary surface closed by construction: the admin process holds no `httpx` client, no vendor key and no URL-fetching endpoint, webhook tester or avatar proxy anywhere |
@@ -2018,7 +2018,7 @@ cell carrying a step-up and never consults one. The read is `admin.read`; the fo
 
 ### 12.3 Redaction policy and the reveal budget
 
-Masking is **server-side**, in `src/hbd/admin/serializers/redaction.py`, applied at the response
+Masking is **server-side**, in `src/bayram/admin/serializers/redaction.py`, applied at the response
 boundary. Not a CSS blur, not a client toggle: an unmasked value must never be in a JSON payload the
 operator did not explicitly request.
 
@@ -2098,7 +2098,7 @@ and `_purge_audit_log` (deletes past 730 days). No ORM relationship, no cascade.
 
 **2. Database privileges — and the two-role requirement that makes them mean anything.** The repo
 has exactly one Postgres role today (`docker-compose.yml`: `POSTGRES_USER: hbd`) and
-`migrations/env.py` reads `HBD_DATABASE_URL` through `hbd.config`, so migrations run as the
+`migrations/env.py` reads `BAYRAM_DATABASE_URL` through `bayram.config`, so migrations run as the
 application role, which is therefore the table **owner** — and revoking a privilege from a table's
 owner is reversible by that owner with one `GRANT`. It would also have blocked the plan's own
 730-day sweep. The draft's escape hatch ("a separate owner role or a `SECURITY DEFINER` function")
@@ -2106,11 +2106,11 @@ was new infrastructure in no phase and no file list.
 
 Phase 1 ships it:
 
-- `HBD_DB_MIGRATION_URL` (owner role) used by `migrations/env.py` when set;
+- `BAYRAM_DB_MIGRATION_URL` (owner role) used by `migrations/env.py` when set;
 - `docker-compose.yml` init SQL creating `hbd_app` and granting it everything except
   `UPDATE, DELETE, TRUNCATE` on `admin_audit_log`;
 - migration `0007`, guarded on `dialect.name == "postgresql"` **and** a non-empty
-  `HBD_ADMIN_AUDIT_DSN`, issuing the `REVOKE` **and** creating
+  `BAYRAM_ADMIN_AUDIT_DSN`, issuing the `REVOKE` **and** creating
   `hbd_purge_audit_log(cutoff timestamptz, lim int) RETURNS int` as `SECURITY DEFINER` owned by the
   migration role. The REVOKE and the function that legitimately works around it ship in **one**
   migration so neither can exist without the other — otherwise the predictable outcome is the REVOKE
@@ -2121,7 +2121,7 @@ Phase 1 ships it:
   on `/retention`;
 - an integration test asserts the sweep actually deletes **under the revoked role**.
 
-**If `HBD_ADMIN_AUDIT_DSN` is empty, the migration skips the REVOKE, logs a WARNING, and
+**If `BAYRAM_ADMIN_AUDIT_DSN` is empty, the migration skips the REVOKE, logs a WARNING, and
 `/audit/verify` reports `chainProtection: "hmac-only"`, which the panel renders verbatim.** A control
 that is not deployed is reported as not deployed.
 
@@ -2144,7 +2144,7 @@ that `seq`.
 **Never logged:** passwords in any form (not the hash, not a prefix, not a length), session tokens,
 CSRF tokens, the HMAC key, any secret value, and any personal-data value. `field_names` records
 *that* `briefs.note` was revealed, never what it said. Every value passes through
-`hbd.logging.redact()` before persisting.
+`bayram.logging.redact()` before persisting.
 
 **`redact()` itself is extended in Phase 1**, because the draft noticed one gap and missed the rest.
 `_SECRET_NAME_PATTERN` (`logging.py:44-47`) matches
@@ -2197,7 +2197,7 @@ All eight `retention_*` fields land on `Settings` in Phase 3, **with bounds** (�
 
 ### 12.6 Bootstrap and owner recovery
 
-The first admin comes from `python -m hbd.admin.bootstrap` — a host-local CLI requiring DB access,
+The first admin comes from `python -m bayram.admin.bootstrap` — a host-local CLI requiring DB access,
 which grants nothing the DB does not already grant. Three details the draft left unspecified, each a
 real hole:
 
@@ -2218,7 +2218,7 @@ self-service reset needs the current password, bootstrap refuses on a non-empty 
 forgotten password would permanently lock the panel, leaving `psql` as the only route back — the
 manual operation the panel exists to replace, at the worst possible moment.
 
-So `python -m hbd.admin.bootstrap --reset-owner <username>` exists. It requires host and DB access
+So `python -m bayram.admin.bootstrap --reset-owner <username>` exists. It requires host and DB access
 (the same trust level as the original bootstrap), **refuses when any other active OWNER exists**,
 sets `must_change_password=True`, and writes an `ADMIN_PASSWORD_CHANGE` audit row with
 `actor_id=NULL, actor_username="system:bootstrap"`. Test: the two-OWNER-lockout case.
@@ -2265,7 +2265,7 @@ question 6 has something concrete to answer.
 - The `Result[T]` boundary is already `TypeIs`-narrowed (`is_ok`/`is_err`), so the admin layer uses
   `if is_err(r): raise _to_http(r.error)` with one mapping in one place.
 - `AppContainer.providers: ProviderSet | None` is handled explicitly (§4.3), not with a cast.
-- Rule 15 holds: admin queries live in `src/hbd/db/admin/` and return frozen view models; the API
+- Rule 15 holds: admin queries live in `src/bayram/db/admin/` and return frozen view models; the API
   never sees a mapped row. (`NameRecordRepository.lookup` already violates this; we do not add a
   second violation on the strength of the first.)
 
@@ -2279,13 +2279,13 @@ keeps route signatures from turning into walls.
 
 ### 13.3 Holding 80% coverage
 
-`source = ["src/hbd"]`, `fail_under = 80`, repo-wide, branch coverage. The SPA is outside `src/hbd`
+`source = ["src/bayram"]`, `fail_under = 80`, repo-wide, branch coverage. The SPA is outside `src/bayram`
 and does not affect it. **The admin package does, immediately and repo-wide** — and because
 `source` reports un-imported modules at 0%, the gate bites from the first commit, not just for tested
-code. A half-finished `src/hbd/admin/` at 20% breaks `make check` for everyone, including people
+code. A half-finished `src/bayram/admin/` at 20% breaks `make check` for everyone, including people
 working on the bot.
 
-**Rule: every phase ships test-complete.** We do **not** add `omit = ["src/hbd/admin/*"]` — that
+**Rule: every phase ships test-complete.** We do **not** add `omit = ["src/bayram/admin/*"]` — that
 would make the most security-sensitive code in the repo the only uncovered code in the repo, and it
 would not be removed on schedule.
 
@@ -2306,8 +2306,8 @@ Three structural choices make it cheap, and the third is the one the draft was m
 **Phase 1 is sliced so no slice lands untested** (§14): 1a auth + health + the ASGI smoke suite,
 1b the DB query layer and view models, 1c the routers and serializers, 1d the SPA. Each slice is a
 mergeable PR and `make check` is green at every one. **Phase 1's acceptance names a number: the
-`src/hbd/admin/` package alone must be ≥ 85%**, measured with
-`coverage report --include='src/hbd/admin/*'`, not just "≥80% repo-wide".
+`src/bayram/admin/` package alone must be ≥ 85%**, measured with
+`coverage report --include='src/bayram/admin/*'`, not just "≥80% repo-wide".
 
 **Five tests that pay for themselves:**
 
@@ -2326,7 +2326,7 @@ mergeable PR and `make check` is green at every one. **Phase 1's acceptance name
 - **The purged-brief test.** A list page containing an identity-purged order returns `Ok` with
   `recipientNameDisplay=null` and `identityPurgedAt` set. The naive implementation via `to_order`
   `Err`s the whole page, so this test pins the design decision.
-- **The enum-length test.** Every `StrEnum` passed to `enum_type()` anywhere in `hbd.db` has
+- **The enum-length test.** Every `StrEnum` passed to `enum_type()` anywhere in `bayram.db` has
   `max(len(m.value)) <= ENUM_LENGTH`. SQLite accepts an over-length `VARCHAR` and Postgres errors;
   this closes a real passes-in-CI/fails-in-prod divergence.
 
@@ -2409,29 +2409,29 @@ first time, deleting archived files as well as rows.
 #### Slice 1a — settings, auth, health, and the composition root
 
 **Created**
-- `src/hbd/admin/{__init__,app,settings,container,deps,errors,logging_mw,csrf}.py`
-- `src/hbd/admin/security/{passwords,sessions,ratelimit,permissions,clientip}.py`
-- `src/hbd/admin/middleware/{correlation,security_headers}.py`
-- `src/hbd/admin/schemas/{common,auth}.py`
-- `src/hbd/admin/routers/{auth,health}.py`
-- `src/hbd/admin/bootstrap.py` (first-account CLI + `--reset-owner`)
-- `src/hbd/db/models/{admin_user,admin_session}.py`
-- `src/hbd/db/admin/{__init__,accounts,sessions}.py`
+- `src/bayram/admin/{__init__,app,settings,container,deps,errors,logging_mw,csrf}.py`
+- `src/bayram/admin/security/{passwords,sessions,ratelimit,permissions,clientip}.py`
+- `src/bayram/admin/middleware/{correlation,security_headers}.py`
+- `src/bayram/admin/schemas/{common,auth}.py`
+- `src/bayram/admin/routers/{auth,health}.py`
+- `src/bayram/admin/bootstrap.py` (first-account CLI + `--reset-owner`)
+- `src/bayram/db/models/{admin_user,admin_session}.py`
+- `src/bayram/db/admin/{__init__,accounts,sessions}.py`
 - `migrations/versions/..._0005_add_admin_users_sessions_and_purge_runs.py`
 - `tests/test_admin/{test_asgi_smoke,test_passwords,test_sessions,test_ratelimit,test_clientip,test_csrf,test_permissions,test_bootstrap}.py`
 
 **Modified**
-- `src/hbd/db/enums.py` — `AdminRole`, `PurgeTrigger`
-- `src/hbd/db/models/__init__.py` — register the new rows
-- `src/hbd/db/engine.py` — `create_engine(..., pool_size=, max_overflow=)`
-- `src/hbd/logging.py` — floor `sqlalchemy`, `sqlalchemy.engine`, `sqlalchemy.pool`, `aiogram`, `arq`, `uvicorn`, `uvicorn.access`, `uvicorn.error`; add the DSN-userinfo and `sk-…-…` value patterns and the `database_url|redis_url|dsn|connection_string|conn_str|hmac_key` name patterns
-- `src/hbd/config.py` — `log_level` becomes a `Literal`; `build_settings(overrides, *, require_vendor_secrets=True)` added and `load_settings` delegates
+- `src/bayram/db/enums.py` — `AdminRole`, `PurgeTrigger`
+- `src/bayram/db/models/__init__.py` — register the new rows
+- `src/bayram/db/engine.py` — `create_engine(..., pool_size=, max_overflow=)`
+- `src/bayram/logging.py` — floor `sqlalchemy`, `sqlalchemy.engine`, `sqlalchemy.pool`, `aiogram`, `arq`, `uvicorn`, `uvicorn.access`, `uvicorn.error`; add the DSN-userinfo and `sk-…-…` value patterns and the `database_url|redis_url|dsn|connection_string|conn_str|hmac_key` name patterns
+- `src/bayram/config.py` — `log_level` becomes a `Literal`; `build_settings(overrides, *, require_vendor_secrets=True)` added and `load_settings` delegates
 - `tests/test_db/test_migrations.py` — `_EXPECTED_TABLES` derived from `Base.metadata`, `_CORE_TABLES` guard added
 - `Makefile` (+`admin`, `admin-bootstrap`), `.gitignore`, `.env.example`, **new `.env.admin.example`**, `pyproject.toml` (deps)
 
 **Acceptance**
-- `AdminSettings` constructs and `create_app()` boots with `HBD_TELEGRAM_BOT_TOKEN`,
-  `HBD_ELEVENLABS_API_KEY` and `HBD_LLM_API_KEY` **all unset**.
+- `AdminSettings` constructs and `create_app()` boots with `BAYRAM_TELEGRAM_BOT_TOKEN`,
+  `BAYRAM_ELEVENLABS_API_KEY` and `BAYRAM_LLM_API_KEY` **all unset**.
 - With `environment=prod` and any of those three present in `os.environ`, the lifespan **refuses to
   start** and names the variable. In dev it logs a WARNING.
 - Login: 11th wrong password for the same `(username, ip)` in 15 min → 429 with **no argon2 verify
@@ -2443,7 +2443,7 @@ first time, deleting archived files as well as rows.
   untrusted peer → **ignored**.
 - Revoke-then-request → 401; deactivate-then-request → 401; password-change-then-old-session → 401 —
   **each with the Redis mirror still warm**.
-- Cookies are `__Host-hbd_session` / `__Host-hbd_csrf`, `SameSite=Lax`; `Secure` is enforced and boot
+- Cookies are `__Host-bayram_session` / `__Host-bayram_csrf`, `SameSite=Lax`; `Secure` is enforced and boot
   refuses without it whenever `environment != "dev"`.
 - `X-CSRF-Token` is compared against the stored `admin_sessions.csrf_token`; a matching cookie with a
   different stored value is 403.
@@ -2459,34 +2459,34 @@ first time, deleting archived files as well as rows.
   group-readable file; the account has `must_change_password=True` and every route but
   `/auth/password` and `/auth/me` returns 403 until changed; two concurrent runs create exactly one
   OWNER; `--reset-owner` refuses while another active OWNER exists.
-- `coverage report --include='src/hbd/admin/*'` ≥ 85%. `make check` green.
+- `coverage report --include='src/bayram/admin/*'` ≥ 85%. `make check` green.
 
 #### Slice 1b — audit log, purge scheduler, and the DB query layer
 
 **Created**
-- `src/hbd/db/models/{admin_audit,audit_anchor,purge_run}.py`
-- `src/hbd/db/admin/{views,page,sql,orders,users,attempts,metrics,audit,retention}.py`
+- `src/bayram/db/models/{admin_audit,audit_anchor,purge_run}.py`
+- `src/bayram/db/admin/{views,page,sql,orders,users,attempts,metrics,audit,retention}.py`
 - `migrations/versions/..._0007_add_admin_audit_log.py` (audit log + anchors + the guarded `REVOKE` **and** the `SECURITY DEFINER` sweep function, together)
 - `migrations/versions/..._0008_add_admin_read_indexes.py`
 - `tests/test_db/{test_admin_queries,test_audit_chain,test_enum_lengths}.py`
 - `tests/test_runtime/test_purge_cron.py`
 
 **Modified**
-- `src/hbd/db/enums.py` — `AuditAction`, `AuditReasonCode`
-- `src/hbd/db/purge.py` — `_purge_audit_reasons`, `_purge_audit_log` (via the `SECURITY DEFINER`
+- `src/bayram/db/enums.py` — `AuditAction`, `AuditReasonCode`
+- `src/bayram/db/purge.py` — `_purge_audit_reasons`, `_purge_audit_log` (via the `SECURITY DEFINER`
   function on Postgres, plain `DELETE` on SQLite), `_purge_purge_runs`; `PurgeReport` gains
   `audit_reasons_purged`, `audit_rows_deleted`, `purge_runs_deleted` and `batch_size`;
   **`has_work_remaining` fixed** to `any(count >= batch_size …)`
-- `src/hbd/runtime/jobs.py` — a new `run_retention_sweep(ctx, *, trigger)` job that awaits
+- `src/bayram/runtime/jobs.py` — a new `run_retention_sweep(ctx, *, trigger)` job that awaits
   `purge_expired`, **then iterates `report.storage_keys` calling `container.storage.delete(key)`**,
   logs each `Err`, and writes a `purge_runs` row with `storage_keys_deleted` and
   `storage_delete_failures`; an hourly `cron_jobs` entry invoking it
-- `src/hbd/runtime/container.py` — `with_providers: bool = True` with the `ProviderSet | None` shape
+- `src/bayram/runtime/container.py` — `with_providers: bool = True` with the `ProviderSet | None` shape
   of §4.3; `session_factory` promoted to an `AppContainer` field; pool overrides
 - `tests/test_db/test_migrations.py`, `tests/test_db/test_privacy_constraints.py`
   (`admin_audit_log` added to `tables_with_personal_data`)
 - `docker-compose.yml` — the `hbd_app` role and its grants; `migrations/env.py` — honour
-  `HBD_DB_MIGRATION_URL`
+  `BAYRAM_DB_MIGRATION_URL`
 
 **Acceptance**
 - **The purge cron fires within the hour and writes a `purge_runs` record.**
@@ -2498,7 +2498,7 @@ first time, deleting archived files as well as rows.
   test).
 - The HMAC chain verifies; a directly-mutated row is reported as the first break by `/audit/verify`
   (integration, Postgres).
-- With `HBD_ADMIN_AUDIT_DSN` set: `REVOKE` denies `UPDATE` to `hbd_app`, and the 730-day sweep still
+- With `BAYRAM_ADMIN_AUDIT_DSN` set: `REVOKE` denies `UPDATE` to `hbd_app`, and the 730-day sweep still
   deletes via the `SECURITY DEFINER` function (integration). With it empty: the migration logs a
   WARNING and `/audit/verify` reports `chainProtection: "hmac-only"`.
 - The enum-length test passes and `db/base.py:52`'s comment states the real maximum.
@@ -2508,13 +2508,13 @@ first time, deleting archived files as well as rows.
 #### Slice 1c — read-only routers and serializers
 
 **Created**
-- `src/hbd/admin/serializers/redaction.py`
-- `src/hbd/admin/routers/{dashboard,orders,users,generations,assets,audit,admins,retention}.py`
-- `src/hbd/admin/schemas/{orders,users,generations,assets,audit,config_view}.py`
+- `src/bayram/admin/serializers/redaction.py`
+- `src/bayram/admin/routers/{dashboard,orders,users,generations,assets,audit,admins,retention}.py`
+- `src/bayram/admin/schemas/{orders,users,generations,assets,audit,config_view}.py`
 - `tests/test_admin/{test_routes_enumeration,test_rbac_matrix,test_redaction,test_pagination}.py`
 
 **Modified**
-- `src/hbd/admin/app.py` — mount the routers
+- `src/bayram/admin/app.py` — mount the routers
 
 **Acceptance**
 - Route-enumeration test passes: every route outside `{/healthz, /readyz, /auth/login}` carries
@@ -2540,7 +2540,7 @@ first time, deleting archived files as well as rows.
 - `admin-ui/tests/**` (Vitest) and one Playwright smoke flow
 
 **Modified**
-- `src/hbd/admin/app.py` — static mount + SPA fallback
+- `src/bayram/admin/app.py` — static mount + SPA fallback
 - `pyproject.toml` — `[tool.hatch.build.targets.wheel] artifacts`
 - `Makefile` (+`ui-install`, `ui`, `ui-build`, all in `.PHONY`)
 - `README.md` — production shape → 4 terminals, the two-role Postgres requirement, `.env.admin`;
@@ -2561,7 +2561,7 @@ first time, deleting archived files as well as rows.
 - WCAG contrast test green on both palettes; font-coverage snapshot renders `Oʻktam`, `Gʻulom`,
   `Дилноза`, `sanʼat`.
 - `make check` green: `mypy --strict`, ruff, coverage ≥80% repo-wide **and ≥85% on
-  `src/hbd/admin/*`**.
+  `src/bayram/admin/*`**.
 
 ---
 
@@ -2571,25 +2571,25 @@ first time, deleting archived files as well as rows.
 reason code, and play the song inline. Every reveal is audited and charged against a record budget.
 
 **Created**
-- `src/hbd/admin/routers/reveal.py`, `src/hbd/admin/services/{assets,reveal}.py`
-- `src/hbd/admin/schemas/reveal.py`
-- `src/hbd/admin/security/budget.py` (record-counted reveal budget in Redis)
+- `src/bayram/admin/routers/reveal.py`, `src/bayram/admin/services/{assets,reveal}.py`
+- `src/bayram/admin/schemas/reveal.py`
+- `src/bayram/admin/security/budget.py` (record-counted reveal budget in Redis)
 - `admin-ui/src/features/assets/**`, `RevealDialog`, `RevealBudgetMeter`, `AudioPlayer`, `PlayerBar`,
   `usePlayerStore`, `SimilarityHistogram`, `StrategyBakeoffChart`
 - `tests/test_admin/{test_reveal,test_asset_stream,test_budget}.py`
 
 **Modified**
-- `src/hbd/contracts.py` — **`Storage.open_range(key, *, start, end) -> Result[AsyncIterator[bytes]]`**
+- `src/bayram/contracts.py` — **`Storage.open_range(key, *, start, end) -> Result[AsyncIterator[bytes]]`**
   added to the protocol (§12.7)
-- `src/hbd/storage.py` — `LocalFileStorage.open_range` on top of the existing `_resolve`, 64 KiB
+- `src/bayram/storage.py` — `LocalFileStorage.open_range` on top of the existing `_resolve`, 64 KiB
   chunks via `asyncio.to_thread`
-- `src/hbd/db/repository.py` — `_replace_assets` writes `storage_key` (also fixes the archive-orphan
+- `src/bayram/db/repository.py` — `_replace_assets` writes `storage_key` (also fixes the archive-orphan
   bug for all future rows)
-- `src/hbd/db/purge.py` — `_purge_assets` falls back to reconstructing
+- `src/bayram/db/purge.py` — `_purge_assets` falls back to reconstructing
   `orders/{order_id}/{Path(path).name}` for rows written before the fix, so historical archives are
   reachable too
-- `src/hbd/admin/security/sessions.py` — `require_step_up(action, subject_id)`
-- `src/hbd/db/attempts.py` — `strategy_stats(since=…)` time window
+- `src/bayram/admin/security/sessions.py` — `require_step_up(action, subject_id)`
+- `src/bayram/db/attempts.py` — `strategy_stats(since=…)` time window
 - `tests/test_storage/**` — the new protocol member on every fake `Storage`
 
 **Acceptance**
@@ -2608,7 +2608,7 @@ reason code, and play the song inline. Every reveal is audited and charged again
   customer-authored body as `text/plain`.
 - Playing an asset writes exactly one `ASSET_STREAM` audit row per 10-minute window, not one per
   range request.
-- Name analytics answers "what should `HBD_NAME_CANDIDATE_ORDER` be" with a windowed bake-off and a
+- Name analytics answers "what should `BAYRAM_NAME_CANDIDATE_ORDER` be" with a windowed bake-off and a
   threshold marker showing how many attempts sit within 0.05 of `name_match_min_similarity`.
 
 ---
@@ -2620,9 +2620,9 @@ reason code, and play the song inline. Every reveal is audited and charged again
 `/privacy` starts telling the truth about a configurable policy.
 
 **Created**
-- `src/hbd/db/models/chat_message.py`, `src/hbd/db/admin/chat.py`
-- `src/hbd/bot/{chatlog,chatlog_inbound,chatlog_outbound}.py`
-- `src/hbd/admin/routers/chat.py`
+- `src/bayram/db/models/chat_message.py`, `src/bayram/db/admin/chat.py`
+- `src/bayram/bot/{chatlog,chatlog_inbound,chatlog_outbound}.py`
+- `src/bayram/admin/routers/chat.py`
 - `migrations/versions/..._0009_add_chat_messages.py`
 - `admin-ui/src/features/chat/**`, `ChatTranscript`, `MessageBubble`, `PurgedRange`
 - `tests/test_bot/{test_chatlog_inbound,test_chatlog_outbound,test_chatlog_queue,test_user_touch}.py`
@@ -2630,27 +2630,27 @@ reason code, and play the song inline. Every reveal is audited and charged again
 - `tests/test_bot/test_privacy_reflects_settings.py`
 
 **Modified**
-- `src/hbd/db/purge.py` — `_purge_chat_bodies` (predicate `text_expires_at <= :now AND body IS NOT
+- `src/bayram/db/purge.py` — `_purge_chat_bodies` (predicate `text_expires_at <= :now AND body IS NOT
   NULL AND body_purged_at IS NULL`), `_purge_chat_messages`, `PurgeReport` fields, **`purge_user()`
   with `exclude_order_ids`**
-- `src/hbd/runtime/jobs.py` — **`purge_user_data` ARQ job** (executed by the worker, which owns the
+- `src/bayram/runtime/jobs.py` — **`purge_user_data` ARQ job** (executed by the worker, which owns the
   writable volume): runs `purge_user`, deletes the returned storage keys and the workspace directory,
   writes `USER_PURGE_COMPLETED`/`_FAILED`
-- `src/hbd/db/retention.py` — `chat_log_days=90`, `audit_log_days=730`, plus the two matching
+- `src/bayram/db/retention.py` — `chat_log_days=90`, `audit_log_days=730`, plus the two matching
   `_SETTINGS_FIELDS` entries
-- `src/hbd/config.py` — **all eight `retention_*` fields, each with `ge`/`le` bounds** (§8.3)
-- `src/hbd/bot/app.py` — register `ChatLogInboundMiddleware`; **derive `WIZARD_STATE_TTL` from the
+- `src/bayram/config.py` — **all eight `retention_*` fields, each with `ge`/`le` bounds** (§8.3)
+- `src/bayram/bot/app.py` — register `ChatLogInboundMiddleware`; **derive `WIZARD_STATE_TTL` from the
   resolved policy inside `build_storage`/`build_dispatcher` instead of at import time**
-- `src/hbd/main.py`, `src/hbd/worker.py` — install the outbound session middleware on **both** `Bot`
+- `src/bayram/main.py`, `src/bayram/worker.py` — install the outbound session middleware on **both** `Bot`
   instances; start the drain task
-- `src/hbd/bot/deps.py` — a repository handle so `/forget` can enqueue `purge_user_data`
-- `src/hbd/bot/handlers/commands.py` — **`handle_privacy` takes `deps: BotDeps` and renders from
+- `src/bayram/bot/deps.py` — a repository handle so `/forget` can enqueue `purge_user_data`
+- `src/bayram/bot/handlers/commands.py` — **`handle_privacy` takes `deps: BotDeps` and renders from
   `resolve_retention_policy(deps.settings)`**; `/forget` computes `exclude_order_ids` from
   `{AUTHORIZED, GENERATING, HELD_FOR_REVIEW}`, enqueues the purge, enqueues deferred purges for
   excluded orders, and **keeps the existing re-park behaviour byte-identical**
-- `src/hbd/runtime/submitter.py` — the chat-body clock promotion `UPDATE` on `session_id` when an
+- `src/bayram/runtime/submitter.py` — the chat-body clock promotion `UPDATE` on `session_id` when an
   order reaches a paid state
-- `src/hbd/bot/locales/{en,ru,uz_latn,uz_cyrl}.py` — `privacy.text` updated in all four with the
+- `src/bayram/bot/locales/{en,ru,uz_latn,uz_cyrl}.py` — `privacy.text` updated in all four with the
   chat-log clock
 - `.env.example` — fill the existing orphaned retention header rather than adding a third block
 - `tests/test_db/test_migrations.py`, `tests/test_db/test_privacy_constraints.py`
@@ -2675,8 +2675,8 @@ reason code, and play the song inline. Every reveal is audited and charged again
   running it twice reports zeros. **`/forget` during `GENERATING` leaves the workspace and the brief
   intact and the song still arrives**, with a deferred purge completing afterwards.
 - `/privacy` in all four locales states every retention number **from the resolved policy**: a test
-  sets non-default `HBD_RETENTION_*` values and asserts every rendered number changes.
-- `HBD_RETENTION_BRIEF_TEXT_DAYS=0` is rejected by pydantic at boot (bounds), not by a `ValueError`
+  sets non-default `BAYRAM_RETENTION_*` values and asserts every rendered number changes.
+- `BAYRAM_RETENTION_BRIEF_TEXT_DAYS=0` is rejected by pydantic at boot (bounds), not by a `ValueError`
   in `RetentionPolicy.__post_init__`.
 - `WIZARD_STATE_TTL` follows `retention_abandoned_draft_days` rather than the import-time default.
 - `tests/test_bot/test_locale_contract.py` green.
@@ -2699,25 +2699,25 @@ is deliberate: **a `set_dispatch_target(order_id, *, chat_id, progress_message_i
 method**, which keeps `Order` a pure contract object and makes the write an explicit operational act.
 
 **Created**
-- `src/hbd/admin/services/actions.py`, `src/hbd/admin/schemas/actions.py`
-- `src/hbd/bot/blockgate.py` — `BlockGateMiddleware`
+- `src/bayram/admin/services/actions.py`, `src/bayram/admin/schemas/actions.py`
+- `src/bayram/bot/blockgate.py` — `BlockGateMiddleware`
 - `migrations/versions/..._0010_add_order_dispatch_columns.py`
 - `admin-ui/src/features/orders/{RetryOrderDialog,ForceDeliverDialog}.tsx`, `ConfirmDangerDialog`
 - `tests/test_admin/test_actions.py`, `tests/test_bot/test_blockgate.py`
 
 **Modified**
-- `src/hbd/contracts.py` — `KitRepository.set_order_state(..., failed_reason: str | None = None)`;
+- `src/bayram/contracts.py` — `KitRepository.set_order_state(..., failed_reason: str | None = None)`;
   new `KitRepository.set_dispatch_target(...)`
-- `src/hbd/db/repository.py` — both, plus `_ensure_user` reachable as an upsert for `set_blocked`
+- `src/bayram/db/repository.py` — both, plus `_ensure_user` reachable as an upsert for `set_blocked`
 - **Every test double implementing `KitRepository`** (`tests/test_pipeline/**`,
   `tests/test_runtime/**`, `tests/test_bot/conftest.py`)
-- `src/hbd/runtime/submitter.py` — call `set_dispatch_target` after persisting
-- `src/hbd/bot/progress.py` — `progress_message_id == 0` means "post a fresh message on the first
+- `src/bayram/runtime/submitter.py` — call `set_dispatch_target` after persisting
+- `src/bayram/bot/progress.py` — `progress_message_id == 0` means "post a fresh message on the first
   frame" (~12 lines in `_push`)
-- `src/hbd/pipeline/orchestrator.py` — `_fail` passes `failed_reason` through `_advance_state`
-- `src/hbd/bot/app.py` — register `BlockGateMiddleware`
-- `src/hbd/bot/locales/*` — `error.blocked` in all four catalogues
-- `src/hbd/db/admin/{orders,users}.py` — `set_state`, `get_dispatch_target`, `set_blocked` (upsert)
+- `src/bayram/pipeline/orchestrator.py` — `_fail` passes `failed_reason` through `_advance_state`
+- `src/bayram/bot/app.py` — register `BlockGateMiddleware`
+- `src/bayram/bot/locales/*` — `error.blocked` in all four catalogues
+- `src/bayram/db/admin/{orders,users}.py` — `set_state`, `get_dispatch_target`, `set_blocked` (upsert)
 - `tests/test_db/test_migrations.py`
 
 **Acceptance**
@@ -2753,30 +2753,30 @@ method**, which keeps `Order` a pure contract object and makes the write an expl
 numbers. Payment history becomes real.
 
 **Created**
-- `src/hbd/db/models/payment.py`, `src/hbd/db/admin/payments.py`
-- `src/hbd/admin/routers/payments.py`
+- `src/bayram/db/models/payment.py`, `src/bayram/db/admin/payments.py`
+- `src/bayram/admin/routers/payments.py`
 - `migrations/versions/..._0011_add_payments_ledger.py`
 - `admin-ui/src/features/payments/**`
 - `tests/test_db/test_verdict_telemetry_survives_save.py`
 
 **Modified**
-- `src/hbd/contracts.py` — **`NameVerdict` gains `provider`, `cost_usd`, `cost_source`,
+- `src/bayram/contracts.py` — **`NameVerdict` gains `provider`, `cost_usd`, `cost_source`,
   `latency_ms`**, all defaulted (§5.12)
-- `src/hbd/db/attempts.py` — `verdict_row_values` persists the four new fields instead of hardcoding
+- `src/bayram/db/attempts.py` — `verdict_row_values` persists the four new fields instead of hardcoding
   `provider=None`
-- `src/hbd/pipeline/name_stage.py` — `_render` → `record()` with `GenerationKind.SONG`; **`_hear`
+- `src/bayram/pipeline/name_stage.py` — `_render` → `record()` with `GenerationKind.SONG`; **`_hear`
   populates the `NameVerdict` telemetry rather than calling `record()`**, because `_replace_verdicts`
   (`repository.py:345`) deletes and re-inserts every `kind='name_verification'` row on **every**
   `save_kit` — a second writer would be wiped by the next save and by every admin retry
-- `src/hbd/pipeline/greetings.py` (`_render_one` → `GREETING`), `src/hbd/providers/llm/writer.py`
-  (→ `LYRICS`), `src/hbd/pipeline/moderation.py` (→ `LYRICS`, `sequence=-1`) — each `await`s
+- `src/bayram/pipeline/greetings.py` (`_render_one` → `GREETING`), `src/bayram/providers/llm/writer.py`
+  (→ `LYRICS`), `src/bayram/pipeline/moderation.py` (→ `LYRICS`, `sequence=-1`) — each `await`s
   `record()` and logs its `Err`, never propagating it
-- `src/hbd/pipeline/orchestrator.py` — `KitPipeline.__init__` takes the attempts repository
-- `src/hbd/runtime/container.py` — build `GenerationAttemptRepository`;
+- `src/bayram/pipeline/orchestrator.py` — `KitPipeline.__init__` takes the attempts repository
+- `src/bayram/runtime/container.py` — build `GenerationAttemptRepository`;
   `payment=LedgerPaymentProvider(NoopPaymentProvider(), ledger, call_site="pipeline")`
-- `src/hbd/main.py` — a second `LedgerPaymentProvider` with `call_site="bot"`
-- `src/hbd/payments.py` — `LedgerPaymentProvider`
-- `src/hbd/db/admin/metrics.py` — cost-by-provider, cost-per-delivered-kit, per-stage p95
+- `src/bayram/main.py` — a second `LedgerPaymentProvider` with `call_site="bot"`
+- `src/bayram/payments.py` — `LedgerPaymentProvider`
+- `src/bayram/db/admin/metrics.py` — cost-by-provider, cost-per-delivered-kit, per-stage p95
 - `tests/test_db/test_migrations.py`
 
 **Acceptance**
@@ -2803,26 +2803,26 @@ numbers. Payment history becomes real.
 **Goal.** Flagged briefs and lyrics are reviewed by a human before any generation spend.
 
 **Created**
-- `src/hbd/db/models/moderation_review.py`, `src/hbd/db/admin/reviews.py`
-- `src/hbd/admin/routers/moderation.py`, `src/hbd/admin/services/moderation_service.py`
+- `src/bayram/db/models/moderation_review.py`, `src/bayram/db/admin/reviews.py`
+- `src/bayram/admin/routers/moderation.py`, `src/bayram/admin/services/moderation_service.py`
 - `migrations/versions/..._0012_add_moderation_reviews.py`
 - `admin-ui/src/features/moderation/**`, `ModerationCard`
-- `notify_order_failed` ARQ job in `src/hbd/runtime/jobs.py`
+- `notify_order_failed` ARQ job in `src/bayram/runtime/jobs.py`
 
 **Modified**
-- `src/hbd/contracts.py` — `OrderState.HELD_FOR_REVIEW` (15 chars; no DDL), declared after
+- `src/bayram/contracts.py` — `OrderState.HELD_FOR_REVIEW` (15 chars; no DDL), declared after
   `LYRICS_READY`
-- `src/hbd/runtime/submitter.py` — hold between persist and enqueue when `is_manual_review_required`;
+- `src/bayram/runtime/submitter.py` — hold between persist and enqueue when `is_manual_review_required`;
   insert the `pending` review; do not enqueue
-- `src/hbd/config.py` — `is_manual_review_required: bool = False`
-- `src/hbd/bot/screens.py` + all four locales — the "being checked" screen
-- `src/hbd/db/purge.py` — `_purge_moderation_details` (nulls `flag_detail` and `decision_note` on the
+- `src/bayram/config.py` — `is_manual_review_required: bool = False`
+- `src/bayram/bot/screens.py` + all four locales — the "being checked" screen
+- `src/bayram/db/purge.py` — `_purge_moderation_details` (nulls `flag_detail` and `decision_note` on the
   brief-text clock, predicate guarded on `text_purged_at IS NULL`); `purge_user` nulls them too;
   `PurgeReport` gains `moderation_details_purged`
 - `tests/test_db/test_migrations.py`, `tests/test_db/test_privacy_constraints.py`
   (`moderation_reviews` added to `tables_with_personal_data`)
 
-**Not modified: `src/hbd/pipeline/moderation.py` and `src/hbd/pipeline/orchestrator.py`.** The draft
+**Not modified: `src/bayram/pipeline/moderation.py` and `src/bayram/pipeline/orchestrator.py`.** The draft
 included an in-pipeline soft-flag path; it is **out of scope** for the reasons in §10.3 (no held
 outcome exists in `Result[Kit]`, `_release_session` runs only on terminal ends so the customer's FSM
 would park until the 14-day TTL, and approval would loop because no approved-bypass flag exists).
@@ -2848,7 +2848,7 @@ would park until the 14-day TTL, and approval would loop because no approved-byp
 
 ### Phase 7 — Runtime configuration editor · **L** (re-sized from M)
 
-**Goal.** Reorder `HBD_NAME_CANDIDATE_ORDER` from a bake-off result without a redeploy, and see it
+**Goal.** Reorder `BAYRAM_NAME_CANDIDATE_ORDER` from a bake-off result without a redeploy, and see it
 take effect in the bot and worker within 30 seconds.
 
 **Re-sized because the `SettingsHolder` change touches 25 `BotDeps(` construction sites across `src`
@@ -2858,26 +2858,26 @@ and `tests`** (verified count) plus one `AppContainer(` in `src` and its fixture
 than a rewrite — but it is still 25 sites.
 
 **Created**
-- `src/hbd/runtime/{overlay,watcher}.py`
-- `src/hbd/db/models/{settings_version,settings_override}.py`, `src/hbd/db/admin/overrides.py`
-- `src/hbd/admin/config/{policy,guards,service}.py`, `src/hbd/admin/routers/config.py`
+- `src/bayram/runtime/{overlay,watcher}.py`
+- `src/bayram/db/models/{settings_version,settings_override}.py`, `src/bayram/db/admin/overrides.py`
+- `src/bayram/admin/config/{policy,guards,service}.py`, `src/bayram/admin/routers/config.py`
 - `migrations/versions/..._0013_add_settings_versions_overrides.py`
 - `admin-ui/src/features/config/**`, `ConfigField`, `ConfigDiffDialog`
 - `tests/test_runtime/{test_overlay,test_watcher}.py`,
   `tests/test_admin/{test_config_policy,test_config_guards}.py`
 
 **Modified**
-- `src/hbd/config.py` — `build_settings` gains the `extra="forbid"` validation copy
-- `src/hbd/runtime/container.py` — `settings_source: SettingsHolder` field + `settings` property
-- `src/hbd/bot/deps.py` — `settings_source` field + `settings` property + the `bot_deps()` factory
+- `src/bayram/config.py` — `build_settings` gains the `extra="forbid"` validation copy
+- `src/bayram/runtime/container.py` — `settings_source: SettingsHolder` field + `settings` property
+- `src/bayram/bot/deps.py` — `settings_source` field + `settings` property + the `bot_deps()` factory
 - **Every `BotDeps(` call site in `src` and `tests` (25), plus `tests/test_bot/conftest.py` and
   `tests/conftest.py`**
-- `src/hbd/main.py`, `src/hbd/worker.py`, `src/hbd/admin/app.py` — start `SettingsWatcher`
-- `src/hbd/runtime/jobs.py` — resolve settings **once** at `:347` and thread it down (this is what
+- `src/bayram/main.py`, `src/bayram/worker.py`, `src/bayram/admin/app.py` — start `SettingsWatcher`
+- `src/bayram/runtime/jobs.py` — resolve settings **once** at `:347` and thread it down (this is what
   unlocks the greeting Tier-2 fields)
-- `src/hbd/pipeline/content.py` — `LlmContentWriter` takes a `SettingsHolder` and exposes `_settings`
+- `src/bayram/pipeline/content.py` — `LlmContentWriter` takes a `SettingsHolder` and exposes `_settings`
   as a property (this is what unlocks the LLM Tier-2 fields)
-- `src/hbd/bot/handlers/confirm.py` — read `deps.settings.kit_price_amount_minor` directly at
+- `src/bayram/bot/handlers/confirm.py` — read `deps.settings.kit_price_amount_minor` directly at
   `:202-204` instead of `deps.amount_minor` (this is what unlocks pricing)
 - `.env.example` — precedence stated: env is the base, DB overrides layer on top
 - `tests/test_db/test_migrations.py`
@@ -2893,7 +2893,7 @@ than a rewrite — but it is still 25 sites.
 - An unknown key (e.g. a renamed field left in the allowlist) is a 422 naming the field, not a silent
   drop — `extra="forbid"` plus the module-level `LIVE_EDITABLE_FIELDS <= set(Settings.model_fields)`
   assertion.
-- An invalid value returns 422 carrying the exact `HBD_*` variable name `_describe_failure` produces,
+- An invalid value returns 422 carrying the exact `BAYRAM_*` variable name `_describe_failure` produces,
   after `redact()` and a 300-char cap.
 - Cross-field guards fire: a `*_timeout_s` above `queue_job_timeout_s` is refused;
   `song_length_ms ≤ name_chunk_duration_ms` is refused; a retention set that would raise
@@ -2907,7 +2907,7 @@ than a rewrite — but it is still 25 sites.
   the last known good settings, for a `ConfigError` **and** for a bare `ValueError` (integration test
   writes one of each directly).
 - Rollback to version 0 returns every process to pure `.env`.
-- `HBD_ADMIN_CONFIG_ENABLED=false` + restart → the overlay is a no-op, and the flag is read from the
+- `BAYRAM_ADMIN_CONFIG_ENABLED=false` + restart → the overlay is a no-op, and the flag is read from the
   process environment, never through the holder.
 - Secrets **and both DSNs** are absent from `GET /config`, not masked.
 - The three Tier-2 groups become editable and each is verified by the test named in §8.3: both
@@ -2946,7 +2946,7 @@ Six of the draft's questions survive review; two were settled by it and are reco
    path. **Fix it in Phase 4, or leave force-deliver unavailable for song-only kits and say so in the
    dialog?** Phase 4's acceptance currently assumes the latter.
 5. **MFA.** v1 has none; the compensating controls are loopback binding, a reverse proxy with an IP
-   allowlist or VPN, action-scoped step-up re-auth, and `HBD_ADMIN_ENABLED=false` by default. Note
+   allowlist or VPN, action-scoped step-up re-auth, and `BAYRAM_ADMIN_ENABLED=false` by default. Note
    that the XFF work (T13) is what makes the proxy story coherent at all. Is that acceptable for the
    operating team's size, or should TOTP land in Phase 1?
 6. **Where will the admin API run relative to the worker?** Assets live on the worker's filesystem.
@@ -2971,13 +2971,13 @@ Six of the draft's questions survive review; two were settled by it and are reco
 |---|---|---|
 | **R1** | **The panel becomes a permanent, unclocked copy of data the bot deliberately expires.** A screenshot, an export, a browser cache, a "temporary" CSV — one copy defeats every clock in `purge.py`, permanently and invisibly. This is the risk the whole design exists to bound | Bulk export forbidden; masked by default with audited, step-up-gated reveal **budgeted in records, not clicks** (§12.3) and paged at 50 bodies; `no-store` everywhere; revealed-records-per-actor sparkline on the dashboard as a *detection* control; evidence pack JSON-only, watermarked, OWNER-only at 5/day; CSV cells escaped against formula injection. **Watch for:** anyone asking for "just a quick CSV of last month"; a support workflow that starts with "download the sheet"; an actor whose revealed-record count climbs while their request count does not |
 | **R2** | **Chat log ships without the purge scheduler, the `/privacy` fix, or `purge_user`.** The clock exists in the schema and runs nowhere; the notice becomes false; `/forget` deletes a draft while a verbatim transcript sits in Postgres | The scheduler ships in **Phase 1 slice 1b**, before the table exists, **and it deletes storage keys**, which nothing does today. The `/privacy` fix (rendering from `resolve_retention_policy`, not the module constant), `purge_user`, and `chat_messages` in `tables_with_personal_data` are in the **same PR** as migration `0009`. A test asserts both clock columns are NOT NULL with no server default, so an insert that omits them fails. **Watch for:** no `retention purge complete` line in 2 hours; `chat_messages` growing with a flat oldest-`created_at`; `storage_keys_deleted` staying 0 while `storage_keys_returned` climbs |
-| **R3** | **A bad runtime config override wedges the fleet, or applies to one process and not another** — the pricing split (boot `BotDeps` vs live `orchestrator`) authorising one order at two amounts; the LLM split (boot `LlmContentWriter` vs per-job pipeline) writing lyrics at two temperatures | Allowlist not denylist, enforced twice, with a module-level `LIVE_EDITABLE_FIELDS <= Settings.model_fields` assertion and `extra="forbid"` so a stale key is a 422 rather than a silent no-op; whole-model validation before write; never-throw application keeping last-known-good on `ConfigError` **and `ValueError`**; per-process `config_version` badges; `HBD_ADMIN_CONFIG_ENABLED=false` + restart as the escape hatch, read from the environment and never from the holder. **Pricing and the two LLM fields stay off the list until their named fix lands** (§8.3 Tier 2). **Watch for:** two processes disagreeing on `config_version` for over a minute; a Tier-2 field appearing in the allowlist without its fix |
-| **R4** | **Admin credential compromise.** No MFA in v1, one login route, and the account owns purge, force-deliver and config commit | argon2id off the event loop + dual limiters keyed on `(username, ip)` that trip **before** the hash; no enumeration; opaque revocable sessions with rotation, a ≤60 s Redis mirror and per-request DB reads of `role`/`is_active`/`password_changed_at`; **action-scoped** step-up with grace 0 on purge and config; `HBD_ADMIN_ENABLED=false` by default; loopback bind behind a proxy with **real client-IP derivation** so the per-IP limiter and the "session jumped countries" signal actually work. **Watch for:** a login-failure spike; a session whose `last_ip` jumps countries; reveals outside working hours; a `permission.denied` cluster from one actor probing routes |
+| **R3** | **A bad runtime config override wedges the fleet, or applies to one process and not another** — the pricing split (boot `BotDeps` vs live `orchestrator`) authorising one order at two amounts; the LLM split (boot `LlmContentWriter` vs per-job pipeline) writing lyrics at two temperatures | Allowlist not denylist, enforced twice, with a module-level `LIVE_EDITABLE_FIELDS <= Settings.model_fields` assertion and `extra="forbid"` so a stale key is a 422 rather than a silent no-op; whole-model validation before write; never-throw application keeping last-known-good on `ConfigError` **and `ValueError`**; per-process `config_version` badges; `BAYRAM_ADMIN_CONFIG_ENABLED=false` + restart as the escape hatch, read from the environment and never from the holder. **Pricing and the two LLM fields stay off the list until their named fix lands** (§8.3 Tier 2). **Watch for:** two processes disagreeing on `config_version` for over a minute; a Tier-2 field appearing in the allowlist without its fix |
+| **R4** | **Admin credential compromise.** No MFA in v1, one login route, and the account owns purge, force-deliver and config commit | argon2id off the event loop + dual limiters keyed on `(username, ip)` that trip **before** the hash; no enumeration; opaque revocable sessions with rotation, a ≤60 s Redis mirror and per-request DB reads of `role`/`is_active`/`password_changed_at`; **action-scoped** step-up with grace 0 on purge and config; `BAYRAM_ADMIN_ENABLED=false` by default; loopback bind behind a proxy with **real client-IP derivation** so the per-IP limiter and the "session jumped countries" signal actually work. **Watch for:** a login-failure spike; a session whose `last_ip` jumps countries; reveals outside working hours; a `permission.denied` cluster from one actor probing routes |
 | **R5** | **Asset serving becomes a file-read primitive.** `assets.path` is an absolute DB-sourced string and `storage_key` is NULL, so the naive implementation string-joins a filename — on a process that can read `.env` | Asset UUID input only; key reconstructed server-side; resolution **only** through the public `Storage.open_range` seam over `_resolve`; filename regex-validated; mime allowlist with **no `text/plain` stream at all**; `nosniff` and `Content-Disposition` everywhere; `:ro` volume; traversal cases in the unit suite; an import scan asserting the admin package touches no private storage method. **Watch for:** any review of `admin/services/assets.py` that builds a `Path` by concatenation; a 200 on a request containing `%2e%2e`; a new route serving customer text as `text/plain` |
 | **R6** | **The retry button silently does nothing.** ARQ refuses a `_job_id` present in the result store, `queue_result_ttl_s = 3600`, and `chat_id`/`progress_message_id` live nowhere but the job args and the FSM | `DEL arq:result:<job_id>` first, or a `:admin-<n>` suffix (double-click protection then covered by `_replay`); `chat_id` recovered from `orders.chat_id` (written by the new `set_dispatch_target`) or `telegram_user_id`; `progress_message_id == 0` posts a fresh message; the UI reports the enqueue result, never a blind "done". **Watch for:** a retry that returns success with no new attempt rows and no state change; Telegram 400s on progress edits |
 | **R7** | **The capture middleware degrades the bot.** It runs inside the FSM isolation lock; a slow write there serialises a user's updates and can break the double-tap guarantee, with the 60 s lock expiry as the outer bound. The `users` upsert makes this worse if it is done inline | The middleware never writes — bounded queue + background drain, and the upsert goes through the *same* queue, rate-limited to one per user per minute; overflow drops loudly and counts; progress edits excluded; a 10× load test is a Phase 3 acceptance criterion. **Watch for:** a non-zero drop counter; rising p95 update handling; duplicate submissions reappearing after the double-tap gate had fixed them |
-| **R8** | **Coverage and mypy gates erode.** A large new package lands faster than its tests; someone adds `omit = ["src/hbd/admin/*"]` "temporarily" and the most security-sensitive code becomes the only untested code | Phase 1 is sliced into four independently mergeable PRs, each green; the composition root is covered by an ASGI smoke suite through `httpx.ASGITransport` (already a dependency), which is what the draft's "thin routers, fat services" argument did *not* cover; the route-enumeration, RBAC-matrix and config-tier tests make guard coverage nearly free; `make check` is unchanged so the gate is felt by everyone immediately; **Phase 1 names a package-level number (≥85% on `src/hbd/admin/*`)**, not just the repo-wide one. **Watch for:** an `omit` line appearing in `pyproject.toml`; coverage parked at 80.4% for three PRs; a rising `# type: ignore` count under `src/hbd/admin/` |
-| **R9** | **The audit log's immutability is theatre.** One Postgres role means the REVOKE is reversible by its target; an unkeyed hash chain is recomputable by anyone who can write the table; and the 730-day sweep needs the very DELETE the REVOKE removes | Two roles as explicit Phase 1 work (`HBD_DB_MIGRATION_URL`, docker-compose init SQL, README); the REVOKE and its `SECURITY DEFINER` sweep function ship in **one** migration so neither exists without the other; an HMAC chain keyed on an environment-only secret; chain-head anchors written to a table **and to a log line**, so the head exists outside the database; and — the part that matters most — **when the two-role setup is absent, the migration skips the REVOKE and `/audit/verify` reports `chainProtection: "hmac-only"`, which the panel shows verbatim.** A control that is not deployed is reported as not deployed. **Watch for:** `audit_rows_deleted` staying 0 while the table grows; a `chainProtection` badge nobody has looked at in a month |
+| **R8** | **Coverage and mypy gates erode.** A large new package lands faster than its tests; someone adds `omit = ["src/bayram/admin/*"]` "temporarily" and the most security-sensitive code becomes the only untested code | Phase 1 is sliced into four independently mergeable PRs, each green; the composition root is covered by an ASGI smoke suite through `httpx.ASGITransport` (already a dependency), which is what the draft's "thin routers, fat services" argument did *not* cover; the route-enumeration, RBAC-matrix and config-tier tests make guard coverage nearly free; `make check` is unchanged so the gate is felt by everyone immediately; **Phase 1 names a package-level number (≥85% on `src/bayram/admin/*`)**, not just the repo-wide one. **Watch for:** an `omit` line appearing in `pyproject.toml`; coverage parked at 80.4% for three PRs; a rising `# type: ignore` count under `src/bayram/admin/` |
+| **R9** | **The audit log's immutability is theatre.** One Postgres role means the REVOKE is reversible by its target; an unkeyed hash chain is recomputable by anyone who can write the table; and the 730-day sweep needs the very DELETE the REVOKE removes | Two roles as explicit Phase 1 work (`BAYRAM_DB_MIGRATION_URL`, docker-compose init SQL, README); the REVOKE and its `SECURITY DEFINER` sweep function ship in **one** migration so neither exists without the other; an HMAC chain keyed on an environment-only secret; chain-head anchors written to a table **and to a log line**, so the head exists outside the database; and — the part that matters most — **when the two-role setup is absent, the migration skips the REVOKE and `/audit/verify` reports `chainProtection: "hmac-only"`, which the panel shows verbatim.** A control that is not deployed is reported as not deployed. **Watch for:** `audit_rows_deleted` staying 0 while the table grows; a `chainProtection` badge nobody has looked at in a month |
 | **R10** | **A privacy control is added to the schema and never added to the guard tests.** `tables_with_personal_data` and `_EXPECTED_TABLES` are both hardcoded lists in the test suite; a new table is silently exempt from the first and breaks the second | `_EXPECTED_TABLES` is derived from `Base.metadata` in Phase 1 so it cannot drift again; `tables_with_personal_data` gains an entry in the same PR as every new text-holding table (Phases 1, 3, 6 each name it in their Modified list); the enum-length test closes the parallel SQLite-passes/Postgres-fails hole. **Watch for:** a new `String(...)` column holding free text with no `*_expires_at` sibling; a migration PR that touches no test file |
 
 ---
@@ -3029,9 +3029,9 @@ making them.
 9. **`tests/test_db/test_migrations.py` is in every DDL phase's Modified list**, and Phase 1 derives
    `_EXPECTED_TABLES` from `Base.metadata` (keeping a `_CORE_TABLES` regression guard) so it cannot
    break again. Same for `tables_with_personal_data` in `test_privacy_constraints.py`.
-10. **A disjoint `AdminErrorCode` enum** in `src/hbd/admin/errors.py` with the full status mapping
+10. **A disjoint `AdminErrorCode` enum** in `src/bayram/admin/errors.py` with the full status mapping
     (401/403/409/415/416 included) and a test that no admin code can reach `translate()`. `ErrorCode`
-    is not extended, because `HbdError.user_message_key` drives customer-facing copy.
+    is not extended, because `BayramError.user_message_key` drives customer-facing copy.
 11. **`Storage.open_range` is a public protocol member**, so the admin service depends on the
     protocol instead of `LocalFileStorage._resolve`, and the S3 answer in open question 6 has
     something to implement.
@@ -3061,7 +3061,7 @@ making them.
 19. **`database_url` and `redis_url` are SECRET tier**, absent from `GET /config` at every role; a
     derived `databaseHost`/`redisHost` is returned instead. The draft let role V read the database
     password.
-20. **Every `HBD_ADMIN_*` field is structurally unreachable by an override** because it lives on
+20. **Every `BAYRAM_ADMIN_*` field is structurally unreachable by an override** because it lives on
     `AdminSettings`, plus a `SECURITY_CRITICAL` rejection list and a parametrised test. The draft's
     own exhaustiveness test demanded a tier for them and none was assigned; had any been editable, a
     session could have disabled the CSRF origin check or re-enabled the config kill switch.
@@ -3119,7 +3119,7 @@ making them.
 40. **`/orders/{id}/timeline` returns a `sources` array**, so Phase 1 renders "chat capture not
     enabled" rather than an empty section, and `stateTransitions` is labelled `inferred` because no
     order-event table exists.
-41. **Phase 1 names a package coverage number (≥85% on `src/hbd/admin/*`) and adds an ASGI smoke
+41. **Phase 1 names a package coverage number (≥85% on `src/bayram/admin/*`) and adds an ASGI smoke
     suite** through `httpx.ASGITransport` covering `app.py`, `bootstrap.py` and the middleware stack —
     the modules thin routers and fat services do not reach.
 42. **The Tier-1 "effect takes hold" column has two values only** — "next order" and "on refresh" —
@@ -3165,7 +3165,7 @@ making them.
   person, so keying an erasure on it would be wrong in most cases and right in a few. The 90-day
   `reason_text` clock erases the free text for **every** action, which is strictly broader and needs
   no keying.
-- **"Give `Settings` an `HBD_ADMIN_ONLY=1` mode relaxing the three `min_length=1` vendor fields."**
+- **"Give `Settings` an `BAYRAM_ADMIN_ONLY=1` mode relaxing the three `min_length=1` vendor fields."**
   Rejected in favour of a separate `AdminSettings` model. A relaxation mode makes a key-free boot
   representable everywhere, including in the worker where it must stay impossible, and it leaves the
   vendor fields present-but-empty on the object the admin process holds. A model with no such field

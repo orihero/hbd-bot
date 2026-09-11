@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from hbd.contracts import (
+from bayram.contracts import (
     Err,
     Language,
     LlmProvider,
@@ -19,11 +19,11 @@ from hbd.contracts import (
     Ok,
     SttProvider,
 )
-from hbd.errors import ErrorCode
-from hbd.pipeline.content import GreetingsPayload, LyricsPayload
-from hbd.pipeline.moderation import ModerationPayload
-from hbd.providers.llm.fake import FakeLlmProvider
-from hbd.runtime.fakes import MISHEARD_TRANSCRIPT, KeytermSttProvider
+from bayram.errors import ErrorCode
+from bayram.pipeline.content import GreetingsPayload, LyricsPayload
+from bayram.pipeline.moderation import ModerationPayload
+from bayram.providers.llm.fake import FakeLlmProvider
+from bayram.runtime.fakes import MISHEARD_TRANSCRIPT, KeytermSttProvider
 
 LYRICS_PROMPT = (
     'The recipient is named "Gʻulomjon".\n'

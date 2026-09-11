@@ -31,12 +31,12 @@ from aiogram.types import (
     User,
 )
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.deps import BotDeps
-from hbd.bot.gate import InboundGateMiddleware
-from hbd.config import Settings
-from hbd.contracts import BotBlockSource, Result, err, ok
-from hbd.errors import StorageError
+from bayram.bot.app import build_dispatcher
+from bayram.bot.deps import BotDeps
+from bayram.bot.gate import InboundGateMiddleware
+from bayram.config import Settings
+from bayram.contracts import BotBlockSource, Result, err, ok
+from bayram.errors import StorageError
 from tests.test_bot.conftest import (
     BOT_ID,
     CHAT_ID,
@@ -101,7 +101,7 @@ def _membership_update(
     """One ``my_chat_member`` update, as Telegram sends it for a one-to-one chat."""
     chat = Chat(id=chat_id, type=chat_type)
     who = User(id=chat_id, is_bot=False, first_name="Dilnoza")
-    me = User(id=BOT_ID, is_bot=True, first_name="hbd")
+    me = User(id=BOT_ID, is_bot=True, first_name="Bayram")
     old = ChatMemberMember(user=me, status=ChatMemberStatus.MEMBER)
     new: ChatMemberBanned | ChatMemberMember | ChatMemberLeft | ChatMemberRestricted
     if status is ChatMemberStatus.KICKED:
@@ -308,7 +308,7 @@ def test_the_inbound_gate_is_not_installed_on_the_membership_observer(
 def test_the_membership_router_is_the_only_one_on_that_observer(settings: Settings) -> None:
     """Its position in the include list is not load-bearing, and this is why.
 
-    Every other ordering argument in ``hbd.bot.handlers`` is about ``message`` and
+    Every other ordering argument in ``bayram.bot.handlers`` is about ``message`` and
     ``callback_query``. This router touches neither, so it can neither swallow an update from
     that ladder nor be swallowed by it — which is what makes it safe to list first.
     """

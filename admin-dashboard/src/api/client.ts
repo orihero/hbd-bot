@@ -24,7 +24,7 @@ import {
   RETRY_AFTER_HEADER,
 } from "./constants";
 
-/** The error envelope every hbd admin failure comes back in — `render_envelope`'s shape. */
+/** The error envelope every bayram admin failure comes back in — `render_envelope`'s shape. */
 interface ErrorEnvelope {
   readonly code: string;
   readonly message: string;
@@ -87,7 +87,7 @@ export const CLIENT_ERROR_CODES = {
 /**
  * Read the CSRF token the server set.
  *
- * `__Host-hbd_csrf` is the one cookie that is not HttpOnly, and that is the point: the SPA
+ * `__Host-bayram_csrf` is the one cookie that is not HttpOnly, and that is the point: the SPA
  * echoes it in `X-CSRF-Token`, which a cross-site form cannot do. `null` when there is no
  * session — a non-GET sent without it is a 403 `CSRF_REJECTED`, which is the right answer.
  */

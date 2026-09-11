@@ -1,6 +1,6 @@
 """The two identified lists: what they RANK by, and who they must not silently drop.
 
-These are the only two reads in ``hbd.db.admin`` that carry a customer's identity, so the
+These are the only two reads in ``bayram.db.admin`` that carry a customer's identity, so the
 tests here are about the two things that go wrong on an identified list and produce no
 error either time.
 
@@ -43,19 +43,19 @@ from uuid import uuid4
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.checkout import STUB_PROVIDER_NAME
-from hbd.contracts import Language, OrderState
-from hbd.db.admin.audience_lists import (
+from bayram.checkout import STUB_PROVIDER_NAME
+from bayram.contracts import Language, OrderState
+from bayram.db.admin.audience_lists import (
     MAX_RECENT_SUBSCRIBERS,
     recent_subscribers,
     top_generators,
 )
-from hbd.db.admin.sql import TimeWindow
-from hbd.db.enums import PlanKind
-from hbd.db.models.order import OrderRow
-from hbd.db.models.plan_purchase import PlanPurchaseRow
-from hbd.db.models.user import UserRow
-from hbd.db.models.user_profile import UserProfileRow
+from bayram.db.admin.sql import TimeWindow
+from bayram.db.enums import PlanKind
+from bayram.db.models.order import OrderRow
+from bayram.db.models.plan_purchase import PlanPurchaseRow
+from bayram.db.models.user import UserRow
+from bayram.db.models.user_profile import UserProfileRow
 from tests.conftest import FIXED_NOW
 
 _NOW: Final[datetime] = FIXED_NOW

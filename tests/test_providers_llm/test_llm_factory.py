@@ -1,6 +1,6 @@
 """Which vendor answers is a configuration decision, made in exactly one place.
 
-The selector is explicit (``HBD_LLM_PROVIDER`` / ``HBD_LLM_FALLBACK_PROVIDER``). It used
+The selector is explicit (``BAYRAM_LLM_PROVIDER`` / ``BAYRAM_LLM_FALLBACK_PROVIDER``). It used
 to be inferred from a ``gemini-*`` model-id prefix; these tests now pin the declared
 behaviour, including that the model id no longer changes the transport.
 """
@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.config import Settings
-from hbd.contracts import LlmProvider
-from hbd.errors import ConfigError
-from hbd.providers.llm.factory import build_fallback_llm_provider, build_llm_provider
-from hbd.providers.llm.gemini import GeminiLlmProvider
-from hbd.providers.llm.openai_compat import DEFAULT_BASE_URL, OpenAiCompatLlmProvider
+from bayram.config import Settings
+from bayram.contracts import LlmProvider
+from bayram.errors import ConfigError
+from bayram.providers.llm.factory import build_fallback_llm_provider, build_llm_provider
+from bayram.providers.llm.gemini import GeminiLlmProvider
+from bayram.providers.llm.openai_compat import DEFAULT_BASE_URL, OpenAiCompatLlmProvider
 
 
 def test_the_default_configuration_routes_to_the_openai_compatible_adapter(
@@ -65,7 +65,7 @@ def test_an_unknown_selector_is_refused_by_config(settings: Settings) -> None:
 def test_a_missing_primary_key_is_a_config_error_naming_the_variable(
     settings: Settings,
 ) -> None:
-    with pytest.raises(ConfigError, match="HBD_LLM_API_KEY"):
+    with pytest.raises(ConfigError, match="BAYRAM_LLM_API_KEY"):
         build_llm_provider(settings.model_copy(update={"llm_api_key": ""}))
 
 
@@ -85,7 +85,7 @@ def test_the_default_fallback_is_the_openai_compatible_adapter(settings: Setting
 
 
 def test_a_self_hosted_fallback_host_is_configurable(settings: Settings) -> None:
-    # Arrange: the whole reason HBD_LLM_FALLBACK_BASE_URL exists.
+    # Arrange: the whole reason BAYRAM_LLM_FALLBACK_BASE_URL exists.
     configured = settings.model_copy(
         update={
             "llm_fallback_api_key": "k",

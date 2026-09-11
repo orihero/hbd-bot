@@ -35,7 +35,7 @@ UNIQUE constraint because it is also the lookup key on the write path, exactly l
 ``admin_sessions.token_sha256`` in ``0005``.
 
 Both enums are spelled out as non-native ``VARCHAR``s rather than imported from
-``hbd.db.enums``: migrations must not import application code (a test asserts it), and a
+``bayram.db.enums``: migrations must not import application code (a test asserts it), and a
 native Postgres enum would make every later member a lock-taking ``ALTER TYPE``.
 """
 
@@ -54,7 +54,7 @@ depends_on: Sequence[str] | None = None
 _ACCOUNTS = "credit_accounts"
 _LEDGER = "credit_ledger"
 
-#: Matches ``hbd.db.models.credit_ledger._DELTA_MATCHES_KIND``, spelled literally because a
+#: Matches ``bayram.db.models.credit_ledger._DELTA_MATCHES_KIND``, spelled literally because a
 #: migration must keep working after the enum it mirrors is refactored or deleted.
 _DELTA_MATCHES_KIND = (
     "(kind IN ('grant', 'refund') AND delta > 0)"
@@ -87,7 +87,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid(), nullable=False),
         # Nullable only so that erasure has somewhere to go: every writer supplies an id,
         # and a NULL means `/forget` ran and stripped this row of its owner while leaving
-        # the movement itself behind. See `hbd.db.credit_erasure.forget_account`.
+        # the movement itself behind. See `bayram.db.credit_erasure.forget_account`.
         sa.Column("telegram_user_id", sa.BigInteger(), nullable=True),
         sa.Column(
             "kind",

@@ -40,7 +40,7 @@ export const FORCED_ROTATION_NOTE =
 
 /** The dev-only 403 that looks like a bug and is a correctly-configured origin check. */
 export const ORIGIN_REJECTED_HINT =
-  "In development this means HBD_ADMIN_PUBLIC_ORIGIN does not match the address in the URL bar. The dev proxy keeps the browser's Origin on purpose.";
+  "In development this means BAYRAM_ADMIN_PUBLIC_ORIGIN does not match the address in the URL bar. The dev proxy keeps the browser's Origin on purpose.";
 
 /** Seconds left on a `Retry-After`, floored at zero. `null` when the server sent none. */
 export function retrySecondsLeft(until: number | null, now: number): number | null {

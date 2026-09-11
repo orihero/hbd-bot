@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hbd.providers.tts.markup import (
+from bayram.providers.tts.markup import (
     NAME_PLACEHOLDER,
     apply_mood_tag,
     apply_name,

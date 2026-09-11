@@ -26,15 +26,15 @@ import httpx
 import pytest
 from pydantic import BaseModel, Field
 
-from hbd.config import Settings
-from hbd.contracts import CostSource, LlmRequest, Ok, Vendor, VendorOperation
-from hbd.errors import ErrorCode
-from hbd.providers.llm.factory import build_fallback_llm_provider, build_llm_provider
-from hbd.providers.llm.fake import FakeLlmProvider
-from hbd.providers.llm.gemini import GeminiLlmProvider
-from hbd.providers.llm.openai_compat import OpenAiCompatLlmProvider
-from hbd.providers.llm.pricing import TokenPricing
-from hbd.usage import UsageSink, VendorUsage
+from bayram.config import Settings
+from bayram.contracts import CostSource, LlmRequest, Ok, Vendor, VendorOperation
+from bayram.errors import ErrorCode
+from bayram.providers.llm.factory import build_fallback_llm_provider, build_llm_provider
+from bayram.providers.llm.fake import FakeLlmProvider
+from bayram.providers.llm.gemini import GeminiLlmProvider
+from bayram.providers.llm.openai_compat import OpenAiCompatLlmProvider
+from bayram.providers.llm.pricing import TokenPricing
+from bayram.usage import UsageSink, VendorUsage
 from tests.test_providers_llm.conftest import gemini_response, mock_client, openai_response
 
 
@@ -558,7 +558,7 @@ async def test_a_fake_call_is_recorded_and_visibly_excluded_from_spend() -> None
 def test_the_shipped_base_url_is_recognised_as_an_openrouter_bill(settings: Settings) -> None:
     """The adapter is chosen by the setting; the INVOICE is read off the host.
 
-    ``HBD_LLM_PROVIDER=openai`` pointed at openrouter.ai is an OpenRouter bill however the
+    ``BAYRAM_LLM_PROVIDER=openai`` pointed at openrouter.ai is an OpenRouter bill however the
     wire format is spelled, and the host is the only fact in the configuration that knows.
     """
     # Arrange / Act

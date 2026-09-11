@@ -42,14 +42,14 @@ import httpx
 import pytest
 import sqlalchemy as sa
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.errors import AdminErrorCode
-from hbd.admin.routers.credits import USER_CREDITS_GRANT_PATH, USER_CREDITS_PATH, admin_actor
-from hbd.admin.schemas.credits import MAX_GRANT_CREDITS
-from hbd.db.enums import AdminRole, AuditAction, AuditReasonCode, CreditEntryKind, CreditReason
-from hbd.db.models.admin_audit import AdminAuditRow
-from hbd.db.models.credit_account import CreditAccountRow
-from hbd.db.models.credit_ledger import ACTOR_LENGTH, CreditLedgerRow
+from bayram.admin.container import AdminContainer
+from bayram.admin.errors import AdminErrorCode
+from bayram.admin.routers.credits import USER_CREDITS_GRANT_PATH, USER_CREDITS_PATH, admin_actor
+from bayram.admin.schemas.credits import MAX_GRANT_CREDITS
+from bayram.db.enums import AdminRole, AuditAction, AuditReasonCode, CreditEntryKind, CreditReason
+from bayram.db.models.admin_audit import AdminAuditRow
+from bayram.db.models.credit_account import CreditAccountRow
+from bayram.db.models.credit_ledger import ACTOR_LENGTH, CreditLedgerRow
 from tests.test_admin.conftest import (
     NOW,
     PASSWORD,

@@ -14,7 +14,7 @@
  * Three decisions here are load-bearing.
  *
  * **The server is the real admin API.** `webServer` runs `tests/e2e/serve_admin_e2e.py`,
- * which builds `hbd.admin.app.create_app` over the same in-memory SQLite and dictionary
+ * which builds `bayram.admin.app.create_app` over the same in-memory SQLite and dictionary
  * Redis the Python unit suite uses. So the CSP the browser enforces is the one
  * `SecurityHeadersMiddleware` wrote — nothing about the policy is restated on this side —
  * and the run needs no Postgres, no Redis, no network, no vendor key and no ffmpeg.
@@ -39,7 +39,7 @@ import { fileURLToPath } from "node:url";
 import { defineConfig, devices } from "@playwright/test";
 
 /** Kept in step with `HOST`/`PORT` in `tests/e2e/serve_admin_e2e.py`. */
-const PORT = Number(process.env.HBD_E2E_PORT ?? "8099");
+const PORT = Number(process.env.BAYRAM_E2E_PORT ?? "8099");
 const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 /** The repository root — `admin-ui/`'s parent. The harness is a `tests.e2e` module there. */
@@ -72,7 +72,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `${process.env.HBD_PYTHON ?? ".venv/bin/python"} -m tests.e2e.serve_admin_e2e`,
+    command: `${process.env.BAYRAM_PYTHON ?? ".venv/bin/python"} -m tests.e2e.serve_admin_e2e`,
     cwd: REPO_ROOT,
     url: `${BASE_URL}/healthz`,
     // Never reuse: a server left running from an earlier attempt holds an earlier seed,
@@ -81,6 +81,6 @@ export default defineConfig({
     timeout: 90_000,
     stdout: "pipe",
     stderr: "pipe",
-    env: { HBD_E2E_PORT: String(PORT) },
+    env: { BAYRAM_E2E_PORT: String(PORT) },
   },
 });

@@ -5,9 +5,9 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from hbd.contracts import Err, Ok
-from hbd.errors import ErrorCode
-from hbd.providers.llm.transport import (
+from bayram.contracts import Err, Ok
+from bayram.errors import ErrorCode
+from bayram.providers.llm.transport import (
     MAX_ERROR_BODY_CHARS,
     read_path,
     read_str,

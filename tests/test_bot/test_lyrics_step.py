@@ -17,17 +17,17 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Update
 
-from hbd.bot.callbacks import LanguageCB, LanguageSlot, NavAction, NavCB
-from hbd.bot.draft import WizardDraft, load_draft
-from hbd.bot.handlers.common import show_step
-from hbd.bot.handlers.lyrics import MAX_LYRIC_WRITES
-from hbd.bot.i18n import translate
-from hbd.bot.keyboards import lyrics_keyboard
-from hbd.bot.lyrics_entry import MAX_LYRIC_CHARS, MIN_LYRIC_CHARS
-from hbd.bot.states import Wizard, WizardStep
-from hbd.contracts import Genre, Language, Occasion, Ok, VoiceGender
-from hbd.errors import ProviderTimeoutError
-from hbd.watermark import WATERMARK_HANDLE
+from bayram.bot.callbacks import LanguageCB, LanguageSlot, NavAction, NavCB
+from bayram.bot.draft import WizardDraft, load_draft
+from bayram.bot.handlers.common import show_step
+from bayram.bot.handlers.lyrics import MAX_LYRIC_WRITES
+from bayram.bot.i18n import translate
+from bayram.bot.keyboards import lyrics_keyboard
+from bayram.bot.lyrics_entry import MAX_LYRIC_CHARS, MIN_LYRIC_CHARS
+from bayram.bot.states import Wizard, WizardStep
+from bayram.contracts import Genre, Language, Occasion, Ok, VoiceGender
+from bayram.errors import ProviderTimeoutError
+from bayram.watermark import WATERMARK_HANDLE
 from tests.conftest import make_name
 from tests.test_bot.conftest import (
     LYRIC_VERSE,
@@ -153,13 +153,13 @@ async def test_the_preview_carries_the_invite_below_the_words_and_never_inside_t
     """The lyric is the free half of the product, so it is also the half people forward.
 
     The preview is therefore watermarked — ``watermark.invite``, composed in
-    :func:`hbd.bot.screens._lyrics_screen` rather than baked into the four catalogues' two
+    :func:`bayram.bot.screens._lyrics_screen` rather than baked into the four catalogues' two
     preview templates. Two things are asserted and the second is the load-bearing one:
 
     * the line is on the screen, in the customer's UI language;
     * it is NOT in the ``LyricDraft``. What is in the draft is what is handed to the music
       vendor and sung, so a mark that drifted in there would be sung to a real person on
-      their birthday. That is the hard invariant ``hbd.watermark`` is a leaf for, and this
+      their birthday. That is the hard invariant ``bayram.watermark`` is a leaf for, and this
       is the screen where it is easiest to break by accident.
 
     The bot-written path is asserted here; the customer-written one is asserted the same way

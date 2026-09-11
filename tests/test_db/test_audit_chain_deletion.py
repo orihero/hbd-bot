@@ -24,7 +24,7 @@ from typing import Final
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.db.admin.audit import (
+from bayram.db.admin.audit import (
     AuditEntry,
     ChainVerification,
     append,
@@ -32,7 +32,7 @@ from hbd.db.admin.audit import (
     write_head_anchor,
     write_truncation_anchor,
 )
-from hbd.db.enums import AdminRole, AuditAction, AuditReasonCode
+from bayram.db.enums import AdminRole, AuditAction, AuditReasonCode
 
 KEY: Final[str] = "a-test-hmac-key-of-more-than-32-characters"
 NOW: Final[datetime] = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)

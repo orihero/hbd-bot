@@ -22,14 +22,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.callbacks import NavAction, NavCB
-from hbd.bot.deps import BotDeps
-from hbd.bot.i18n import translate
-from hbd.bot.payment import DEFAULT_CURRENCY, FREE_AMOUNT_MINOR, NoopPaymentProvider
-from hbd.bot.states import Wizard
-from hbd.config import Settings
-from hbd.contracts import Language, Ok, PaymentAuthorization, PaymentProvider, Result, ok
+from bayram.bot.app import build_dispatcher
+from bayram.bot.callbacks import NavAction, NavCB
+from bayram.bot.deps import BotDeps
+from bayram.bot.i18n import translate
+from bayram.bot.payment import DEFAULT_CURRENCY, FREE_AMOUNT_MINOR, NoopPaymentProvider
+from bayram.bot.states import Wizard
+from bayram.config import Settings
+from bayram.contracts import Language, Ok, PaymentAuthorization, PaymentProvider, Result, ok
 from tests.test_bot.conftest import (
     CHAT_ID,
     USER_ID,

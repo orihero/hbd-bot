@@ -41,17 +41,17 @@ from uuid import UUID, uuid4
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import CostSource, Language, OrderState, UsageTask, Vendor, VendorOperation
-from hbd.db.admin.sql import TimeWindow
-from hbd.db.admin.vendor_usage import (
+from bayram.contracts import CostSource, Language, OrderState, UsageTask, Vendor, VendorOperation
+from bayram.db.admin.sql import TimeWindow
+from bayram.db.admin.vendor_usage import (
     cost_per_delivered_song_by_vendor,
     cost_provenance,
     units_per_delivered_song_by_vendor,
 )
-from hbd.db.admin.views import CostProvenance, VendorCostPerSong, VendorUnitsPerSong
-from hbd.db.models.order import OrderRow
-from hbd.db.models.user import UserRow
-from hbd.db.models.vendor_usage import VendorUsageRow
+from bayram.db.admin.views import CostProvenance, VendorCostPerSong, VendorUnitsPerSong
+from bayram.db.models.order import OrderRow
+from bayram.db.models.user import UserRow
+from bayram.db.models.vendor_usage import VendorUsageRow
 from tests.conftest import FIXED_NOW
 
 #: The instant every window below is anchored to. Nothing is delivered ON it.

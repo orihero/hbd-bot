@@ -2,7 +2,7 @@
 
 Three separate things, all of them shipped in the slice that made the purge job run:
 
-* :class:`hbd.db.purge.PurgeReport`'s ``has_work_remaining`` used to be
+* :class:`bayram.db.purge.PurgeReport`'s ``has_work_remaining`` used to be
   ``total_rows_affected > 0``, which is a different predicate wearing that name's
   docstring. The tests below pin the real meaning — a batch came back FULL — from both
   sides, because a property that is always true and a property that is always false both
@@ -21,17 +21,17 @@ from pathlib import Path
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import OrderState, is_ok
-from hbd.db.admin import retention as retention_queries
-from hbd.db.enums import PurgeTrigger
-from hbd.db.models.purge_run import PurgeRunRow
-from hbd.db.purge import (
+from bayram.contracts import OrderState, is_ok
+from bayram.db.admin import retention as retention_queries
+from bayram.db.enums import PurgeTrigger
+from bayram.db.models.purge_run import PurgeRunRow
+from bayram.db.purge import (
     DEFAULT_PURGE_BATCH_SIZE,
     PURGE_RUN_RETENTION_DAYS,
     PurgeReport,
     purge_expired,
 )
-from hbd.db.repository import SqlKitRepository
+from bayram.db.repository import SqlKitRepository
 from tests.test_db.conftest import MovableClock, build_kit, new_order
 
 _A_YEAR = 365

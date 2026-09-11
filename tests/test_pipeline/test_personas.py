@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from hbd.contracts import Language, VoiceDescriptor, VoiceGender
-from hbd.pipeline.personas import select_voices
+from bayram.contracts import Language, VoiceDescriptor, VoiceGender
+from bayram.pipeline.personas import select_voices
 from tests.test_pipeline.conftest import failure_of, value_of
 
 

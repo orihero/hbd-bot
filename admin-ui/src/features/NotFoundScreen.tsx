@@ -4,7 +4,7 @@
  * Reached only for a path the SPA itself does not route. The API's own 404s are a different
  * thing entirely and arrive as `{ok: false, code: "NOT_FOUND"}` from the client — the server
  * never serves this page for an `/api/**` path (see `_mount_spa` in
- * `src/hbd/admin/app.py`), because a JSON caller that got HTML back would be told the wrong
+ * `src/bayram/admin/app.py`), because a JSON caller that got HTML back would be told the wrong
  * story about what went wrong.
  *
  * The reskin gives it the language's own shape for an absence, the same one `EmptyState`

@@ -11,7 +11,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { cleanup } from "@testing-library/react";
-import { afterEach, beforeAll, vi } from "vitest";
+import { afterEach, vi } from "vitest";
 
 /*
  * REPAIR 1 — the top-layer pseudo-classes, answered directly instead of through the selector
@@ -99,30 +99,35 @@ if (storageHost.localStorage === undefined || storageHost.sessionStorage === und
   }
 }
 
-beforeAll(() => {
-  /*
-   * `matchMedia` is genuinely missing from jsdom, and `src/state/theme.ts` calls it on the
-   * first render of the shell (`prefers-color-scheme`), as does `src/app/NavRail.tsx` for its
-   * compact breakpoint. Guarded on the TYPE, not on `"matchMedia" in window`: the property can
-   * be present and `undefined`, in which case an `in` check passes, the stub is never
-   * installed, and the app throws `window.matchMedia is not a function` from inside a store.
-   */
-  if (typeof window.matchMedia !== "function") {
-    Object.defineProperty(window, "matchMedia", {
-      writable: true,
-      value: (query: string) => ({
-        matches: false,
-        media: query,
-        onchange: null,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      }),
-    });
-  }
-});
+/*
+ * `matchMedia` is genuinely missing from jsdom, and `src/state/theme.ts` calls it on the
+ * first render of the shell (`prefers-color-scheme`), as does `src/app/NavRail.tsx` for its
+ * compact breakpoint. Guarded on the TYPE, not on `"matchMedia" in window`: the property can
+ * be present and `undefined`, in which case an `in` check passes, the stub is never
+ * installed, and the app throws `window.matchMedia is not a function` from inside a store.
+ *
+ * At MODULE scope for REPAIR 2's reason, and it was a `beforeAll` until a test file imported a
+ * screen whose graph reaches `state/theme.ts`. That store calls `systemPrefersDark()` while
+ * zustand's `create` is still evaluating — module initialisation, which happens when Vitest
+ * COLLECTS the test file, and collection is finished long before any `beforeAll` registered
+ * here gets to run. The symptom is a suite that fails with `window.matchMedia is not a
+ * function` and zero tests collected, pointing at a store nobody in the test called.
+ */
+if (typeof window.matchMedia !== "function") {
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }),
+  });
+}
 
 afterEach(() => {
   cleanup();

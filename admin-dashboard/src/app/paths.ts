@@ -42,9 +42,38 @@ export const PATH = {
    * an operator reaches from the primary action on two screens.
    */
   broadcastDetail: "/broadcasts/:broadcastId",
+  /*
+   * The Payme rail. Three paths, and the section's landing screen is the payments LIST: the
+   * filters that narrow it and the lookup that jumps out of it are the whole screen, and the
+   * status the board used to explain at length is one pause control in the toolbar.
+   */
+  rail: "/billing",
+  railCalls: "/billing/calls",
+  /** The dossier's parent segment. Not a route of its own — the list lives at `rail`. */
+  railIntents: "/billing/intents",
+  /** The router's PATTERN. Never navigate to this — call `intentDetailPath`. */
+  railIntentDetail: "/billing/intents/:intentId",
   audit: "/audit",
   admins: "/admins",
 } as const;
+
+/**
+ * One payment, by its `payment_intents.id`.
+ *
+ * A payment-intent UUID carries nothing about a customer, which is what makes it safe in an
+ * address bar — through history, referrers and screenshots. That is also why it, and not
+ * `publicRef`, is the URL key: the public reference is the string that crosses to Payme and
+ * gets read aloud over the phone, so it belongs in the LOOKUP box rather than in every link.
+ * `idempotencyKey` appears in neither, ever: it is shaped `topup:{tg}:{scope}:{seq}` and
+ * embeds the customer's Telegram id, which is the leak `publicRef` exists to prevent.
+ *
+ * The server insists on the same key for a second reason: every path parameter on this API is
+ * asserted to be a `UUID` or an `int`, so a `{publicRef}` route typed as a pattern-checked
+ * string would not have been mountable at all.
+ */
+export function intentDetailPath(intentId: string): string {
+  return `${PATH.railIntents}/${encodeURIComponent(intentId)}`;
+}
 
 /**
  * The wizard, opened on an audience the operator has already composed.

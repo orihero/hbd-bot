@@ -12,15 +12,15 @@ assertions below are the point rather than a garnish.
 
 from __future__ import annotations
 
-from hbd.contracts import Brief, Err, Order, OrderState, Result, err
-from hbd.db.models.order import FAILED_REASON_LENGTH
-from hbd.errors import (
+from bayram.contracts import Brief, Err, Order, OrderState, Result, err
+from bayram.db.models.order import FAILED_REASON_LENGTH
+from bayram.errors import (
     ErrorCode,
     ModerationRejectedError,
     StorageError,
 )
-from hbd.pipeline.events import PipelineStage
-from hbd.pipeline.outcome import PipelineOutcome
+from bayram.pipeline.events import PipelineStage
+from bayram.pipeline.outcome import PipelineOutcome
 from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_order, recipient_of
 from tests.test_pipeline.conftest import Studio, value_of
 
@@ -102,7 +102,7 @@ async def test_a_failure_reason_never_carries_the_note_the_name_or_the_models_qu
     reason = await _failed_reason_of(studio, order, moderator=IncidentModerator())
 
     # Assert — THIS is the assertion the test exists for. Every one of these strings is
-    # sitting in HbdError.context at the moment the reason is composed.
+    # sitting in BayramError.context at the moment the reason is composed.
     assert INCIDENT_NOTE not in reason
     assert INCIDENT_MODEL_REASON not in reason
     assert UZBEK_NAME_CANONICAL not in reason
@@ -205,7 +205,7 @@ async def test_a_broken_progress_sink_does_not_stop_delivery(
 async def test_delivers_a_song_only_kit_when_greetings_are_switched_off(
     studio: Studio, ready_order: Order
 ) -> None:
-    """``HBD_GREETINGS_PER_KIT=0`` sells the song and the sheet, and buys no speech.
+    """``BAYRAM_GREETINGS_PER_KIT=0`` sells the song and the sheet, and buys no speech.
 
     Zero is a deliberate product setting, not a failure: it must not be confused with
     "every greeting failed", which still fails the order.

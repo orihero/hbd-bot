@@ -28,12 +28,12 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import is_ok
-from hbd.db.enums import IntentProduct, PaymentIntentState, PaymeState
-from hbd.db.models.payme_rpc_log import PaymeRpcLogRow
-from hbd.db.models.payme_transaction import PaymeTransactionRow
-from hbd.db.models.payment_intent import PaymentIntentRow
-from hbd.db.purge import purge_expired
+from bayram.contracts import is_ok
+from bayram.db.enums import IntentProduct, PaymentIntentState, PaymeState
+from bayram.db.models.payme_rpc_log import PaymeRpcLogRow
+from bayram.db.models.payme_transaction import PaymeTransactionRow
+from bayram.db.models.payment_intent import PaymentIntentRow
+from bayram.db.purge import purge_expired
 from tests.test_db.conftest import MovableClock
 
 #: Well outside 2**31. See the module docstring.
@@ -512,8 +512,8 @@ async def test_only_a_terminal_unpaid_intent_is_taken_by_the_four_hundred_day_cu
 def test_the_three_column_enums_mirror_their_application_counterparts_value_for_value() -> None:
     """The column enums are copies, and nothing but this file can see both halves.
 
-    ``hbd.db.enums`` deliberately does not import ``hbd.checkout`` or ``hbd.payme.protocol``,
-    and neither of those may import ``hbd.db`` — the layering is the whole architecture of
+    ``bayram.db.enums`` deliberately does not import ``bayram.checkout`` or ``bayram.payme.protocol``,
+    and neither of those may import ``bayram.db`` — the layering is the whole architecture of
     this rail. The cost is that every one of these three pairs is a value-for-value copy held
     together by nothing at runtime, and a drift is silent in the worst possible way: a member
     added on one side is written into a ``VARCHAR`` column that the reading side then cannot
@@ -528,9 +528,9 @@ def test_the_three_column_enums_mirror_their_application_counterparts_value_for_
     enum.
     """
     # Arrange
-    from hbd.checkout import PaymentIntentState as AppIntentState
-    from hbd.checkout import Product as AppProduct
-    from hbd.payme.protocol import PaymeState as WirePaymeState
+    from bayram.checkout import PaymentIntentState as AppIntentState
+    from bayram.checkout import Product as AppProduct
+    from bayram.payme.protocol import PaymeState as WirePaymeState
 
     # Act / Assert
     assert {member.value for member in IntentProduct} == {member.value for member in AppProduct}

@@ -7,13 +7,13 @@ printed after it, prose instead of a report, or the ``-inf`` a silent input prod
 
 from __future__ import annotations
 
-from hbd.audio.loudnorm import (
+from bayram.audio.loudnorm import (
     LoudnormMeasurement,
     extract_last_json_object,
     parse_loudnorm_report,
 )
-from hbd.contracts import is_err, is_ok
-from hbd.errors import ErrorCode
+from bayram.contracts import is_err, is_ok
+from bayram.errors import ErrorCode
 
 REPORT = """
 [Parsed_loudnorm_0 @ 0x7f8]

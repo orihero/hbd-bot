@@ -1,15 +1,15 @@
 """The prompts the model actually receives.
 
 There are two prompt systems in this repo and only one of them is ever sent. These tests
-pin the live one — ``hbd.pipeline.prompts`` — because the Uzbek orthography rules lived
+pin the live one — ``bayram.pipeline.prompts`` — because the Uzbek orthography rules lived
 for a long time in a template that no production call path could reach.
 """
 
 from __future__ import annotations
 
-from hbd.contracts import Brief, Language, Occasion
-from hbd.pipeline.prompts import OCCASION_BRIEFS, lyrics_system_prompt, lyrics_user_prompt
-from hbd.providers.llm.prompt_loader import language_guide
+from bayram.contracts import Brief, Language, Occasion
+from bayram.pipeline.prompts import OCCASION_BRIEFS, lyrics_system_prompt, lyrics_user_prompt
+from bayram.providers.llm.prompt_loader import language_guide
 
 TURNED_COMMA = "ʻ"
 MODIFIER_APOSTROPHE = "ʼ"

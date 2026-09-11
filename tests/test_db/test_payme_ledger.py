@@ -27,16 +27,16 @@ from uuid import uuid4
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.checkout import PaymentIntent, PaymentIntentOpener, Product
-from hbd.contracts import is_err, is_ok
-from hbd.db.enums import CreditEntryKind, PaymentIntentState, PaymeState
-from hbd.db.models import CreditAccountRow, CreditLedgerRow
-from hbd.db.models.payme_rpc_log import RPC_METHOD_LENGTH, PaymeRpcLogRow
-from hbd.db.models.payme_transaction import PaymeTransactionRow
-from hbd.db.models.payment_intent import SETTLE_NOTE_LENGTH, PaymentIntentRow
-from hbd.db.models.topup_purchase import TopupPurchaseRow
-from hbd.db.payme import SqlPaymeLedger
-from hbd.db.payme_sql import (
+from bayram.checkout import PaymentIntent, PaymentIntentOpener, Product
+from bayram.contracts import is_err, is_ok
+from bayram.db.enums import CreditEntryKind, PaymentIntentState, PaymeState
+from bayram.db.models import CreditAccountRow, CreditLedgerRow
+from bayram.db.models.payme_rpc_log import RPC_METHOD_LENGTH, PaymeRpcLogRow
+from bayram.db.models.payme_transaction import PaymeTransactionRow
+from bayram.db.models.payment_intent import SETTLE_NOTE_LENGTH, PaymentIntentRow
+from bayram.db.models.topup_purchase import TopupPurchaseRow
+from bayram.db.payme import SqlPaymeLedger
+from bayram.db.payme_sql import (
     anonymise_intents,
     claim_intent,
     hold_intent,
@@ -45,7 +45,7 @@ from hbd.db.payme_sql import (
     settlement_counts,
     transaction_count_for_intent,
 )
-from hbd.payme.ports import PaymeLedger
+from bayram.payme.ports import PaymeLedger
 from tests.test_db.conftest import MovableClock
 
 _USER: Final[int] = 8_912_345_678_901
@@ -105,7 +105,7 @@ def _the_bots_handle(opener: PaymentIntentOpener) -> PaymentIntentOpener:
     whose ``open_intent`` had drifted to a different signature, so the ``isinstance`` check
     below is worth little on its own. Passing the ledger through a parameter ANNOTATED as the
     protocol is what makes the type checker compare every argument name, default and return
-    type — the same mechanism ``hbd.checkout.PaymentIntentOpener``'s own docstring names.
+    type — the same mechanism ``bayram.checkout.PaymentIntentOpener``'s own docstring names.
     """
     return opener
 

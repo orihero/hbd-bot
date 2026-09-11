@@ -32,14 +32,14 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-import hbd.storage
-from hbd.contracts import Language, Ok, Result, StoredObject, err, is_err, is_ok, ok
-from hbd.db.models.user import UserRow
-from hbd.db.models.user_profile import UserProfileRow
-from hbd.db.user_profiles import SqlUserProfiles
-from hbd.db.users_sql import ensure_user
-from hbd.errors import StorageError
-from hbd.user_profiles import (
+import bayram.storage
+from bayram.contracts import Language, Ok, Result, StoredObject, err, is_err, is_ok, ok
+from bayram.db.models.user import UserRow
+from bayram.db.models.user_profile import UserProfileRow
+from bayram.db.user_profiles import SqlUserProfiles
+from bayram.db.users_sql import ensure_user
+from bayram.errors import StorageError
+from bayram.user_profiles import (
     AVATAR_MIME,
     UserProfile,
     UserProfileStore,
@@ -54,7 +54,7 @@ _NOON: Final[datetime] = datetime(2026, 9, 4, 12, 0, tzinfo=UTC)
 _ALICE: Final[int] = 71_001
 _BOB: Final[int] = 71_002
 
-#: The canonical spelling :func:`hbd.user_profiles.normalise_phone` produces. The store trusts
+#: The canonical spelling :func:`bayram.user_profiles.normalise_phone` produces. The store trusts
 #: what it is handed (there is exactly one definition of a valid number, and it is not here),
 #: so every fixture hands it E.164 exactly as onboarding would.
 _PHONE: Final[str] = "+998901234542"
@@ -68,7 +68,7 @@ _IMAGE: Final[bytes] = b"\xff\xd8\xff\xe0 a face"
 class _MemoryStorage:
     """A ``Storage`` that keeps objects in a dict and can be told to refuse a ``put``.
 
-    A real :class:`hbd.storage.LocalFileStorage` over ``tmp_path`` would work for the happy
+    A real :class:`bayram.storage.LocalFileStorage` over ``tmp_path`` would work for the happy
     path and could not produce the failure that matters: a ``put`` that returns ``Err``. That
     is not an exotic case — it is a full disk, a revoked bucket credential, a network blip —
     and it is the one that decides whether the row is allowed to claim an avatar. So the
@@ -161,7 +161,7 @@ def test_the_store_satisfies_the_user_profile_store_protocol(
     """The bot holds the protocol, never this class. ``runtime_checkable`` checks presence only.
 
     Which is exactly why this assertion is cheap and still worth making: a method renamed here
-    and not in ``hbd.user_profiles`` would leave the bot calling a name that no longer exists,
+    and not in ``bayram.user_profiles`` would leave the bot calling a name that no longer exists,
     and ``mypy --strict`` only catches that where a call site is annotated with the protocol.
     """
     # Arrange / Act
@@ -476,7 +476,7 @@ def test_normalise_phone_accepts_e164_and_refuses_everything_else(
 
 
 def test_avatar_key_is_a_fixed_filename_per_user() -> None:
-    """``users/{user_id}/avatar.jpg``, and it lives in ``hbd.user_profiles`` and NOT in ``hbd.storage``.
+    """``users/{user_id}/avatar.jpg``, and it lives in ``bayram.user_profiles`` and NOT in ``bayram.storage``.
 
     **The filename is fixed** so a customer who changes their photo is a re-download that
     overwrites the same object. A key carrying ``file_unique_id`` would leave one unreachable
@@ -489,9 +489,9 @@ def test_avatar_key_is_a_fixed_filename_per_user() -> None:
 
     **And it is in the leaf, not in the storage module.**
     ``tests/test_admin/test_asset_stream.py:712`` caps everything the admin package imports
-    from ``hbd.storage`` at ``{"LocalFileStorage", "archive_key"}``, and the avatar route must
+    from ``bayram.storage`` at ``{"LocalFileStorage", "archive_key"}``, and the avatar route must
     rebuild this key server-side rather than trust one off the wire. Defining it in
-    ``hbd.storage`` would fail that allowlist the day the route lands, and the cheap way out
+    ``bayram.storage`` would fail that allowlist the day the route lands, and the cheap way out
     of a failing import cap is to widen the cap — which is the whole point of it gone. So the
     absence is asserted here, where it is a decision, rather than discovered there, where it
     would look like an obstacle.
@@ -506,9 +506,9 @@ def test_avatar_key_is_a_fixed_filename_per_user() -> None:
     assert key == f"users/{user_id}/avatar.jpg"
     assert avatar_key(user_id) == key
 
-    # Assert — the builder is the leaf's, and hbd.storage got no edit at all.
-    assert avatar_key.__module__ == "hbd.user_profiles"
-    assert not hasattr(hbd.storage, "avatar_key")
+    # Assert — the builder is the leaf's, and bayram.storage got no edit at all.
+    assert avatar_key.__module__ == "bayram.user_profiles"
+    assert not hasattr(bayram.storage, "avatar_key")
 
 
 # ---------------------------------------------------------------------------
@@ -585,7 +585,7 @@ async def test_a_storage_failure_leaves_no_row_claiming_an_avatar(
 async def test_an_unrecognised_content_type_is_discarded_rather_than_stored(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
-    """One MIME, defined once, in ``hbd.user_profiles`` — and anything else is dropped.
+    """One MIME, defined once, in ``bayram.user_profiles`` — and anything else is dropped.
 
     If Telegram ever serves WebP profile photos, that must surface as a logged refusal rather
     than as a blob the admin panel serves under a content type it guessed. The route's

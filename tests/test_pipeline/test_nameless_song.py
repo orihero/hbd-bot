@@ -18,16 +18,16 @@ from __future__ import annotations
 import asyncio
 from uuid import uuid4
 
-from hbd.audio.lyric_sheet import render_lyric_sheet as render_typeset_sheet
-from hbd.config import Settings
-from hbd.contracts import Brief, LyricSection, is_ok
-from hbd.pipeline.assembly import validate_brief
-from hbd.pipeline.assets import render_lyric_sheet
-from hbd.pipeline.events import ProgressReporter
-from hbd.pipeline.lyric_shape import build_lyric_draft
-from hbd.pipeline.name_stage import render_song
-from hbd.pipeline.plan_builder import build_composition_plan
-from hbd.pipeline.retry import RetryPolicy
+from bayram.audio.lyric_sheet import render_lyric_sheet as render_typeset_sheet
+from bayram.config import Settings
+from bayram.contracts import Brief, LyricSection, is_ok
+from bayram.pipeline.assembly import validate_brief
+from bayram.pipeline.assets import render_lyric_sheet
+from bayram.pipeline.events import ProgressReporter
+from bayram.pipeline.lyric_shape import build_lyric_draft
+from bayram.pipeline.name_stage import render_song
+from bayram.pipeline.plan_builder import build_composition_plan
+from bayram.pipeline.retry import RetryPolicy
 from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_lyrics
 from tests.test_pipeline.conftest import (
     RecordingSink,

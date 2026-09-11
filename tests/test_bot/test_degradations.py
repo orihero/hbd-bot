@@ -21,19 +21,19 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.methods import EditMessageText, SendMessage
 
-from hbd.bot import i18n
-from hbd.bot.app import build_dispatcher
-from hbd.bot.callbacks import NavAction, NavCB
-from hbd.bot.delivery import DeliveryLedger, deliver_kit, order_reference
-from hbd.bot.deps import BotDeps
-from hbd.bot.i18n import translate
-from hbd.bot.progress import render_progress
-from hbd.bot.states import WIZARD_ORDER, Wizard, WizardStep, next_step, step_for_state
-from hbd.config import Settings
-from hbd.contracts import AssetKind, Err, Kit, Language, Result, err
-from hbd.errors import ErrorCode, PaymentError
-from hbd.pipeline.events import PipelineStage, ProgressStatus
-from hbd.pipeline.outcome import PipelineGap
+from bayram.bot import i18n
+from bayram.bot.app import build_dispatcher
+from bayram.bot.callbacks import NavAction, NavCB
+from bayram.bot.delivery import DeliveryLedger, deliver_kit, order_reference
+from bayram.bot.deps import BotDeps
+from bayram.bot.i18n import translate
+from bayram.bot.progress import render_progress
+from bayram.bot.states import WIZARD_ORDER, Wizard, WizardStep, next_step, step_for_state
+from bayram.config import Settings
+from bayram.contracts import AssetKind, Err, Kit, Language, Result, err
+from bayram.errors import ErrorCode, PaymentError
+from bayram.pipeline.events import PipelineStage, ProgressStatus
+from bayram.pipeline.outcome import PipelineGap
 from tests.conftest import make_asset
 from tests.test_bot.conftest import (
     CHAT_ID,

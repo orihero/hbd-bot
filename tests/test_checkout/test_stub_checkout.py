@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from hbd.checkout import (
+from bayram.checkout import (
     STUB_PROVIDER_NAME,
     CheckoutProvider,
     Plan,
@@ -31,7 +31,7 @@ from hbd.checkout import (
     PurchaseRequest,
     StubCheckoutProvider,
 )
-from hbd.contracts import is_ok
+from bayram.contracts import is_ok
 
 #: A fixed instant. Every predicate below is a pure function of an injected clock, so nothing
 #: here needs wall time and nothing here can go red at midnight.

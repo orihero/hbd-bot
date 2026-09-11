@@ -21,7 +21,7 @@ Three things here are security decisions rather than schema taste:
   operate the panel is not a privacy control.
 
 The enum is spelled out as a non-native ``VARCHAR`` rather than imported from
-``hbd.db.enums``: migrations must not import application code (a test asserts it), and a
+``bayram.db.enums``: migrations must not import application code (a test asserts it), and a
 native Postgres enum would make every later member a lock-taking ``ALTER TYPE``.
 """
 

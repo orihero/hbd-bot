@@ -2,13 +2,13 @@
  * `<ErrorCodeBadge>` — an error code plus the one thing the operator actually decides on.
  *
  * §11.3/§11.4: error badges add `↻` retryable (the caution hue) vs `■` terminal (the error
- * hue), driven by `HbdError.is_retryable`, because **"is retrying worth anything" is the
+ * hue), driven by `BayramError.is_retryable`, because **"is retrying worth anything" is the
  * real question and it is one glyph away**. Under the reskin the hue moved from a 2px left
  * rule to a tinted capsule ground and to the glyph; the glyph and the word are unchanged,
  * so the badge still reads in greyscale.
  *
  * `isRetryable` is TRI-STATE and the third state is not a falsy second one. `null` means no
- * class in `hbd.errors` claims this code — the system has no opinion, so the badge says
+ * class in `bayram.errors` claims this code — the system has no opinion, so the badge says
  * `unknown` (`UNKNOWN_RETRYABILITY_LABEL`) and offers no retry. "unknown" is an ABSENT
  * decision; "terminal" is a decision. Only the second justifies hiding a retry control as
  * settled, and rendering the first as the second is how an operator gives up on an order

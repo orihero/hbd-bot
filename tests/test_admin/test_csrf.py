@@ -19,7 +19,7 @@ from typing import Final
 
 import pytest
 
-from hbd.admin.csrf import (
+from bayram.admin.csrf import (
     ANY_ORIGIN,
     CSRF_COOKIE_NAME,
     CSRF_EXEMPT_METHODS,
@@ -31,14 +31,14 @@ from hbd.admin.csrf import (
     verify_csrf_token,
     verify_origin,
 )
-from hbd.admin.security.tokens import (
+from bayram.admin.security.tokens import (
     generate_csrf_token,
     issue_session_token,
     sha256_hex,
 )
-from hbd.db.base import SHA256_LENGTH
+from bayram.db.base import SHA256_LENGTH
 
-_ORIGIN: Final[str] = "https://admin.hbd.example"
+_ORIGIN: Final[str] = "https://admin.bayram.example"
 _STORED: Final[str] = "s7Q1m_stored-session-csrf-token"
 _CSRF_COLUMN_CHARS: Final[int] = 64
 
@@ -136,11 +136,11 @@ def test_a_missing_origin_on_a_state_change_is_refused() -> None:
 @pytest.mark.parametrize(
     "origin",
     [
-        "https://admin.hbd.example.attacker.test",
-        "http://admin.hbd.example",
-        "https://admin.hbd.example:8443",
+        "https://admin.bayram.example.attacker.test",
+        "http://admin.bayram.example",
+        "https://admin.bayram.example:8443",
         "https://evil.example",
-        "https://admin.hbd.example/",
+        "https://admin.bayram.example/",
     ],
 )
 def test_the_origin_match_is_exact(origin: str) -> None:
@@ -188,8 +188,8 @@ def test_the_wildcard_leaves_the_token_layer_standing() -> None:
 # ---------------------------------------------------------------------------
 def test_the_cookies_carry_the_host_prefix() -> None:
     """``__Host-`` is what forces Secure, Path=/ and no Domain — see §12.1 T2."""
-    assert CSRF_COOKIE_NAME == "__Host-hbd_csrf"
-    assert SESSION_COOKIE_NAME == "__Host-hbd_session"
+    assert CSRF_COOKIE_NAME == "__Host-bayram_csrf"
+    assert SESSION_COOKIE_NAME == "__Host-bayram_session"
     assert CSRF_HEADER_NAME == "X-CSRF-Token"
 
 

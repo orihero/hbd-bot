@@ -17,9 +17,9 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import is_err, is_ok
-from hbd.db.enums import CreditEntryKind, CreditReason
-from hbd.entitlements import (
+from bayram.contracts import is_err, is_ok
+from bayram.db.enums import CreditEntryKind, CreditReason
+from bayram.entitlements import (
     ChargeOutcome,
     EntitlementPolicy,
     InsufficientCreditsError,
@@ -28,7 +28,7 @@ from hbd.entitlements import (
     period_index_for,
     period_start,
 )
-from hbd.errors import EntitlementError, ErrorCode
+from bayram.errors import EntitlementError, ErrorCode
 from tests.test_db.conftest import MovableClock
 from tests.test_db.credit_helpers import (
     _ACTOR,

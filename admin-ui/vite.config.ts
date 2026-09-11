@@ -3,21 +3,21 @@
  *
  * Two decisions here are load-bearing and must not be "tidied".
  *
- * 1. `build.outDir = ../src/hbd/admin/static`. The wheel force-includes that directory via
+ * 1. `build.outDir = ../src/bayram/admin/static`. The wheel force-includes that directory via
  *    `[tool.hatch.build.targets.wheel] artifacts`; it is gitignored, because a committed
  *    bundle drifts from `admin-ui/` with nothing to notice. `emptyOutDir` is on so a
  *    renamed chunk from a previous build cannot be served alongside the current one.
  *
  * 2. `changeOrigin: false` on the dev proxy. This is a SECURITY decision, not a default.
  *    The admin API rejects any non-GET whose `Origin` header is not exactly
- *    `HBD_ADMIN_PUBLIC_ORIGIN` (`ORIGIN_REJECTED`, 403). With `changeOrigin: true` the proxy
+ *    `BAYRAM_ADMIN_PUBLIC_ORIGIN` (`ORIGIN_REJECTED`, 403). With `changeOrigin: true` the proxy
  *    would rewrite `Origin` to the target and every request would sail through the check —
  *    which means the one control standing between a cross-site page and a state change
  *    would be exercised by nobody until production. Forwarding the browser's real origin
  *    keeps the check live in dev.
  *
  *    Consequence, and it is deliberate: developing against a local API requires
- *    `HBD_ADMIN_PUBLIC_ORIGIN=http://localhost:5173` in `.env.admin`. If sign-in returns
+ *    `BAYRAM_ADMIN_PUBLIC_ORIGIN=http://localhost:5173` in `.env.admin`. If sign-in returns
  *    403 `ORIGIN_REJECTED` in dev, that variable is the answer — do not flip this flag.
  *
  *    The session cookies are `__Host-` prefixed and therefore `Secure`. `http://localhost`
@@ -61,7 +61,7 @@ const BODY_FONT = /(^|\/)mulish-latin-cyrillic-var[.-][A-Za-z0-9_-]+\.woff2$/;
  */
 function preloadBodyFont(): Plugin {
   return {
-    name: "hbd-preload-body-font",
+    name: "bayram-preload-body-font",
     apply: "build",
     enforce: "post",
     transformIndexHtml(_html, context) {
@@ -103,13 +103,13 @@ export default defineConfig({
   },
   build: {
     // Read by pyproject.toml's hatch `artifacts` entry. Changing one means changing both.
-    outDir: "../src/hbd/admin/static",
+    outDir: "../src/bayram/admin/static",
     emptyOutDir: true,
     assetsDir: "assets",
     /*
      * THIS IS A CSP DECISION, NOT A PERFORMANCE ONE.
      *
-     * Vite inlines any asset under 4 kB as a `data:` URI. `hbd-status-symbols.woff2` is
+     * Vite inlines any asset under 4 kB as a `data:` URI. `bayram-status-symbols.woff2` is
      * 2.2 kB, so by default it is base64'd straight into the stylesheet — and the policy is
      * `default-src 'self'` with no `font-src` of its own, which means `data:` is NOT an
      * allowed font source. (`img-src` names `data:` explicitly; nothing else does.) The

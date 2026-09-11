@@ -39,11 +39,11 @@ import httpx
 import pytest
 import sqlalchemy as sa
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.routers.orders import ORDER_PATH, ORDERS_PATH
-from hbd.admin.routers.users import WIZARD_STATE_PATH
-from hbd.admin.schemas.users import WIZARD_TEXT_FIELDS
-from hbd.admin.serializers.redaction import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.routers.orders import ORDER_PATH, ORDERS_PATH
+from bayram.admin.routers.users import WIZARD_STATE_PATH
+from bayram.admin.schemas.users import WIZARD_TEXT_FIELDS
+from bayram.admin.serializers.redaction import (
     MASK,
     PHONE_VISIBLE_DIGITS,
     TELEGRAM_ID_VISIBLE_DIGITS,
@@ -53,19 +53,19 @@ from hbd.admin.serializers.redaction import (
     mask_telegram_user_id,
     mask_username,
 )
-from hbd.admin.settings import AdminSettings
-from hbd.contracts import (
+from bayram.admin.settings import AdminSettings
+from bayram.contracts import (
     BroadcastKind,
     BroadcastRecipientState,
     BroadcastState,
     Language,
 )
-from hbd.db.enums import AdminRole
-from hbd.db.models.asset import AssetRow
-from hbd.db.models.broadcast import BroadcastRow
-from hbd.db.models.broadcast_body import BroadcastBodyRow
-from hbd.db.models.broadcast_recipient import BroadcastRecipientRow
-from hbd.db.models.generation_attempt import GenerationAttemptRow
+from bayram.db.enums import AdminRole
+from bayram.db.models.asset import AssetRow
+from bayram.db.models.broadcast import BroadcastRow
+from bayram.db.models.broadcast_body import BroadcastBodyRow
+from bayram.db.models.broadcast_recipient import BroadcastRecipientRow
+from bayram.db.models.generation_attempt import GenerationAttemptRow
 from tests.test_admin.conftest import (
     NOW,
     PASSWORD,
@@ -453,6 +453,14 @@ async def signed_in(
 #: passes every "the plaintext is not in it" assertion for the wrong reason.
 BROADCAST_ID: Final[UUID] = UUID("cccccccc-0000-4000-8000-000000000001")
 
+#: The payment the sweep asks for, and deliberately NOT seeded. The rail's three tables are
+#: empty on this deployment and the panel has to be legible in that state, so the 404 and the
+#: empty pages this id produces are the responses the sweep should be reading. A seeded intent
+#: would also be the wrong fixture for this file: ``payment_intents`` holds no name, no note
+#: and no transcript, and its one identified column is published masked with an explicit
+#: ``isBuyerErased`` beside it.
+INTENT_ID: Final[UUID] = UUID("dddddddd-0000-4000-8000-000000000001")
+
 
 async def seed_broadcast(container: AdminContainer) -> None:
     """One campaign with one recipient row, for the same person the order belongs to.
@@ -541,6 +549,12 @@ async def seed_world(container: AdminContainer, fake_redis: FakeRedis) -> dict[s
         "attempt_id": attempt_id,
         "telegram_user_id": TELEGRAM_ID,
         "broadcast_id": BROADCAST_ID,
+        # No payment intent is seeded, and the sweep is still worth running over the dossier:
+        # ``/api/billing/intents/{intent_id}`` answers 404 for an unknown id, which is a body
+        # that must carry no plaintext and no secret either. The paged and aggregate billing
+        # routes beside it answer over an empty rail, which is the state this deployment is
+        # actually in.
+        "intent_id": INTENT_ID,
     }
 
 

@@ -24,7 +24,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from hbd.contracts import (
+from bayram.contracts import (
     AssetKind,
     Genre,
     Language,
@@ -35,10 +35,10 @@ from hbd.contracts import (
     VoiceGender,
     is_ok,
 )
-from hbd.db.admin import attempts as attempt_queries
-from hbd.db.admin import metrics, orders, users
-from hbd.db.admin import page as page_module
-from hbd.db.admin.page import (
+from bayram.db.admin import attempts as attempt_queries
+from bayram.db.admin import metrics, orders, users
+from bayram.db.admin import page as page_module
+from bayram.db.admin.page import (
     Cursor,
     PageRequest,
     SortedCursor,
@@ -46,7 +46,7 @@ from hbd.db.admin.page import (
     SortValueKind,
     decode_sorted_cursor,
 )
-from hbd.db.admin.segment import (
+from bayram.db.admin.segment import (
     DEFAULT_SORT,
     FIELDS,
     SORT_KEYS,
@@ -60,27 +60,27 @@ from hbd.db.admin.segment import (
     compile_segment,
     segment_capabilities,
 )
-from hbd.db.admin.segment import SortSpec as SegmentSortSpec
-from hbd.db.admin.sql import TimeWindow
-from hbd.db.admin.views import (
+from bayram.db.admin.segment import SortSpec as SegmentSortSpec
+from bayram.db.admin.sql import TimeWindow
+from bayram.db.admin.views import (
     LatencySummary,
     OrderLedgerStatus,
     OrderListItem,
     OrderPaymentRail,
 )
-from hbd.db.credits import unenforced_key_prefix
-from hbd.db.enums import CreditEntryKind, CreditReason, GenerationKind
-from hbd.db.mapping import to_order
-from hbd.db.models import Base
-from hbd.db.models.asset import AssetRow
-from hbd.db.models.brief import BriefRow
-from hbd.db.models.generation_attempt import GenerationAttemptRow
-from hbd.db.models.order import OrderRow
-from hbd.db.models.user import UserRow
-from hbd.db.models.user_profile import UserProfileRow
-from hbd.db.retention import RetentionClass
-from hbd.entitlements import EntitlementPolicy
-from hbd.errors import PipelineError
+from bayram.db.credits import unenforced_key_prefix
+from bayram.db.enums import CreditEntryKind, CreditReason, GenerationKind
+from bayram.db.mapping import to_order
+from bayram.db.models import Base
+from bayram.db.models.asset import AssetRow
+from bayram.db.models.brief import BriefRow
+from bayram.db.models.generation_attempt import GenerationAttemptRow
+from bayram.db.models.order import OrderRow
+from bayram.db.models.user import UserRow
+from bayram.db.models.user_profile import UserProfileRow
+from bayram.db.retention import RetentionClass
+from bayram.entitlements import EntitlementPolicy
+from bayram.errors import PipelineError
 from tests.test_db.test_admin_credits import seed_account, seed_entry
 
 #: Every index migration ``0009`` is responsible for, restated here so the test fails if the
@@ -121,7 +121,7 @@ _DAY_TWO: Final[datetime] = datetime(2026, 3, 21, 9, 0, tzinfo=UTC)
 _FAR_FUTURE: Final[datetime] = datetime(2027, 1, 1, tzinfo=UTC)
 _TELEGRAM_ID: Final[int] = 99_000_111
 
-#: One canonical E.164 number, in the spelling ``hbd.user_profiles.normalise_phone`` produces.
+#: One canonical E.164 number, in the spelling ``bayram.user_profiles.normalise_phone`` produces.
 #: A formatted variant here would be a fixture asserting a normalisation this layer does not
 #: perform: the read model hands back exactly what the store wrote.
 _PHONE: Final[str] = "+998901234542"

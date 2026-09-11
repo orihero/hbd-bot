@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>HBD Admin Ops Console — PlanIQ Design System</title>
+  <title>Bayram Admin Ops Console — PlanIQ Design System</title>
 
   <!-- Google Fonts: Manrope -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -184,10 +184,10 @@
         <!-- Logo Lockup -->
         <div class="flex items-center gap-2.5 pr-2 shrink-0 select-none">
           <div class="w-10 h-10 rounded-[14px] bg-[var(--ink-900)] text-[var(--brand-solid)] flex items-center justify-center font-extrabold text-sm tracking-tight shadow-sm">
-            HBD
+            Bayram
           </div>
           <div class="flex flex-col leading-none">
-            <span class="text-[14px] font-bold tracking-tight text-[var(--ink-900)]">HBD Admin</span>
+            <span class="text-[14px] font-bold tracking-tight text-[var(--ink-900)]">Bayram Admin</span>
             <span class="text-[10px] font-medium text-[var(--ink-400)]">ops console · planiq</span>
           </div>
         </div>
@@ -1656,7 +1656,7 @@
             <div>
               <div class="flex justify-between items-center mb-3">
                 <h4 class="text-[14px] font-bold text-[var(--ink-900)]">Real-Time Trace Stream</h4>
-                <span class="text-[10px] font-mono text-[var(--ink-400)]">trace_id: hbd_9f1a7b</span>
+                <span class="text-[10px] font-mono text-[var(--ink-400)]">trace_id: bayram_9f1a7b</span>
               </div>
               
               <div id="traceLog" class="h-64 overflow-y-auto bg-[var(--surface-sunken)] p-3 rounded-xl border border-[var(--stroke)] font-mono text-[11px] space-y-2 text-[var(--ink-500)]">
@@ -1851,14 +1851,14 @@
       const current = html.getAttribute('data-theme') || 'light';
       const next = current === 'light' ? 'dark' : 'light';
       html.setAttribute('data-theme', next);
-      localStorage.setItem('hbd-theme', next);
+      localStorage.setItem('bayram-theme', next);
     }
 
     // Palette Switcher (PlanIQ vs Gogo)
     function setPalette(pal) {
       const html = document.documentElement;
       html.setAttribute('data-palette', pal);
-      localStorage.setItem('hbd-palette', pal);
+      localStorage.setItem('bayram-palette', pal);
       
       const pBtn = document.getElementById('btnPalPlaniq');
       const gBtn = document.getElementById('btnPalGogo');
@@ -2027,9 +2027,9 @@
     });
 
     // Boot theme from localStorage
-    const savedTheme = localStorage.getItem('hbd-theme');
+    const savedTheme = localStorage.getItem('bayram-theme');
     if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
-    const savedPalette = localStorage.getItem('hbd-palette');
+    const savedPalette = localStorage.getItem('bayram-palette');
     if (savedPalette) setPalette(savedPalette);
   </script>
 

@@ -30,16 +30,24 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.callbacks import NavAction, NavCB
-from hbd.bot.deps import BotDeps
-from hbd.bot.draft import WizardDraft
-from hbd.bot.handlers.confirm import _order_id_for
-from hbd.bot.handlers.submitting import ORDER_ID_KEY, PROGRESS_MESSAGE_ID_KEY
-from hbd.bot.i18n import translate
-from hbd.bot.states import Wizard
-from hbd.config import Settings
-from hbd.contracts import Genre, Language, Occasion, PaymentAuthorization, Result, VoiceGender, ok
+from bayram.bot.app import build_dispatcher
+from bayram.bot.callbacks import NavAction, NavCB
+from bayram.bot.deps import BotDeps
+from bayram.bot.draft import WizardDraft
+from bayram.bot.handlers.confirm import _order_id_for
+from bayram.bot.handlers.submitting import ORDER_ID_KEY, PROGRESS_MESSAGE_ID_KEY
+from bayram.bot.i18n import translate
+from bayram.bot.states import Wizard
+from bayram.config import Settings
+from bayram.contracts import (
+    Genre,
+    Language,
+    Occasion,
+    PaymentAuthorization,
+    Result,
+    VoiceGender,
+    ok,
+)
 from tests.test_bot.conftest import (
     CHAT_ID,
     USER_ID,

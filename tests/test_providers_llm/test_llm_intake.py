@@ -6,11 +6,11 @@ import json
 
 import pytest
 
-from hbd.contracts import MAX_RECIPIENT_NAME_CHARS, Err, Language, Ok, Result, err
-from hbd.errors import ErrorCode, ProviderUnavailableError
-from hbd.providers.llm.intake import build_intake_request, map_intake_payload, normalise_intake
-from hbd.providers.llm.schemas import IntakeDraft, IntakePayload
-from hbd.providers.llm.task_settings import LlmTaskSettings
+from bayram.contracts import MAX_RECIPIENT_NAME_CHARS, Err, Language, Ok, Result, err
+from bayram.errors import ErrorCode, ProviderUnavailableError
+from bayram.providers.llm.intake import build_intake_request, map_intake_payload, normalise_intake
+from bayram.providers.llm.schemas import IntakeDraft, IntakePayload
+from bayram.providers.llm.task_settings import LlmTaskSettings
 from tests.conftest import UZBEK_NAME_CANONICAL, UZBEK_NAME_TYPED
 from tests.test_providers_llm.conftest import StubLlmProvider, intake_payload_dict
 

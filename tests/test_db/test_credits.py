@@ -37,12 +37,12 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import Language, is_err, is_ok
-from hbd.db.credit_sql import upsert_statement, verify_balances
-from hbd.db.credits import SqlCreditLedger
-from hbd.db.enums import CreditEntryKind, CreditReason
-from hbd.db.models import CreditAccountRow, CreditLedgerRow
-from hbd.entitlements import (
+from bayram.contracts import Language, is_err, is_ok
+from bayram.db.credit_sql import upsert_statement, verify_balances
+from bayram.db.credits import SqlCreditLedger
+from bayram.db.enums import CreditEntryKind, CreditReason
+from bayram.db.models import CreditAccountRow, CreditLedgerRow
+from bayram.entitlements import (
     BalanceDrift,
     ChargeOutcome,
     CreditBalance,
@@ -52,7 +52,7 @@ from hbd.entitlements import (
     TooManyOrdersInFlightError,
     period_index_for,
 )
-from hbd.errors import ConfigError, ErrorCode
+from bayram.errors import ConfigError, ErrorCode
 from tests.test_db.conftest import MovableClock
 
 # The constants and helpers this module shares with ``test_credit_refusals.py``. One copy,

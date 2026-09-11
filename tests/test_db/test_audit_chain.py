@@ -27,9 +27,9 @@ import sqlalchemy as sa
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.db.admin import accounts
-from hbd.db.admin import audit as audit_module
-from hbd.db.admin.audit import (
+from bayram.db.admin import accounts
+from bayram.db.admin import audit as audit_module
+from bayram.db.admin.audit import (
     AuditEntry,
     AuditQuery,
     AuditValueRejectedError,
@@ -44,23 +44,23 @@ from hbd.db.admin.audit import (
     write_head_anchor,
     write_truncation_anchor,
 )
-from hbd.db.engine import create_engine, create_session_factory, ping
-from hbd.db.enums import AdminRole, AuditAction, AuditReasonCode
-from hbd.db.models import Base
-from hbd.db.models.admin_audit import (
+from bayram.db.engine import create_engine, create_session_factory, ping
+from bayram.db.enums import AdminRole, AuditAction, AuditReasonCode
+from bayram.db.models import Base
+from bayram.db.models.admin_audit import (
     AUDIT_REASON_RETENTION_DAYS,
     AUDIT_RETENTION_DAYS,
     AdminAuditRow,
     AuditOutcome,
 )
-from hbd.db.models.audit_anchor import AuditAnchorKind, AuditChainAnchorRow
+from bayram.db.models.audit_anchor import AuditAnchorKind, AuditChainAnchorRow
 from tests.test_db.conftest import refuse_a_foreign_database
 
 KEY: Final[str] = "a-test-hmac-key-of-more-than-32-characters"
 OTHER_KEY: Final[str] = "a-different-key-of-more-than-32-characters"
 NOW: Final[datetime] = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
 
-_SRC: Final[Path] = Path(__file__).resolve().parents[2] / "src" / "hbd"
+_SRC: Final[Path] = Path(__file__).resolve().parents[2] / "src" / "bayram"
 #: The one module allowed to construct the row, plus the module that declares it.
 _WRITER_FILES: Final[frozenset[str]] = frozenset({"db/admin/audit.py", "db/models/admin_audit.py"})
 
@@ -406,7 +406,7 @@ async def test_a_head_anchor_records_the_head_and_emits_a_log_line(
     await append_many(sessions, 2)
 
     # Act
-    with caplog.at_level("INFO", logger="hbd.db.admin.audit"):
+    with caplog.at_level("INFO", logger="bayram.db.admin.audit"):
         async with sessions.begin() as db:
             head = await read_head(db)
             anchor = await write_head_anchor(db, now=NOW)
@@ -659,9 +659,9 @@ async def test_an_unreadable_privilege_probe_reports_the_weaker_guarantee(
 # Postgres — the engine the REVOKE, the advisory lock and BIGSERIAL are real on
 # ---------------------------------------------------------------------------
 _POSTGRES_URL: Final[str] = os.environ.get(
-    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
+    "BAYRAM_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
 )
-_PROBE_ROLE: Final[str] = "hbd_audit_probe"
+_PROBE_ROLE: Final[str] = "bayram_audit_probe"
 _PROBE_PASSWORD: Final[str] = "probe"
 
 

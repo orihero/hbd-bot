@@ -13,18 +13,18 @@ from typing import Final
 import httpx
 import pytest
 
-from hbd.config import Settings, build_settings
-from hbd.contracts import Err, LlmRequest, LyricDraft, LyricSection
-from hbd.errors import ErrorCode, ProviderUnavailableError
-from hbd.pipeline.moderation import AllowAllModerator, LlmModerator, ModerationPayload
-from hbd.pipeline.prompts import moderation_system_prompt, moderation_user_prompt
-from hbd.providers.llm.factory import build_llm_provider
+from bayram.config import Settings, build_settings
+from bayram.contracts import Err, LlmRequest, LyricDraft, LyricSection
+from bayram.errors import ErrorCode, ProviderUnavailableError
+from bayram.pipeline.moderation import AllowAllModerator, LlmModerator, ModerationPayload
+from bayram.pipeline.prompts import moderation_system_prompt, moderation_user_prompt
+from bayram.providers.llm.factory import build_llm_provider
 from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_lyrics
 from tests.test_pipeline.conftest import FakeLlmProvider, failure_of
 
 #: The live golden test needs the real credential, so it must be able to name it in the
 #: skip message an operator reads when nothing ran.
-_LLM_KEY_ENV: Final[str] = "HBD_LLM_API_KEY"
+_LLM_KEY_ENV: Final[str] = "BAYRAM_LLM_API_KEY"
 
 #: ``Settings`` requires a database URL and the golden test opens no connection; this keeps
 #: an unconfigured host from turning a moderation question into a config error.
@@ -293,7 +293,7 @@ async def test_the_configured_model_allows_the_live_beer_note() -> None:
     without a key, so a keyless CI run is unaffected — ``make test`` excludes it anyway.
 
     It deliberately does not take the ``settings`` fixture: that fixture strips every
-    ``HBD_`` variable from the environment, which is right for a unit test and fatal for
+    ``BAYRAM_`` variable from the environment, which is right for a unit test and fatal for
     one whose whole point is to ask the vendor the customer's model was asked. The database
     URL is overridden because nothing here touches a database and a missing one must not
     turn this into a config failure; every LLM setting still comes from the environment or

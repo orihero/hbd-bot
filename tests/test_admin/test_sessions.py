@@ -27,11 +27,11 @@ import httpx
 import pytest
 import sqlalchemy as sa
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.csrf import SESSION_COOKIE_NAME
-from hbd.admin.errors import AdminErrorCode
-from hbd.admin.security.tokens import sha256_hex
-from hbd.admin.sessions import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.csrf import SESSION_COOKIE_NAME
+from bayram.admin.errors import AdminErrorCode
+from bayram.admin.security.tokens import sha256_hex
+from bayram.admin.sessions import (
     IDLE_TOUCH_INTERVAL_S,
     SESSION_MIRROR_TTL_S,
     invalidate_mirror,
@@ -42,10 +42,10 @@ from hbd.admin.sessions import (
     revoke_sessions_for_user,
     touch_session,
 )
-from hbd.db.admin import accounts
-from hbd.db.base import utc_now
-from hbd.db.models.admin_session import AdminSessionRow
-from hbd.db.models.admin_user import AdminUserRow
+from bayram.db.admin import accounts
+from bayram.db.base import utc_now
+from bayram.db.models.admin_session import AdminSessionRow
+from bayram.db.models.admin_user import AdminUserRow
 from tests.test_admin.conftest import (
     NOW,
     PASSWORD,

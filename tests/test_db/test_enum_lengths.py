@@ -12,16 +12,16 @@ Two passes, deliberately:
 
 * over the live schema, so a column declared with a custom ``length=`` is checked against
   the values it will actually receive;
-* over every ``StrEnum`` declared in ``hbd.contracts`` or anywhere under ``hbd.db``, so a
+* over every ``StrEnum`` declared in ``bayram.contracts`` or anywhere under ``bayram.db``, so a
   member added ahead of the table that will store it is checked before the migration lands
   rather than after.
 
-The second pass walks ``hbd.db`` rather than naming modules, because an enum's home is
+The second pass walks ``bayram.db`` rather than naming modules, because an enum's home is
 wherever its subject lives: ``RetentionClass`` sits with the retention policy in
-``hbd.db.retention``, ``AuditOutcome`` with the audit row it grades. A hand-kept list of
+``bayram.db.retention``, ``AuditOutcome`` with the audit row it grades. A hand-kept list of
 "the modules that declare enums" is one new module out of date, and the final test in this
 file — which proves the sweep covers everything the schema stores — is what that staleness
-comes back as. Modules outside ``hbd.db`` are deliberately excluded: ``ErrorCode`` and
+comes back as. Modules outside ``bayram.db`` are deliberately excluded: ``ErrorCode`` and
 ``Permission`` are never written to a ``VARCHAR(32)``, so holding them to that width would
 be a bound nobody chose.
 """
@@ -36,19 +36,19 @@ from types import ModuleType
 import pytest
 import sqlalchemy as sa
 
-from hbd import contracts
-from hbd.db.base import ENUM_LENGTH
-from hbd.db.models import Base
+from bayram import contracts
+from bayram.db.base import ENUM_LENGTH
+from bayram.db.models import Base
 
 
 def _db_package_modules() -> tuple[ModuleType, ...]:
-    """Every module under ``hbd.db``, imported so its ``StrEnum``s are visible."""
-    package = importlib.import_module("hbd.db")
+    """Every module under ``bayram.db``, imported so its ``StrEnum``s are visible."""
+    package = importlib.import_module("bayram.db")
     return (
         package,
         *(
             importlib.import_module(info.name)
-            for info in pkgutil.walk_packages(package.__path__, prefix="hbd.db.")
+            for info in pkgutil.walk_packages(package.__path__, prefix="bayram.db.")
         ),
     )
 

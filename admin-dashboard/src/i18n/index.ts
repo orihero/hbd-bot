@@ -1,11 +1,11 @@
 /**
- * Reactive i18n store and localization engine for the HBD Admin Dashboard.
+ * Reactive i18n store and localization engine for the Bayram Admin Dashboard.
  *
  * Implements:
  * - Zustand 5 store (`useI18n`) with reactive locale state
  * - Strict type-checked translation lookup (`t`)
  * - Curly brace parameter interpolation `{param}`
- * - Defensive localStorage persistence (`hbd.dashboard.locale`)
+ * - Defensive localStorage persistence (`bayram.dashboard.locale`)
  * - Resolution chain: localStorage -> navigator.language -> English fallback
  * - Root `<html lang="...">` synchronization
  * - Non-React imperative bridge (`t()`, `getLocale()`, `setLocale()`)

@@ -148,7 +148,7 @@ describe("getOrderStateCounts", () => {
  * one and became a lie on screen once it stopped: `/vendors` renders a "from" filter chip
  * from the URL, and a request that carried no window at all put the whole record under a
  * filtered heading. Every windowed router — orders, users, generations, assets, dashboard,
- * vendors — reaches `hbd/admin/window.py::resolve_window` through the same adapter, so
+ * vendors — reaches `bayram/admin/window.py::resolve_window` through the same adapter, so
  * there is no endpoint for which sending half a window is the wrong move.
  */
 describe("a one-sided window", () => {

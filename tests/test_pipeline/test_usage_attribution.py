@@ -1,7 +1,7 @@
 """Does a vendor call know which order and which job it was made for?
 
 No provider signature carries an order id — deliberately, and permanently. Attribution
-travels in a ``ContextVar`` bound by :func:`hbd.usage.usage_scope`, which means the whole
+travels in a ``ContextVar`` bound by :func:`bayram.usage.usage_scope`, which means the whole
 guarantee is a property of WHERE the scopes are entered and of nothing else. Read the
 adapters and you will find no evidence either way; that is what makes these tests the only
 place the claim is checkable.
@@ -29,11 +29,11 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.deps import BotDeps
-from hbd.config import Settings
-from hbd.contracts import Brief, LyricDraft, Order, Result, UsageTask, Vendor, VendorOperation
-from hbd.usage import UsageContext, UsageSink, VendorUsage, current_usage_context
+from bayram.bot.app import build_dispatcher
+from bayram.bot.deps import BotDeps
+from bayram.config import Settings
+from bayram.contracts import Brief, LyricDraft, Order, Result, UsageTask, Vendor, VendorOperation
+from bayram.usage import UsageContext, UsageSink, VendorUsage, current_usage_context
 from tests.test_bot.conftest import (
     BOT_TOKEN,
     FIXED_MOMENT,

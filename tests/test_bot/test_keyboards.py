@@ -7,7 +7,7 @@ every "is the Skip button offered" assertion in the suite. A layout rule that on
 a docstring is a rule that gets broken by the next translator, in a locale the author does
 not read.
 
-So the rules are numbers in ``hbd.bot.keyboards`` and this module walks EVERY keyboard in
+So the rules are numbers in ``bayram.bot.keyboards`` and this module walks EVERY keyboard in
 EVERY locale against them. That walk is the durable half of the fix; moving Skip onto its
 own row was the easy half.
 
@@ -28,9 +28,9 @@ from collections.abc import Iterator
 import pytest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
-from hbd.bot.callbacks import LanguageSlot, NavAction, NavCB
-from hbd.bot.i18n import translate
-from hbd.bot.keyboards import (
+from bayram.bot.callbacks import LanguageSlot, NavAction, NavCB
+from bayram.bot.i18n import translate
+from bayram.bot.keyboards import (
     KEEP_NOTE_LABEL_KEY,
     MAX_REPLY_ROW_LABEL_CHARS,
     MAX_ROW_BUTTONS,
@@ -56,8 +56,8 @@ from hbd.bot.keyboards import (
     start_over_keyboard,
     vocal_gender_keyboard,
 )
-from hbd.bot.pricing import CheckoutOffer, Pricing
-from hbd.contracts import Language
+from bayram.bot.pricing import CheckoutOffer, Pricing
+from bayram.contracts import Language
 from tests.test_bot.conftest import buttons
 
 #: The prefix ``NavCB`` packs. A row whose every button carries it is a row this module
@@ -90,7 +90,7 @@ SAMPLE_PRICING: Pricing = Pricing(
 #: ``https://example.com``. It costs nothing and it means a reader of this register sees the
 #: actual shape of the thing the button carries: a host and one opaque blob, with no query
 #: string and nothing percent-encoded. Written out rather than imported from
-#: ``hbd.payme.link``, because this module is imported at MODULE SCOPE by
+#: ``bayram.payme.link``, because this module is imported at MODULE SCOPE by
 #: ``test_locale_contract.py`` and the keyboard register must not drag a payment package into
 #: the import graph of the catalogue tests.
 SAMPLE_CHECKOUT_URL = (
@@ -629,7 +629,7 @@ def test_every_keyboard_builder_is_covered() -> None:
     everywhere else, and only this test cares that they are the same population.
     """
     # Arrange
-    from hbd.bot import keyboards
+    from bayram.bot import keyboards
 
     exported = {
         name

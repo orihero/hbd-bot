@@ -14,8 +14,8 @@ from aiogram.fsm.state import State
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.methods import SendMessage
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.callbacks import (
+from bayram.bot.app import build_dispatcher
+from bayram.bot.callbacks import (
     GenreCB,
     LanguageCB,
     LanguageSlot,
@@ -24,11 +24,11 @@ from hbd.bot.callbacks import (
     OccasionCB,
     VocalGenderCB,
 )
-from hbd.bot.deps import BotDeps
-from hbd.bot.i18n import translate
-from hbd.bot.states import Wizard
-from hbd.config import Settings
-from hbd.contracts import MAX_RECIPIENT_NAME_CHARS, Genre, Language, Occasion, VoiceGender
+from bayram.bot.deps import BotDeps
+from bayram.bot.i18n import translate
+from bayram.bot.states import Wizard
+from bayram.config import Settings
+from bayram.contracts import MAX_RECIPIENT_NAME_CHARS, Genre, Language, Occasion, VoiceGender
 from tests.test_bot.conftest import (
     CHAT_ID,
     USER_ID,
@@ -149,7 +149,7 @@ async def test_name_confirmation_with_a_draft_that_lost_its_name_asks_again(
     dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
 ) -> None:
     # Arrange — a draft that never got a name, parked on the confirmation step
-    from hbd.bot.draft import WizardDraft
+    from bayram.bot.draft import WizardDraft
 
     await state.set_state(Wizard.name_confirm)
     await state.update_data(**WizardDraft(ui_language=Language.EN).to_state_data())

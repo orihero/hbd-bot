@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from hbd.contracts import Err, Ok
-from hbd.errors import ErrorCode
-from hbd.storage import RANGE_CHUNK_BYTES, LocalFileStorage
+from bayram.contracts import Err, Ok
+from bayram.errors import ErrorCode
+from bayram.storage import RANGE_CHUNK_BYTES, LocalFileStorage
 
 PAYLOAD = b"\xff\xfb\x10\xc0 pretend this is a song"
 MIME = "audio/mpeg"

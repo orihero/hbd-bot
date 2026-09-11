@@ -20,14 +20,14 @@ from pathlib import Path
 
 import pytest
 
-from hbd.audio.loudnorm import LoudnormMeasurement
-from hbd.audio.processor import FfmpegAudioPostProcessor
+from bayram.audio.loudnorm import LoudnormMeasurement
+from bayram.audio.processor import FfmpegAudioPostProcessor
 
 FFMPEG_BINARY = shutil.which("ffmpeg")
 FFPROBE_BINARY = shutil.which("ffprobe")
 
 #: A name no package manager will ever install, used to exercise the missing-binary path.
-ABSENT_BINARY = "hbd-definitely-not-installed-ffmpeg"
+ABSENT_BINARY = "bayram-definitely-not-installed-ffmpeg"
 
 _SKIP_REASON = (
     "needs a real ffmpeg and ffprobe on PATH: these tests render actual audio rather than "

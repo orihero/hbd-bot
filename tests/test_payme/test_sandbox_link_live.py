@@ -11,7 +11,7 @@ prose and the prose is wrong about at least two things.
 ``window['formData']`` assignment, **with no authentication of any kind**. That makes Payme's
 real parser a free conformance test available before Payme has heard our name, and it is the
 single most valuable thing the research behind this integration turned up. It is why the two
-parser facts encoded in ``hbd.payme.link`` are facts rather than beliefs.
+parser facts encoded in ``bayram.payme.link`` are facts rather than beliefs.
 
 **The three claims, each of which cost a real defect somewhere.**
 
@@ -20,7 +20,7 @@ parser facts encoded in ``hbd.payme.link`` are facts rather than beliefs.
    currency.
 2. A ``;`` anywhere inside a value silently TRUNCATES that value. There is no escape
    mechanism, no error and no warning — the truncated half simply never arrives. This is why
-   ``HBD_PAYME_RETURN_URL`` refuses a ``;`` at settings-build time and why ``public_ref`` is
+   ``BAYRAM_PAYME_RETURN_URL`` refuses a ``;`` at settings-build time and why ``public_ref`` is
    minted from a hex alphabet that cannot contain one.
 3. Percent-encoding is NOT decoded. A ``quote()``-ed return URL arrives at the customer's
    browser still escaped and the deep link is dead. The URL is passed RAW, and the instinct to
@@ -46,8 +46,8 @@ from typing import Any, Final
 import httpx
 import pytest
 
-from hbd.contracts import Language
-from hbd.payme.link import (
+from bayram.contracts import Language
+from bayram.payme.link import (
     SANDBOX_CHECKOUT_URL,
     UZS_CURRENCY_CODE,
     build_checkout_link,
@@ -66,7 +66,7 @@ _PUBLIC_REF: Final[str] = "9f3c1ab24e77d05c8b16aa42"
 #: 7 000 so'm in TIYIN. **Not** multiplied by 100 anywhere on this path.
 _AMOUNT_MINOR: Final[int] = 700_000
 #: A real deep link back into the bot, with a query string and no ``;``.
-_RETURN_URL: Final[str] = "https://t.me/hbd_bot?start=paid"
+_RETURN_URL: Final[str] = "https://t.me/bayram_uzbot?start=paid"
 
 _TIMEOUT: Final[float] = 20.0
 
@@ -80,7 +80,7 @@ def _echo(url: str) -> dict[str, Any]:
     """GET the sandbox and return the ``data`` object it says it parsed.
 
     Follows redirects because the echo is a single-page application's bootstrap and the host
-    has moved before — which is also why ``HBD_PAYME_CHECKOUT_BASE_URL`` exists as an override.
+    has moved before — which is also why ``BAYRAM_PAYME_CHECKOUT_BASE_URL`` exists as an override.
     """
     try:
         response = httpx.get(url, timeout=_TIMEOUT, follow_redirects=True)
@@ -125,7 +125,7 @@ def test_paymes_own_parser_reads_back_every_parameter_we_encoded() -> None:
 
 
 def test_the_return_url_survives_untruncated_and_unescaped() -> None:
-    """The claim ``hbd.payme.link`` makes twice and the one a browser silently punishes."""
+    """The claim ``bayram.payme.link`` makes twice and the one a browser silently punishes."""
     # Arrange
     url = build_checkout_link(
         base_url=SANDBOX_CHECKOUT_URL,
@@ -150,7 +150,7 @@ def test_a_semicolon_inside_a_value_is_silently_truncated_by_paymes_parser() -> 
     """**Parser fact 1, asserted against the parser rather than against a belief.**
 
     There is no escaping mechanism and no error: the half after the ``;`` simply never arrives.
-    This is the whole reason ``HBD_PAYME_RETURN_URL`` refuses a ``;`` at settings-build time —
+    This is the whole reason ``BAYRAM_PAYME_RETURN_URL`` refuses a ``;`` at settings-build time —
     a truncated deep link fails in a way nothing observes, on somebody else's phone.
 
     The blob is hand-built rather than produced by :func:`build_checkout_link`, because the
@@ -160,7 +160,7 @@ def test_a_semicolon_inside_a_value_is_silently_truncated_by_paymes_parser() -> 
     # Arrange
     payload = (
         f"m={_MERCHANT};ac.{_ACCOUNT_FIELD}={_PUBLIC_REF};a={_AMOUNT_MINOR};l=uz;"
-        f"cr={UZS_CURRENCY_CODE};c=https://t.me/hbd_bot?start=a;b=2"
+        f"cr={UZS_CURRENCY_CODE};c=https://t.me/bayram_uzbot?start=a;b=2"
     )
     url = f"{SANDBOX_CHECKOUT_URL}/{encode_payload(payload)}"
 
@@ -168,20 +168,20 @@ def test_a_semicolon_inside_a_value_is_silently_truncated_by_paymes_parser() -> 
     parsed = _echo(url)
 
     # Assert
-    assert parsed["callback"] == "https://t.me/hbd_bot?start=a"
+    assert parsed["callback"] == "https://t.me/bayram_uzbot?start=a"
     assert "b=2" not in parsed["callback"]
 
 
 def test_percent_encoding_is_not_decoded_by_paymes_parser() -> None:
     """**Parser fact 2.** A ``quote()``-ed URL arrives escaped, and the deep link is dead.
 
-    Hand-built for the same reason as the test above: :func:`hbd.payme.link.build_checkout_link`
+    Hand-built for the same reason as the test above: :func:`bayram.payme.link.build_checkout_link`
     deliberately encodes nothing but the final base64, so it cannot produce this input either.
     The test exists so that a future contributor who "fixes" the missing ``quote()`` has
     something that goes red.
     """
     # Arrange
-    escaped = "https%3A%2F%2Ft.me%2Fhbd_bot%3Fstart%3Dpaid"
+    escaped = "https%3A%2F%2Ft.me%2Fbayram_bot%3Fstart%3Dpaid"
     payload = (
         f"m={_MERCHANT};ac.{_ACCOUNT_FIELD}={_PUBLIC_REF};a={_AMOUNT_MINOR};l=uz;"
         f"cr={UZS_CURRENCY_CODE};c={escaped}"

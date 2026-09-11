@@ -33,18 +33,18 @@ import pytest
 from fastapi.routing import APIRoute
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.deps import RequirePermission, require_permission
-from hbd.admin.routers.vendors import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.deps import RequirePermission, require_permission
+from bayram.admin.routers.vendors import (
     VENDOR_ERRORS_PATH,
     VENDOR_USAGE_BY_DAY_PATH,
     VENDOR_USAGE_PATH,
     build_vendors_router,
 )
-from hbd.admin.security.permissions import Permission
-from hbd.contracts import CostSource, UsageTask, Vendor, VendorOperation
-from hbd.db.enums import AdminRole
-from hbd.db.models.vendor_usage import VendorUsageRow
+from bayram.admin.security.permissions import Permission
+from bayram.contracts import CostSource, UsageTask, Vendor, VendorOperation
+from bayram.db.enums import AdminRole
+from bayram.db.models.vendor_usage import VendorUsageRow
 from tests.test_admin.conftest import PASSWORD, create_account, sign_in
 from tests.test_admin.test_dashboard_router import (
     CANDIDATE,
@@ -404,7 +404,7 @@ async def test_rows_outside_the_window_still_read_as_instrumented(
 async def test_recorded_rows_with_no_cost_are_instrumented_but_not_priced(
     container: AdminContainer, client: httpx.AsyncClient
 ) -> None:
-    # Arrange — the shipping default: ``HBD_ELEVENLABS_USD_PER_CHARACTER`` is 0.0 and no
+    # Arrange — the shipping default: ``BAYRAM_ELEVENLABS_USD_PER_CHARACTER`` is 0.0 and no
     # LLM rate is configured, so a correctly instrumented deployment writes exactly this.
     async with container.session_factory.begin() as session:
         await seed_call(session, billed_characters=250)

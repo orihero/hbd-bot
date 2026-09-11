@@ -159,7 +159,7 @@ export async function runChallengerM2(): Promise<boolean> {
           if (i % 500 === 0 || i === iterations - 1) {
             assertEqual(getLocale(), target, `getLocale() mismatch at iteration ${i}`);
             assertEqual(useI18n.getState().locale, target, `store.locale mismatch at iteration ${i}`);
-            assertEqual(env.storage.getItem("hbd.dashboard.locale"), target, `storage mismatch at ${i}`);
+            assertEqual(env.storage.getItem("bayram.dashboard.locale"), target, `storage mismatch at ${i}`);
             assertEqual(env.doc.documentElement.lang, target, `doc.lang mismatch at ${i}`);
           }
         }

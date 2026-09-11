@@ -55,12 +55,12 @@ import pytest
 import sqlalchemy as sa
 from pydantic import ValidationError
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.errors import AdminErrorCode
-from hbd.admin.routers.reveal import REVEAL_PATH
-from hbd.admin.routers.users import USER_BLOCK_PATH
-from hbd.admin.schemas.actions import ReasonedRequest, UserBlockRequest
-from hbd.admin.schemas.reveal import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.errors import AdminErrorCode
+from bayram.admin.routers.reveal import REVEAL_PATH
+from bayram.admin.routers.users import USER_BLOCK_PATH
+from bayram.admin.schemas.actions import ReasonedRequest, UserBlockRequest
+from bayram.admin.schemas.reveal import (
     FIELD_SHAPES,
     FIELD_SUBJECTS,
     RevealField,
@@ -68,23 +68,23 @@ from hbd.admin.schemas.reveal import (
     RevealShape,
     RevealSubjectType,
 )
-from hbd.admin.security.budget import (
+from bayram.admin.security.budget import (
     MAX_RECORDS_PER_REVEAL,
     RevealBudgetScope,
     reveal_budget_key,
 )
-from hbd.admin.services import reveal as reveal_service
+from bayram.admin.services import reveal as reveal_service
 
 # ``_FIELD_NAME_PATTERN`` is imported rather than restated: a copied regex would drift, and
 # it would drift in the direction of passing here while the audit boundary refused.
-from hbd.db.admin.audit import _FIELD_NAME_PATTERN as AUDIT_FIELD_NAME_PATTERN
-from hbd.db.admin.audit import SUBJECT_TYPES
-from hbd.db.admin.audit import append as audit_append
-from hbd.db.base import utc_now
-from hbd.db.enums import AdminRole, AuditAction, AuditReasonCode
-from hbd.db.models.admin_audit import AdminAuditRow, AuditOutcome
-from hbd.db.models.user_profile import UserProfileRow
-from hbd.errors import ErrorCode
+from bayram.db.admin.audit import _FIELD_NAME_PATTERN as AUDIT_FIELD_NAME_PATTERN
+from bayram.db.admin.audit import SUBJECT_TYPES
+from bayram.db.admin.audit import append as audit_append
+from bayram.db.base import utc_now
+from bayram.db.enums import AdminRole, AuditAction, AuditReasonCode
+from bayram.db.models.admin_audit import AdminAuditRow, AuditOutcome
+from bayram.db.models.user_profile import UserProfileRow
+from bayram.errors import ErrorCode
 from tests.test_admin.conftest import (
     NOW,
     ORIGIN,
@@ -138,7 +138,7 @@ _LAST_NAME: Final[str] = "Oʻktamov"
 #: Every one of them, as the substrings a leak would show up as.
 _PROFILE_PLAINTEXTS: Final[tuple[str, ...]] = (_PHONE, _USERNAME, _FIRST_NAME, _LAST_NAME)
 
-_BUDGET_LOGGER: Final[str] = "hbd.admin.security.budget"
+_BUDGET_LOGGER: Final[str] = "bayram.admin.security.budget"
 #: ``admin_reveal_records_per_hour`` has ``ge=10``, so this is the tightest hour an operator
 #: can be configured into and the cheapest one to exhaust in a test.
 _TIGHT_RECORDS: Final[int] = 10
@@ -153,7 +153,7 @@ class _Recorder(logging.Handler):
     """Collects records from one logger, whatever the root handlers have been set to.
 
     ``caplog`` cannot be used here: ``create_app``'s lifespan calls
-    ``hbd.logging.configure_logging``, which reconfigures the root logger out from under
+    ``bayram.logging.configure_logging``, which reconfigures the root logger out from under
     pytest's capturing handler — so a WARNING emitted inside a request never reaches
     ``caplog.records`` and the assertion passes vacuously in the *other* direction. A handler
     attached to the named logger sees it either way.

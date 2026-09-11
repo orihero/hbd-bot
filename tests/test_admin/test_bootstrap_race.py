@@ -1,7 +1,7 @@
 """Exactly one active OWNER — asserted against the constraint that actually enforces it.
 
 **What was here before did not test anything.** Both this module and
-``test_bootstrap.py`` monkeypatched ``hbd.admin.bootstrap.accounts.count_all`` to model "the
+``test_bootstrap.py`` monkeypatched ``bayram.admin.bootstrap.accounts.count_all`` to model "the
 second run reads the table as it was before the first committed". ``count_all`` has **zero
 call sites in bootstrap.py** — its own docstring says the pre-check was deleted — so the
 arrangement was inert and both tests were plain sequential double-runs, which the
@@ -45,12 +45,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from hbd.admin.bootstrap import EXIT_OK, EXIT_REFUSED, main
-from hbd.admin.container import AdminContainer
-from hbd.db.admin import accounts
-from hbd.db.base import Base
-from hbd.db.enums import AdminRole
-from hbd.db.models.admin_user import (
+from bayram.admin.bootstrap import EXIT_OK, EXIT_REFUSED, main
+from bayram.admin.container import AdminContainer
+from bayram.db.admin import accounts
+from bayram.db.base import Base
+from bayram.db.enums import AdminRole
+from bayram.db.models.admin_user import (
     ACTIVE_OWNER_INDEX,
     ACTIVE_OWNER_PREDICATE,
     AdminUserRow,
@@ -64,7 +64,7 @@ _HASH: Final[str] = "$argon2id$v=19$m=65536,t=3,p=4$c29tZXNhbHQ$notarealdigest"
 
 #: Matches docker-compose.yml. Overridable so CI can point at its own instance.
 _POSTGRES_URL: Final[str] = os.environ.get(
-    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
+    "BAYRAM_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
 )
 #: Five, because five out of five is what the defect scored. One trial that happens to
 #: serialise proves nothing.
@@ -78,12 +78,12 @@ _ADMIN_USERS: Final[sa.Table] = cast("sa.Table", AdminUserRow.__table__)
 def admin_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> sa.Engine:
     """Point the CLI at a throwaway SQLite file, and hand back a synchronous reader."""
     path = tmp_path / "admin.db"
-    monkeypatch.setenv("HBD_DATABASE_URL", f"sqlite+aiosqlite:///{path}")
-    monkeypatch.setenv("HBD_ADMIN_AUDIT_HMAC_KEY", HMAC_KEY)
-    monkeypatch.setenv("HBD_ADMIN_PUBLIC_ORIGIN", ORIGIN)
-    monkeypatch.setenv("HBD_ADMIN_ARGON2_TIME_COST", "2")
-    monkeypatch.setenv("HBD_ADMIN_ARGON2_MEMORY_KIB", "32768")
-    monkeypatch.setenv("HBD_ADMIN_ARGON2_PARALLELISM", "1")
+    monkeypatch.setenv("BAYRAM_DATABASE_URL", f"sqlite+aiosqlite:///{path}")
+    monkeypatch.setenv("BAYRAM_ADMIN_AUDIT_HMAC_KEY", HMAC_KEY)
+    monkeypatch.setenv("BAYRAM_ADMIN_PUBLIC_ORIGIN", ORIGIN)
+    monkeypatch.setenv("BAYRAM_ADMIN_ARGON2_TIME_COST", "2")
+    monkeypatch.setenv("BAYRAM_ADMIN_ARGON2_MEMORY_KIB", "32768")
+    monkeypatch.setenv("BAYRAM_ADMIN_ARGON2_PARALLELISM", "1")
     engine = sa.create_engine(f"sqlite:///{path}")
     Base.metadata.create_all(engine)
     return engine
@@ -195,7 +195,7 @@ def test_a_raced_bootstrap_prints_one_line_and_exits_refused(
     async def _raced(*_args: Any, **_kwargs: Any) -> None:
         raise IntegrityError("INSERT INTO admin_users", (), Exception("duplicate key"))
 
-    monkeypatch.setattr("hbd.admin.bootstrap.accounts.insert_first_owner", _raced)
+    monkeypatch.setattr("bayram.admin.bootstrap.accounts.insert_first_owner", _raced)
     path = _password_file(tmp_path)
 
     # Act
@@ -221,7 +221,7 @@ def test_a_raced_recovery_says_so_in_the_words_of_a_recovery(
     async def _raced(*_args: Any, **_kwargs: Any) -> int:
         raise IntegrityError("UPDATE admin_users", (), Exception("duplicate key"))
 
-    monkeypatch.setattr("hbd.admin.bootstrap.accounts.count_active_owners", _raced)
+    monkeypatch.setattr("bayram.admin.bootstrap.accounts.count_active_owners", _raced)
     path = _password_file(tmp_path)
 
     # Act
@@ -349,7 +349,7 @@ async def test_two_concurrent_bootstrap_runs_create_exactly_one_owner() -> None:
     # Arrange
     if not await _reachable(_POSTGRES_URL):
         pytest.skip(f"no project Postgres at {_POSTGRES_URL}; run `docker compose up -d`")
-    schema = f"hbd_owner_race_{os.getpid()}"
+    schema = f"bayram_owner_race_{os.getpid()}"
     setup = create_async_engine(_POSTGRES_URL, poolclass=NullPool)
     engines = tuple(
         create_async_engine(

@@ -5,7 +5,7 @@ three things are asserted here that no read test can assert, and each one has a 
 failure it exists to catch:
 
 **1. The split row really needs both halves.** §12.2's cell is ``W+S`` and a router guard
-cannot enforce it — :func:`~hbd.admin.security.permissions.check_role` holds no subject, so it
+cannot enforce it — :func:`~bayram.admin.security.permissions.check_role` holds no subject, so it
 would answer ``STEP_UP_REQUIRED`` to a correctly re-authenticated ADMIN for ever. The routers
 therefore declare ``USER_BLOCK_WRITE`` and the handlers enforce ``USER_BLOCK``. Both refusals
 are asserted, and they are asserted as *different codes*: a SUPPORT operator gets
@@ -41,13 +41,13 @@ import httpx
 import pytest
 import sqlalchemy as sa
 
-from hbd.admin import audit_sink
-from hbd.admin.container import AdminContainer
-from hbd.admin.errors import AdminErrorCode
-from hbd.admin.routers.users import USER_BLOCK_PATH, USER_UNBLOCK_PATH
-from hbd.db.enums import AdminRole, AuditAction, AuditReasonCode
-from hbd.db.models.admin_audit import AdminAuditRow, AuditOutcome
-from hbd.db.models.user import UserRow
+from bayram.admin import audit_sink
+from bayram.admin.container import AdminContainer
+from bayram.admin.errors import AdminErrorCode
+from bayram.admin.routers.users import USER_BLOCK_PATH, USER_UNBLOCK_PATH
+from bayram.db.enums import AdminRole, AuditAction, AuditReasonCode
+from bayram.db.models.admin_audit import AdminAuditRow, AuditOutcome
+from bayram.db.models.user import UserRow
 from tests.test_admin.conftest import (
     PASSWORD,
     FakeRedis,

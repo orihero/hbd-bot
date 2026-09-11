@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from hbd.contracts import Err, Ok, PaymentAuthorization, PaymentProvider, Result, ok
-from hbd.entitlements import InsufficientCreditsError
-from hbd.errors import StorageError
-from hbd.payments import (
+from bayram.contracts import Err, Ok, PaymentAuthorization, PaymentProvider, Result, ok
+from bayram.entitlements import InsufficientCreditsError
+from bayram.errors import StorageError
+from bayram.payments import (
     DEFAULT_CURRENCY,
     FREE_AMOUNT_MINOR,
     CreditGatedPaymentProvider,
@@ -70,7 +70,7 @@ async def test_every_authorisation_carries_its_own_reference() -> None:
 
 def test_the_bot_import_path_resolves_to_the_one_implementation() -> None:
     # Arrange / Act: two copies of "always authorises" is how billing day becomes a hunt.
-    from hbd.bot.payment import NoopPaymentProvider as FromBot
+    from bayram.bot.payment import NoopPaymentProvider as FromBot
 
     # Assert
     assert FromBot is NoopPaymentProvider
@@ -204,7 +204,7 @@ async def test_an_exhausted_allowance_is_refused_as_an_error_not_as_a_polite_dec
     assert isinstance(result.error, InsufficientCreditsError)
     assert result.error.user_message_key == "error.credits_exhausted"
     assert result.error.context["balance"] == 0
-    # Non-retryable, or the ARQ ladder in hbd.runtime.jobs re-runs the whole pipeline on a
+    # Non-retryable, or the ARQ ladder in bayram.runtime.jobs re-runs the whole pipeline on a
     # schedule for a customer whose answer cannot change until the calendar does.
     assert not result.is_retryable
 
@@ -265,8 +265,8 @@ async def test_a_database_outage_at_the_gate_stays_retryable() -> None:
 
 
 def test_the_bot_import_path_resolves_to_the_one_credit_gate() -> None:
-    # Arrange / Act: the bot may name the gate; it may never wire one. See hbd.bot.payment.
-    from hbd.bot.payment import CreditGatedPaymentProvider as FromBot
+    # Arrange / Act: the bot may name the gate; it may never wire one. See bayram.bot.payment.
+    from bayram.bot.payment import CreditGatedPaymentProvider as FromBot
 
     # Assert
     assert FromBot is CreditGatedPaymentProvider

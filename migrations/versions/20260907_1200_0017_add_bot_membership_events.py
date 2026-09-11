@@ -4,7 +4,7 @@ Revision ID: 0017
 Revises: 0016
 Create Date: 2026-09-07
 
-A customer blocking the bot was recorded NOWHERE. ``src/hbd/bot/delivery.py`` catches
+A customer blocking the bot was recorded NOWHERE. ``src/bayram/bot/delivery.py`` catches
 ``TelegramForbiddenError`` only to skip a retry and persists nothing, aiogram's
 ``my_chat_member`` observer has no handler anywhere in ``src/``, and ``users`` has no column
 for it. So the one number that says whether the product is losing its customers — the Churn
@@ -80,14 +80,15 @@ exist when they ran. That is the one shape of zero this design allows: a measure
 never an unmeasured quantity.
 
 **WHY NO ``*_expires_at``.** That suffix obliges a sweep BY NAME in
-``tests/test_db/test_audit_retention.py`` and would claim a legal schedule this table does
-not have. Its bound is a 400-day CUTOFF on ``at`` (``hbd.db.purge.BOT_MEMBERSHIP_RETENTION_DAYS``)
-— thirteen months rather than twelve for ``vendor_usage``'s stated reason, that a
-year-over-year churn comparison needs last March to still be there on the day it is asked.
-The table is in NEITHER of ``tests/test_db/test_privacy_constraints.py``'s two sets, and it
-may not borrow ``vendor_usage``'s argument for that, because unlike ``vendor_usage`` it
-carries a ``telegram_user_id``; its route is anonymisation, and the omission is recorded in
-that file as a comment.
+``tests/test_db/test_audit_retention.py`` and would claim a legal schedule this table does not
+have. Its bound is a 400-day CUTOFF on ``at``
+(``bayram.db.purge.BOT_MEMBERSHIP_RETENTION_DAYS``) — thirteen months rather than twelve for
+``vendor_usage``'s stated reason, that a year-over-year churn comparison needs last March to
+still be there on the day it is asked. The table is in NEITHER of
+``tests/test_db/test_privacy_constraints.py``'s two sets, and it may not borrow
+``vendor_usage``'s argument for that, because unlike ``vendor_usage`` it carries a
+``telegram_user_id``; its route is anonymisation, and the omission is recorded in that file as a
+comment.
 
 **THIS REVISION BREAKS ``docs/product/ADMIN_PANEL_PLAN.md``'s "No DDL on ``users``" COMMITMENT, and
 does so knowingly.** That commitment was made when the panel's phases needed no column, and

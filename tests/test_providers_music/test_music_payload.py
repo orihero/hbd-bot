@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hbd.contracts import (
+from bayram.contracts import (
     MIN_CHUNK_DURATION_MS,
     AudioRange,
     Chunk,
@@ -14,7 +14,7 @@ from hbd.contracts import (
     is_err,
     is_ok,
 )
-from hbd.providers.music.payload import (
+from bayram.providers.music.payload import (
     MUSIC_PATH,
     build_compose_body,
     build_inpaint_body,

@@ -5,7 +5,7 @@
  * the time Playwright's `webServer` has seen `/healthz` the file is there. Everything the
  * browser side would otherwise hard-code lives in it: the origin, the credentials, the
  * seeded ids, the counts the seed implies — and `cspTemplate`, which is
- * `hbd.admin.middleware.security_headers.CSP_TEMPLATE` itself.
+ * `bayram.admin.middleware.security_headers.CSP_TEMPLATE` itself.
  *
  * That last one is the point. A gate that spelled the policy out in TypeScript would keep
  * passing after somebody widened `style-src` in Python; carrying the constant across means

@@ -81,7 +81,7 @@ export function ChangePasswordPage({ isForced = true }: ChangePasswordPageProps)
           <div className="flex items-center gap-[17.78px]">
             <BrandMark className="h-[59.27px] w-[59.27px]" />
             <span className="font-wordmark text-[27.99px] font-medium leading-[39.19px] text-wordmark">
-              hbd
+              Bayram
             </span>
           </div>
 

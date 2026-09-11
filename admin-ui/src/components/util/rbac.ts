@@ -1,7 +1,7 @@
 /**
  * §12.2's RBAC matrix, mirrored on the client for ONE purpose: deciding what to render.
  *
- * **The server is the authority and this table is not.** `src/hbd/admin/security/permissions.py`
+ * **The server is the authority and this table is not.** `src/bayram/admin/security/permissions.py`
  * holds `RBAC_MATRIX` and every route calls `require(...)`; nothing here can grant anything.
  * What this table buys is §11.4's rule — role-based **hiding**, not disabling. A disabled
  * button nobody can explain is worse than an absent one, and an operator must not discover

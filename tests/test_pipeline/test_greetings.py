@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 from uuid import uuid4
 
-from hbd.config import Settings
-from hbd.contracts import Language, RenderedAudio, Result, SpeechRequest, SpokenScript
-from hbd.errors import ErrorCode
-from hbd.pipeline.greetings import GreetingBatch, render_greetings
-from hbd.pipeline.retry import RetryPolicy
+from bayram.config import Settings
+from bayram.contracts import Language, RenderedAudio, Result, SpeechRequest, SpokenScript
+from bayram.errors import ErrorCode
+from bayram.pipeline.greetings import GreetingBatch, render_greetings
+from bayram.pipeline.retry import RetryPolicy
 from tests.conftest import UZBEK_NAME_CANONICAL
 from tests.test_pipeline.conftest import FakeTtsProvider, no_sleep
 

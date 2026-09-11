@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.contracts import Language
-from hbd.i18n.plurals import (
+from bayram.contracts import Language
+from bayram.i18n.plurals import (
     REQUIRED_PLURAL_CATEGORIES,
     PluralCategory,
     plural_category,

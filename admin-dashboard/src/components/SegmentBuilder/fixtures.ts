@@ -13,7 +13,7 @@
  * must fail — and against a trimmed fixture they would not.
  *
  * Regenerate with:
- *   python -c "import json;from hbd.admin.schemas.segment import to_segment_fields_view as v;\
+ *   python -c "import json;from bayram.admin.schemas.segment import to_segment_fields_view as v;\
  *     print(json.dumps(v(capabilities=frozenset()).model_dump(by_alias=True,mode='json')))"
  */
 

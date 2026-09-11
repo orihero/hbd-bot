@@ -32,14 +32,14 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import OrderState, is_ok
-from hbd.db.credit_sql import verify_balances
-from hbd.db.credits import SWEEP_ACTOR, SqlCreditLedger, settle_stale_debits
-from hbd.db.enums import CreditEntryKind, CreditReason
-from hbd.db.models import CreditLedgerRow
-from hbd.db.purge import purge_expired
-from hbd.db.repository import SqlKitRepository
-from hbd.entitlements import DEFAULT_ENTITLEMENT_POLICY, EntitlementPolicy, SettlementOutcome
+from bayram.contracts import OrderState, is_ok
+from bayram.db.credit_sql import verify_balances
+from bayram.db.credits import SWEEP_ACTOR, SqlCreditLedger, settle_stale_debits
+from bayram.db.enums import CreditEntryKind, CreditReason
+from bayram.db.models import CreditLedgerRow
+from bayram.db.purge import purge_expired
+from bayram.db.repository import SqlKitRepository
+from bayram.entitlements import DEFAULT_ENTITLEMENT_POLICY, EntitlementPolicy, SettlementOutcome
 from tests.test_db.conftest import MovableClock, new_order
 
 _ACTOR: Final[str] = "pipeline"
@@ -224,9 +224,9 @@ async def test_a_live_order_survives_a_grace_far_shorter_than_its_own_retry_ladd
 ) -> None:
     """A misconfigured grace must not be able to refund a job that is still working.
 
-    The cron caller (``hbd.runtime.retention_job``, fenced) passes no ``entitlements``, so
+    The cron caller (``bayram.runtime.retention_job``, fenced) passes no ``entitlements``, so
     the sweep runs on ``DEFAULT_ENTITLEMENT_POLICY`` while the container resolves the
-    ledger's from ``Settings``. A deployment that raises ``HBD_QUEUE_JOB_TIMEOUT_S`` used to
+    ledger's from ``Settings``. A deployment that raises ``BAYRAM_QUEUE_JOB_TIMEOUT_S`` used to
     make the sweep's grace shorter than its own ladder and refund live renders. The selection
     now also demands that ``orders.updated_at`` be older than the cutoff, and every stage
     transition stamps it — so the order below is protected by its own progress, not by the

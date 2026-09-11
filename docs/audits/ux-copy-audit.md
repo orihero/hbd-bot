@@ -1,4 +1,4 @@
-# hbd-bot — Production Remediation Plan
+# bayram-bot — Production Remediation Plan
 **Owner: product lead · Tree: `feat/live-vendor-integration` @ 2026-08-28 · Scope: copy + conversational UX for paid launch**
 
 ---
@@ -82,7 +82,7 @@
 *Goal: no duplicate orders, no lies about state, a legal footing, and a wait that doesn't insult the user.*
 
 **P1.1 — Kill the double-submit (NAV-01)**
-`src/hbd/bot/handlers/confirm.py`
+`src/bayram/bot/handlers/confirm.py`
 - Move `await state.set_state(Wizard.submitting)` to the first statement of `handle_confirm` after the `Wizard.confirm` filter matches, before `read_draft` and before `_is_authorized`.
 - Reset to `Wizard.confirm` on every early return in `_authorize_and_submit` (incomplete brief, decline, progress failure, enqueue failure).
 - Replace `uuid4()` in `_build_order` with a deterministic id derived from `(telegram_user_id, draft fingerprint)` so a leaked concurrent tap is idempotent at the submitter (`job_id_for(order.id)` then collides by design).
@@ -91,27 +91,27 @@
 
 **P1.2 — Survive the generation window (SELL-03 / NAV-02 / TRUST-06)**
 - `confirm.py`: delete the trailing `await state.clear()`. Leave the FSM at `Wizard.submitting`, storing `{order_id, progress_message_id}`.
-- New `src/hbd/bot/handlers/submitting.py`: message handler bound to `Wizard.submitting` answering `wizard.queued` (the existing dead key — now wired). Register it in `build_router()` **before** `fallback`.
-- `src/hbd/bot/progress.py::queued_text` — accept `name` and render `progress.queued` with it; caller `confirm.py::_start_progress` already has the draft.
+- New `src/bayram/bot/handlers/submitting.py`: message handler bound to `Wizard.submitting` answering `wizard.queued` (the existing dead key — now wired). Register it in `build_router()` **before** `fallback`.
+- `src/bayram/bot/progress.py::queued_text` — accept `name` and render `progress.queued` with it; caller `confirm.py::_start_progress` already has the draft.
 - Clear the state from the delivery path (`runtime/jobs.py` after `_send_kit`) rather than at submit, or expire it via the existing FSM TTL.
 
 **P1.3 — Honest cancel (TRUST-07)**
-`src/hbd/bot/handlers/navigation.py::handle_cancel` — when the current state is `Wizard.submitting`, do **not** clear; answer `wizard.cancel_too_late`. Same guard in `handlers/start.py::handle_start` (warn, then restart).
+`src/bayram/bot/handlers/navigation.py::handle_cancel` — when the current state is `Wizard.submitting`, do **not** clear; answer `wizard.cancel_too_late`. Same guard in `handlers/start.py::handle_start` (warn, then restart).
 
 **P1.4 — Stop duplicate deliveries (TRUST-08)**
-`src/hbd/bot/delivery.py` + `src/hbd/pipeline/orchestrator.py::_replay`
+`src/bayram/bot/delivery.py` + `src/bayram/pipeline/orchestrator.py::_replay`
 - Persist a `delivered_assets` set on the kit row; `deliver_kit` skips what already landed.
 - `_replay` must reconstruct `gaps` from storage instead of defaulting to `()`.
 
 **P1.5 — Legal footing (TRUST-11, TRUST-05)**
-- `src/hbd/bot/handlers/start.py` — register `/help`, `/privacy`, `/support`, `/forget` (start router matches first from any state).
-- `src/hbd/bot/app.py` — `await bot.set_my_commands([...])` at startup so the menu is non-empty.
-- `/privacy` renders values read from `src/hbd/db/retention.py::RetentionPolicy` so copy cannot drift from code.
+- `src/bayram/bot/handlers/start.py` — register `/help`, `/privacy`, `/support`, `/forget` (start router matches first from any state).
+- `src/bayram/bot/app.py` — `await bot.set_my_commands([...])` at startup so the menu is non-empty.
+- `/privacy` renders values read from `src/bayram/db/retention.py::RetentionPolicy` so copy cannot drift from code.
 - `questions.py::handle_note` — add `~CommandStart()` / command guard so `/help` is never stored as the note.
 - Append `wizard.note.privacy_line` to the note prompt.
 
 **P1.6 — Terminal states tell the truth (TRUST-03, TRUST-04, TRUST-01, SELL-08)**
-- `src/hbd/runtime/jobs.py::_run_pipeline` — before returning the failure dict, `bot.send_message(chat_id, translate(outcome.error.user_message_key, order.brief.ui_language))`.
+- `src/bayram/runtime/jobs.py::_run_pipeline` — before returning the failure dict, `bot.send_message(chat_id, translate(outcome.error.user_message_key, order.brief.ui_language))`.
 - Wrap the job body in `try/except asyncio.CancelledError` to emit one `progress.timed_out` frame before dying.
 - `progress.failed`: drop "Nothing was charged." (the clause is unconditional and decoupled from payment state); keep the reassurance non-monetary.
 
@@ -124,7 +124,7 @@
 ### Phase 2 — conversion lifts
 
 **P2.1 — Payoff and distribution (SELL-01, TRUST-09, TRUST-10, L12)**
-`src/hbd/bot/delivery.py::_send_closing`
+`src/bayram/bot/delivery.py::_send_closing`
 - Rewrite `delivery.done` (forward instruction + one open loop).
 - Attach `InlineKeyboardMarkup` with `button.make_another` (→ new `nav:make_another` running the `handle_start` reset) and `button.report_problem`.
 - `dict.fromkeys(gaps)` dedupe; when gaps are non-empty use `delivery.done_degraded` as the lead line and render gap text from new `gap.*` keys that carry **no** retry clause.
@@ -132,7 +132,7 @@
 
 **P2.2 — Sell at the two decision points (SELL-02, SELL-04, SELL-06, SELL-07)**
 - `locales/*.py`: `start.welcome`, `wizard.name.confirm`, `wizard.lyrics.preview`, `wizard.confirm.summary`, `button.confirm`, `button.name_ok`.
-- `src/hbd/bot/screens.py::_confirm_screen` — recipient becomes the headline; drop the redundant `Name:` row.
+- `src/bayram/bot/screens.py::_confirm_screen` — recipient becomes the headline; drop the redundant `Name:` row.
 
 **P2.3 — No destructive Back, no dead keyboards (NAV-04, NAV-05, NAV-06, NAV-03, SELL-12)**
 - `screens.py` NOTE/NAME branches echo `draft.note` / `draft.recipient.display`.
@@ -155,7 +155,7 @@
 ### Phase 3 — polish and growth
 
 - **L-series copy pass** (L1 relabel, L2, L4, L5, L6, L7, L8, L10) — pure catalogue edits, one PR, reviewed by a native speaker per locale.
-- **`Occasion.TOY`** (L1, product decision): add to `src/hbd/contracts.py`; the keyboard picks it up automatically via `for value in Occasion`. `db/base.py` uses `native_enum=False`, so no migration — but 4 catalogues + i18n test.
+- **`Occasion.TOY`** (L1, product decision): add to `src/bayram/contracts.py`; the keyboard picks it up automatically via `for value in Occasion`. `db/base.py` uses `native_enum=False`, so no migration — but 4 catalogues + i18n test.
 - **Layout** (NAV-12, L3): split `_nav_row` at two per row in `keyboards.py`; add a per-locale button-width test.
 - **`NavCB` step token** (NAV-07): `nav:back:genre`; stale taps get a "this screen has moved on" toast; `handle_retype` clears `draft.lyrics`; `_edit_or_send` strips old markup before falling back to `answer()`.
 - **`show_step` single-resolve** (NAV-10): one line in `handlers/common.py`, plus a test asserting the rendered keyboard's callback namespace matches the FSM state.
@@ -166,7 +166,7 @@
 
 ---
 
-## 4. Copy rewrite sheet (EN — `src/hbd/bot/locales/en.py`)
+## 4. Copy rewrite sheet (EN — `src/bayram/bot/locales/en.py`)
 
 Tone: humble, warm, specific, short, no hype. Emoji only where it marks a message type. Every string below must be mirrored into `ru.py`, `uz_latn.py`, `uz_cyrl.py` in the same key order — `tests/test_bot/test_i18n.py` enforces parity.
 
@@ -344,7 +344,7 @@ Each was raised by a lens agent and then independently re-checked against the cu
 ### HIGH
 #### NAV-01 — Confirm has no double-tap guard: two taps queue two orders and two kits
 - **Surface:** CONFIRM screen — "✅ Yes, start"
-- **Anchor:** `src/hbd/bot/handlers/confirm.py:38`
+- **Anchor:** `src/bayram/bot/handlers/confirm.py:38`
 - **Lens:** ux · **Effort:** small
 
 **Problem.** `handle_confirm` calls `callback.answer()` first (removing Telegram's spinner, so the button looks idle again), then does two awaits — `read_draft` and `deps.payment.authorize` — before `state.set_state(Wizard.submitting)` at confirm.py:67. aiogram processes updates concurrently with no FSM lock, so two taps arriving inside that window both pass the `Wizard.confirm` state filter, both build a fresh `uuid4()` order (confirm.py:96-106) and both call `deps.submitter.submit`. The second `_start_progress` edit fails with "message is not modified", falls through to `_post_progress` (confirm.py:144-154), and the user gets two progress messages and two complete kits. Today payment is a no-op, so this ships as duplicate vendor spend (~$0.30/song) and a confusing double delivery; the moment a real rail is wired in it is a double charge on the single most trust-sensitive tap in the product.
@@ -353,7 +353,7 @@ Each was raised by a lens agent and then independently re-checked against the cu
 
 #### SELL-03 — During generation the bot tells the user their session expired
 - **Surface:** Wait window between "Yes, start" and delivery — queued frame + any typed message
-- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/handlers/confirm.py:93 (state.clear) → /Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/handlers/fallback.py:34-40; first frame at /Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/progress.py:55-57`
+- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/handlers/confirm.py:93 (state.clear) → /Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/handlers/fallback.py:34-40; first frame at /Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/progress.py:55-57`
 - **Lens:** marketing · **Effort:** small
 
 **Problem.** Two failures stack in the highest-anticipation minutes of the product. (1) `state.clear()` fires at submit, so anything the user types while their song is being made falls to `handle_stray_message` with `state is None` and answers "That session expired. Send /start to begin again." — the bot denies the order exists while it is running it. A user who obeys that instruction restarts the wizard and gets a second charge-free duplicate order. (2) The first progress frame is "🎬 In the queue…" — a queue position, not a promise, with no name and no permission to leave. There is no anticipation copy anywhere in a wait that can legitimately run minutes (music_timeout_s 420, 4 attempts).
@@ -370,7 +370,7 @@ wizard.generating (new key): "🎬 Still in the studio. {name}'s song lands here
 
 #### TRUST-07 — Cancel during generation says "Cancelled" while the job keeps running and still delivers the kit
 - **Surface:** During generation
-- **Anchor:** `src/hbd/bot/handlers/navigation.py:25-27 (handle_cancel, registered with no state filter)`
+- **Anchor:** `src/bayram/bot/handlers/navigation.py:25-27 (handle_cancel, registered with no state filter)`
 - **Lens:** trust · **Effort:** medium
 
 **Problem.** _start_progress strips reply_markup (confirm.py:136) so the live message has no buttons, but nav:cancel is registered globally with no state filter, so Cancel pressed on any older, scrolled-up screen still matches. It runs finish_with("wizard.cancelled") — "Cancelled. Send /start whenever you are ready." — and the queued job is untouched: it continues, completes, and delivers the song and lyric sheet into the chat minutes after the bot said it stopped. /start behaves the same way. There is no real cancel path at all: no dequeue, no abort flag, no cancellation check in the orchestrator. Telling a user an operation is cancelled and then performing it anyway is the version of this bug that generates refund requests under a real payment rail.
@@ -385,7 +385,7 @@ wizard.cancel_too_late: "Your kit is already in the studio, so I cannot stop it 
 
 #### TRUST-08 — One failed asset re-sends the entire kit as duplicates, and the redelivered copy silently loses the pronunciation apology
 - **Surface:** Delivery
-- **Anchor:** `src/hbd/errors.py:349 (DeliveryError.default_is_retryable = True)`
+- **Anchor:** `src/bayram/errors.py:349 (DeliveryError.default_is_retryable = True)`
 - **Lens:** trust · **Effort:** medium
 
 **Problem.** deliver_kit sends song → greetings → lyric sheet → closing, collecting failures, and returns Err if ANY one failed (delivery.py:64-74) — after the others have already been sent successfully. _send_kit then raises arq Retry (jobs.py:137-138). On the retry, _replay short-circuits the pipeline and returns the stored kit, and deliver_kit re-sends everything that already worked. Up to ARQ's max_tries the user receives duplicate songs, duplicate lyric sheets and duplicate "🎉 That is your kit" messages while the one broken asset keeps failing. Worse: _replay constructs PipelineOutcome with gaps defaulting to () (orchestrator.py:480), so the redelivered closing message drops "We could not perfect the pronunciation, so we delivered our best take." The last message the user keeps is the one that quietly omits the disclosure the first attempt made.
@@ -394,7 +394,7 @@ wizard.cancel_too_late: "Your kit is already in the studio, so I cannot stop it 
 
 #### TRUST-11 — The bot solicits a third party's personal details and never says what it stores, for how long, or how to delete it — while a real retention policy exists in code
 - **Surface:** NOTE step, NAME step, and the absent /privacy command
-- **Anchor:** `src/hbd/db/retention.py:56-67`
+- **Anchor:** `src/bayram/db/retention.py:56-67`
 - **Lens:** trust · **Effort:** medium
 
 **Problem.** wizard.note.prompt actively asks the user for personal facts about someone who is not present and has not consented — "a hobby, an inside joke, a nickname" — up to 600 characters, and the NAME step captures a real person's name and script. RetentionPolicy defines concrete, deliberate commitments (recipient identity 90 days, brief free text 30 days, paid audio 365, ephemeral 7, abandoned drafts 14) with a __post_init__ guard whose own comment calls a retention period "a legal commitment". None of it is ever stated to the user. There is no /privacy command, no consent line, no deletion path, and no mention of storage in any of the 89 keys in any of the four catalogues. The gap between the care taken in the retention code and the total silence in the copy is the finding.
@@ -411,12 +411,12 @@ wizard.note.privacy_line (append to note prompt): "I keep this note for 30 days 
 ### MEDIUM
 #### L1 — Uzbek has no route to a toʻy — and "Anniversary" is mistranslated as a milestone jubilee in three of four locales
 - **Surface:** OCCASION step + confirm summary; Occasion enum
-- **Anchor:** `src/hbd/bot/locales/uz_latn.py:111 (also uz_cyrl.py:114, ru.py:105, en.py:97); enum at src/hbd/contracts.py:141-144`
+- **Anchor:** `src/bayram/bot/locales/uz_latn.py:111 (also uz_cyrl.py:114, ru.py:105, en.py:97); enum at src/bayram/contracts.py:141-144`
 - **Lens:** i18n · **Effort:** small
 
 **Problem.** `occasion.anniversary` is rendered `Yubiley` / `Юбилей` / `Юбилей`. In both Uzbek and Uzbek-Russian usage *yubiley* means specifically a round-number personal milestone (50, 60, 70) — it is not a generic anniversary. A user celebrating a 3rd wedding anniversary reads a label that says "not for me"; the correct generic terms are `Yillik` / `Годовщина`. Worse, the occasion list has only three members and the single largest Uzbek celebration category — **toʻy** (nikoh toʻyi, sunnat toʻyi, beshik toʻyi) — has no entry at all. The only escape is `occasion.custom`, which in Uzbek reads "Boshqa sabab" = "another reason". So the biggest gifting occasion in the target market can only be reached through a button that calls it a *reason*. This is the localisation finding with the largest revenue surface: an entire demand category is invisible in the picker.
 
-**Remedy.** Add a `TOY` member to `Occasion` (src/hbd/contracts.py:141-144) — it appears in the keyboard automatically (keyboards.py:144-149 iterates the enum). Relabel `anniversary` away from *yubiley*: uz `Yillik` / `Йиллик`, ru `Годовщина`. New `toy` labels: uz `Toʻy` / `Тўй`, ru `Свадьба / той`, en `Wedding or toʻy`. Keep *Yubiley* only if you add it as its own fourth occasion — it is a real and distinct Uzbek event, just not this one.
+**Remedy.** Add a `TOY` member to `Occasion` (src/bayram/contracts.py:141-144) — it appears in the keyboard automatically (keyboards.py:144-149 iterates the enum). Relabel `anniversary` away from *yubiley*: uz `Yillik` / `Йиллик`, ru `Годовщина`. New `toy` labels: uz `Toʻy` / `Тўй`, ru `Свадьба / той`, en `Wedding or toʻy`. Keep *Yubiley* only if you add it as its own fourth occasion — it is a real and distinct Uzbek event, just not this one.
 
 **Proposed EN copy.**
 
@@ -427,7 +427,7 @@ wizard.note.privacy_line (append to note prompt): "I keep this note for 30 days 
 
 #### L12 — The one line with a sense of humour is flattened to an equipment-fault report in all three locales — and its "try again" CTA gets appended to successful deliveries
 - **Surface:** Provider error; also the gap notice appended after delivery.done
-- **Anchor:** `src/hbd/bot/locales/en.py:17; ru.py:21; uz_latn.py:20; uz_cyrl.py:23; append site at src/hbd/bot/delivery.py:167`
+- **Anchor:** `src/bayram/bot/locales/en.py:17; ru.py:21; uz_latn.py:20; uz_cyrl.py:23; append site at src/bayram/bot/delivery.py:167`
 - **Lens:** i18n · **Effort:** small
 
 **Problem.** EN's "Our studio hiccuped." is the single playful string in 89 keys and one of the few that keeps the possessive "our". All three locales flatten it to an impersonal technical noun phrase and drop the ownership: `В студии сбой.` ("a malfunction in the studio" — a status line, not a voice), `Studiyada nosozlik boʻldi.` / `Студияда носозлик бўлди.` This is specific to that string: `error.generic` keeps the ownership everywhere (`с нашей стороны`, `Bizning tomonda`, `Бизнинг томонда`). Compounding structurally: `deliver_kit` appends each `PipelineGap.user_message_key` after `delivery.done`, undeduplicated, so a *successful* kit can end "🎉 That is your kit for Gulomjon. Send /start to make another.\n\nOur studio hiccuped. Please try again in a moment." — a retry instruction stapled to a success screen, repeated once per failed asset.
@@ -443,12 +443,12 @@ wizard.note.privacy_line (append to note prompt): "I keep this note for 30 days 
 
 #### L8 — "Nothing was charged" appears three times in a product that never charges, and Uzbek says it two different ways
 - **Surface:** Payment failure, payment decline, terminal failure frame
-- **Anchor:** `src/hbd/bot/locales/uz_latn.py:29 vs :94 and :145 (uz_cyrl.py:32 vs :97 and :148); en.py:24, :83, :131`
+- **Anchor:** `src/bayram/bot/locales/uz_latn.py:29 vs :94 and :145 (uz_cyrl.py:32 vs :97 and :148); en.py:24, :83, :131`
 - **Lens:** i18n · **Effort:** trivial
 
-**Problem.** Two compounding problems on the most trust-sensitive sentence in the product. (a) The word *payment* appears in the entire 89-key catalogue only as a denial. There is no price, invoice, currency, or positive free claim anywhere (`NoopPaymentProvider` always authorises at amount 0 — src/hbd/payments.py, config.py:209-212). A user who was never asked for money reads `Toʻlov amalga oshmadi. Hech qanday pul yechilmadi.` and reasonably concludes a charge exists and their card failed. The reassurance manufactures the anxiety it answers. (b) Each Uzbek catalogue phrases the guarantee two different ways: `Hech qanday pul yechilmadi` ("no money was withdrawn", :29) versus `Hech qanday toʻlov olinmadi` ("no payment was taken", :94 and :145). RU is consistent across all three (`Деньги не списаны.`). Inconsistency on a money guarantee reads as boilerplate rather than a promise — on the default locale.
+**Problem.** Two compounding problems on the most trust-sensitive sentence in the product. (a) The word *payment* appears in the entire 89-key catalogue only as a denial. There is no price, invoice, currency, or positive free claim anywhere (`NoopPaymentProvider` always authorises at amount 0 — src/bayram/payments.py, config.py:209-212). A user who was never asked for money reads `Toʻlov amalga oshmadi. Hech qanday pul yechilmadi.` and reasonably concludes a charge exists and their card failed. The reassurance manufactures the anxiety it answers. (b) Each Uzbek catalogue phrases the guarantee two different ways: `Hech qanday pul yechilmadi` ("no money was withdrawn", :29) versus `Hech qanday toʻlov olinmadi` ("no payment was taken", :94 and :145). RU is consistent across all three (`Деньги не списаны.`). Inconsistency on a money guarantee reads as boilerplate rather than a promise — on the default locale.
 
-**Remedy.** Pick one Uzbek sentence and use it in all three places: `Hech qanday toʻlov olinmadi.` / `Ҳеч қандай тўлов олинмади.` Then, since this build never charges, stop leading with a charge denial in the two failure frames the user actually reaches — `progress.failed` and `wizard.enqueue_failed` — and add the retry CTA that is currently missing entirely on every failure path (the ❌ frame today ends with no button and no instruction; src/hbd/bot/progress.py:61-62).
+**Remedy.** Pick one Uzbek sentence and use it in all three places: `Hech qanday toʻlov olinmadi.` / `Ҳеч қандай тўлов олинмади.` Then, since this build never charges, stop leading with a charge denial in the two failure frames the user actually reaches — `progress.failed` and `wizard.enqueue_failed` — and add the retry CTA that is currently missing entirely on every failure path (the ❌ frame today ends with no button and no instruction; src/bayram/bot/progress.py:61-62).
 
 **Proposed EN copy.**
 
@@ -458,7 +458,7 @@ wizard.note.privacy_line (append to note prompt): "I keep this note for 30 days 
 
 #### NAV-02 — Generation is uncancellable, unstoppable, and tells the user their session expired
 - **Surface:** During generation (post-submit, no FSM state)
-- **Anchor:** `src/hbd/bot/handlers/confirm.py:93`
+- **Anchor:** `src/bayram/bot/handlers/confirm.py:93`
 - **Lens:** ux · **Effort:** small
 
 **Problem.** `await state.clear()` at confirm.py:93 ends the session the instant the job is queued, and `_start_progress` (confirm.py:130-141) edits the message with `reply_markup=None`, so every button vanishes at the same moment. From then until delivery — a window bounded only by `queue_job_timeout_s = 900.0` — the user has no cancel, no status query, and no way to reach a human. Worse, anything they type falls to `handle_stray_message` (fallback.py:34) with `state is None`, which answers "That session expired. Send /start to begin again." while their kit is actively rendering. The one user who does the natural thing (asks "is it working?") is told their order is gone, and if they follow the instruction and press /start they get a fresh wizard with no acknowledgement that a kit is still coming.
@@ -473,7 +473,7 @@ Your kit is still in the studio — I will send it here the moment it is ready.
 
 #### NAV-03 — Cancel is one unconfirmed tap on every screen and lands in a keyboardless dead end
 - **Surface:** Every wizard screen — nav row
-- **Anchor:** `src/hbd/bot/keyboards.py:84`
+- **Anchor:** `src/bayram/bot/keyboards.py:84`
 - **Lens:** ux · **Effort:** medium
 
 **Problem.** `_nav_row` puts Cancel on all ten screens, same size and same row as Back, with no emoji to mark it as destructive (`button.cancel` = "Cancel"). `handle_cancel` (navigation.py:25) goes straight to `finish_with` → `state.clear()` with no confirmation step, so one mis-tap on the confirm screen — where the row reads `[⬅️ Back][Cancel]` directly under `[✅ Yes, start]` — destroys nine screens of answers, a typed name, a typed note and an approved lyric, irrecoverably. `finish_with` (common.py:101) then *edits the wizard message in place* into a bare sentence with `markup=None`, so the screen and all its context are replaced by one line and there is no button to restart. Recovery requires typing `/start` by hand, and there is no `set_my_commands` call anywhere in `src/`, so `/start` does not appear in Telegram's command menu either.
@@ -488,7 +488,7 @@ Discard this kit? Your answers, the name and the lyrics will be lost.
 
 #### NAV-04 — Going Back into a typed step traps the user: no forward button, no current value shown, and Skip erases the note
 - **Surface:** NOTE and NAME steps reached via Back
-- **Anchor:** `src/hbd/bot/keyboards.py:162`
+- **Anchor:** `src/bayram/bot/keyboards.py:162`
 - **Lens:** ux · **Effort:** small
 
 **Problem.** `note_keyboard` offers Back/Skip/Cancel and `name_prompt_keyboard` offers Back/Cancel — neither has a "keep what I already wrote" affordance, and `render_step` (screens.py:117-128) renders the bare prompt without echoing the value already in the draft. So a user who steps Back from NAME to NOTE to re-read their note sees the original blank-state prompt with no note in it, and has exactly two exits: retype the whole 600-character note from memory, or press Skip — which `handle_note_skipped` (questions.py:86) resolves to `note=""`, silently deleting it. The NAME step is worse: the only forward transition is `handle_name_typed` on `F.text`, so once you Back into NAME you must retype the recipient's name character-for-character even if it was correct, and every intermediate Back that crosses NAME_CONFIRM forces this. Back is advertised as free ("every answer already given still in the draft", navigation.py:3-5) but is in practice destructive at two of the ten steps.
@@ -507,7 +507,7 @@ Type a new one to replace it, or keep it as it is.
 
 #### NAV-05 — No single-field edit from Confirm, and backing up past the language step silently destroys the approved lyric
 - **Surface:** CONFIRM summary → any earlier answer
-- **Anchor:** `src/hbd/bot/screens.py:177`
+- **Anchor:** `src/bayram/bot/screens.py:177`
 - **Lens:** ux · **Effort:** medium
 
 **Problem.** `_confirm_screen` renders six labelled facts (name, occasion, style, voice, language, note) and offers exactly one navigation affordance: `[⬅️ Back]`, one step at a time. Fixing a mis-tapped genre from the summary is six presses of Back (CONFIRM→LYRICS→OUTPUT_LANGUAGE→NAME_CONFIRM→NAME→NOTE→VOCAL_GENDER→GENRE), and because of NAV-04 that path forces a full retype of the name and a rewrite-or-erase of the note on the way. The trip is also silently destructive: the only forward transition out of OUTPUT_LANGUAGE is `handle_output_language` (questions.py:111), which calls `enter_lyrics_step` unconditionally — so re-tapping the *same, unchanged* language throws away the lyric the user just approved (or, worse, the lyric they pasted themselves at lyrics.py:106-130) and replaces it with a fresh vendor generation, with no warning and no undo. A user who backs up only to double-check their language choice loses their own words.
@@ -522,7 +522,7 @@ Changing the song language means writing new lyrics. Keep the ones you approved,
 
 #### NAV-06 — Expired and stale sessions dead-end in a disappearing toast while the dead buttons stay on screen
 - **Surface:** Any screen after the draft is gone / stale callback
-- **Anchor:** `src/hbd/bot/handlers/fallback.py:24`
+- **Anchor:** `src/bayram/bot/handlers/fallback.py:24`
 - **Lens:** ux · **Effort:** small
 
 **Problem.** `handle_stale_callback` answers the callback with `translate("wizard.expired", …)` as a **toast** and touches nothing else. The wizard message keeps its full keyboard, so the screen still looks alive: the user taps a genre, a small alert flashes for a few seconds and vanishes, the screen is unchanged, and tapping again reproduces exactly the same nothing. The recovery instruction ("Send /start to begin again") lives entirely inside that ephemeral toast, on a Telegram surface that is easy to miss on a phone and impossible to scroll back to — and /start is not in the command menu (no `set_my_commands` in `src/`). This is the terminal experience after any storage loss, and `build_dispatcher` (app.py:44) defaults to `MemoryStorage`, so every process restart in a non-Redis deployment puts every mid-wizard user here at once.
@@ -537,7 +537,7 @@ This session has ended. Tap Start over and I will set your kit up again — it t
 
 #### NAV-07 — Old keyboards stay live and act on wherever the session is now, not on the screen they came from
 - **Surface:** Every screen — all nav callbacks
-- **Anchor:** `src/hbd/bot/handlers/navigation.py:56`
+- **Anchor:** `src/bayram/bot/handlers/navigation.py:56`
 - **Lens:** ux · **Effort:** medium
 
 **Problem.** `nav:back`, `nav:cancel` and `nav:retype` are registered with **no state filter**, and `NavCB` (callbacks.py:51-69) carries only an action — no step, no message id, no draft version. So any older wizard message still in the chat is a fully live control surface: Cancel on a scrolled-up screen destroys the current session, Back jumps from wherever the FSM actually is, and Retype (navigation.py:46) wipes the recipient from a draft that has since reached CONFIRM. Multiple live keyboards are not hypothetical — `_edit_or_send` (common.py:89) falls back to `message.answer()` whenever `edit_text` raises `TelegramBadRequest` (a message older than 48h, a message deleted by the user), which posts a *new* screen while leaving the old one, buttons intact, above it. `handle_retype` from CONFIRM also leaves the now-stale `lyrics` (built around the old name) sitting in the draft.
@@ -552,7 +552,7 @@ That screen has moved on — use the buttons on the latest message.
 
 #### NAV-08 — The lyric-writing wait is a buttonless modal of unknown length, mislabelled "a few seconds"
 - **Surface:** OUTPUT_LANGUAGE → LYRICS transition
-- **Anchor:** `src/hbd/bot/handlers/lyrics.py:70`
+- **Anchor:** `src/bayram/bot/handlers/lyrics.py:70`
 - **Lens:** ux · **Effort:** small
 
 **Problem.** `enter_lyrics_step` presents `Screen(translate("wizard.lyrics.writing", …))` with **no markup**, which strips Back and Cancel for the whole duration of a live vendor call, then awaits `deps.content.write_lyrics` with no timeout of its own on this path. The copy promises "this takes a few seconds" against an `llm_timeout_s = 45.0` with `provider_max_attempts` retries behind it — a worst case of minutes on a frozen, uncancellable screen. The FSM is still at `Wizard:output_language` throughout (state is only moved by the `show_step` *after* the call returns), so anything the user types during the wait hits no registered handler and falls to `handle_stray_message` → "Please use the buttons above" — pointing at a screen that has no buttons at all. On failure the recovery is undiscoverable: `say(wizard.lyrics.failed)` plus a silent bounce back to the language picker, where the only way to retry is to re-tap a language button the user has already pressed.
@@ -567,7 +567,7 @@ That screen has moved on — use the buttons on the latest message.
 
 #### SELL-01 — The payoff message is a shrug: no share instruction, no repeat CTA, no button
 - **Surface:** Delivery closing message (last thing the user ever reads)
-- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/locales/en.py:138 (delivery.done); sent at /Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/delivery.py:158-172`
+- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/locales/en.py:138 (delivery.done); sent at /Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/delivery.py:158-172`
 - **Lens:** marketing · **Effort:** small
 
 **Problem.** The entire product ends on "🎉 That is your kit for {name}. Send /start to make another." It never tells the user what to DO with the song — forward it to the person — which is the only distribution this product has (there are no links, no downloads, everything lives in Telegram). And the one re-engagement line is a typed command, not a button: `_send_closing` attaches no `reply_markup` at all. The emotional peak of the product is spent on an admin sentence, and the gift never leaves the buyer's chat.
@@ -588,7 +588,7 @@ Whose turn next?
 
 #### SELL-02 — The welcome asserts the value and proves none of it
 - **Surface:** /start screen (start.welcome + language picker)
-- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/locales/en.py:26-29 (start.welcome)`
+- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/locales/en.py:26-29 (start.welcome)`
 - **Lens:** marketing · **Effort:** trivial
 
 **Problem.** "I make a personal celebration kit: one song and a lyric sheet — with the name pronounced properly" is a spec line. "Kit" is warehouse language; nobody wants a kit. The differentiator — the name — is stated as a bare claim with zero mechanism behind it, when the system actually transcribes the sung name back, compares it at 0.85 similarity, and re-records up to 3 times (config.py:161-179). The other unsold reassurance is that the user reads the words BEFORE anything is recorded (the new lyrics step) — the single biggest objection-killer in the flow, invisible at the moment of decision.
@@ -606,7 +606,7 @@ The song and the lyric sheet arrive here, in this chat.
 
 #### SELL-08 — A failure ends in a dead end and plants a charge the user never knew about
 - **Surface:** Terminal failure frame during generation
-- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/locales/en.py:131 (progress.failed)`
+- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/locales/en.py:131 (progress.failed)`
 - **Lens:** marketing · **Effort:** small
 
 **Problem.** "❌ We could not finish this one. Nothing was charged." has two problems. It is a full stop — no button, no retry, no path back (delivery/progress messages carry no markup), so a failed user is simply lost. And "Nothing was charged" is the first and only time money is mentioned to a user who has walked the whole flow without seeing a price: the sentence introduces the idea of a charge at the exact moment trust is lowest. The reassurance belongs on the two payment paths where an authorisation was actually attempted (error.payment_failed en.py:24, wizard.payment_declined en.py:83), not here.
@@ -623,7 +623,7 @@ The song and the lyric sheet arrive here, in this chat.
 
 #### TRUST-03 — Every generation failure looks identical; the specific, actionable reason is computed and then thrown away
 - **Surface:** Terminal failure frame
-- **Anchor:** `src/hbd/runtime/jobs.py:107-112`
+- **Anchor:** `src/bayram/runtime/jobs.py:107-112`
 - **Lens:** trust · **Effort:** small
 
 **Problem.** When the pipeline fails terminally, _run_pipeline builds a dict containing outcome.error.user_message_key and returns it to ARQ. Nothing sends it. The user's only signal is progress.failed — one sentence, identical for every cause. This means error.content_not_allowed ("We cannot make a song from that. Please try different wording.") is unreachable on the generation path even though it is the ONE failure the user can actually fix themselves: they wrote a note the moderator rejected, and the bot refuses to tell them. Same for error.provider_busy ("try again in a few minutes") and error.provider_slow — all defined, all translated into four languages, all dead. The user is left with a red ❌, no diagnosis, and no next action.
@@ -632,7 +632,7 @@ The song and the lyric sheet arrive here, in this chat.
 
 #### TRUST-04 — A 900-second job timeout leaves the progress bar frozen forever with no terminal message, and no stage ever shows an ETA
 - **Surface:** Progress message during generation
-- **Anchor:** `src/hbd/config.py:226 (queue_job_timeout_s = 900.0)`
+- **Anchor:** `src/bayram/config.py:226 (queue_job_timeout_s = 900.0)`
 - **Lens:** trust · **Effort:** medium
 
 **Problem.** ARQ cancels the task at the job timeout. Cancellation emits no FAILED event, so TelegramProgressSink never renders a terminal frame; the message stays on whatever partial bar it last drew, forever. Compounding it: render_progress (progress.py:76-80) emits only bar + percent + stage name — no ETA, no elapsed time, no "step 4 of 11". Configured worst cases the user gets no signal about are music_timeout_s = 420.0 with provider_max_attempts = 4 and 5s backoff. Provider-level retries inside song rendering, greeting rendering and persistence use _provider_policy below the progress layer and emit no events at all, so "🎼 Composing the song… 45%" can sit unchanged for well over ten minutes with nothing indicating whether the bot is working, retrying, or dead. Silence during a multi-minute paid operation is the single largest abandonment driver in this flow.
@@ -647,7 +647,7 @@ progress.queued: "🎬 In the queue… most kits are ready in 2–5 minutes. I w
 
 #### TRUST-05 — There is no /help, /support, /privacy or /terms — and typing /help is silently stored as the personal note that goes into the song
 - **Surface:** Command surface (global)
-- **Anchor:** `src/hbd/bot/handlers/start.py:40-41`
+- **Anchor:** `src/bayram/bot/handlers/start.py:40-41`
 - **Lens:** trust · **Effort:** small
 
 **Problem.** Only CommandStart() and Command("cancel") are registered, and there is no set_my_commands / BotCommand call anywhere in src/ — so Telegram's command menu is empty and the user has no discoverable affordance beyond the buttons. Any other command falls to whichever text handler owns the current state: at the NOTE step handle_note has no command filter, so "/help" is stripped and written into draft.note verbatim and later fed to the songwriting LLM; at NAME it is rejected as "I need a name written in letters"; at LYRICS it is rejected as too short. A user in trouble types /help and gets either a nonsensical validation error or has their plea for help set to music. For a bot that handles payments and a third party's personal data, having no support path and no terms/privacy command at all is both a trust failure and a compliance exposure.
@@ -662,7 +662,7 @@ help.text: "I make a personal celebration song with the recipient's name pronoun
 
 #### TRUST-06 — Anything the user types while their kit is generating is answered "That session expired" — and the correct copy for this exact moment exists, unused, in all four catalogues
 - **Surface:** During generation
-- **Anchor:** `src/hbd/bot/handlers/confirm.py:93 (state.clear()) → src/hbd/bot/handlers/fallback.py:38`
+- **Anchor:** `src/bayram/bot/handlers/confirm.py:93 (state.clear()) → src/bayram/bot/handlers/fallback.py:38`
 - **Lens:** trust · **Effort:** small
 
 **Problem.** On successful submit the FSM is cleared. Every subsequent message therefore reaches handle_stray_message with state is None, which selects wizard.expired: "That session expired. Send /start to begin again." The kit is at that moment actively being generated. A user who types "how long will this take?" is told their session died and instructed to start over — which, if they obey, produces a second order and leaves them watching a progress bar they believe is dead. Meanwhile wizard.queued ("🎬 Your kit is in the studio. I will send it here when it is ready.") is defined in all four catalogues (en.py:81) and referenced by zero lines of code. The right sentence was written, translated, and never wired up.
@@ -677,7 +677,7 @@ wizard.queued (wire it to the submitting state): "🎬 Your kit is in the studio
 
 #### TRUST-09 — Degraded delivery is announced as a bare line under a celebration emoji, with no apology, no retry offer, and no de-duplication
 - **Surface:** Closing message
-- **Anchor:** `src/hbd/bot/delivery.py:167`
+- **Anchor:** `src/bayram/bot/delivery.py:167`
 - **Lens:** trust · **Effort:** small
 
 **Problem.** _send_closing emits "🎉 That is your kit for {name}. Send /start to make another." and then appends translate(gap.user_message_key) for each gap. When the name-verification loop exhausts every candidate orthography, the appended line is "We could not perfect the pronunciation, so we delivered our best take." — a failure on the product's single stated differentiator ("with the name pronounced properly", en.py:26) delivered as a footnote under a party emoji, with no apology, no offer to try again, and no button. The gaps sequence is not de-duplicated, so three greetings failing on the same provider append "Our studio hiccuped. Please try again in a moment." three identical times — and that string tells the user to retry with no mechanism to retry. This is degraded goods handed over as if nothing happened.
@@ -692,7 +692,7 @@ delivery.done_degraded: "Here is your kit for {name}.\n\nI have to be straight w
 
 #### TRUST-10 — No way to report a bad result: no button, no order id, nothing the user could quote to support
 - **Surface:** Post-delivery
-- **Anchor:** `src/hbd/bot/delivery.py:158-172 (_send_closing)`
+- **Anchor:** `src/bayram/bot/delivery.py:158-172 (_send_closing)`
 - **Lens:** trust · **Effort:** medium
 
 **Problem.** Nothing in delivery.py attaches reply_markup to any message. The entire post-delivery surface is one plain-text sentence: "Send /start to make another." There is no rating, no thumbs, no "something wrong with this?", no share, and — critically — no order identifier in any user-facing string, even though the job summary carries order_id (jobs.py:177). A user who receives a song mispronouncing their grandmother's name has no channel to say so and nothing to reference if they find one. For a product whose whole claim is pronunciation accuracy, having zero feedback capture means the one defect that matters is invisible to the operator and unfixable for the customer.
@@ -707,7 +707,7 @@ delivery.done: "🎉 That is your kit for {name}.\n\nOrder {order_ref} — keep 
 
 #### TRUST-12 — The progress bar is not honest: it runs backwards 64% → 55%, counts skipped stages in its denominator, and announces "Ready!" before a single byte is sent
 - **Surface:** Progress message
-- **Anchor:** `src/hbd/pipeline/events.py:111-114 (progress_ratio)`
+- **Anchor:** `src/bayram/pipeline/events.py:111-114 (progress_ratio)`
 - **Lens:** trust · **Effort:** medium
 
 **Problem.** Three separate accuracy defects in the one element the user stares at for minutes. (1) progress_ratio divides by len(STAGE_ORDER) = 11 unconditionally, but with the shipped default greetings_per_kit = 0 two stages (WRITING_SCRIPTS, RENDERING_GREETINGS) never run — the bar can never be honest about how much is left. (2) VERIFYING_NAME (index 6) is emitted from inside the COMPOSING_SONG (index 5) stage wrapper, so its SUCCEEDED at 64% is followed by COMPOSING_SONG's SUCCEEDED at 55%: the user watches the bar go backwards, which reads as a crash. (3) DELIVERING/SUCCEEDED renders "✅ Ready! Sending it now." at orchestrator.py:306, which runs BEFORE _send_kit — so a total send failure leaves "✅ Ready!" permanently on screen with nothing ever arriving. Separately, progress.delivering ("📦 Packing everything up…") is unreachable copy, since DELIVERING is only ever emitted as SUCCEEDED and _headline maps that to progress.done.
@@ -718,7 +718,7 @@ delivery.done: "🎉 That is your kit for {name}.\n\nOrder {order_ref} — keep 
 ### LOW
 #### L10 — The Uzbek lyrics-preview instruction buries its verb behind two conditionals, on the longest string in the catalogue
 - **Surface:** LYRICS preview screen
-- **Anchor:** `src/hbd/bot/locales/uz_latn.py:58-63 (uz_cyrl.py:61-66)`
+- **Anchor:** `src/bayram/bot/locales/uz_latn.py:58-63 (uz_cyrl.py:61-66)`
 - **Lens:** i18n · **Effort:** trivial
 
 **Problem.** EN and RU both lead with the action ("Press ✅ to keep these lyrics…" / `Нажмите ✅, чтобы оставить этот текст…`). Both Uzbek locales invert it: `Shu matn qolsin desangiz ✅ ni, boshqasini koʻrmoqchi boʻlsangiz 🔄 ni bosing yoki oʻz matningizni xabar qilib yuboring.` — grammatically correct, but the reader holds two if-clauses across 60+ characters before reaching `bosing`. At 155 characters it is the longest string in the catalogue, and it sits directly beneath a `<pre>` block of up to 3 000 characters of lyrics (screens.py:157-174). This is the highest-agency decision point in the whole flow — approve, regenerate, or paste your own — and on the default locale it is the least scannable sentence in the product.
@@ -733,7 +733,7 @@ delivery.done: "🎉 That is your kit for {name}.\n\nOrder {order_ref} — keep 
 
 #### L2 — The Uzbek confirm screen calls a celebration a "cause" — Sabab is paperwork register on the last screen before ordering
 - **Surface:** CONFIRM summary label; OCCASION custom label
-- **Anchor:** `src/hbd/bot/locales/uz_latn.py:80 and :112 (uz_cyrl.py:83 and :115)`
+- **Anchor:** `src/bayram/bot/locales/uz_latn.py:80 and :112 (uz_cyrl.py:83 and :115)`
 - **Lens:** i18n · **Effort:** trivial
 
 **Problem.** `wizard.confirm.summary` labels the occasion row `Sabab:` / `Сабаб:`. *Sabab* means cause or reason — the word on a hospital form or an absence note. On the default UI locale the final pre-order screen literally reads "Sabab: Tugʻilgan kun" ("Cause: Birthday"). Uzbek names the occasion of a celebration *munosabat* (formal) or *bayram*; it is never *sabab*. The same word repeats in `occasion.custom` = "Boshqa sabab" ("another reason"), so the escape hatch reads like a dropdown on a government portal. Russian gets this right (`Повод:`), which makes the default locale the only one that sounds bureaucratic — at the exact moment the user is deciding to commit to an emotional gift.
@@ -748,7 +748,7 @@ delivery.done: "🎉 That is your kit for {name}.\n\nOrder {order_ref} — keep 
 
 #### L3 — Skip and Cancel truncate to ellipsis on the default locale — the nav row is 38 characters across three buttons in one row
 - **Surface:** Every screen's nav row; NOTE step in particular; GENRE grid
-- **Anchor:** `src/hbd/bot/keyboards.py:84-97 (_nav_row builds one row); labels at uz_latn.py:101-103, ru.py:111-112`
+- **Anchor:** `src/bayram/bot/keyboards.py:84-97 (_nav_row builds one row); labels at uz_latn.py:101-103, ru.py:111-112`
 - **Lens:** i18n · **Effort:** small
 
 **Problem.** `_nav_row` puts Back / Skip / Cancel in a single `builder.row(...)`. Measured on the default locale (uz_latn): `⬅️ Orqaga` (9) + `Oʻtkazib yuborish` (17) + `Bekor qilish` (12) = 38 characters across three buttons in one row. Telegram fits roughly 10–12 characters per button in a 3-wide row on a 360 dp phone, so both Skip and Cancel ellipsize — and Skip is the *only* way past the optional note step, so the affordance that unblocks the flow is the one that gets cut. The genre grid is worse: 2-column, RU row 3 is `Акустическая баллада` (20) + `Танцевальная / электронная` (26) = 46 characters; uz_latn row 4 is `Oʻzbek estradasi` (16) + `Oʻzbek xalq qoʻshigʻi` (21) = 37. The comment at keyboards.py:55-57 asserts two columns solves this ("Uzbek labels are long"); the measurement says it does not, because the labels themselves run 2–4× the English source (`Skip` 4 → 17).
@@ -764,7 +764,7 @@ delivery.done: "🎉 That is your kit for {name}.\n\nOrder {order_ref} — keep 
 
 #### L4 — The genre picker shows two adjacent "estrada" buttons and one meaningless transliteration to a local user
 - **Surface:** GENRE step (10 buttons, 2 columns)
-- **Anchor:** `src/hbd/bot/locales/ru.py:108 and :113; uz_latn.py:114 and :119; uz_cyrl.py:117 and :122; jazz at uz_latn.py:122`
+- **Anchor:** `src/bayram/bot/locales/ru.py:108 and :113; uz_latn.py:114 and :119; uz_cyrl.py:117 and :122; jazz at uz_latn.py:122`
 - **Lens:** i18n · **Effort:** trivial
 
 **Problem.** EN keeps a clean contrast: "Retro estrada" vs "Uzbek pop". All three localised catalogues render *both* with *estrada* — `Ретро-эстрада` / `Узбекская эстрада`, `Retro estrada` / `Oʻzbek estradasi`, `Ретро эстрада` / `Ўзбек эстрадаси` — so the grid asks the user to distinguish two options that share their head noun and sit one row apart. EN already proves the vocabulary exists to keep them apart. Separately, `genre.jazz_lounge` = `Jaz-launj` / `Жаз-лаунж` is a phonetic transliteration of an English marketing phrase; it names nothing an Uzbek listener recognises and scans as a typo. `Raqs / elektron` is two adjectives joined by a slash, not a genre name anyone would say aloud. Also a punctuation split on the same word across three files: `Ретро-эстрада` (ru, hyphen), `Ретро эстрада` (uz_cyrl, space), `Retro estrada` (uz_latn, space).
@@ -779,7 +779,7 @@ delivery.done: "🎉 That is your kit for {name}.\n\nOrder {order_ref} — keep 
 
 #### L5 — The Russian bot's first person disappears in exactly the five strings where it fails
 - **Surface:** Name error, lyrics failure, enqueue failure, payment decline, first screen
-- **Anchor:** `src/hbd/bot/locales/ru.py:34, :53, :62, :87, :88`
+- **Anchor:** `src/bayram/bot/locales/ru.py:34, :53, :62, :87, :88`
 - **Lens:** i18n · **Effort:** trivial
 
 **Problem.** EN and both Uzbek locales say "I could not…" (`oʻqiy olmadim`, `yoza olmadim`, `tushira olmadim`, `tasdiqlay olmadim`). Russian replaces the agent with impersonal constructions in five keys: `Не удалось разобрать это имя`, `Не получилось написать текст песни`, `Не удалось запустить студию`, `Не удалось подтвердить заказ`, `язык общения со мной`. This is not a blanket RU style choice — RU keeps first person everywhere things go *well*: `Я собираю` (:30), `Мне нужно имя буквами` (:47), `Я напишу и спою его так` (:52), `возьму ваш текст` (:72), `Я пришлю его сюда` (:86), `Отправляю` (:138). Net effect: the Russian bot has a warm personality that vanishes precisely when it has just let the user down, which is where personality does the most work. Impersonal Russian in a failure reads as institutional deflection — "it did not succeed" rather than "I could not".
@@ -788,19 +788,19 @@ delivery.done: "🎉 That is your kit for {name}.\n\nOrder {order_ref} — keep 
 
 #### L6 — Russian turns the first question after the welcome into a command — the only question-mark parity failure in 356 strings
 - **Surface:** Welcome / UI_LANGUAGE screen
-- **Anchor:** `src/hbd/bot/locales/ru.py:34`
+- **Anchor:** `src/bayram/bot/locales/ru.py:34`
 - **Lens:** i18n · **Effort:** trivial
 
-**Problem.** `Сначала выберите язык общения со мной.` — a declarative imperative where EN and both Uzbek locales ask a question in first person (`which language should I talk to you in?`, `men siz bilan qaysi tilda gaplashay?`). `welcome_screen` (src/hbd/bot/screens.py:88-94) concatenates `start.welcome` and this key into one message, so the very first thing a Russian user reads is: warm first-person sell (`Привет! Я собираю персональный поздравительный набор…`) immediately followed by a form instruction. Tone whiplash inside a single message, on the only screen that has to earn the next tap. Verified as the sole question-mark divergence across all 89 keys × 3 target locales.
+**Problem.** `Сначала выберите язык общения со мной.` — a declarative imperative where EN and both Uzbek locales ask a question in first person (`which language should I talk to you in?`, `men siz bilan qaysi tilda gaplashay?`). `welcome_screen` (src/bayram/bot/screens.py:88-94) concatenates `start.welcome` and this key into one message, so the very first thing a Russian user reads is: warm first-person sell (`Привет! Я собираю персональный поздравительный набор…`) immediately followed by a form instruction. Tone whiplash inside a single message, on the only screen that has to earn the next tap. Verified as the sole question-mark divergence across all 89 keys × 3 target locales.
 
 **Remedy.** ru.py:34 → `На каком языке нам с вами общаться?` — restores the question, keeps вы, and keeps the inclusive "we" that the rest of the Russian catalogue uses well (`Что празднуем?`, `Начинаем?`). Do not translate EN's "First," literally; `Сначала` reads procedural in Russian where EN's "First," reads conversational.
 
 #### L7 — The Russian note prompt drops "about them" — it reads as asking the user to disclose something about themselves
 - **Surface:** NOTE step (step 4 of 10)
-- **Anchor:** `src/hbd/bot/locales/ru.py:39-41`
+- **Anchor:** `src/bayram/bot/locales/ru.py:39-41`
 - **Lens:** i18n · **Effort:** trivial
 
-**Problem.** EN anchors the request on the recipient: "Tell me something personal **about them**". Uzbek keeps the referent and fronts it (`Ular haqida shaxsiy biror narsani ayting`). RU is `Расскажите что-нибудь личное: увлечение, шутку, прозвище.` — no *про него/неё* anywhere. Because the note step comes **before** the name step in WIZARD_ORDER (src/hbd/bot/states.py:57-68), the Russian user has not yet mentioned any other person at this point in the conversation, so the only available referent is themselves. In a gifting flow that is both confusing and mildly invasive, and it degrades the note quality that feeds the lyric prompt. RU also swaps EN's em-dash for a colon, flattening three warm examples into a list. Note the EN source has a milder version of the same problem: "them" is a dangling referent at a step where nobody has been named.
+**Problem.** EN anchors the request on the recipient: "Tell me something personal **about them**". Uzbek keeps the referent and fronts it (`Ular haqida shaxsiy biror narsani ayting`). RU is `Расскажите что-нибудь личное: увлечение, шутку, прозвище.` — no *про него/неё* anywhere. Because the note step comes **before** the name step in WIZARD_ORDER (src/bayram/bot/states.py:57-68), the Russian user has not yet mentioned any other person at this point in the conversation, so the only available referent is themselves. In a gifting flow that is both confusing and mildly invasive, and it degrades the note quality that feeds the lyric prompt. RU also swaps EN's em-dash for a colon, flattening three warm examples into a list. Note the EN source has a milder version of the same problem: "them" is a dangling referent at a step where nobody has been named.
 
 **Remedy.** ru.py:39-41 → `Расскажите что-нибудь личное о нём или о ней — увлечение, шутку, прозвище. Или нажмите «Пропустить».` Restore the em-dash so the examples read as a warm aside. Uzbek is already correct; keep the fronted `Ular haqida`. Also fix the EN referent (below). Separately: `screens.py:119` passes `limit=MAX_NOTE_CHARS` to a template that contains no `{limit}` in any of the four catalogues — either use it or drop the argument.
 
@@ -812,7 +812,7 @@ delivery.done: "🎉 That is your kit for {name}.\n\nOrder {order_ref} — keep 
 
 #### NAV-09 — Ten screens with no progress indicator, and every input limit is revealed only by rejecting the user
 - **Surface:** All wizard screens
-- **Anchor:** `src/hbd/bot/screens.py:101`
+- **Anchor:** `src/bayram/bot/screens.py:101`
 - **Lens:** ux · **Effort:** medium
 
 **Problem.** `render_step` emits a prompt and a keyboard and nothing else — no "Step 4 of 10", no breadcrumb, no sense of how much is left. `WIZARD_ORDER` (states.py:57) already indexes every step, so the position is available for free and simply is not used. The user commits to a ten-screen flow with a live vendor call in the middle without ever being told how long it is, which is exactly the shape that produces mid-funnel abandonment. Compounding it, every constraint is taught by failure: `wizard.note.prompt` never states the 600-character cap (screens.py:119 passes `limit=MAX_NOTE_CHARS` to a template that contains no `{limit}` in any of the four catalogues, so the argument is silently discarded), and `wizard.name.prompt` states neither the 40-character nor the 4-word limit — the user only learns them from `wizard.name.too_long` / `wizard.name.too_many_words` after being knocked back.
@@ -827,7 +827,7 @@ Step 5 of 10 · Tell me something personal about them — a hobby, an inside jok
 
 #### NAV-10 — A reachable state/screen mismatch makes every button on the visible screen answer "expired"
 - **Surface:** CONFIRM requested on a draft with no lyric
-- **Anchor:** `src/hbd/bot/screens.py:67`
+- **Anchor:** `src/bayram/bot/screens.py:67`
 - **Lens:** ux · **Effort:** trivial
 
 **Problem.** `show_step` (common.py:54) sets the FSM state from `resolve_step` but renders from `render_step`, and the two disagree in one case. For a draft with all five required answers but `lyrics is None`, `resolve_step(CONFIRM, draft)` returns `LYRICS` (screens.py:83) so the FSM is set to `Wizard:lyrics`; `_lyrics_screen` then sees `lyrics is None` and returns `render_step(OUTPUT_LANGUAGE, …)` (screens.py:165-166). The user is now looking at the output-language picker while the FSM sits at `Wizard:lyrics`. Every language button emits `lang:out:*`, which is registered only against `Wizard.output_language` (questions.py:144-148), so it matches nothing and drops to the fallback toast — a screen where four of the six buttons do nothing but flash "That session expired". Only Back escapes, and nothing on screen suggests it. Reachable from confirm.py:48/64/71/82 and from `handle_lyrics_ok` (lyrics.py:86) if storage drops the lyric between preview and tap.
@@ -836,7 +836,7 @@ Step 5 of 10 · Tell me something personal about them — a hobby, an inside jok
 
 #### NAV-11 — No history and no re-order: a second kit means retyping everything, prompted by unclickable plain text
 - **Surface:** Post-delivery closing message
-- **Anchor:** `src/hbd/bot/delivery.py:166`
+- **Anchor:** `src/bayram/bot/delivery.py:166`
 - **Lens:** ux · **Effort:** medium
 
 **Problem.** The closing message is `delivery.done` — "🎉 That is your kit for {name}. Send /start to make another." — sent as plain text with no `reply_markup` anywhere in `delivery.py`. The single re-engagement moment in the whole product asks the user to type a command that is not in Telegram's command menu (no `set_my_commands` in `src/`), and `state.clear()` has already discarded the draft, so "another" means all ten screens again from scratch: re-picking occasion, genre, voice and language, retyping the name and the note. There is no order history, no `/orders`, no "same recipient, different song", no re-send of a kit whose audio the user lost, and no order id in any user-facing string to quote to support. Only `/start` and `/cancel` are registered (start.py:40-41) — the two highest-intent follow-on actions in a gifting product have no surface at all.
@@ -851,7 +851,7 @@ Step 5 of 10 · Tell me something personal about them — a hobby, an inside jok
 
 #### NAV-12 — The nav row breaks the module's own two-column rule, three-wide with the longest labels in the default locale
 - **Surface:** NOTE step nav row (default uz_latn UI)
-- **Anchor:** `src/hbd/bot/keyboards.py:84`
+- **Anchor:** `src/bayram/bot/keyboards.py:84`
 - **Lens:** ux · **Effort:** trivial
 
 **Problem.** `keyboards.py:55-60` sets every content grid to a maximum of two columns with an explicit rationale — "Telegram truncates a row that is too wide on a narrow phone, and Uzbek labels are long". `_nav_row` is then written outside that rule and packs three buttons into one row on the NOTE screen. In the default UI language (`uz_latn`, config.py:218) those three are `⬅️ Orqaga` + `Oʻtkazib yuborish` (17 chars, the widest relative expansion in the catalogue) + `Bekor qilish` (12 chars) — roughly 40 characters of label competing for one row width on the exact locale most users land in. Telegram truncates, so the two labels the user most needs to distinguish (Skip, which advances, and Cancel, which destroys everything) become clipped near-identical stubs sitting side by side, and each is under the ~44pt minimum comfortable tap target once thirds of the width are shared.
@@ -860,7 +860,7 @@ Step 5 of 10 · Tell me something personal about them — a hobby, an inside jok
 
 #### SELL-04 — The name confirmation is the product's proof moment and it says nothing
 - **Surface:** NAME_CONFIRM screen
-- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/locales/en.py:49 (wizard.name.confirm)`
+- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/locales/en.py:49 (wizard.name.confirm)`
 - **Lens:** marketing · **Effort:** trivial
 
 **Problem.** "I will write and sing it as: <b>{name}</b> Is that right?" is the highest-wow-per-word slot in the whole flow and it is used as a spellcheck. The bot has just silently repaired the user's apostrophe to U+02BB and is about to run a transcribe-compare-re-record loop on that exact word — none of which is said. The user reads a form field where they could be reading the reason to trust the product. This is also the moment that earns the "pronounced properly" claim made in the welcome; unearned there, unpaid here.
@@ -881,7 +881,7 @@ Is that right?
 
 #### SELL-05 — The song arrives under a filing label
 - **Surface:** Audio caption — the first thing the user sees when the product lands
-- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/locales/en.py:135 (delivery.song_caption)`
+- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/locales/en.py:135 (delivery.song_caption)`
 - **Lens:** marketing · **Effort:** trivial
 
 **Problem.** "🎵 {title} — for {name}" is a metadata row. This caption sits on the single most emotional message the product ever sends, and it is the message most likely to be forwarded to the recipient — so it is also the only copy the RECIPIENT will ever read. It currently says nothing to them, gives no reason to press play with sound on (Telegram autoplays muted in many contexts), and wastes the title.
@@ -897,7 +897,7 @@ Written and sung for {name}. Sound on.
 
 #### SELL-06 — The lyric reveal is framed as a control panel, not as the reveal
 - **Surface:** LYRICS preview screen
-- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/locales/en.py:53-58 (wizard.lyrics.preview)`
+- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/locales/en.py:53-58 (wizard.lyrics.preview)`
 - **Lens:** marketing · **Effort:** trivial
 
 **Problem.** The footer is pure affordance listing — "Press ✅ …, 🔄 …, or simply send me your own". The user has just been handed the words of a song written for someone they love, and the copy reads like a toolbar. It never says what they are looking at (the exact words that will be sung), and never banks the reassurance that makes the ✅ easy: nothing has been recorded yet, so changing your mind here costs nothing. That reassurance is the whole reason this step was moved before the order (handlers/lyrics.py:1-19) and it is unspoken.
@@ -916,7 +916,7 @@ These are the exact words that will be sung. Nothing is recorded yet — keep th
 
 #### SELL-07 — The commit screen is a receipt with a generic header and a generic button
 - **Surface:** CONFIRM screen
-- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/locales/en.py:68-77 (wizard.confirm.summary), en.py:90 (button.confirm)`
+- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/locales/en.py:68-77 (wizard.confirm.summary), en.py:90 (button.confirm)`
 - **Lens:** marketing · **Effort:** trivial
 
 **Problem.** The last screen before commitment is headed "<b>Your kit</b>" — the generic product noun again, at the exact point where the recipient's name should be doing the emotional work; the name is demoted to a field label ("Name: X"). The close, "Shall I start?", starts nothing the user can picture, and "✅ Yes, start" is a form-submit label. There is no last-second anticipation, and no statement of what pressing it triggers.
@@ -941,7 +941,7 @@ button.confirm: "🎬 Record it"
 
 #### SELL-09 — There is no proof anywhere, and the one honest proof the system owns is buried in a progress line
 - **Surface:** Progress bar — name verification stage; cross-cutting
-- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/locales/en.py:125 (progress.verifying_name)`
+- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/locales/en.py:125 (progress.verifying_name)`
 - **Lens:** marketing · **Effort:** small
 
 **Problem.** The audit asks for social proof or scarcity. Neither exists in this system — there are no user counts, no ratings, no queue depth, no capacity limit exposed to users, and inventing any of them would be a fabricated claim. The honest substitute is craft proof, and the product has a remarkable one it describes in laundry-list language: "🔍 Checking the pronunciation of the name…" is the bot literally transcribing the sung name and re-recording it if the match falls under 0.85. Said plainly, that one frame is more persuasive than any testimonial — and it is the only stage line that names the differentiator.
@@ -957,7 +957,7 @@ progress.post_processing: "🎚 Levelling the mix so it sounds right on a phone�
 
 #### SELL-10 — The most differentiated thing on offer is sold with three words
 - **Surface:** GENRE step
-- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/locales/en.py:33 (wizard.genre.prompt)`
+- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/locales/en.py:33 (wizard.genre.prompt)`
 - **Lens:** marketing · **Effort:** trivial
 
 **Problem.** "Pick a musical style." sits above the only genuinely local catalogue in the product — Shashmaqom, Uzbek folk, retro estrada, conditioned with real doira and dutar instrument tags (plan_builder.py:55-66). To a user in the target market that list is the reason to choose this bot over a generic song generator, and the prompt gives them no reason to look past Pop, which is the first button.
@@ -973,7 +973,7 @@ Shashmaqom and Uzbek folk are recorded with doira and dutar, not a preset.
 
 #### SELL-11 — The steps never say the recipient's name back, even after they know it
 - **Surface:** OUTPUT_LANGUAGE step (and the lyrics 'writing' frame)
-- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/locales/en.py:51 (wizard.output_language.prompt), en.py:52 (wizard.lyrics.writing)`
+- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/locales/en.py:51 (wizard.output_language.prompt), en.py:52 (wizard.lyrics.writing)`
 - **Lens:** marketing · **Effort:** small
 
 **Problem.** By step 7 the bot knows exactly who this is for, and every remaining screen still speaks in the abstract: "Which language should the song be in?", "✍️ Writing the lyrics…". The flow reads as a form being filled rather than a song being made for a person. These are the two cheapest personalisation echoes in the product — the recipient is already in scope at both call sites (screens.py:131-135 and lyrics.py:70) — and they sit either side of the wizard's only vendor wait, which is where a form feels longest.
@@ -989,7 +989,7 @@ wizard.lyrics.writing: "✍️ Writing {name}'s song… a few seconds."
 
 #### SELL-12 — Cancel and expiry drop the user with a typed command as the only way back
 - **Surface:** Cancelled / expired / stray-input screens
-- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/hbd/bot/locales/en.py:79-80, 85 (wizard.expired, wizard.cancelled, wizard.use_buttons)`
+- **Anchor:** `/Users/fyuk/Desktop/projects/hbd-bot/src/bayram/bot/locales/en.py:79-80, 85 (wizard.expired, wizard.cancelled, wizard.use_buttons)`
 - **Lens:** marketing · **Effort:** small
 
 **Problem.** All three exits end with "Send /start". `finish_with` (handlers/common.py:101) replaces the screen with a keyboard-less message, so a user who taps Cancel — often by accident, since Cancel is on every single screen including the welcome — has to know and type a command to come back. "Cancelled." also leaves ambiguity about whether something was made or kept, on a bot that has just collected a name and a personal note.
@@ -1006,7 +1006,7 @@ button.start_over (new key): "↩️ Start over"
 
 #### TRUST-01 — "Nothing was charged" is asserted on every failure, including failures after the payment gate, and no code can ever make it true
 - **Surface:** Terminal failure frame + payment copy
-- **Anchor:** `src/hbd/bot/locales/en.py:133 (progress.failed); src/hbd/pipeline/orchestrator.py:245-249 (AUTHORIZING stage); src/hbd/payments.py:41`
+- **Anchor:** `src/bayram/bot/locales/en.py:133 (progress.failed); src/bayram/pipeline/orchestrator.py:245-249 (AUTHORIZING stage); src/bayram/payments.py:41`
 - **Lens:** trust · **Effort:** small
 
 **Problem.** progress.failed appends "Nothing was charged." to EVERY terminal pipeline failure, unconditionally (progress.py:61-62 maps any FAILED status to this one string). But AUTHORIZING is stage index 4 of 11: composing_song, verifying_name, rendering_greetings, post_processing, persisting and delivering all fail AFTER authorization has succeeded. There is no capture, void, reversal or refund anywhere in the codebase — the PaymentProvider seam exposes only authorize() (payments.py:41), and NoopPaymentProvider records nothing. So the single most trust-sensitive sentence in the product is a hardcoded string with no relationship to payment state. It is accidentally true today only because the amount is 0; the day a real rail is wired in (which confirm.py's docstring says is the explicit design intent) it becomes a false financial statement shipped to every user whose song failed to render after auth. That is the exact class of claim that produces chargebacks and regulatory complaints.
@@ -1021,7 +1021,7 @@ progress.failed_before_charge: "❌ We could not finish this one. Nothing was ch
 
 #### TRUST-02 — The user commits with "✅ Yes, start" having never been shown a price, while three copy strings imply money is at stake
 - **Surface:** Confirm screen
-- **Anchor:** `src/hbd/bot/locales/en.py:70-79 (wizard.confirm.summary)`
+- **Anchor:** `src/bayram/bot/locales/en.py:70-79 (wizard.confirm.summary)`
 - **Lens:** trust · **Effort:** trivial
 
 **Problem.** wizard.confirm.summary lists Name / Occasion / Style / Voice / Language / Note and then asks "Shall I start?". No amount, no currency, no "free", no terms link appears anywhere in any of the four catalogues — verified: no locale key contains a price. Yet the user has already been primed to expect a charge by nothing at all before this point, and will be told "Nothing was charged" / "Payment did not go through" the instant anything fails. This is the worst pairing available: zero price disclosure before commitment, plus charge-shaped language after. A user who sees "Payment did not go through" for a product they believed was free will assume the bot tried to bill a card they never gave it. Conversely, the product IS free today and never says so — the strongest possible conversion lever at the commit moment is unused.

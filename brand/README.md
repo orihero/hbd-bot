@@ -1,9 +1,16 @@
-# HBD Studio — identity
+# Bayram — Tabriklar, Qoʻshiqlar — identity
 
 Every file here is hand-built vector geometry. **No fonts are involved**, including in the
-wordmark: `h`, `b`, `d` and the six letters of `STUDIO` are drawn from circles and
+wordmark: the letterforms and the six letters of `STUDIO` are drawn from circles and
 round-capped bars, so nothing shifts if a font is missing, unlicensed, or substituted by a
 print shop. Open any file in a text editor and the construction is readable.
+
+> **The wordmark and both lockups still draw the letters `h`, `b`, `d`.** The geometry is
+> vector paths, not type, so the rename could not retype them: `wordmark-bayram.svg`,
+> `lockup-stacked.svg` and `lockup-horizontal.svg` carry the new file names and the new
+> `aria-label`, and nothing else. They must be **redrawn** before anything ships that shows
+> a wordmark. The three symbol marks (`mark-level-meter*.svg`, `mark-candle-mic.svg`) and
+> `avatar-telegram.svg` draw no letters and are unaffected.
 
 ## The system
 
@@ -29,11 +36,11 @@ finds first.
 | `mark-level-meter-small.svg` | Below 24 px — favicon, dense UI. Chunkier bars, flame welded to the wick. |
 | `mark-level-meter-mono.svg` | One colour, inherits `currentColor`. For stamps, embroidery, single-colour print. |
 | `mark-level-meter-reversed.svg` | All white, for magenta or photographic grounds. |
-| `avatar-telegram.svg` / `.png` / `.jpg` | The Telegram bot picture. PNG is 512 × 512, which is what BotFather wants; the JPEG is the same image with the alpha flattened, because `setMyProfilePhoto` takes JPEG only — see `python -m hbd.tools.identity`. |
-| `wordmark-hbd.svg` | `hbd` with its three ascenders lit. |
+| `avatar-telegram.svg` / `.png` / `.jpg` | The Telegram bot picture. PNG is 512 × 512, which is what BotFather wants; the JPEG is the same image with the alpha flattened, because `setMyProfilePhoto` takes JPEG only — see `python -m bayram.tools.identity`. **The PNG is also copied into the application** — see below. |
+| `wordmark-bayram.svg` | The wordmark with its three ascenders lit. **Still draws `hbd` — redraw pending.** |
 | `wordmark-studio.svg` | `STUDIO`, tracked to sit exactly 140 units wide. |
-| `lockup-stacked.svg` | `hbd` over `STUDIO`. The default lockup. |
-| `lockup-horizontal.svg` | `hbd STUDIO` on one line, baselines shared. For wide, short spaces. |
+| `lockup-stacked.svg` | The wordmark over `STUDIO`. The default lockup. **Still draws `hbd` — redraw pending.** |
+| `lockup-horizontal.svg` | Wordmark and `STUDIO` on one line, baselines shared. For wide, short spaces. **Still draws `hbd` — redraw pending.** |
 | `mark-candle-mic.svg` | Secondary mark — see below. |
 | `mark-level-meter-512.png` | The mark at 512 × 512, transparent ground. |
 | `mark-candle-mic-512.png` | The secondary mark at 512 × 512, transparent ground. |
@@ -70,6 +77,24 @@ candles is what makes them read as flames rather than as a mistake.
 mark and reads at any size; keep it for places where the product needs to explain itself
 faster than the level meter can (a listing thumbnail, an app store icon, a sticker), and
 keep the level meter as the primary everywhere else.
+
+## One asset is copied into the application
+
+`avatar-telegram.png` is duplicated at `src/bayram/audio/assets/logo.png`, where
+`bayram.audio.cover` composites it onto the cover art of every song. It is a copy rather
+than a reference because the application is installed as a wheel and `brand/` is not
+packaged; it is a copy rather than re-drawn geometry because a Pillow port of these paths
+would be a fourth construction that none of the constants above reach, and it would drift
+from the bot's real profile picture one redraw at a time.
+
+**So: after regenerating `avatar-telegram.png`, re-copy it.**
+
+```sh
+cp brand/avatar-telegram.png src/bayram/audio/assets/logo.png
+```
+
+Forgetting is a failing test, not a silent divergence — `tests/test_audio/test_cover.py`
+asserts the two files are byte-identical, and names this command in the failure message.
 
 ## Regenerating
 

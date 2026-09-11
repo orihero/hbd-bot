@@ -76,7 +76,7 @@ export function bucketFor(gran: Gran): SeriesBucket {
 }
 
 /**
- * Lowercase, verified against `hbd/admin/schemas/overview.py:199` and the exported OpenAPI —
+ * Lowercase, verified against `bayram/admin/schemas/overview.py:199` and the exported OpenAPI —
  * `hour` | `day` | `week` | `month`. Spelled through `SERIES_BUCKET_VALUES` so a drift in the
  * enum is a type error here rather than a 422 in the browser.
  */
@@ -98,8 +98,8 @@ const PERIOD_DAYS: Record<Period, number> = { today: 1, week: 7, month: 30, year
 const BUCKET_DAYS: Record<Gran, number> = { hourly: 1 / 24, daily: 1, weekly: 7, monthly: 28 };
 
 /**
- * The server's own two refusals, mirrored — `HBD_ADMIN_DASHBOARD_MAX_HOURLY_WINDOW_DAYS` and
- * `HBD_ADMIN_DASHBOARD_MAX_SERIES_BUCKETS`, both at their defaults. A grain outside them is
+ * The server's own two refusals, mirrored — `BAYRAM_ADMIN_DASHBOARD_MAX_HOURLY_WINDOW_DAYS` and
+ * `BAYRAM_ADMIN_DASHBOARD_MAX_SERIES_BUCKETS`, both at their defaults. A grain outside them is
  * a 422 naming `bucket`, and 422 is terminal: the retry button re-runs the same refusal.
  */
 const MAX_HOURLY_WINDOW_DAYS = 8;

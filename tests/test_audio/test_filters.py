@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from hbd.audio.constants import LOUDNORM_OFFSET_LIMIT, NO_OP_FILTER
-from hbd.audio.filters import (
+from bayram.audio.constants import LOUDNORM_OFFSET_LIMIT, NO_OP_FILTER
+from bayram.audio.filters import (
     fade_filter,
     join_filters,
     loudnorm_apply_filter,

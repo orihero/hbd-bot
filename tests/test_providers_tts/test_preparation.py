@@ -6,10 +6,10 @@ import logging
 
 import pytest
 
-from hbd.contracts import Language, is_err, is_ok
-from hbd.errors import ValidationError
-from hbd.providers.tts.preparation import prepare_speech
-from hbd.providers.tts.registry import default_registry
+from bayram.contracts import Language, is_err, is_ok
+from bayram.errors import ValidationError
+from bayram.providers.tts.preparation import prepare_speech
+from bayram.providers.tts.registry import default_registry
 from tests.conftest import UZBEK_NAME_CANONICAL
 from tests.test_providers_tts.conftest import make_speech_request
 

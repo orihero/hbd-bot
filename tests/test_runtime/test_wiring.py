@@ -16,18 +16,18 @@ from typing import Final, get_args
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.bot.app import WIZARD_STATE_TTL
-from hbd.bot.deps import BotDeps
-from hbd.bot.pricing import Pricing
-from hbd.checkout import (
+from bayram.bot.app import WIZARD_STATE_TTL
+from bayram.bot.deps import BotDeps
+from bayram.bot.pricing import Pricing
+from bayram.checkout import (
     STUB_PROVIDER_NAME,
     CheckoutProvider,
     Product,
     PurchaseFulfiller,
     PurchaseRequest,
 )
-from hbd.config import ENV_FILE_VAR, ENV_PREFIX, CheckoutRail, Settings, build_settings
-from hbd.contracts import (
+from bayram.config import ENV_FILE_VAR, ENV_PREFIX, CheckoutRail, Settings, build_settings
+from bayram.contracts import (
     AudioPostProcessor,
     Err,
     KitRepository,
@@ -40,27 +40,27 @@ from hbd.contracts import (
     SttProvider,
     TtsProvider,
 )
-from hbd.db.credits import SqlCreditLedger
-from hbd.db.lyric_budget import SqlLyricBudget
-from hbd.db.payme import SqlPaymeLedger
-from hbd.db.purchases import SqlPurchaseLedger
-from hbd.entitlements import EntitlementStore, resolve_entitlement_policy
-from hbd.errors import ConfigError
-from hbd.main import refuse_an_unsafe_checkout_rail
-from hbd.payme.link import PROD_CHECKOUT_URL, SANDBOX_CHECKOUT_URL
-from hbd.payme.ports import PAYME_PROVIDER_NAME
-from hbd.payme.provider import PaymeCheckoutProvider
-from hbd.payments import CreditGatedPaymentProvider, NoopPaymentProvider
-from hbd.pipeline.content import LlmContentWriter
-from hbd.providers.llm.fake import FakeLlmProvider
-from hbd.providers.music.fake import FakeMusicProvider
-from hbd.providers.tts.fakes import FakeTtsProvider
-from hbd.providers.tts.router import LanguageRoutingTts
-from hbd.runtime.container import AppContainer, build_checkout, build_container
-from hbd.runtime.fakes import KeytermSttProvider
-from hbd.runtime.providers import build_provider_set
-from hbd.runtime.submitter import InProcessOrderSubmitter
-from hbd.user_profiles import AVATAR_MIME, avatar_key
+from bayram.db.credits import SqlCreditLedger
+from bayram.db.lyric_budget import SqlLyricBudget
+from bayram.db.payme import SqlPaymeLedger
+from bayram.db.purchases import SqlPurchaseLedger
+from bayram.entitlements import EntitlementStore, resolve_entitlement_policy
+from bayram.errors import ConfigError
+from bayram.main import refuse_an_unsafe_checkout_rail
+from bayram.payme.link import PROD_CHECKOUT_URL, SANDBOX_CHECKOUT_URL
+from bayram.payme.ports import PAYME_PROVIDER_NAME
+from bayram.payme.provider import PaymeCheckoutProvider
+from bayram.payments import CreditGatedPaymentProvider, NoopPaymentProvider
+from bayram.pipeline.content import LlmContentWriter
+from bayram.providers.llm.fake import FakeLlmProvider
+from bayram.providers.music.fake import FakeMusicProvider
+from bayram.providers.tts.fakes import FakeTtsProvider
+from bayram.providers.tts.router import LanguageRoutingTts
+from bayram.runtime.container import AppContainer, build_checkout, build_container
+from bayram.runtime.fakes import KeytermSttProvider
+from bayram.runtime.providers import build_provider_set
+from bayram.runtime.submitter import InProcessOrderSubmitter
+from bayram.user_profiles import AVATAR_MIME, avatar_key
 
 
 def _fake(settings: Settings, **extra: object) -> Settings:
@@ -236,8 +236,8 @@ async def test_closing_the_container_twice_is_harmless(settings: Settings, tmp_p
 # The similarity binding — the one argument order that silently breaks the product
 # ---------------------------------------------------------------------------
 def test_the_similarity_port_is_bound_the_right_way_round() -> None:
-    # Arrange: the port is (heard, expected); hbd.names is (intended, heard).
-    from hbd.runtime.container import _similarity
+    # Arrange: the port is (heard, expected); bayram.names is (intended, heard).
+    from bayram.runtime.container import _similarity
 
     # Act
     heard_extra_words = _similarity("bugun Gulomjon degan", "Gʻulomjon")
@@ -255,7 +255,7 @@ async def test_the_entitlement_store_is_wired_whatever_the_enforcement_flag_says
 ) -> None:
     """Wiring and enforcing are two decisions, and only one of them is a flag.
 
-    The store is always built, so an operator can flip ``HBD_CREDITS_ENFORCED`` without a
+    The store is always built, so an operator can flip ``BAYRAM_CREDITS_ENFORCED`` without a
     redeploy and so ``/balance`` has an honest number to read while the meter is still dark.
     """
     # Arrange / Act
@@ -300,7 +300,7 @@ async def test_the_pipeline_gets_the_credit_gate_and_the_bot_gets_the_bare_provi
 ) -> None:
     """The asymmetry that keeps a credit from being spent where it cannot be refunded.
 
-    ``hbd.main`` builds ``BotDeps.payment`` from ``container.payment``, so if that field
+    ``bayram.main`` builds ``BotDeps.payment`` from ``container.payment``, so if that field
     were the gated provider the bot would become a writer — and its three early returns
     after the gate (payment declined, ``_start_progress`` returned ``None``,
     ``submitter.submit`` returned ``Err``) can reach no refund, because no order row and no
@@ -346,7 +346,7 @@ async def test_the_profile_store_and_the_kit_storage_share_one_object(
     through ``container.storage`` — rather than by reaching into a private attribute, which
     ruff's ``SLF001`` refuses and which this plan may not suppress. The indirection is the
     better test anyway: it also pins the KEY SPELLING both sides use, which is the second half
-    of the same failure. ``avatar_key`` is imported from ``hbd.user_profiles`` here for exactly
+    of the same failure. ``avatar_key`` is imported from ``bayram.user_profiles`` here for exactly
     the reason it lives there — it is the one definition the store, the route and this
     assertion all read.
     """
@@ -417,7 +417,7 @@ async def test_the_bot_is_handed_the_container_s_profile_store(
         async def _never_runs(order_id: str, chat_id: int, progress_message_id: int) -> None:
             raise AssertionError("this test builds the wiring; it renders nothing")
 
-        # Act: the same six lines ``hbd.main.run`` builds, with the same sources.
+        # Act: the same six lines ``bayram.main.run`` builds, with the same sources.
         deps = BotDeps(
             settings=configured,
             submitter=InProcessOrderSubmitter(container.repository, _never_runs),
@@ -464,7 +464,7 @@ async def test_the_default_container_wires_a_checkout_provider_that_contacts_not
 
     It used to assert that the container wires the stub, full stop. A real rail has since
     landed, so the claim had to be NARROWED rather than deleted: with the shipped
-    configuration — ``HBD_CHECKOUT_PROVIDER`` unset, therefore ``stub`` — the object built
+    configuration — ``BAYRAM_CHECKOUT_PROVIDER`` unset, therefore ``stub`` — the object built
     here is the same one that was built before Payme existed, and no intent port is wired at
     all. That is the rollback guarantee stated as an assertion: production behaviour is
     byte-identical to what it was until one environment variable moves.
@@ -491,10 +491,10 @@ async def test_the_default_container_wires_a_checkout_provider_that_contacts_not
 # The rail that takes real money — selected by one variable, refused by three checks
 # ---------------------------------------------------------------------------
 def test_the_checkout_rail_literal_names_exactly_the_two_rails_that_exist() -> None:
-    """``hbd.config`` spells these two strings by hand; three modules must agree on them.
+    """``bayram.config`` spells these two strings by hand; three modules must agree on them.
 
     ``CheckoutRail`` cannot be built from imported names — a ``Literal`` takes literals — and
-    ``hbd.config`` must not import either package anyway. So the duplication is real, and
+    ``bayram.config`` must not import either package anyway. So the duplication is real, and
     this is the pin that stops it drifting: the day somebody renames the stub or the rail,
     exactly one of the three spellings moves and this test says which.
     """
@@ -508,7 +508,7 @@ def test_the_checkout_rail_literal_names_exactly_the_two_rails_that_exist() -> N
 def _payme(settings: Settings, tmp_path: Path, **extra: object) -> Settings:
     """A settings object with the Payme rail selected and the meter enforced.
 
-    ``credits_enforced=True`` is not incidental: ``hbd.main`` refuses to boot on a live rail
+    ``credits_enforced=True`` is not incidental: ``bayram.main`` refuses to boot on a live rail
     over a dark meter, so a fixture that left it false would be describing a configuration the
     process rejects.
     """
@@ -527,7 +527,7 @@ async def test_selecting_payme_wires_the_payme_provider_and_its_intent_port(
     """One variable swaps the rail, and the two ports are the SAME OBJECT under two types.
 
     That last assertion is the architectural one. ``SqlPaymeLedger`` satisfies both
-    ``PaymentIntentOpener`` (what the bot gets) and ``hbd.payme.ports.PaymeLedger`` (what the
+    ``PaymentIntentOpener`` (what the bot gets) and ``bayram.payme.ports.PaymeLedger`` (what the
     gateway gets), and building them as two objects would be two connection paths and two
     places for the merchant id to disagree.
     """
@@ -552,14 +552,14 @@ async def test_selecting_payme_without_a_merchant_id_refuses_by_name(
 
     A blank cashbox id would produce links whose ``m=`` is empty, which Payme's own checkout
     answers with «Поставщик не найден» — a sentence about THEIR system that a customer reads
-    as a sentence about ours. The message must name ``HBD_PAYME_MERCHANT_ID`` because that is
+    as a sentence about ours. The message must name ``BAYRAM_PAYME_MERCHANT_ID`` because that is
     the entire content of the fix.
     """
     # Arrange
     misconfigured = _payme(settings, tmp_path, payme_merchant_id="")
 
     # Act / Assert
-    with pytest.raises(ConfigError, match="HBD_PAYME_MERCHANT_ID"):
+    with pytest.raises(ConfigError, match="BAYRAM_PAYME_MERCHANT_ID"):
         await build_container(misconfigured, data_root=tmp_path)
 
 
@@ -725,9 +725,9 @@ async def test_the_render_gate_never_reaches_the_purchase_ledger(
 async def test_the_bot_is_handed_the_checkout_seam_the_purchase_port_and_a_price_list(
     settings: Settings, tmp_path: Path
 ) -> None:
-    """The three fields ``hbd.main`` adds, and what each of them costs if it is forgotten.
+    """The three fields ``bayram.main`` adds, and what each of them costs if it is forgotten.
 
-    All three default, for the reason measured in ``hbd.bot.deps`` — about thirty keyword
+    All three default, for the reason measured in ``bayram.bot.deps`` — about thirty keyword
     construction sites in the suite — so a dropped keyword ships silently as "this deployment
     does not sell": the paywall is never drawn, every screen renders exactly as it did before
     the paywall existed, and the suite stays green while the product quietly gives songs
@@ -747,7 +747,7 @@ async def test_the_bot_is_handed_the_checkout_seam_the_purchase_port_and_a_price
         async def _never_runs(order_id: str, chat_id: int, progress_message_id: int) -> None:
             raise AssertionError("this test builds the wiring; it renders nothing")
 
-        # Act: the same keywords ``hbd.main.run`` passes, from the same sources.
+        # Act: the same keywords ``bayram.main.run`` passes, from the same sources.
         deps = BotDeps(
             settings=configured,
             submitter=InProcessOrderSubmitter(container.repository, _never_runs),
@@ -827,7 +827,7 @@ def isolated_dotenv(settings: Settings, monkeypatch: pytest.MonkeyPatch, tmp_pat
     otherwise make every test below depend on whatever is in the developer's own ``.env``, so
     it is pointed at nothing.
 
-    It takes ``settings`` so it is ordered AFTER that fixture, which strips every ``HBD_``
+    It takes ``settings`` so it is ordered AFTER that fixture, which strips every ``BAYRAM_``
     variable from the environment — including the one set here, if the order were reversed.
     """
     monkeypatch.setenv(ENV_FILE_VAR, str(tmp_path / "there-is-no-dotenv-here.env"))
@@ -849,7 +849,7 @@ async def test_main_hands_the_intent_opener_to_bot_deps(settings: Settings, tmp_
         async def _never_runs(order_id: str, chat_id: int, progress_message_id: int) -> None:
             raise AssertionError("this test builds the wiring; it renders nothing")
 
-        # Act: the same keywords ``hbd.main.run`` passes, from the same sources.
+        # Act: the same keywords ``bayram.main.run`` passes, from the same sources.
         deps = BotDeps(
             settings=configured,
             submitter=InProcessOrderSubmitter(container.repository, _never_runs),
@@ -894,7 +894,7 @@ def test_payme_with_a_dark_credit_meter_refuses_to_boot(settings: Settings) -> N
     )
 
     # Act / Assert
-    with pytest.raises(ConfigError, match="HBD_CREDITS_ENFORCED"):
+    with pytest.raises(ConfigError, match="BAYRAM_CREDITS_ENFORCED"):
         refuse_an_unsafe_checkout_rail(live_rail_dark_meter)
 
 
@@ -903,7 +903,7 @@ def test_the_stub_over_a_dark_credit_meter_still_boots(settings: Settings) -> No
     """The refusal above is about MONEY, not about two flags disagreeing.
 
     A deployment that wants to give songs away must be able to, and that is today's shipped
-    configuration: the stub reports every purchase paid and takes nothing. ``hbd.main`` still
+    configuration: the stub reports every purchase paid and takes nothing. ``bayram.main`` still
     warns once the container is up, which is the right volume when no card was charged.
     """
     # Arrange
@@ -944,7 +944,7 @@ def test_a_reachable_merchant_key_outside_prod_warns_and_boots(
     """A developer with one dotenv on a laptop is not the incident this check is about.
 
     Refusing there would only teach people to delete the check — the same reasoning
-    ``hbd.admin.app._refuse_vendor_credentials`` records for its own prod-only refusal.
+    ``bayram.admin.app._refuse_vendor_credentials`` records for its own prod-only refusal.
     """
     # Arrange
     monkeypatch.setenv(f"{ENV_PREFIX}PAYME_MERCHANT_KEY", "a-development-placeholder")
@@ -964,7 +964,7 @@ def test_the_dotenv_file_is_scanned_and_not_only_the_environment(
     """
     # Arrange
     dotenv = tmp_path / "bot.env"
-    dotenv.write_text("hbd_payme_merchant_key=written-into-the-file\n", encoding="utf-8")
+    dotenv.write_text("bayram_payme_merchant_key=written-into-the-file\n", encoding="utf-8")
     monkeypatch.setenv(ENV_FILE_VAR, str(dotenv))
     in_production = settings.model_copy(update={"environment": "prod"})
 
@@ -989,7 +989,7 @@ def test_a_checkout_link_may_not_outlive_the_draft_it_was_sold_against(
     )
 
     # Act / Assert
-    with pytest.raises(ConfigError, match="HBD_PAYME_INTENT_TTL_S"):
+    with pytest.raises(ConfigError, match="BAYRAM_PAYME_INTENT_TTL_S"):
         refuse_an_unsafe_checkout_rail(over_the_draft_clock)
 
 
@@ -1020,7 +1020,7 @@ def test_a_return_url_containing_a_semicolon_is_refused_at_settings_build_time()
     # Arrange / Act / Assert — the failure names the variable, the way every other one does.
     with pytest.raises(ConfigError, match=f"{ENV_PREFIX}PAYME_RETURN_URL"):
         build_settings(
-            {"_env_file": None, "payme_return_url": "https://t.me/hbd_bot?start=paid;utm=x"},
+            {"_env_file": None, "payme_return_url": "https://t.me/bayram_uzbot?start=paid;utm=x"},
             require_vendor_secrets=False,
         )
 
@@ -1030,8 +1030,8 @@ async def test_the_pause_switch_reaches_the_rail_through_the_container(
 ) -> None:
     """``build_container`` threads ``paused`` all the way to the provider, or the CLI is inert.
 
-    This is the assertion the gap needed. ``python -m hbd.payme.cli pause`` writes a Redis key
-    and ``hbd.payme.pause.is_paused`` reads it, and both halves were tested — but the composition
+    This is the assertion the gap needed. ``python -m bayram.payme.cli pause`` writes a Redis key
+    and ``bayram.payme.pause.is_paused`` reads it, and both halves were tested — but the composition
     root passed no reader, so the key was written and nobody read it. Every test still passed,
     the runbook's rollback step did nothing, and the only way to find out would have been an
     operator pausing a live rail during an incident and watching sales continue.

@@ -2,7 +2,7 @@
  * `<CreditBalanceChip>` — "does this customer have credits?", in three states and never two.
  *
  * The load-bearing distinction is `null` versus `0`, and it is the router's own (see the
- * docstring on `list_user_credits` in `hbd/admin/routers/credits.py`, and
+ * docstring on `list_user_credits` in `bayram/admin/routers/credits.py`, and
  * `creditLedgerPageSchema`): `credit_accounts.balance` is `NOT NULL`, so a `null` on this wire
  * cannot mean "zero" — it means there is **no account row**. Two populations land there:
  *

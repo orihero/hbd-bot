@@ -28,17 +28,17 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import CostSource, Genre, Language, Occasion, VoiceGender, is_ok
-from hbd.db.admin import audit as audit_store
-from hbd.db.enums import AdminRole, AuditAction, AuditReasonCode, GenerationKind
-from hbd.db.models import Base
-from hbd.db.models.admin_audit import AdminAuditRow
-from hbd.db.models.admin_session import AdminSessionRow
-from hbd.db.models.admin_user import AdminUserRow
-from hbd.db.models.audit_anchor import AuditAnchorKind, AuditChainAnchorRow
-from hbd.db.models.brief import BriefRow
-from hbd.db.models.generation_attempt import GenerationAttemptRow
-from hbd.db.purge import PurgeReport, purge_expired, rows_past_expiry_statements
+from bayram.contracts import CostSource, Genre, Language, Occasion, VoiceGender, is_ok
+from bayram.db.admin import audit as audit_store
+from bayram.db.enums import AdminRole, AuditAction, AuditReasonCode, GenerationKind
+from bayram.db.models import Base
+from bayram.db.models.admin_audit import AdminAuditRow
+from bayram.db.models.admin_session import AdminSessionRow
+from bayram.db.models.admin_user import AdminUserRow
+from bayram.db.models.audit_anchor import AuditAnchorKind, AuditChainAnchorRow
+from bayram.db.models.brief import BriefRow
+from bayram.db.models.generation_attempt import GenerationAttemptRow
+from bayram.db.purge import PurgeReport, purge_expired, rows_past_expiry_statements
 from tests.test_db.conftest import MovableClock
 
 KEY: Final[str] = "a-test-hmac-key-of-more-than-32-characters"
@@ -430,7 +430,7 @@ def test_the_vendor_telemetry_table_declares_no_retention_clock_to_be_swept_by()
     same way and for a different reason: it holds no personal data at all — every column is a
     closed enum, an integer, a machine id or a bounded error code — so it has no legal clock
     to declare. Its growth is bounded by a cutoff on ``created_at`` instead
-    (``hbd.db.purge.VENDOR_USAGE_RETENTION_DAYS``), counted through the sweep registry above.
+    (``bayram.db.purge.VENDOR_USAGE_RETENTION_DAYS``), counted through the sweep registry above.
 
     Naming a column there ``*_expires_at`` would enlist the table in the inventory below and
     claim a published schedule it does not have; this asserts the absence rather than
@@ -500,7 +500,7 @@ async def test_each_new_count_is_stored_on_the_purge_runs_row(
     sessions: async_sessionmaker[AsyncSession], field: str
 ) -> None:
     # Arrange — the panel reads a stored row, never a log line.
-    from hbd.db.models.purge_run import PurgeRunRow
+    from bayram.db.models.purge_run import PurgeRunRow
 
     # Act / Assert — the column exists and is an integer counter.
     assert field in PurgeRunRow.__table__.columns

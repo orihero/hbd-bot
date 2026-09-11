@@ -35,14 +35,14 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.checkout import Product, Purchase
-from hbd.contracts import is_err, is_ok
-from hbd.db.enums import CreditEntryKind, CreditReason, TopupKind
-from hbd.db.models import CreditLedgerRow, TopupPurchaseRow
-from hbd.db.purchases import CHECKOUT_ACTOR, SqlPurchaseLedger
-from hbd.db.topup_sql import insert_topup, topup_by_key
-from hbd.entitlements import EntitlementPolicy
-from hbd.errors import ErrorCode
+from bayram.checkout import Product, Purchase
+from bayram.contracts import is_err, is_ok
+from bayram.db.enums import CreditEntryKind, CreditReason, TopupKind
+from bayram.db.models import CreditLedgerRow, TopupPurchaseRow
+from bayram.db.purchases import CHECKOUT_ACTOR, SqlPurchaseLedger
+from bayram.db.topup_sql import insert_topup, topup_by_key
+from bayram.entitlements import EntitlementPolicy
+from bayram.errors import ErrorCode
 from tests.test_db.conftest import MovableClock
 
 #: Outside the 32-bit range, so a column that quietly became an ``Integer`` on either engine

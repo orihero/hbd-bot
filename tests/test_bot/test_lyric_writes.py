@@ -25,15 +25,15 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.callbacks import NavAction, NavCB
-from hbd.bot.deps import BotDeps
-from hbd.bot.draft import ONBOARDED_KEY, UI_LANGUAGE_KEY
-from hbd.bot.handlers.lyrics import MAX_LYRIC_WRITES
-from hbd.bot.i18n import translate
-from hbd.bot.states import Wizard
-from hbd.config import Settings
-from hbd.contracts import Brief, Language, LyricDraft, Result
+from bayram.bot.app import build_dispatcher
+from bayram.bot.callbacks import NavAction, NavCB
+from bayram.bot.deps import BotDeps
+from bayram.bot.draft import ONBOARDED_KEY, UI_LANGUAGE_KEY
+from bayram.bot.handlers.lyrics import MAX_LYRIC_WRITES
+from bayram.bot.i18n import translate
+from bayram.bot.states import Wizard
+from bayram.config import Settings
+from bayram.contracts import Brief, Language, LyricDraft, Result
 from tests.test_bot.conftest import (
     FakeProfiles,
     RecordingContentWriter,

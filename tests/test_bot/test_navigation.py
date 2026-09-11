@@ -14,15 +14,15 @@ from itertools import pairwise
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.context import FSMContext
 
-from hbd.bot.callbacks import (
+from bayram.bot.callbacks import (
     NavAction,
     NavCB,
 )
-from hbd.bot.draft import DRAFT_KEY, ONBOARDED_KEY, UI_LANGUAGE_KEY
-from hbd.bot.handlers.submitting import ORDER_ID_KEY
-from hbd.bot.i18n import translate
-from hbd.bot.keyboards import MENU_BUTTON_KEYS
-from hbd.bot.states import (
+from bayram.bot.draft import DRAFT_KEY, ONBOARDED_KEY, UI_LANGUAGE_KEY
+from bayram.bot.handlers.submitting import ORDER_ID_KEY
+from bayram.bot.i18n import translate
+from bayram.bot.keyboards import MENU_BUTTON_KEYS
+from bayram.bot.states import (
     PARKED_ONLY_STEPS,
     WIZARD_ORDER,
     Wizard,
@@ -31,7 +31,7 @@ from hbd.bot.states import (
     state_for,
     step_for_state,
 )
-from hbd.contracts import Genre, Language, Occasion
+from bayram.contracts import Genre, Language, Occasion
 from tests.test_bot.conftest import (
     RecordingSession,
     RecordingSubmitter,

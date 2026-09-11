@@ -6,7 +6,7 @@
  * a `permission.denied` audit row (§12.2) — turns curiosity into noise in the log an
  * incident is later reconstructed from. So the control is simply not there.
  *
- * This gate is a rendering decision and never a security control. `src/hbd/admin/security/
+ * This gate is a rendering decision and never a security control. `src/bayram/admin/security/
  * permissions.py` enforces; `rbac.ts` mirrors §12.2 so the console can decide what to draw.
  * If the two ever disagree the server wins and the operator sees a 403.
  *

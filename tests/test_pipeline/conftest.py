@@ -24,8 +24,8 @@ from uuid import UUID
 import pytest
 from pydantic import BaseModel
 
-from hbd.config import Settings
-from hbd.contracts import (
+from bayram.config import Settings
+from bayram.contracts import (
     AudioProbe,
     Brief,
     CostSource,
@@ -50,18 +50,18 @@ from hbd.contracts import (
     err,
     ok,
 )
-from hbd.errors import (
-    HbdError,
+from bayram.errors import (
+    BayramError,
     NotFoundError,
     PipelineError,
     ProviderUnavailableError,
     StorageError,
     ValidationError,
 )
-from hbd.pipeline.content import LlmContentWriter
-from hbd.pipeline.events import ProgressEvent
-from hbd.pipeline.orchestrator import KitPipeline
-from hbd.pipeline.ports import ContentWriter
+from bayram.pipeline.content import LlmContentWriter
+from bayram.pipeline.events import ProgressEvent
+from bayram.pipeline.orchestrator import KitPipeline
+from bayram.pipeline.ports import ContentWriter
 from tests.conftest import FIXED_NOW, make_order
 
 SONG_PREFIX = "song:"
@@ -101,11 +101,11 @@ class FakeMusicProvider:
         self.compose_calls: list[str] = []
         self.inpaint_calls: list[tuple[str, int]] = []
         self.idempotency_keys: list[str] = []
-        self.failures: list[HbdError | None] = []
+        self.failures: list[BayramError | None] = []
         self.remote_id: str | None = "song-remote-1"
         self.cost_usd = 0.30
 
-    def _next_failure(self) -> HbdError | None:
+    def _next_failure(self) -> BayramError | None:
         """Pop the scripted outcome for this call. A ``None`` entry means 'succeed'."""
         return self.failures.pop(0) if self.failures else None
 
@@ -163,7 +163,7 @@ class FakeSttProvider:
 
     def __init__(self) -> None:
         self.pronunciations: dict[str, str] = {}
-        self.failures: list[HbdError] = []
+        self.failures: list[BayramError] = []
         self.calls: list[str] = []
 
     async def transcribe(
@@ -199,7 +199,7 @@ class FakeTtsProvider:
     def __init__(self) -> None:
         self.catalogue: tuple[VoiceDescriptor, ...] = _default_voices()
         self.failing_personas: set[str] = set()
-        self.voices_failure: HbdError | None = None
+        self.voices_failure: BayramError | None = None
         self.calls: list[SpeechRequest] = []
         self.idempotency_keys: list[str] = []
 
@@ -251,11 +251,11 @@ class FakeLlmProvider:
     name = "fake-llm"
 
     def __init__(self) -> None:
-        self.failures: dict[str, list[HbdError]] = {}
+        self.failures: dict[str, list[BayramError]] = {}
         self.overrides: dict[str, list[BaseModel]] = {}
         self.requests: list[LlmRequest] = []
 
-    def fail_next(self, model_name: str, error: HbdError) -> None:
+    def fail_next(self, model_name: str, error: BayramError) -> None:
         self.failures.setdefault(model_name, []).append(error)
 
     def respond_with(self, model_name: str, payload: BaseModel) -> None:
@@ -378,7 +378,7 @@ class FakePaymentProvider:
 class FakeAudioPostProcessor:
     """Copies bytes around with a marker suffix. Stands in for ffmpeg.
 
-    It satisfies ``hbd.contracts.AudioPostProcessor`` structurally, and mypy --strict over
+    It satisfies ``bayram.contracts.AudioPostProcessor`` structurally, and mypy --strict over
     ``tests`` is what actually keeps it in step with the protocol: a method added there and
     forgotten here fails typecheck at the ``post=`` call site rather than passing every test
     while the real adapter and the fake describe different objects.
@@ -499,7 +499,7 @@ class FakeKitRepository:
         #: One entry per ``set_order_state`` call, so a test can assert what the pipeline
         #: chose to write to ``orders.failed_reason`` — including that it wrote nothing.
         self.failed_reasons: list[str | None] = []
-        self.save_failures: list[HbdError] = []
+        self.save_failures: list[BayramError] = []
 
     async def create_order(self, order: Order) -> Result[Order]:
         self.orders[order.id] = order
@@ -653,7 +653,7 @@ def brief(ready_order: Order) -> Brief:
     return ready_order.brief
 
 
-def failure_of(result: Result[Any]) -> HbdError:
+def failure_of(result: Result[Any]) -> BayramError:
     """Assert a result failed and hand back the error."""
     assert isinstance(result, Err), f"expected a failure, got {result!r}"
     return result.error

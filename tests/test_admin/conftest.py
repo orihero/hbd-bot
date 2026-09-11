@@ -2,7 +2,7 @@
 
 **No server of any kind.** The database is the same in-memory SQLite the ``test_db`` suite
 uses, Redis is a dictionary, the ARQ queue is a list of the calls that were not made
-(:class:`hbd.admin.queue.NullAdminQueue` — there is no worker in this process to answer one,
+(:class:`bayram.admin.queue.NullAdminQueue` — there is no worker in this process to answer one,
 and a route that enqueues must still be assertable), and the HTTP client speaks to the
 application through ``httpx.ASGITransport`` — the app object, in this process, with no
 socket. That is what lets
@@ -12,7 +12,7 @@ The argon2 parameters are dropped to the model's floors. A real verify is ~50 ms
 and the login path is exercised dozens of times here; the floors keep the suite fast without
 changing a single branch, because nothing in the code reads the cost.
 
-Every ``HBD_`` variable is stripped from the environment and ``.env.admin`` is disabled, so a
+Every ``BAYRAM_`` variable is stripped from the environment and ``.env.admin`` is disabled, so a
 developer's shell cannot change a test outcome — the same isolation ``tests/conftest.py``
 applies to ``Settings``.
 """
@@ -32,17 +32,17 @@ from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute
 from redis.asyncio import Redis
 
-from hbd.admin.app import create_app
-from hbd.admin.container import AdminContainer, build_admin_container
-from hbd.admin.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
-from hbd.admin.queue import AdminQueue, NullAdminQueue
-from hbd.admin.security.passwords import hash_password
-from hbd.admin.security.ratelimit import WindowCounterStore
-from hbd.admin.settings import AdminSettings
-from hbd.config import ENV_PREFIX
-from hbd.db.admin import accounts
-from hbd.db.enums import AdminRole
-from hbd.db.models.admin_user import AdminUserRow
+from bayram.admin.app import create_app
+from bayram.admin.container import AdminContainer, build_admin_container
+from bayram.admin.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
+from bayram.admin.queue import AdminQueue, NullAdminQueue
+from bayram.admin.security.passwords import hash_password
+from bayram.admin.security.ratelimit import WindowCounterStore
+from bayram.admin.settings import AdminSettings
+from bayram.config import ENV_PREFIX
+from bayram.db.admin import accounts
+from bayram.db.enums import AdminRole
+from bayram.db.models.admin_user import AdminUserRow
 
 #: A fixed instant so a test that asserts on a TTL or a window is not a race.
 NOW: Final[datetime] = datetime(2026, 3, 21, 9, 0, 0, tzinfo=UTC)
@@ -131,7 +131,7 @@ class MemoryRateLimits:
 
 @pytest.fixture(autouse=True)
 def _isolated_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """No ``HBD_`` variable from the developer's shell reaches any test in this package."""
+    """No ``BAYRAM_`` variable from the developer's shell reaches any test in this package."""
     for name in tuple(os.environ):
         if name.startswith(ENV_PREFIX):
             monkeypatch.delenv(name, raising=False)
@@ -194,7 +194,7 @@ async def open_container(
     than assembled by hand: the engine, the pool arguments and the schema shortcut are then
     exactly the ones production uses, and only the things a test cannot have are swapped.
 
-    ``queue`` defaults to a fresh :class:`~hbd.admin.queue.NullAdminQueue` so that the dozen
+    ``queue`` defaults to a fresh :class:`~bayram.admin.queue.NullAdminQueue` so that the dozen
     callers that predate the seam keep working and none of them can reach the real ARQ pool
     ``build_admin_container`` put on the container. That pool is lazy — it opens no socket —
     and it is closed here rather than leaked, which is the whole of why the container built

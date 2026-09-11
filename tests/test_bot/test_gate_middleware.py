@@ -32,16 +32,16 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.methods import SendMessage
 from aiogram.types import Chat, Message, TelegramObject, User
 
-import hbd.bot.gate as gate_module
-from hbd.bot.app import build_dispatcher
-from hbd.bot.callbacks import NavAction, NavCB
-from hbd.bot.deps import BotDeps
-from hbd.bot.gate import ERASURE_COMMANDS, InboundGateMiddleware
-from hbd.bot.i18n import FALLBACK_LANGUAGE, translate
-from hbd.config import Settings
-from hbd.contracts import Language, Result
-from hbd.entitlements import CreditBalance
-from hbd.errors import StorageError
+import bayram.bot.gate as gate_module
+from bayram.bot.app import build_dispatcher
+from bayram.bot.callbacks import NavAction, NavCB
+from bayram.bot.deps import BotDeps
+from bayram.bot.gate import ERASURE_COMMANDS, InboundGateMiddleware
+from bayram.bot.i18n import FALLBACK_LANGUAGE, translate
+from bayram.config import Settings
+from bayram.contracts import Language, Result
+from bayram.entitlements import CreditBalance
+from bayram.errors import StorageError
 from tests.test_bot.conftest import (
     CHAT_ID,
     FIXED_MOMENT,
@@ -264,7 +264,7 @@ async def test_a_blocked_account_can_still_make_a_data_subject_request(
     assert not BLOCKED_TEXTS & set(texts(session))
 
 
-@pytest.mark.parametrize("text", ["/Forget@hbd_bot", "/forget now please", "/PRIVACY"])
+@pytest.mark.parametrize("text", ["/Forget@bayram_uzbot", "/forget now please", "/PRIVACY"])
 async def test_the_carve_out_reads_the_command_the_way_telegram_writes_it(
     text: str, bot: Bot
 ) -> None:
@@ -321,7 +321,7 @@ def test_every_carved_out_command_is_actually_registered_by_the_commands_router(
     """
     # Arrange
     source = (
-        Path(__file__).resolve().parents[2] / "src" / "hbd" / "bot" / "handlers" / "commands.py"
+        Path(__file__).resolve().parents[2] / "src" / "bayram" / "bot" / "handlers" / "commands.py"
     ).read_text(encoding="utf-8")
     tree = ast.parse(source)
 
@@ -559,7 +559,7 @@ async def test_the_block_answer_is_cached_rather_than_read_on_every_tap(
 
     The gate runs inside the FSM isolation lock, so a read here serialises one chat's
     updates behind it. The price of the cache is the lag on an UNBLOCK, which is the
-    trade ``HBD_INBOUND_BLOCK_CACHE_S`` exists to let an operator retune.
+    trade ``BAYRAM_INBOUND_BLOCK_CACHE_S`` exists to let an operator retune.
     """
     # Arrange — the fixed clock keeps every update inside one cache window
     credits = FakeEntitlements()

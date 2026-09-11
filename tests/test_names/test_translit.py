@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.contracts import Language, Script
-from hbd.names.translit import cyrillic_to_latin, latin_to_cyrillic, transliterate
+from bayram.contracts import Language, Script
+from bayram.names.translit import cyrillic_to_latin, latin_to_cyrillic, transliterate
 
 LATIN_TO_CYRILLIC_CASES = [
     ("Gʻulomjon", "Ғуломжон"),

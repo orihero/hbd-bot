@@ -22,7 +22,7 @@ from typing import Final, Self, cast
 import pytest
 from redis.asyncio import Redis
 
-from hbd.admin.security.ratelimit import (
+from bayram.admin.security.ratelimit import (
     LOGIN_MAX_PER_USER_IP,
     LOGIN_MAX_PER_USERNAME,
     LOGIN_WINDOW_S,
@@ -177,9 +177,9 @@ async def test_varying_the_case_of_a_username_does_not_buy_a_fresh_bucket() -> N
 async def test_the_username_never_appears_in_a_redis_key() -> None:
     store = _MemoryStore()
 
-    await check_login_rate_limit(store, username="ceo.of.hbd", client_ip=_IP, now=_NOW)
+    await check_login_rate_limit(store, username="ceo.of.bayram", client_ip=_IP, now=_NOW)
 
-    assert all("ceo.of.hbd" not in key for key in store.counts)
+    assert all("ceo.of.bayram" not in key for key in store.counts)
 
 
 # ---------------------------------------------------------------------------
@@ -191,7 +191,7 @@ async def test_the_username_ceiling_catches_an_attack_spread_across_addresses(
     store = _MemoryStore()
     limits = LoginRateLimits(window_s=LOGIN_WINDOW_S, max_per_user_ip=2, max_per_username=4)
 
-    with caplog.at_level(logging.WARNING, logger="hbd.admin.security.ratelimit"):
+    with caplog.at_level(logging.WARNING, logger="bayram.admin.security.ratelimit"):
         decisions = [
             await check_login_rate_limit(
                 store,
@@ -252,7 +252,7 @@ async def test_a_dead_store_refuses_the_login_and_logs_the_outage(
     """No working limiter means unlimited argon2 on the one unauthenticated route."""
     store = _BrokenStore()
 
-    with caplog.at_level(logging.ERROR, logger="hbd.admin.security.ratelimit"):
+    with caplog.at_level(logging.ERROR, logger="bayram.admin.security.ratelimit"):
         decision = await check_login_rate_limit(store, username=_USERNAME, client_ip=_IP, now=_NOW)
 
     assert decision.is_allowed is False
@@ -278,7 +278,7 @@ async def test_a_store_that_dies_on_the_second_counter_also_fails_closed(
         async def refund(self, key: str, *, ttl_s: int) -> None:
             raise TimeoutError("redis timed out")
 
-    with caplog.at_level(logging.ERROR, logger="hbd.admin.security.ratelimit"):
+    with caplog.at_level(logging.ERROR, logger="bayram.admin.security.ratelimit"):
         decision = await check_login_rate_limit(
             _HalfBrokenStore(), username=_USERNAME, client_ip=_IP, now=_NOW
         )
@@ -324,10 +324,10 @@ async def test_the_redis_adapter_increments_and_expires_in_one_transaction() -> 
     client = _FakeRedis()
     store = RedisWindowCounterStore(cast("Redis[str]", client))
 
-    count = await store.increment("hbd:admin:rl:login:uip:1:abc:203.0.113.7", ttl_s=900)
+    count = await store.increment("bayram:admin:rl:login:uip:1:abc:203.0.113.7", ttl_s=900)
 
     assert count == 7
     assert client.commands == [
-        ("incr", "hbd:admin:rl:login:uip:1:abc:203.0.113.7", 1),
-        ("expire", "hbd:admin:rl:login:uip:1:abc:203.0.113.7", 900),
+        ("incr", "bayram:admin:rl:login:uip:1:abc:203.0.113.7", 1),
+        ("expire", "bayram:admin:rl:login:uip:1:abc:203.0.113.7", 900),
     ]

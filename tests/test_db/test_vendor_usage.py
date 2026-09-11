@@ -28,12 +28,12 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import CostSource, UsageTask, Vendor, VendorOperation, is_ok
-from hbd.db.models.vendor_usage import VendorUsageRow
-from hbd.db.purge import VENDOR_USAGE_RETENTION_DAYS, purge_expired
-from hbd.db.vendor_usage import DbUsageSink
-from hbd.logging import correlation_scope
-from hbd.usage import VendorUsage, usage_scope
+from bayram.contracts import CostSource, UsageTask, Vendor, VendorOperation, is_ok
+from bayram.db.models.vendor_usage import VendorUsageRow
+from bayram.db.purge import VENDOR_USAGE_RETENTION_DAYS, purge_expired
+from bayram.db.vendor_usage import DbUsageSink
+from bayram.logging import correlation_scope
+from bayram.usage import VendorUsage, usage_scope
 
 NOW: Final[datetime] = datetime(2026, 9, 7, 9, 0, tzinfo=UTC)
 _ORDER_ID: Final[UUID] = UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
@@ -150,7 +150,7 @@ async def test_the_bound_correlation_id_is_stored_so_a_log_line_and_a_row_can_be
 async def test_an_unbound_correlation_id_is_stored_as_null_and_never_as_the_dash_sentinel(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
-    # Arrange — "-" is what hbd.logging returns when nothing is bound. Stored verbatim it
+    # Arrange — "-" is what bayram.logging returns when nothing is bound. Stored verbatim it
     # would group, sort and join like a real id, and be counted as one request.
     sink = DbUsageSink(sessions)
 
@@ -176,7 +176,7 @@ async def test_a_failed_telemetry_write_is_logged_and_does_not_reach_the_caller(
 
     # Act — an adapter awaits this on every return path, including its failure paths, so an
     # exception escaping here would cost the customer their song over a metrics row.
-    with caplog.at_level(logging.WARNING, logger="hbd.db.vendor_usage"):
+    with caplog.at_level(logging.WARNING, logger="bayram.db.vendor_usage"):
         await sink.record(_usage())
 
     # Assert — nothing raised, the operator can still see that instrumentation is broken,
@@ -328,7 +328,7 @@ async def test_the_sweeps_own_record_stores_the_vendor_usage_count(
 ) -> None:
     # Arrange — the panel reads a stored row, never a log line, so a sweep whose count has
     # nowhere to go is a backlog reported as zero.
-    from hbd.db.models.purge_run import PurgeRunRow
+    from bayram.db.models.purge_run import PurgeRunRow
 
     # Act / Assert
     assert "vendor_usage_deleted" in PurgeRunRow.__table__.columns
@@ -337,7 +337,7 @@ async def test_the_sweeps_own_record_stores_the_vendor_usage_count(
 async def test_a_fake_provider_run_is_recorded_and_flagged_rather_than_left_invisible(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
-    # Arrange / Act — HBD_USE_FAKE_PROVIDERS still writes rows; no rows at all could not be
+    # Arrange / Act — BAYRAM_USE_FAKE_PROVIDERS still writes rows; no rows at all could not be
     # told apart from a deployment nobody instrumented.
     await _seed(sessions, created_at=NOW, is_fake=True)
 

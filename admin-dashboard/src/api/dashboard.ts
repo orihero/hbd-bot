@@ -1,6 +1,6 @@
 /**
  * The dashboard wire contract, transcribed from `.openpencil-export/dashboard-openapi.json`
- * (produced by `hbd/admin/routers/dashboard.py` and `hbd/admin/schemas/dashboard.py`).
+ * (produced by `bayram/admin/routers/dashboard.py` and `bayram/admin/schemas/dashboard.py`).
  *
  * Nine reads carry the whole page: five windowed sections, one windowed-on-one-half
  * IDENTIFIED list pair, and three unwindowed states — the plan book and the two probes, none
@@ -118,7 +118,7 @@ export type RevenueSource = z.infer<typeof revenueSourceSchema>;
 
 /**
  * `SeriesBucket` — the grains a chart may ask for, and they ARE lowercase (`hour`, `day`,
- * `week`, `month`), verified against `hbd/admin/schemas/overview.py:199`. `week` and `month`
+ * `week`, `month`), verified against `bayram/admin/schemas/overview.py:199`. `week` and `month`
  * are folded from `day` server-side so a monthly series sums to the daily one it came from.
  */
 export const SERIES_BUCKET_VALUES = ["hour", "day", "week", "month"] as const;
@@ -148,7 +148,7 @@ export const balanceEstimateBasisSchema = z.enum(BALANCE_ESTIMATE_BASIS_VALUES);
 export type BalanceEstimateBasis = z.infer<typeof balanceEstimateBasisSchema>;
 
 /**
- * `CostSource` — HOW a dollar figure was arrived at, as `hbd.contracts.CostSource` spells it.
+ * `CostSource` — HOW a dollar figure was arrived at, as `bayram.contracts.CostSource` spells it.
  *
  * This is the real member, and it is narrower than `UsdCost.costSource`, which is a free-form
  * string because the collapsed shapes may answer `"mixed"` there. `costProvenance` is a

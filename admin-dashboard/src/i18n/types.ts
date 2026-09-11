@@ -1,5 +1,5 @@
 /**
- * Type-safe i18n schema and contract definitions for the HBD Admin Dashboard.
+ * Type-safe i18n schema and contract definitions for the Bayram Admin Dashboard.
  *
  * Covers 13 namespaces: common, nav, auth, dashboard, chats, users, generations,
  * audit, admins, errors, reveal, segments, and broadcasts.
@@ -14,7 +14,7 @@ export type Locale = SupportedLocale;
 
 export const SUPPORTED_LOCALES: readonly SupportedLocale[] = ["uz", "ru", "en"] as const;
 export const DEFAULT_LOCALE: SupportedLocale = "en";
-export const LOCALE_STORAGE_KEY = "hbd.dashboard.locale";
+export const LOCALE_STORAGE_KEY = "bayram.dashboard.locale";
 
 export interface LocaleMeta {
   readonly code: SupportedLocale;
@@ -132,6 +132,8 @@ export interface NavTranslations {
     readonly chats: string;
     readonly users: string;
     readonly generations: string;
+    /** The Payme rail. One rail entry, above the rule, between Generations and Campaigns. */
+    readonly billing: string;
     /** The campaign section. One rail entry, above the rule, after Generations. */
     readonly broadcasts: string;
     readonly audit: string;
@@ -463,7 +465,7 @@ export interface ChatsTranslations {
   readonly senderCustomer: string;
   readonly senderBot: string;
   readonly customer: string;
-  readonly hbdBot: string;
+  readonly bayramBot: string;
   readonly wizardStep: string;
   readonly buttonCallback: string;
   readonly audioPreview: string;
@@ -1080,6 +1082,27 @@ export interface AdminsTranslations {
   readonly emptyMessage: string;
   readonly noWritesNote: string;
   readonly forbiddenTitle: string;
+  /** The one write this screen has: `POST /api/admins`, OWNER only, step-up on the username. */
+  readonly create: {
+    readonly button: string;
+    readonly title: string;
+    readonly description: string;
+    readonly noun: string;
+    readonly usernameLabel: string;
+    readonly usernameHint: string;
+    readonly usernameInvalid: string;
+    readonly passwordLabel: string;
+    readonly passwordHint: string;
+    readonly roleLabel: string;
+    /** Why Owner is not on the menu, said before anybody goes looking for it. */
+    readonly ownerNote: string;
+    readonly submit: string;
+    readonly submitFallback: string;
+    readonly pending: string;
+    readonly stepUpNote: string;
+    readonly createdTitle: string;
+    readonly createdMessage: string;
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1952,6 +1975,240 @@ export interface BroadcastsTranslations {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Namespace 14: The Payme rail                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The checkout rail: the board, the payments list, one payment's dossier, and the inbound
+ * journal.
+ *
+ * Two families of keys here are not decoration and must not be trimmed to fit a layout.
+ *
+ * **The provenance sub-lines.** Every fact in the board's header carries a sentence saying
+ * WHERE it was read from, because three switches decide whether this rail sells and the admin
+ * process can read exactly one of them. Without the provenance the header is five confident
+ * assertions, two of which the process is in no position to make.
+ *
+ * **The lifeline's seven `notes`.** They are the closed `noteCode` vocabulary the server
+ * sends instead of an English sentence — the console is trilingual with asserted key parity,
+ * so a sentence on the wire would have been a fourth translation no locale file could reach.
+ * Every one of the seven is reachable; a missing one renders as nothing at all, on the panel
+ * whose entire job is explaining why a step looks the way it does.
+ */
+export interface BillingTranslations {
+  readonly title: string;
+  /**
+   * The pager's range label, for both keyset lists in this section.
+   *
+   * Two strings and not one, because `withTotal` is off by default: `total` costs a second
+   * query and `bounded_total` saturates at 10,000, so most pages here can say how many rows
+   * are ON THEM and nothing more. `onPageOf` is the form for a page that asked for a count;
+   * a single string with an optional half would have printed "50 of " on every other page.
+   */
+  readonly range: {
+    readonly onPage: string;
+    readonly onPageOf: string;
+  };
+  /** What an `<ErrorNote>` names when one of these reads fails. */
+  readonly subject: string;
+  readonly subjectPayments: string;
+  readonly subjectPayment: string;
+  readonly subjectCalls: string;
+  readonly attention: {
+    readonly awaitingStale: string;
+    readonly paidUnnotified: string;
+    readonly paidNoReceipt: string;
+  };
+  readonly lookup: {
+    readonly label: string;
+    readonly placeholder: string;
+    readonly submit: string;
+    readonly malformed: string;
+    readonly noMatch: string;
+    readonly matchedRef: string;
+    readonly matchedTransaction: string;
+  };
+  readonly intents: {
+    readonly title: string;
+    readonly caption: string;
+    readonly columns: {
+      readonly opened: string;
+      readonly reference: string;
+      readonly state: string;
+      readonly product: string;
+      readonly amount: string;
+      readonly buyer: string;
+      readonly rail: string;
+      readonly settled: string;
+      readonly chain: string;
+    };
+    readonly buyerErased: string;
+    readonly settledByRail: string;
+    readonly settledByOperator: string;
+    readonly notSettled: string;
+    readonly railNever: string;
+    readonly railTransactions: string;
+    readonly chainReceipt: string;
+    readonly chainGrant: string;
+    readonly chainNotified: string;
+    readonly chainNone: string;
+    readonly sandboxBadge: string;
+    readonly planShape: string;
+    readonly emptyVirgin: string;
+    readonly emptyFiltered: string;
+    readonly emptyFailed: string;
+    readonly chips: {
+      readonly state: string;
+      readonly product: string;
+      readonly settledBy: string;
+      readonly attention: string;
+      readonly sandbox: string;
+      readonly openedFrom: string;
+      readonly openedThrough: string;
+    };
+  };
+  readonly lifeline: {
+    readonly title: string;
+    readonly steps: {
+      readonly opened: string;
+      readonly railTransaction: string;
+      readonly performed: string;
+      readonly receipt: string;
+      readonly creditGranted: string;
+      readonly customerTold: string;
+    };
+    readonly status: {
+      readonly done: string;
+      readonly pending: string;
+      readonly notApplicable: string;
+      readonly missing: string;
+    };
+    readonly notes: {
+      readonly neverOpened: string;
+      readonly awaitingRail: string;
+      readonly buyerErased: string;
+      readonly planGrantsNothing: string;
+      readonly notSettled: string;
+      readonly alreadyTold: string;
+      readonly purged: string;
+    };
+  };
+  readonly dossier: {
+    readonly title: string;
+    readonly back: string;
+    readonly notFound: string;
+    readonly notFoundMessage: string;
+    readonly intentPanel: string;
+    readonly transactionsPanel: string;
+    readonly receiptPanel: string;
+    readonly ledgerPanel: string;
+    readonly callsPanel: string;
+    readonly chainStopPanel: string;
+    readonly transactionsNone: string;
+    readonly receiptNone: string;
+    readonly ledgerNone: string;
+    readonly callsNever: string;
+    readonly callsPurged: string;
+    readonly chainStopSingle: string;
+    readonly chainStopPlan: string;
+    readonly chainStopPlanUnknown: string;
+    readonly settleByHand: string;
+    readonly settleByHandCaveat: string;
+    readonly copyCommand: string;
+    readonly copied: string;
+    readonly fields: {
+      readonly reference: string;
+      readonly state: string;
+      readonly product: string;
+      readonly amount: string;
+      readonly buyer: string;
+      readonly merchant: string;
+      readonly opened: string;
+      readonly validUntil: string;
+      readonly settled: string;
+      readonly notified: string;
+      readonly settleNote: string;
+      readonly cancelReason: string;
+      readonly performTime: string;
+      readonly createTime: string;
+      readonly cancelTime: string;
+      readonly paymeTime: string;
+      readonly source: string;
+      readonly provider: string;
+      readonly cabinetReference: string;
+      readonly creditsGranted: string;
+      readonly songsIncluded: string;
+      readonly songsUsed: string;
+      readonly planEndsAt: string;
+      readonly kind: string;
+      readonly delta: string;
+      readonly reason: string;
+      readonly actor: string;
+    };
+  };
+  readonly notify: {
+    readonly action: string;
+    readonly pending: string;
+    readonly confirmTitle: string;
+    readonly confirmBody: string;
+    readonly confirmLabel: string;
+    readonly refusalNotPaid: string;
+    readonly refusalBuyerErased: string;
+    readonly refusalAlreadyNotified: string;
+    readonly sent: string;
+    readonly replayed: string;
+    readonly reasonLabel: string;
+    readonly reasonHint: string;
+    readonly notDelivered: string;
+  };
+  readonly pause: {
+    readonly pauseAction: string;
+    readonly resumeAction: string;
+    readonly pauseTitle: string;
+    readonly pauseBody: string;
+    readonly pauseLabel: string;
+    readonly pausePending: string;
+    readonly resumeTitle: string;
+    readonly resumeBody: string;
+    readonly resumeLabel: string;
+    readonly resumePending: string;
+    readonly reasonLabel: string;
+    readonly reasonHint: string;
+  };
+  readonly calls: {
+    readonly title: string;
+    readonly subtitle: string;
+    readonly caption: string;
+    readonly columns: {
+      readonly at: string;
+      readonly method: string;
+      readonly replyCode: string;
+      readonly reference: string;
+      readonly transactionId: string;
+      readonly duration: string;
+      readonly peerIp: string;
+    };
+    readonly peerIpNote: string;
+    readonly faultsOnly: string;
+    readonly allCalls: string;
+    readonly empty: string;
+    readonly emptyMessage: string;
+    readonly emptyFiltered: string;
+    readonly emptyFilteredMessage: string;
+    readonly emptyFailed: string;
+    readonly emptyFailedMessage: string;
+    readonly chips: {
+      readonly method: string;
+      readonly faultsOnly: string;
+      readonly reference: string;
+      readonly transactionId: string;
+      readonly from: string;
+      readonly through: string;
+    };
+  };
+}
+
+/* -------------------------------------------------------------------------- */
 /* Top-Level Canonical TranslationSchema                                      */
 /* -------------------------------------------------------------------------- */
 
@@ -1969,6 +2226,7 @@ export interface TranslationSchema {
   readonly reveal: RevealTranslations;
   readonly segments: SegmentsTranslations;
   readonly broadcasts: BroadcastsTranslations;
+  readonly billing: BillingTranslations;
 }
 
 /* -------------------------------------------------------------------------- */

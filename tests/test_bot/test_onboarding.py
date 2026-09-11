@@ -36,18 +36,18 @@ from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import Update
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.callbacks import LanguageCB, LanguageSlot, NavAction, NavCB
-from hbd.bot.deps import BotDeps
-from hbd.bot.draft import DRAFT_KEY, ONBOARDED_KEY, UI_LANGUAGE_KEY
-from hbd.bot.handlers.common import privacy_text, support_text
-from hbd.bot.i18n import FALLBACK_LANGUAGE, translate
-from hbd.bot.states import Onboarding, Wizard, WizardStep, state_for, step_for_state
-from hbd.config import Settings
-from hbd.contracts import Language
-from hbd.db.retention import DEFAULT_RETENTION_POLICY
-from hbd.errors import StorageError
-from hbd.user_profiles import AVATAR_MIME, UserProfileStore
+from bayram.bot.app import build_dispatcher
+from bayram.bot.callbacks import LanguageCB, LanguageSlot, NavAction, NavCB
+from bayram.bot.deps import BotDeps
+from bayram.bot.draft import DRAFT_KEY, ONBOARDED_KEY, UI_LANGUAGE_KEY
+from bayram.bot.handlers.common import privacy_text, support_text
+from bayram.bot.i18n import FALLBACK_LANGUAGE, translate
+from bayram.bot.states import Onboarding, Wizard, WizardStep, state_for, step_for_state
+from bayram.config import Settings
+from bayram.contracts import Language
+from bayram.db.retention import DEFAULT_RETENTION_POLICY
+from bayram.errors import StorageError
+from bayram.user_profiles import AVATAR_MIME, UserProfileStore
 from tests.test_bot.conftest import (
     AVATAR_BYTES,
     BOT_ID,

@@ -36,9 +36,9 @@ import sqlalchemy as sa
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.db.admin.audit import PURGE_FUNCTION_NAME, REASON_PURGE_FUNCTION_NAME
-from hbd.db.engine import create_engine, create_session_factory, ping
-from hbd.db.models import Base
+from bayram.db.admin.audit import PURGE_FUNCTION_NAME, REASON_PURGE_FUNCTION_NAME
+from bayram.db.engine import create_engine, create_session_factory, ping
+from bayram.db.models import Base
 from tests.test_db.conftest import refuse_a_foreign_database
 
 pytestmark = pytest.mark.integration
@@ -46,11 +46,11 @@ pytestmark = pytest.mark.integration
 _ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 #: The owner role — the one migrations run as.
 _OWNER_URL: Final[str] = os.environ.get(
-    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
+    "BAYRAM_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
 )
 #: The application role, created by ``docker/initdb/10-two-roles.sql``.
 _APP_URL: Final[str] = os.environ.get(
-    "HBD_TEST_POSTGRES_APP_URL", "postgresql+asyncpg://hbd_app:hbd_app@localhost:5432/hbd_test"
+    "BAYRAM_TEST_POSTGRES_APP_URL", "postgresql+asyncpg://hbd_app:hbd_app@localhost:5432/hbd_test"
 )
 _APP_ROLE: Final[str] = "hbd_app"
 _NOW: Final[datetime] = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
@@ -59,16 +59,16 @@ _NOW: Final[datetime] = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)
 def _run_alembic(command: str, target: str | None = None) -> None:
     """Drive Alembic in a subprocess with the two-role environment set.
 
-    A subprocess rather than the API: ``HBD_ADMIN_AUDIT_DSN`` and ``HBD_DB_APP_ROLE`` are
+    A subprocess rather than the API: ``BAYRAM_ADMIN_AUDIT_DSN`` and ``BAYRAM_DB_APP_ROLE`` are
     read by migration 0007 from ``os.environ`` at upgrade time, and the point of this test
     is to exercise the branch a real two-role deployment takes.
     """
     env = {
         **os.environ,
-        "HBD_DB_MIGRATION_URL": _OWNER_URL,
-        "HBD_DATABASE_URL": _APP_URL,
-        "HBD_ADMIN_AUDIT_DSN": _OWNER_URL,
-        "HBD_DB_APP_ROLE": _APP_ROLE,
+        "BAYRAM_DB_MIGRATION_URL": _OWNER_URL,
+        "BAYRAM_DATABASE_URL": _APP_URL,
+        "BAYRAM_ADMIN_AUDIT_DSN": _OWNER_URL,
+        "BAYRAM_DB_APP_ROLE": _APP_ROLE,
     }
     subprocess.run(
         [

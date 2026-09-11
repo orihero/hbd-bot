@@ -3,7 +3,7 @@
  *
  * Kept out of `vite.config.ts` on purpose: `test.environment: "jsdom"` in the shared config
  * would pull jsdom into every `vite build` resolution graph, and the bundle that ships to
- * `src/hbd/admin/static` must not carry a test environment.
+ * `src/bayram/admin/static` must not carry a test environment.
  *
  * It is also kept out of `npm test`. That script is the bespoke localization E2E suite
  * (`tests/run-all.ts`, tsx, its own harness and reporter) and it is not a Vitest suite — it
@@ -27,7 +27,7 @@ export default defineConfig({
     /*
      * An https origin, not jsdom's default `http://localhost`. The panel's session cookies
      * are `__Host-` prefixed and therefore `Secure`; jsdom's cookie jar enforces the prefix
-     * rules, so over plain http a `document.cookie = "__Host-hbd_csrf=…"` is silently
+     * rules, so over plain http a `document.cookie = "__Host-bayram_csrf=…"` is silently
      * DISCARDED — and a CSRF assertion written against that would pass vacuously, against a
      * header that was never sent.
      */

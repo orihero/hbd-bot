@@ -2,7 +2,7 @@
  * `GET /api/audit` and `GET /api/audit/verify` — the compliance record, and the check that it
  * has not been edited.
  *
- * Transcribed from `hbd/admin/routers/audit.py` over `hbd/admin/schemas/audit.py`. Both routes
+ * Transcribed from `bayram/admin/routers/audit.py` over `bayram/admin/schemas/audit.py`. Both routes
  * are reads and neither writes a row of any kind: the obvious convenience — having `/verify`
  * drop a fresh anchor while it is already walking the chain — would put a write behind a `GET`
  * that a browser prefetch could fire. There is nothing to add here later; §6.8 ships no audit
@@ -97,7 +97,7 @@ const timestampSchema = z.string();
 /* -------------------------------------------------------------------------- */
 
 /**
- * `AuditAction` — the closed taxonomy of what a row records, `hbd.db.enums.AuditAction`, all
+ * `AuditAction` — the closed taxonomy of what a row records, `bayram.db.enums.AuditAction`, all
  * 34 members in declaration order.
  *
  * The values are dotted and abbreviated and they are **not slugs**: `order.deliver` is written
@@ -143,16 +143,31 @@ export const AUDIT_ACTION_VALUES = [
   "admin.password",
   "permission.denied",
   "credit.grant",
+  /*
+   * The Payme rail's three. `rail.paused`/`rail.resumed` are written against
+   * `subject_type: "config"` with `subject_id: "payme_rail"` — the switch IS configuration —
+   * and `payment.notify` against `subject_type: "payment"` with the intent's UUID.
+   *
+   * Added here BEFORE the first row can be written, and the timing is the point on the sibling
+   * console: admin-ui parses the wire's `action` with the closed enum, so an unlisted value
+   * turns its whole `/audit` screen into a SCHEMA_DRIFT banner. This app parses it as
+   * `z.string()` (see `auditEntryViewSchema.action`), so the cost here is smaller and
+   * different — an action missing from this tuple is one nobody can FILTER on, which is an
+   * investigation that comes back empty and reads as "it never happened".
+   */
+  "rail.paused",
+  "rail.resumed",
+  "payment.notify",
 ] as const;
 export const auditActionSchema = z.enum(AUDIT_ACTION_VALUES);
 export type AuditAction = z.infer<typeof auditActionSchema>;
 
 /**
- * `AuditOutcome` — `hbd.db.models.admin_audit.AuditOutcome`, three members and no fourth.
+ * `AuditOutcome` — `bayram.db.models.admin_audit.AuditOutcome`, three members and no fourth.
  *
  * Parsed with the enum where `action` is not, and the difference is not an inconsistency. This
  * vocabulary is the writer's own three-way split — it happened, it was refused, it was allowed
- * and then failed — and every call site in `src/hbd` picks one of the three. It is also the
+ * and then failed — and every call site in `src/bayram` picks one of the three. It is also the
  * axis a pill's tone is chosen on, so an unhandled fourth member would render as an unmarked
  * cell rather than as the drift banner it actually is. Actions are added whenever a feature
  * ships; outcomes are not.
@@ -162,7 +177,7 @@ export const auditOutcomeSchema = z.enum(AUDIT_OUTCOME_VALUES);
 export type AuditOutcome = z.infer<typeof auditOutcomeSchema>;
 
 /**
- * `hbd.db.admin.audit.SUBJECT_TYPES` — the only nine values the column can ever hold, in the
+ * `bayram.db.admin.audit.SUBJECT_TYPES` — the only nine values the column can ever hold, in the
  * order a picker reads best rather than the frozenset's (a set has no order).
  *
  * For the FILTER only. `subjectType` is typed `str` on both the query and the response, with no
@@ -179,6 +194,17 @@ export const AUDIT_SUBJECT_TYPE_VALUES = [
   "session",
   "wizard_draft",
   "system",
+  /*
+   * ONE payment intent, by its `payment_intents.id`. Not `order` — a purchased credit is
+   * fungible and cannot be attributed to the song it rendered, so the two are joined by
+   * nothing this schema records — and not `user`, because money columns survive `/forget` and
+   * the buyer does not: an erased payment still has a subject while its buyer has none.
+   *
+   * It is offered as a filter here so "everything anyone did to this payment" stays one
+   * indexed equality on `(subjectType, subjectId)` rather than a guess about which `action`
+   * values to OR together, which is the argument `payment` was added to `SUBJECT_TYPES` under.
+   */
+  "payment",
 ] as const;
 export const auditSubjectTypeSchema = z.enum(AUDIT_SUBJECT_TYPE_VALUES);
 export type AuditSubjectType = z.infer<typeof auditSubjectTypeSchema>;
@@ -384,7 +410,7 @@ export function listAudit(
  * Walk the chain and report on it. No parameters at all — the walk is the whole table, bounded
  * at 50 000 rows, and there is nothing for a caller to narrow.
  *
- * `hbd.admin.routers.audit.VERIFY_PATH`, which is `AUDIT_PATH + "/verify"`.
+ * `bayram.admin.routers.audit.VERIFY_PATH`, which is `AUDIT_PATH + "/verify"`.
  */
 export function verifyAuditChain(signal?: AbortSignal): Promise<ApiResult<ChainVerify>> {
   return request({

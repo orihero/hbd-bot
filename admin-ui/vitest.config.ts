@@ -18,7 +18,7 @@ export default defineConfig({
     environment: "jsdom",
     // An https origin, because the panel's cookies are `__Host-` prefixed and therefore
     // `Secure`: jsdom's cookie jar enforces the prefix rules, so over the default
-    // http://localhost a `document.cookie = "__Host-hbd_csrf=…"` is silently DISCARDED and
+    // http://localhost a `document.cookie = "__Host-bayram_csrf=…"` is silently DISCARDED and
     // every CSRF assertion passes vacuously against an absent header.
     environmentOptions: { jsdom: { url: "https://admin.test/" } },
     globals: true,

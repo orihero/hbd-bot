@@ -15,7 +15,7 @@
  * real denominators and nothing else about this screen moves.
  *
  * All four §11.2 tiers are on the page. `live` and `after-fix` are unreachable from this
- * endpoint's data — every field it returns is an `HBD_ADMIN_*` variable read at boot — so
+ * endpoint's data — every field it returns is an `BAYRAM_ADMIN_*` variable read at boot — so
  * they appear where they are true: on the bot's fields in `ABSENT_RUNTIME_FIELDS`, which
  * exist to catch the operator who followed the threshold link from `/generations/names`.
  */

@@ -11,7 +11,7 @@ the three things that layer cannot see:
 * **That a node is a rule or a group and never both.** ``extra="forbid"`` is what makes a
   hybrid a 422, and it is one word in a base class three imports away — precisely the kind of
   setting that survives a review and dies in a refactor. So the hybrid is tested directly.
-* **That the lowering adds no vocabulary.** :func:`~hbd.admin.schemas.segment.to_segment` is
+* **That the lowering adds no vocabulary.** :func:`~bayram.admin.schemas.segment.to_segment` is
   total by design, and the value of that is only visible in a test that hands it something
   wrong and finds the refusal arriving from the COMPILER's message rather than a second copy
   of it here. An unparseable instant and a naive one are both checked that way.
@@ -30,7 +30,7 @@ from typing import Any, Final
 
 import pytest
 
-from hbd.admin.schemas.segment import (
+from bayram.admin.schemas.segment import (
     MAX_SEGMENT_CHARS,
     SEGMENT_SCHEMA_VERSION,
     GroupModel,
@@ -41,8 +41,8 @@ from hbd.admin.schemas.segment import (
     encode_segment,
     to_segment,
 )
-from hbd.contracts import is_err, is_ok
-from hbd.db.admin.segment import (
+from bayram.contracts import is_err, is_ok
+from bayram.db.admin.segment import (
     DEFAULT_SORT,
     MatchMode,
     SegmentError,

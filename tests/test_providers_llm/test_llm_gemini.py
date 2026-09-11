@@ -9,9 +9,9 @@ import httpx
 import pytest
 from pydantic import BaseModel, Field
 
-from hbd.contracts import Err, HealthState, LlmProvider, LlmRequest, Ok
-from hbd.errors import ErrorCode
-from hbd.providers.llm.gemini import GeminiLlmProvider
+from bayram.contracts import Err, HealthState, LlmProvider, LlmRequest, Ok
+from bayram.errors import ErrorCode
+from bayram.providers.llm.gemini import GeminiLlmProvider
 from tests.test_providers_llm.conftest import gemini_response, mock_client
 
 

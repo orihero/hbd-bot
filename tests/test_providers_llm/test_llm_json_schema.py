@@ -6,8 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from hbd.providers.llm.json_schema import to_gemini_schema, to_openai_strict_schema
-from hbd.providers.llm.schemas import IntakePayload, KitPlanPayload
+from bayram.providers.llm.json_schema import to_gemini_schema, to_openai_strict_schema
+from bayram.providers.llm.schemas import IntakePayload, KitPlanPayload
 
 
 class Inner(BaseModel):

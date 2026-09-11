@@ -6,7 +6,7 @@ import logging
 
 import pytest
 
-from hbd.providers.music.usage import (
+from bayram.providers.music.usage import (
     DEFAULT_MUSIC_USD_PER_MINUTE,
     USAGE_EVENT,
     MusicUsage,
@@ -39,7 +39,7 @@ def test_usage_line_carries_every_quantity_the_invoice_is_computed_from(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     # Arrange
-    logger = logging.getLogger("hbd.test.usage")
+    logger = logging.getLogger("bayram.test.usage")
     usage = MusicUsage(
         provider="elevenlabs_music",
         operation="compose",
@@ -57,7 +57,7 @@ def test_usage_line_carries_every_quantity_the_invoice_is_computed_from(
     )
 
     # Act
-    with caplog.at_level(logging.INFO, logger="hbd.test.usage"):
+    with caplog.at_level(logging.INFO, logger="bayram.test.usage"):
         log_usage(logger, usage)
 
     # Assert

@@ -1,6 +1,6 @@
 # Admin Panel Comprehensive Audit & Redesign Plan
 
-**Project**: `hbd-bot` (Telegram Birthday Song & Celebration Kit Bot)  
+**Project**: `bayram-bot` (Telegram Birthday Song & Celebration Kit Bot)  
 **Scope**: Full Admin Panel Audit (Backend APIs, Database Models, Schemas, Frontend React UI/UX, Design Patterns, Business Decision Metrics)  
 **Date**: September 2026  
 **Status**: Ready for Implementation  
@@ -9,7 +9,7 @@
 
 ## 1. Executive Summary: Why the Admin Panel is in Chaos
 
-An exhaustive audit of both the backend (`src/hbd/admin/`, `src/hbd/db/`) and the frontend (`admin-ui/src/`) confirms the exact problems raised: **the data is scattered, timestamps are inconsistent and unreadable, key business telemetry is missing, and the user interface lacks coherent design patterns.**
+An exhaustive audit of both the backend (`src/bayram/admin/`, `src/bayram/db/`) and the frontend (`admin-ui/src/`) confirms the exact problems raised: **the data is scattered, timestamps are inconsistent and unreadable, key business telemetry is missing, and the user interface lacks coherent design patterns.**
 
 ```
 CURRENT STATE (Chaos & Fragmentation)                 TARGET STATE (Modern High-Velocity Admin Console)
@@ -35,7 +35,7 @@ CURRENT STATE (Chaos & Fragmentation)                 TARGET STATE (Modern High-
 
 ### 2.1 Database Models vs. Admin Exposure
 
-Our audit of `src/hbd/db/models/` reveals **14 mapped models**, but only a fraction of their actionable data reaches the admin panel:
+Our audit of `src/bayram/db/models/` reveals **14 mapped models**, but only a fraction of their actionable data reaches the admin panel:
 
 | Database Model | Table | Exists in DB? | Exposed in Admin API? | Identified Gaps & Impact on Operations |
 |---|---|:---:|:---:|---|
@@ -49,7 +49,7 @@ Our audit of `src/hbd/db/models/` reveals **14 mapped models**, but only a fract
 | **`AssetRow`** | `assets` | **YES** | **Partial (80%)** | Audio assets are served via range requests, but asset cards lack direct linkage back to the prompt/parameters that generated them. |
 
 ### 2.2 Backend API Query & Filter Rigidity
-- **Strict Interval Validation Bug**: All date filters use `_window(since, until)` in `src/hbd/admin/routers/orders.py:102` which enforces:
+- **Strict Interval Validation Bug**: All date filters use `_window(since, until)` in `src/bayram/admin/routers/orders.py:102` which enforces:
   ```python
   if start is None or end is None:
       raise _invalid("from and to are one window — give both bounds or neither")
@@ -91,7 +91,7 @@ Our audit of `src/hbd/db/models/` reveals **14 mapped models**, but only a fract
   - Customer information is minimal: no credit balance, no total spend, no link to chat history.
 
 ### 3.4 Users List (`/users`) & User 360 Detail (`/users/:telegramUserId`)
-- **Misleading "Last Seen" Column**: [users.py](file:///Users/ai/Desktop/work/projects/hbd-bot/src/hbd/db/admin/users.py#L3-L15) explains that `users.last_seen_at` only updates when an order is created. An operator sees "Last Seen: March 12" and thinks the user left, when in fact they may be actively chatting or browsing today.
+- **Misleading "Last Seen" Column**: [users.py](file:///Users/ai/Desktop/work/projects/hbd-bot/src/bayram/db/admin/users.py#L3-L15) explains that `users.last_seen_at` only updates when an order is created. An operator sees "Last Seen: March 12" and thinks the user left, when in fact they may be actively chatting or browsing today.
 - **Missing Financials & Credits**: The table shows `orderCount` and `paidOrderCount`, but **zero information on credit balances**. Operators cannot see if a user has 0 credits or 50 unused credits.
 - **No Operational Actions**: Operators cannot:
   - Grant goodwill/compensation credits to a user.
@@ -107,7 +107,7 @@ Our audit of `src/hbd/db/models/` reveals **14 mapped models**, but only a fract
 
 ## 4. Benchmark UI/UX Patterns Identified via Mobbin
 
-Using the Mobbin MCP, we researched best-in-class operational consoles, B2B SaaS dashboards, and AI media generators. We extracted four dominant design patterns to apply to `hbd-bot`:
+Using the Mobbin MCP, we researched best-in-class operational consoles, B2B SaaS dashboards, and AI media generators. We extracted four dominant design patterns to apply to `bayram-bot`:
 
 ### 4.1 Pattern 1: E-Commerce & Order Management (Shopify & Deel)
 *Mobbin References*: [Shopify Order Detail](https://mobbin.com/screens/7b82066b-54c4-48c7-891e-10c513136d9b) · [Deel Transaction View](https://mobbin.com/screens/64373e1d-d81e-4016-9f63-0593fea580ca)
@@ -163,21 +163,21 @@ To empower operators to make **real business and operational decisions**, we wil
 ### 5.1 Backend Schema & View Additions
 
 #### 1. Expose Entitlements & Credit Ledger (`UserDetailView` & `UserView`)
-Add credit fields to `src/hbd/admin/schemas/users.py`:
+Add credit fields to `src/bayram/admin/schemas/users.py`:
 - `creditBalance: int` (from `credit_accounts.balance`)
 - `lifetimeCreditsGranted: int` (from `credit_accounts.lifetime_granted`)
 - `allowancePeriod: int | None` (from `credit_accounts.allowance_period_index`)
 - `recentLedgerEntries: list[CreditLedgerEntryView]` (from `credit_ledger`)
 
 #### 2. Order Payments & Financial View (`OrderDetailView` & `OrderView`)
-Add payment tracking fields to `src/hbd/admin/schemas/orders.py`:
+Add payment tracking fields to `src/bayram/admin/schemas/orders.py`:
 - `creditCost: int` (credits charged for this order, derived from `credit_ledger` where `order_id = orders.id`)
 - `paymentRail: str` (e.g., `"telegram_stars"`, `"credit_allowance"`, `"admin_grant"`)
 - `ledgerStatus: str` (`"settled"`, `"refunded"`, `"pending"`)
 - `retryCount: int` (total attempts executed for this order)
 
 #### 3. Instrument AI Vendor Cost & Latency (`GenerationAttemptView`)
-Update provider adapters and `src/hbd/admin/schemas/dashboard.py`:
+Update provider adapters and `src/bayram/admin/schemas/dashboard.py`:
 - Populate `cost_usd: float` (e.g. `$0.012` per Suno generation attempt)
 - Populate `latency_ms: int` (actual provider roundtrip time in ms)
 - Add provider endpoint `GET /api/metrics/providers`: returns average latency, failure rate, and total cost grouped by provider (`suno`, `elevenlabs`, `openai`).

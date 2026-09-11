@@ -3,7 +3,7 @@
 Kept beside ``test_window.py`` because these two modules are the same kind of control read
 twice: an update rate held in process memory, and a vendor-spend budget held in a row. The
 policy objects, the defensive ``Settings`` resolver and the self-validating ``__post_init__``
-are one idiom across ``hbd.ratelimit``, ``hbd.entitlements`` and ``hbd.lyric_budget``, and
+are one idiom across ``bayram.ratelimit``, ``bayram.entitlements`` and ``bayram.lyric_budget``, and
 this file pins the third instance of it.
 """
 
@@ -13,9 +13,9 @@ from datetime import UTC, datetime
 
 import pytest
 
-from hbd.config import Settings
-from hbd.errors import ConfigError, ValidationError
-from hbd.lyric_budget import (
+from bayram.config import Settings
+from bayram.errors import ConfigError, ValidationError
+from bayram.lyric_budget import (
     DEFAULT_LYRIC_BUDGET_POLICY,
     LyricBudgetPolicy,
     day_index_for,
@@ -35,8 +35,8 @@ def test_the_shipped_ceiling_clears_a_whole_allowance_spent_in_one_sitting() -> 
     assertion is where the ceiling is re-argued rather than quietly outgrown.
     """
     # Arrange
-    from hbd.bot.handlers.lyrics import MAX_LYRIC_WRITES
-    from hbd.entitlements import DEFAULT_ENTITLEMENT_POLICY
+    from bayram.bot.handlers.lyrics import MAX_LYRIC_WRITES
+    from bayram.entitlements import DEFAULT_ENTITLEMENT_POLICY
 
     # Act
     honest_worst_case = MAX_LYRIC_WRITES * DEFAULT_ENTITLEMENT_POLICY.allowance_credits
@@ -62,7 +62,7 @@ def test_no_settings_at_all_gives_the_shipped_policy() -> None:
 
 def test_the_environment_variable_moves_the_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
     # Arrange
-    monkeypatch.setenv("HBD_LYRIC_WRITES_PER_DAY", "7")
+    monkeypatch.setenv("BAYRAM_LYRIC_WRITES_PER_DAY", "7")
     settings = Settings(
         _env_file=None,
         telegram_bot_token="123456:test-token-value-for-unit-tests-only",
@@ -78,12 +78,12 @@ def test_the_environment_variable_moves_the_ceiling(monkeypatch: pytest.MonkeyPa
     assert policy.writes_per_day == 7
 
 
-def test_settings_with_every_hbd_variable_removed_still_constructs(
+def test_settings_with_every_bayram_variable_removed_still_constructs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A new bounded field must not become a variable an operator is forced to set."""
     # Arrange
-    for name in ("HBD_LYRIC_WRITES_PER_DAY",):
+    for name in ("BAYRAM_LYRIC_WRITES_PER_DAY",):
         monkeypatch.delenv(name, raising=False)
 
     # Act
@@ -101,7 +101,7 @@ def test_settings_with_every_hbd_variable_removed_still_constructs(
 
 @pytest.mark.parametrize("value", [None, "twenty", True, 0, -1])
 def test_an_object_that_is_not_a_usable_ceiling_falls_back_to_the_default(value: object) -> None:
-    """``getattr`` over ``object``: this module is a leaf and may not import ``hbd.config``.
+    """``getattr`` over ``object``: this module is a leaf and may not import ``bayram.config``.
 
     ``True`` is in the list on purpose — a ``bool`` is an ``int`` in Python, and a policy of
     "one write a day" arrived at by type confusion would look like a deliberate lockout.

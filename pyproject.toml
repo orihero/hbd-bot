@@ -3,9 +3,9 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "hbd-bot"
+name = "bayram-bot"
 version = "0.1.0"
-description = "Telegram celebration-kit bot for the Uzbekistan market: one AI song, three spoken greetings, a lyric sheet, and the recipient's name pronounced correctly."
+description = "Bayram — Tabriklar, Qoʻshiqlar: a Telegram celebration-kit bot for the Uzbekistan market — one AI song, three spoken greetings, a lyric sheet, and the recipient's name pronounced correctly."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "Proprietary" }
@@ -19,13 +19,13 @@ dependencies = [
     "alembic>=1.14,<2",
     "pydantic>=2.9,<3",
     "pydantic-settings>=2.6,<3",
-    # Imported directly by src/hbd/admin/app.py, which parses .env.admin for vendor
+    # Imported directly by src/bayram/admin/app.py, which parses .env.admin for vendor
     # credentials the admin host must not hold. pydantic-settings pulls it in today, but a
     # security check must not rest on another package's transitive graph.
     "python-dotenv>=1.0,<2",
     "httpx>=0.27,<0.29",
-    # The TWO ASGI applications: the admin panel (src/hbd/admin) and the Payme Merchant API
-    # gateway (src/hbd/payme). They are separate processes with separate unit files and
+    # The TWO ASGI applications: the admin panel (src/bayram/admin) and the Payme Merchant API
+    # gateway (src/bayram/payme). They are separate processes with separate unit files and
     # separate dotenvs — one holds operator sessions and an audit HMAC key, the other holds
     # the inbound cashbox key and nothing else — but they share one FastAPI and one uvicorn
     # pin, because a second web framework in the tree would be two sets of middleware
@@ -40,7 +40,7 @@ dependencies = [
     "argon2-cffi>=23.1,<26",
     "json-repair>=0.30,<1",
     "orjson>=3.10,<4",
-    # The generated cover art (src/hbd/audio/cover.py). Not a convenience: this host's
+    # The generated cover art (src/bayram/audio/cover.py). Not a convenience: this host's
     # ffmpeg has NO drawtext filter — the build lacks libfreetype, so `ffmpeg -filters |
     # grep drawtext` returns nothing — and there is no Dockerfile pinning the deployed
     # build either, so "ffmpeg draws the text" is a bet on a capability we cannot check at
@@ -48,8 +48,13 @@ dependencies = [
     # library at all, so the alternative was a hand-rolled PNG encoder plus a bitmap font.
     # The >=10.4 floor is what makes shipping a font file unnecessary:
     # `ImageFont.load_default(size=...)` returns a SCALABLE face from 10.1 onward, so
-    # nothing has to be vendored or licensed. The cover is generated per order, so this
-    # adds no package data.
+    # no TYPEFACE has to be vendored or licensed. One image is vendored, and deliberately:
+    # `src/bayram/audio/assets/logo.png` is an 18 kB copy of `brand/avatar-telegram.png`,
+    # composited onto every cover so a forwarded song is recognisable at the thumbnail size
+    # where the text is already unreadable. It is a copy rather than re-drawn geometry
+    # because `brand/` generates every asset from one set of constants and a Pillow port
+    # would be a fourth copy that no constant reaches; `tests/test_audio/test_cover.py`
+    # asserts the two files are byte-identical so the copy cannot rot unnoticed.
     "pillow>=10.4,<12",
     "typing-extensions>=4.12,<5",
 ]
@@ -66,17 +71,17 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/hbd"]
-# The admin console's built bundle. `src/hbd/admin/static/` is gitignored — a committed
+packages = ["src/bayram"]
+# The admin console's built bundle. `src/bayram/admin/static/` is gitignored — a committed
 # bundle drifts from the TypeScript it was built from with nothing to notice — and hatchling
 # skips gitignored paths, so without this line the wheel ships an API with no UI and the
 # failure appears only in production, as a 404 on every browser URL.
 #
-# `admin-ui/` itself is deliberately NOT packaged: node_modules inside `src/hbd` would break
+# `admin-ui/` itself is deliberately NOT packaged: node_modules inside `src/bayram` would break
 # mypy's `files = ["src","tests"]` walk and ruff's `src` setting, which is why Node lives
 # outside `src/` in the first place (plan §11.1). Written to by
 # `admin-ui/vite.config.ts`'s `build.outDir`; changing one means changing both.
-artifacts = ["src/hbd/admin/static/**"]
+artifacts = ["src/bayram/admin/static/**"]
 
 # ---------------------------------------------------------------------------
 # ruff
@@ -121,7 +126,7 @@ allowed-confusables = ["\u02BB", "\u02BC", "\u2018", "\u2019", "\u02B9"]
 "tests/**" = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["hbd", "tests"]
+known-first-party = ["bayram", "tests"]
 
 # ---------------------------------------------------------------------------
 # mypy
@@ -158,7 +163,7 @@ markers = [
 
 [tool.coverage.run]
 branch = true
-source = ["src/hbd"]
+source = ["src/bayram"]
 # SQLAlchemy's asyncio layer crosses a greenlet boundary on every `await` that touches the
 # database. Without "greenlet" here, coverage loses the frames on the far side of that
 # switch and reports every statement AFTER the first DB await in a coroutine as unrun —
@@ -171,7 +176,7 @@ concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
 show_missing = true
-# Repo-wide floor. src/hbd/admin carries a higher one (85%) because it is the only package
+# Repo-wide floor. src/bayram/admin carries a higher one (85%) because it is the only package
 # that authenticates anyone, and it is measured on its own by `make cov-admin` — an `omit`
 # would have hidden it from this number instead of holding it to a stricter one.
 fail_under = 80

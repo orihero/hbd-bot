@@ -1,7 +1,7 @@
 /**
  * The rail's contents, as data.
  *
- * Seven sections are listed, and every one of them is routed. Audit and Admins were the last
+ * Eight sections are listed, and every one of them is routed. Audit and Admins were the last
  * two to arrive and the prediction this file made about them held: the item did not move when
  * the screen shipped, because it had been sitting in its final place since before there was
  * anything behind it. That is the whole argument, and it is the same one
@@ -42,6 +42,7 @@
  */
 
 import {
+  CreditCard,
   LayoutDashboard,
   Megaphone,
   MessageSquare,
@@ -106,6 +107,29 @@ export const PRIMARY_NAV: readonly NavItem[] = [
   },
   {
     /*
+     * The Payme rail. After Generations because it reads in the order the business does —
+     * people, then what they asked for, then what they paid with — and before Campaigns, which
+     * stays last above the rule as the only section that WRITES to customers.
+     *
+     * Ungated, on this file's own rule. Six of the section's nine reads are `dashboard.read`
+     * and three are `records.read`, both of which every role holds; what differs by role is
+     * the pause switch (`rail.control`, ADMIN and OWNER) and the confirmation re-send
+     * (`payment.notify`, SUPPORT and above), and those are gated where they are spent, on the
+     * controls themselves, via `useCanControlRail` / `useCanNotifyPayment`. A rail entry that
+     * vanished for a viewer would hide a section they can read perfectly well.
+     *
+     * It ships with a route on day one rather than as a locked placeholder, even though the
+     * screens behind it are mostly empty states today: the board is the screen that explains
+     * WHY they are empty, which is exactly what an operator needs while merchant credentials
+     * are still outstanding.
+     */
+    key: "billing",
+    labelKey: "nav.items.billing",
+    href: PATH.rail,
+    icon: CreditCard,
+  },
+  {
+    /*
      * Campaigns. Last above the rule, because it is the only operational section that WRITES
      * to customers rather than reading about them, and because §11.2's rail enumeration puts
      * it there — this file is transcribed from that section and is not extended by inference.
@@ -151,8 +175,8 @@ export interface NavSection {
   readonly key: string;
   /**
    * The group's name. A `<p>`, deliberately not a heading and not a list item: the rail is
-   * already a labelled landmark, and seven items under two extra headings is more structure to
-   * walk, not less. (Seven is the count this file declares — five above the rule and two
+   * already a labelled landmark, and eight items under two extra headings is more structure to
+   * walk, not less. (Eight is the count this file declares — six above the rule and two
    * below — and it is the number this argument has to be checked against.) Hidden when the
    * rail is collapsed to icons — the rule still separates them, and a two-letter abbreviation
    * would be a worse label than none.

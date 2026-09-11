@@ -26,7 +26,7 @@
  *
  * 5. **Tri-state booleans are `boolean | null` and the null arm is a THIRD state**, never a
  *    falsy second one. `isRetryable`, `isFailedReasonRetryable`: `null` means no class in
- *    `hbd.errors` claims the code — render "unknown" and offer no retry. Likewise
+ *    `bayram.errors` claims the code — render "unknown" and offer no retry. Likewise
  *    `successRate` is `null` (never `0.0`) when there is no denominator, and
  *    `costUsd`/`latencyMs` are `null` (never `0`) when `isInstrumented` is false.
  */
@@ -106,7 +106,7 @@ export const isoDateSchema = z.string();
 /* -------------------------------------------------------------------------- */
 
 /**
- * `hbd/admin/schemas/page.py`. Used by orders, users, attempts and assets.
+ * `bayram/admin/schemas/page.py`. Used by orders, users, attempts and assets.
  *
  * All three keys are ALWAYS present. Without `?withTotal=true`, `total` and `isTotalExact`
  * are both `null` and travel as a pair. `{total: 10000, isTotalExact: false}` means
@@ -169,7 +169,7 @@ export const orderViewSchema = z.object({
   deliveredAt: timestampSchema.nullable(),
   /** Closed-vocabulary operator triage text, not a customer's words. */
   failedReason: z.string().nullable(),
-  /** Tri-state: `null` = no `hbd.errors` class claims the code. */
+  /** Tri-state: `null` = no `bayram.errors` class claims the code. */
   isFailedReasonRetryable: z.boolean().nullable(),
   isBriefPresent: z.boolean(),
   recipientName: z.string().nullable(),
@@ -584,7 +584,7 @@ export const userDetailViewSchema = z.object({
 export type UserDetailView = z.infer<typeof userDetailViewSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* User actions — block / unblock (`hbd.admin.schemas.actions`)                */
+/* User actions — block / unblock (`bayram.admin.schemas.actions`)                */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -626,7 +626,7 @@ export const userBlockResultViewSchema = z.object({
 export type UserBlockResultView = z.infer<typeof userBlockResultViewSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* Credits — the entitlement ledger (`hbd.admin.schemas.credits`)              */
+/* Credits — the entitlement ledger (`bayram.admin.schemas.credits`)              */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -948,7 +948,7 @@ export const capabilitiesViewSchema = z.object({
    *
    * `isVendorCost` is "does a row with a non-null `cost_usd` exist". It can be false while
    * `isVendorUsage` is true, and out of the box WHICH legs are priced is uneven rather than
-   * uniformly absent: `hbd/config.py` ships `music_usd_per_minute` at `0.15`, so a music
+   * uniformly absent: `bayram/config.py` ships `music_usd_per_minute` at `0.15`, so a music
    * render is priced from that placeholder rate and reports `costSource: "estimated"`, while
    * `elevenlabs_usd_per_character` and all four token rates ship at `0.0`, so speech,
    * transcription and every LLM call are recorded UNPRICED until an operator sets a rate. A
@@ -1018,7 +1018,7 @@ export type SimilarityBucketView = z.infer<typeof similarityBucketViewSchema>;
  * The window the counts were taken over, echoed so an empty result can name it.
  *
  * **`from` is nullable and `to` is not**, and the asymmetry is the server's whole contract
- * for a one-sided range (`hbd.admin.schemas.dashboard.WindowView`). `?to=Y` with no lower
+ * for a one-sided range (`bayram.admin.schemas.dashboard.WindowView`). `?to=Y` with no lower
  * bound counted everything ever recorded up to `Y`, and there is no instant to echo for the
  * start — an epoch would be a timestamp the operator never chose, rendered as though they
  * had. `?from=X` always has an upper bound to echo, because `resolve_window` resolved it to
@@ -1240,7 +1240,7 @@ export const vendorErrorSeriesSchema = z.array(vendorErrorViewSchema);
  * `hasReasonText` may be `true`. Render that as `REASON_WITHHELD_LABEL` — never as "no
  * reason given".
  *
- * Contract D1: `hbd/admin/schemas/audit.py`'s docstring claims a masked response "omits the
+ * Contract D1: `bayram/admin/schemas/audit.py`'s docstring claims a masked response "omits the
  * field entirely". IT DOES NOT — `to_view` passes `reason_text=None` explicitly and
  * `exclude_unset` is off, so the wire carries `"reasonText": null`. Branch on
  * `hasReasonText`, never on key presence.

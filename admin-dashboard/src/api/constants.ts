@@ -8,20 +8,20 @@
  * and a cross-package relative import would tie this one's build to the other's layout.
  */
 
-/** `hbd.admin.deps.AUTH_PREFIX`. Same origin, always — never an absolute URL. */
+/** `bayram.admin.deps.AUTH_PREFIX`. Same origin, always — never an absolute URL. */
 export const AUTH_PREFIX = "/api/auth";
 
-/** `hbd.admin.routers.dashboard._OPS_PREFIX` — the two unwindowed probes live under it. */
+/** `bayram.admin.routers.dashboard._OPS_PREFIX` — the two unwindowed probes live under it. */
 export const OPS_PREFIX = "/api/ops";
 
-/** `hbd.admin.routers.dashboard._METRICS_PREFIX`. The four windowed sections hang off it. */
+/** `bayram.admin.routers.dashboard._METRICS_PREFIX`. The four windowed sections hang off it. */
 export const METRICS_PREFIX = "/api/metrics";
 
 /** Echoed on every non-GET; read out of the (non-HttpOnly) CSRF cookie. */
 export const CSRF_HEADER_NAME = "X-CSRF-Token";
 
 /** The only cookie the SPA can read. The session cookie is HttpOnly and must stay so. */
-export const CSRF_COOKIE_NAME = "__Host-hbd_csrf";
+export const CSRF_COOKIE_NAME = "__Host-bayram_csrf";
 
 /** On every response, and equal to `error.correlationId` in a failure body. */
 export const CORRELATION_HEADER = "X-Correlation-ID";
@@ -40,17 +40,17 @@ export const MAX_PASSWORD_CHARS = 256;
 /* Users, generations and reveal — Phase 2's routes and their server bounds     */
 /* -------------------------------------------------------------------------- */
 
-/** `hbd.admin.routers.users.USERS_PATH`. Every `/users/**` route hangs off it. */
+/** `bayram.admin.routers.users.USERS_PATH`. Every `/users/**` route hangs off it. */
 export const USERS_PREFIX = "/api/users";
 
-/** `hbd.admin.routers.generations.GENERATIONS_PATH`. */
+/** `bayram.admin.routers.generations.GENERATIONS_PATH`. */
 export const GENERATIONS_PREFIX = "/api/generations";
 
-/** `hbd.admin.routers.reveal.REVEAL_PATH` — the ONE route by which masked becomes plain. */
+/** `bayram.admin.routers.reveal.REVEAL_PATH` — the ONE route by which masked becomes plain. */
 export const REVEAL_PATH = "/api/reveal";
 
 /**
- * `hbd.db.admin.sql.MAX_SEARCH_CHARS`. Over-long `q` is a 422 naming the parameter, so the
+ * `bayram.db.admin.sql.MAX_SEARCH_CHARS`. Over-long `q` is a 422 naming the parameter, so the
  * input is capped rather than truncated silently — a widened match is a page nobody can explain.
  */
 export const MAX_SEARCH_CHARS = 64;
@@ -91,11 +91,11 @@ export const MAX_STEP_UP_SUBJECT_CHARS = 96;
 /* The operator roster                                                         */
 /* -------------------------------------------------------------------------- */
 
-/** `hbd.admin.routers.admins.ADMINS_PATH`. One route hangs off it, and it is a GET. */
+/** `bayram.admin.routers.admins.ADMINS_PATH`. One route hangs off it, and it is a GET. */
 export const ADMINS_PREFIX = "/api/admins";
 
 /**
- * `hbd.db.admin.accounts.MAX_ADMIN_ACCOUNTS` — the `LIMIT` the roster read is taken under.
+ * `bayram.db.admin.accounts.MAX_ADMIN_ACCOUNTS` — the `LIMIT` the roster read is taken under.
  *
  * It is a ceiling, not a page size: the response carries no cursor, no total and no flag
  * saying it was cut. So a roster of exactly this many rows is one that MAY be truncated and
@@ -109,7 +109,7 @@ export const MAX_ADMIN_ACCOUNTS = 500;
 /* -------------------------------------------------------------------------- */
 
 /**
- * `hbd.admin.routers.audit.AUDIT_PATH`. `VERIFY_PATH` is this plus `/verify`, and both are
+ * `bayram.admin.routers.audit.AUDIT_PATH`. `VERIFY_PATH` is this plus `/verify`, and both are
  * mounted with their full path in the decorator over a router with no prefix of its own — so
  * these are the literal paths, not a base a router extends.
  */
@@ -126,7 +126,7 @@ export const MAX_SUBJECT_ID_CHARS = 64;
 /* -------------------------------------------------------------------------- */
 
 /**
- * `hbd.admin.routers.broadcasts.BROADCASTS_PATH`. Every `/broadcasts/**` route hangs off it,
+ * `bayram.admin.routers.broadcasts.BROADCASTS_PATH`. Every `/broadcasts/**` route hangs off it,
  * across BOTH routers: the reads are guarded by `broadcast.read` and the seven writes by
  * `broadcast.write`, but they share one path space and one prefix.
  */
@@ -173,7 +173,7 @@ export const MAX_BROADCAST_BODIES = 4;
 /* -------------------------------------------------------------------------- */
 
 /**
- * `hbd.admin.routers.segments.SEGMENT_FIELDS_PATH` / `SEGMENT_PREVIEW_PATH`.
+ * `bayram.admin.routers.segments.SEGMENT_FIELDS_PATH` / `SEGMENT_PREVIEW_PATH`.
  *
  * Two routes under one prefix and behind two DIFFERENT permissions — the registry is
  * `broadcast.read`, the preview is `records.read` — so they are spelled out rather than
@@ -206,3 +206,63 @@ export const MAX_SEGMENT_KEY_CHARS = 64;
  * there is no free-text field in the registry and there cannot be one (`SEGMENT_REFUSALS`).
  */
 export const MAX_SEGMENT_VALUE_CHARS = 64;
+
+/* -------------------------------------------------------------------------- */
+/* The Payme rail — the payments namespace and the bounds its four routers set  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `bayram.admin.routers.billing.BILLING_PREFIX`. Three routes hang off it under `records.read`
+ * — the list, the lookup and one payment's dossier — and one, `/calls`, deliberately does not:
+ * `payme_rpc_log` holds no Telegram id, no request body and no header, so the journal sits on
+ * the aggregate router beside the board it belongs to. Same prefix, two guards, and the
+ * asymmetry is the server's rather than something this file could hide.
+ *
+ * `OPS_PREFIX` and `METRICS_PREFIX` are reused as they stand: `/api/ops/rail` is a current
+ * fact about this deployment and `/api/metrics/rail/*` are windowed aggregates, which is
+ * exactly the split those two prefixes already mean.
+ */
+export const BILLING_PREFIX = "/api/billing";
+
+/**
+ * `billing.DEFAULT_STALE_AFTER_HOURS`, which is `payme.rules.DEFAULT_TRANSACTION_TIMEOUT_MS`
+ * in hours — the age at which the rail itself gives up on a transaction.
+ *
+ * Restated so the board and the list it links to can send the SAME cutoff. `?attention=`
+ * counts and `?attention=` rows are computed by one shared predicate server-side; a chip that
+ * asked for a different number of hours than the list behind it would undo that on the client.
+ */
+export const DEFAULT_STALE_AFTER_HOURS = 12;
+
+/**
+ * `billing.MIN_STALE_AFTER_HOURS` / `MAX_STALE_AFTER_HOURS`. An hour is the shortest span in
+ * which "stuck" means anything; a week is the longest over which the answer is still a work
+ * queue rather than a history. Out of range is a 422 naming the parameter and never a clamp,
+ * so a control must not offer a value outside them.
+ */
+export const MIN_STALE_AFTER_HOURS = 1;
+export const MAX_STALE_AFTER_HOURS = 24 * 7;
+
+/** `billing.DEFAULT_FAULT_CLUSTERS` / `MAX_FAULT_CLUSTERS` — how many `(method, replyCode)`
+ * rows the board folds the journal into. Over the ceiling is a 422, not a silent clamp. */
+export const DEFAULT_FAULT_CLUSTERS = 20;
+export const MAX_FAULT_CLUSTERS = 50;
+
+/**
+ * `billing.PUBLIC_REF_PATTERN` — `secrets.token_hex(12)`, exactly 24 lowercase hex characters.
+ *
+ * The alphabet is load-bearing rather than cosmetic: a `;` truncates a Payme checkout-link
+ * value and an `=` terminates a key, so `0-9a-f` is what makes the reference safe to carry.
+ * Checked here so a typo is a form that says "that is not a reference" rather than a round
+ * trip that comes back 422 — a DIFFERENT screen from "no payment exists under that reference",
+ * which is a 200 carrying nulls.
+ */
+export const PUBLIC_REF_PATTERN = /^[0-9a-f]{24}$/;
+
+/**
+ * `billing.PAYME_TRANSACTION_ID_PATTERN` — a Mongo ObjectId as Payme mints them.
+ *
+ * Case-insensitive on purpose: it is THEIR identifier, and an operator pastes it out of THEIR
+ * cabinet. Stored, compared and echoed as text and never parsed as a number.
+ */
+export const PAYME_TRANSACTION_ID_PATTERN = /^[0-9a-fA-F]{24}$/;

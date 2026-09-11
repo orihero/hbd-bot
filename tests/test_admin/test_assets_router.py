@@ -31,17 +31,17 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.routers.assets import ASSETS_PATH
-from hbd.admin.security.permissions import RBAC_MATRIX, Permission
-from hbd.contracts import AssetKind, Language, NameStrategy, OrderState
-from hbd.db.admin.assets import MAX_EXPIRING_WITHIN_DAYS
-from hbd.db.base import utc_now
-from hbd.db.enums import AdminRole
-from hbd.db.models.asset import AssetRow
-from hbd.db.models.order import OrderRow
-from hbd.db.models.user import UserRow
-from hbd.db.retention import RetentionClass
+from bayram.admin.container import AdminContainer
+from bayram.admin.routers.assets import ASSETS_PATH
+from bayram.admin.security.permissions import RBAC_MATRIX, Permission
+from bayram.contracts import AssetKind, Language, NameStrategy, OrderState
+from bayram.db.admin.assets import MAX_EXPIRING_WITHIN_DAYS
+from bayram.db.base import utc_now
+from bayram.db.enums import AdminRole
+from bayram.db.models.asset import AssetRow
+from bayram.db.models.order import OrderRow
+from bayram.db.models.user import UserRow
+from bayram.db.retention import RetentionClass
 from tests.test_admin.conftest import PASSWORD, create_account, sign_in
 
 #: Anchored to the wall clock, because ``expiringWithinDays`` is measured against the

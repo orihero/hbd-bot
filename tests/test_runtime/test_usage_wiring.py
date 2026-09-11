@@ -23,13 +23,13 @@ from typing import Any
 
 import pytest
 
-from hbd.config import Settings
-from hbd.db.vendor_usage import DbUsageSink
-from hbd.providers.tts.elevenlabs import PROVIDER_NAME as ELEVENLABS_TTS_NAME
-from hbd.runtime import providers as providers_module
-from hbd.runtime.container import build_container
-from hbd.runtime.providers import build_provider_set
-from hbd.usage import LOGGING_USAGE_SINK, UsageSink, VendorUsage
+from bayram.config import Settings
+from bayram.db.vendor_usage import DbUsageSink
+from bayram.providers.tts.elevenlabs import PROVIDER_NAME as ELEVENLABS_TTS_NAME
+from bayram.runtime import providers as providers_module
+from bayram.runtime.container import build_container
+from bayram.runtime.providers import build_provider_set
+from bayram.usage import LOGGING_USAGE_SINK, UsageSink, VendorUsage
 
 #: The five live legs, by the name each is constructed under in ``runtime.providers``.
 _LIVE_LEGS: tuple[str, ...] = ("music", "tts", "stt", "llm", "llm_fallback")
@@ -180,7 +180,7 @@ def handed_to_the_vendors(monkeypatch: pytest.MonkeyPatch) -> list[UsageSink]:
         handed.append(usage)
         return original(built, usage=usage)
 
-    monkeypatch.setattr("hbd.runtime.container.build_provider_set", spy)
+    monkeypatch.setattr("bayram.runtime.container.build_provider_set", spy)
     return handed
 
 

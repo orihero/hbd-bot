@@ -4,7 +4,7 @@
 - **Framework & Libraries**: React 18, Vite 6, TypeScript 5 (strict mode), Zustand 5, TailwindCSS 3.4.
 - **i18n Subsystem**: Bespoke strongly-typed Zustand store located in `admin-dashboard/src/i18n/` with zero external runtime dependencies.
   - `src/i18n/types.ts`: Strict `TranslationSchema` interface defining namespaces and keys with compile-time exhaustion checks. Supported locales: `'en' | 'ru' | 'uz'`.
-  - `src/i18n/index.ts`: Zustand store providing `useI18n()` hook, `t(key, params)` helper with dynamic interpolation (e.g. `{count}`, `{name}`), reactive locale switching, `localStorage` persistence under key `hbd.dashboard.locale` (with try/catch error boundaries), and automatic synchronization of `<html lang="...">`.
+  - `src/i18n/index.ts`: Zustand store providing `useI18n()` hook, `t(key, params)` helper with dynamic interpolation (e.g. `{count}`, `{name}`), reactive locale switching, `localStorage` persistence under key `bayram.dashboard.locale` (with try/catch error boundaries), and automatic synchronization of `<html lang="...">`.
   - `src/i18n/locales/en.ts`: English canonical source-of-truth dictionary (526 keys).
   - `src/i18n/locales/ru.ts`: Russian complete dictionary matching `TranslationSchema` (526 keys).
   - `src/i18n/locales/uz.ts`: Uzbek Latin (`Oʻzbekcha`) complete dictionary matching `TranslationSchema` (526 keys, 0 Cyrillic).
@@ -15,14 +15,14 @@
   - `NavRail.tsx`: Bottom of `WideRail` (collapsing vertically to 44px centered stack) and right chrome of `CompactBar`.
   - All screens across Auth, Shell, Dashboard, Chats, Users, Generations, Audit, Admins, Reveal, and Error/Feedback screens consume `useI18n()` and `t()`.
 - **Backend Serving & Verification**:
-  - Vite compiles SPA assets into `src/hbd/admin/static/`.
+  - Vite compiles SPA assets into `src/bayram/admin/static/`.
   - Starlette ASGI app mounts static assets with CSP nonce injection; verified with `pytest tests/test_admin/test_spa_mount.py` and full Python test suite.
 
 ## Feature Inventory
 | # | Feature | Description | Milestone | Source |
 |---|---------|-------------|-----------|--------|
 | F1 | Type-Safe i18n Store | Zustand 5 store with `useI18n()`, `setLocale()`, dynamic `{param}` interpolation, and `t()` helper | M1 | ORIGINAL_REQUEST §R1 |
-| F2 | Locale Persistence & Fallback | `localStorage` persistence at `hbd.dashboard.locale`, fallback to browser lang or `en`, HTML `<html lang="...">` sync | M1 | ORIGINAL_REQUEST §R1 |
+| F2 | Locale Persistence & Fallback | `localStorage` persistence at `bayram.dashboard.locale`, fallback to browser lang or `en`, HTML `<html lang="...">` sync | M1 | ORIGINAL_REQUEST §R1 |
 | F3 | English Canonical Dictionary | Complete English `en.ts` strictly typed against `TranslationSchema` across 11 namespaces | M1 | ORIGINAL_REQUEST §R1 |
 | F4 | Russian Localization Dictionary | Complete Russian `ru.ts` with natural technical terminology | M1 | ORIGINAL_REQUEST §R1 |
 | F5 | Uzbek Latin Localization Dictionary | Complete Uzbek `uz.ts` (Latin script `Oʻzbekcha`, standard orthography) | M1 | ORIGINAL_REQUEST §R1 |
@@ -69,7 +69,7 @@ export const getLocale: () => SupportedLocale;
 export const t: (key: string, params?: Record<string, string | number>) => string;
 ```
 - Interpolation syntax: `{paramName}` replaced by value; missing param leaves placeholder or converts safely without throw.
-- Storage key: `hbd.dashboard.locale` in `window.localStorage`.
+- Storage key: `bayram.dashboard.locale` in `window.localStorage`.
 - Default fallback: `'en'`.
 - Synchronizes `document.documentElement.lang = locale` upon every change.
 

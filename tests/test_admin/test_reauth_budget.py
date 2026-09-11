@@ -43,9 +43,9 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.errors import AdminErrorCode
-from hbd.admin.security.ratelimit import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.errors import AdminErrorCode
+from bayram.admin.security.ratelimit import (
     LOGIN_MAX_PER_USER_IP,
     REAUTH_MAX_PER_SESSION,
     REAUTH_WINDOW_S,
@@ -76,7 +76,7 @@ _SESSION_ID: Final[UUID] = UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")
 _WRONG: Final[str] = "not-the-password"
 _IP: Final[str] = "203.0.113.7"
 _WINDOW_S: Final[int] = 900
-_LIMITER_LOGGER: Final[str] = "hbd.admin.security.ratelimit"
+_LIMITER_LOGGER: Final[str] = "bayram.admin.security.ratelimit"
 
 
 # ---------------------------------------------------------------------------

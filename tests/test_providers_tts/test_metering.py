@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.contracts import CostSource
-from hbd.errors import ConfigError
-from hbd.providers.tts.metering import (
+from bayram.contracts import CostSource
+from bayram.errors import ConfigError
+from bayram.providers.tts.metering import (
     MIN_ESTIMATED_DURATION_S,
     CharacterPricing,
     estimate_speech_duration_s,

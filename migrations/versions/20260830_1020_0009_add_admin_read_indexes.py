@@ -5,7 +5,7 @@ Revises: 0008
 Create Date: 2026-08-30
 
 Four indexes, no columns, no tables. Each one exists because a specific query in
-``src/hbd/db/admin`` would otherwise scan a table that only grows, and each is justified
+``src/bayram/db/admin`` would otherwise scan a table that only grows, and each is justified
 below by that query — *and verified against Postgres*, not against SQLite, whose planner
 is much readier to take a composite index than Postgres is.
 
@@ -17,7 +17,7 @@ pure write cost. The same reasoning keeps ``generation_attempts.name_candidate_s
 off this list: ``ix_generation_attempts_tuning`` already leads with it.
 
 **The leading column is the filter, then ``created_at``, then ``id``.** Every admin list
-endpoint is keyset-paginated on ``(created_at DESC, id DESC)`` (``hbd.db.admin.page``), so
+endpoint is keyset-paginated on ``(created_at DESC, id DESC)`` (``bayram.db.admin.page``), so
 the shape each query wants is "seek into one filter value, then walk backwards through
 time". ``id`` is the third column because without it the trailing sort term is not covered
 and every page plan carries a sort node — Postgres ``Incremental Sort … Presorted Key:

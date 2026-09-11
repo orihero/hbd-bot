@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from hbd.contracts import CostSource, HealthState, Language, is_err, is_ok
-from hbd.errors import ProviderRateLimitedError, ValidationError
-from hbd.providers.tts.fakes import (
+from bayram.contracts import CostSource, HealthState, Language, is_err, is_ok
+from bayram.errors import ProviderRateLimitedError, ValidationError
+from bayram.providers.tts.fakes import (
     FakeSttProvider,
     FakeTtsProvider,
     decode_fake_audio,
@@ -49,7 +49,7 @@ def test_a_corrupt_fake_payload_decodes_to_nothing_rather_than_raising() -> None
 
 def test_a_payload_naming_an_unknown_language_decodes_to_nothing() -> None:
     # Act / Assert
-    assert decode_fake_audio(b'HBDFAKE1\n{"text": "x", "language": "klingon"}') is None
+    assert decode_fake_audio(b'BAYRAMFAKE1\n{"text": "x", "language": "klingon"}') is None
 
 
 # ---------------------------------------------------------------------------

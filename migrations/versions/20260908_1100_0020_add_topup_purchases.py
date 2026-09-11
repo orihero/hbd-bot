@@ -4,7 +4,7 @@ Revision ID: 0020
 Revises: 0019
 Create Date: 2026-09-08
 
-``hbd.db.purchases._fulfil_single`` writes one ``credit_ledger`` GRANT
+``bayram.db.purchases._fulfil_single`` writes one ``credit_ledger`` GRANT
 (``reason=topup_purchase``, ``delta=+1``) and nothing else. That row carries no amount, no
 currency, no provider and no reference: **the price of every single song this product has
 ever sold was discarded at the moment of sale**, and ``credit_ledger`` has no money column
@@ -57,7 +57,7 @@ not a null in one.
 The null-never-zero rule governs columns recording a MEASUREMENT, where a default of 0 turns
 "nobody measured this" into "this cost nothing". A sale amount is not a measurement; it is a
 TERM OF THE CONTRACT, known to the writer at the instant it writes and supplied verbatim from
-``hbd.checkout.Purchase`` (whose own ``amount_minor`` is ``Field(ge=0)``).
+``bayram.checkout.Purchase`` (whose own ``amount_minor`` is ``Field(ge=0)``).
 ``plan_purchases.amount_minor`` is NOT NULL for exactly this reason. ``0`` here is a MEASURED
 price and a legal one — ``single_song_price_minor`` ships ``ge=0`` and a promo priced at zero
 is a real sale — which is the one shape of zero this design allows, exactly as 0016 argued

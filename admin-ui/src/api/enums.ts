@@ -18,7 +18,7 @@
 import { z } from "zod";
 
 /* -------------------------------------------------------------------------- */
-/* Domain — hbd.contracts, hbd.db.enums                                        */
+/* Domain — bayram.contracts, bayram.db.enums                                        */
 /* -------------------------------------------------------------------------- */
 
 export const ORDER_STATE_VALUES = [
@@ -115,7 +115,7 @@ export const retentionClassSchema = z.enum(RETENTION_CLASS_VALUES);
 export type RetentionClass = z.infer<typeof retentionClassSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* Credits — hbd.db.enums.CreditEntryKind / CreditReason                       */
+/* Credits — bayram.db.enums.CreditEntryKind / CreditReason                       */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -142,7 +142,7 @@ export type CreditEntryKind = z.infer<typeof creditEntryKindSchema>;
  * rest are the pipeline's own: two allowances, the render debit, and the four settlements.
  *
  * The last two are what a PAYING account writes, and they are the reason this list has to
- * move in step with `hbd.db.enums.CreditReason`: `credit_ledger` rows are parsed with
+ * move in step with `bayram.db.enums.CreditReason`: `credit_ledger` rows are parsed with
  * `z.enum`, so a reason the panel has never heard of fails the parse and the credit-ledger
  * table renders nothing at all — for exactly the accounts an operator most wants to look at.
  * `topup_purchase` is a single song somebody bought; `plan_song` is one song minted out of a
@@ -166,7 +166,7 @@ export const creditReasonSchema = z.enum(CREDIT_REASON_VALUES);
 export type CreditReason = z.infer<typeof creditReasonSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* Order financials — hbd.db.admin.views                                       */
+/* Order financials — bayram.db.admin.views                                       */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -214,7 +214,7 @@ export const orderPaymentRailSchema = z.enum(ORDER_PAYMENT_RAIL_VALUES);
 export type OrderPaymentRail = z.infer<typeof orderPaymentRailSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* Pipeline — hbd.pipeline.events, hbd.admin.serializers.stage_plan            */
+/* Pipeline — bayram.pipeline.events, bayram.admin.serializers.stage_plan            */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -277,7 +277,7 @@ export const timelineSourceSchema = z.enum(TIMELINE_SOURCE_VALUES);
 export type TimelineSource = z.infer<typeof timelineSourceSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* Vendor usage — hbd.contracts.Vendor / VendorOperation / CostSource          */
+/* Vendor usage — bayram.contracts.Vendor / VendorOperation / CostSource          */
 /* -------------------------------------------------------------------------- */
 
 /**
@@ -289,7 +289,7 @@ export type TimelineSource = z.infer<typeof timelineSourceSchema>;
  * per-call cost. Collapsing them would put a `vendor_reported` figure and a derived one in
  * the same group and let a rollup average them.
  *
- * `fake` is `HBD_USE_FAKE_PROVIDERS`. A demo run is RECORDED rather than dropped, so a
+ * `fake` is `BAYRAM_USE_FAKE_PROVIDERS`. A demo run is RECORDED rather than dropped, so a
  * deployment that has only ever run fakes reads as "instrumented, and none of it was spend"
  * rather than as silence — but it must never be totalled as money, which is what the
  * separate member is for.
@@ -326,7 +326,7 @@ export type VendorOperation = z.infer<typeof vendorOperationSchema>;
 /**
  * WHERE a cost figure came from — the provenance that makes it readable.
  *
- * Three of these are `hbd.contracts.CostSource`; `"mixed"` is not a stored value and exists
+ * Three of these are `bayram.contracts.CostSource`; `"mixed"` is not a stored value and exists
  * only on a ROLLUP, where one (vendor, operation, model) group contained more than one
  * source. It is the honest answer to "how was this total arrived at" for a group whose legs
  * were priced differently, and it is why the label is rendered beside every aggregate:
@@ -345,7 +345,7 @@ export const costSourceSchema = z.enum(COST_SOURCE_VALUES);
 export type CostSource = z.infer<typeof costSourceSchema>;
 
 /* -------------------------------------------------------------------------- */
-/* Admin — hbd.db.enums, hbd.admin.*                                          */
+/* Admin — bayram.db.enums, bayram.admin.*                                          */
 /* -------------------------------------------------------------------------- */
 
 export const ADMIN_ROLE_VALUES = ["owner", "admin", "support", "viewer"] as const;
@@ -583,7 +583,7 @@ export type DraftFieldKey = z.infer<typeof draftFieldKeySchema>;
 /* -------------------------------------------------------------------------- */
 
 /**
- * `hbd.admin.schemas.reveal.RevealSubjectType` — a SUBSET of `audit.SUBJECT_TYPES`, two
+ * `bayram.admin.schemas.reveal.RevealSubjectType` — a SUBSET of `audit.SUBJECT_TYPES`, two
  * members today.
  *
  * `"user"` joins `"order"` because a `user_profiles` row now holds customer-authored PII —

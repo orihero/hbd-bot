@@ -7,9 +7,9 @@ import math
 import httpx
 import pytest
 
-from hbd.contracts import HealthState, Language, is_err, is_ok
-from hbd.errors import ProviderUnavailableError, ValidationError
-from hbd.providers.tts.scribe import (
+from bayram.contracts import HealthState, Language, is_err, is_ok
+from bayram.errors import ProviderUnavailableError, ValidationError
+from bayram.providers.tts.scribe import (
     MAX_KEYTERMS,
     UNREPORTED_CONFIDENCE,
     ElevenLabsScribe,

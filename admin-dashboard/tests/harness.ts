@@ -88,7 +88,7 @@ const originalDescriptors: Record<string, PropertyDescriptor | undefined> = {};
 export function setupTestEnv(initialLocale?: string, initialNavLang = "en-US"): TestEnv {
   const storage = new MockStorage();
   if (initialLocale) {
-    storage.setItem("hbd.dashboard.locale", initialLocale);
+    storage.setItem("bayram.dashboard.locale", initialLocale);
   }
 
   const doc: MockDocument = {

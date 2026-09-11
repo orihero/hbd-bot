@@ -1,7 +1,7 @@
 /**
  * `<ReasonConfirmDialog>` — the accountability half of every operator action, once.
  *
- * Server-side, `ReasonedRequest` (`hbd.admin.schemas.actions`) is the base class every write
+ * Server-side, `ReasonedRequest` (`bayram.admin.schemas.actions`) is the base class every write
  * body inherits: a `reasonCode` with **no default**, an optional `reasonRef` matching
  * `^[A-Za-z0-9#_-]{1,64}$`, and an optional `reasonText` whose control characters are stripped
  * before it reaches a 90-day column. That is one shape shared by the grant, the block, the

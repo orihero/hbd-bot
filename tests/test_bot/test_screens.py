@@ -6,18 +6,18 @@ import re
 
 import pytest
 
-from hbd.bot.callbacks import NavAction, NavCB
-from hbd.bot.draft import MAX_NOTE_CHARS, WizardDraft
-from hbd.bot.i18n import translate
-from hbd.bot.keyboards import KEEP_NOTE_LABEL_KEY, SKIP_LABEL_KEY
-from hbd.bot.screens import (
+from bayram.bot.callbacks import NavAction, NavCB
+from bayram.bot.draft import MAX_NOTE_CHARS, WizardDraft
+from bayram.bot.i18n import translate
+from bayram.bot.keyboards import KEEP_NOTE_LABEL_KEY, SKIP_LABEL_KEY
+from bayram.bot.screens import (
     MAX_PREVIEW_LYRIC_CHARS,
     onboarding_language_screen,
     render_step,
     resolve_step,
 )
-from hbd.bot.states import WIZARD_ORDER, WizardStep
-from hbd.contracts import (
+from bayram.bot.states import WIZARD_ORDER, WizardStep
+from bayram.contracts import (
     MAX_RECIPIENT_NAME_CHARS,
     Genre,
     Language,

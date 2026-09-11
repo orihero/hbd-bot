@@ -51,22 +51,22 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool, StaticPool
 
-from hbd.checkout import PaymentIntent, PaymentIntentState, Product
-from hbd.contracts import Err, Result, is_err, is_ok
-from hbd.db.engine import create_engine, create_session_factory, ping
-from hbd.db.enums import CreditEntryKind, PaymeState
-from hbd.db.models import Base, CreditAccountRow, CreditLedgerRow
-from hbd.db.models.payme_transaction import PaymeTransactionRow
-from hbd.db.models.payment_intent import PaymentIntentRow
-from hbd.db.models.plan_purchase import PlanPurchaseRow
-from hbd.db.models.topup_purchase import TopupPurchaseRow
-from hbd.db.payme import SqlPaymeLedger
-from hbd.db.payme_sql import anonymise_intents, insert_transaction
-from hbd.errors import HbdError
-from hbd.payme.errors import PaymeFault
-from hbd.payme.protocol import CancelReason, PaymeErrorCode
-from hbd.payme.protocol import PaymeState as WireState
-from hbd.payme.rules import DEFAULT_TRANSACTION_TIMEOUT_MS
+from bayram.checkout import PaymentIntent, PaymentIntentState, Product
+from bayram.contracts import Err, Result, is_err, is_ok
+from bayram.db.engine import create_engine, create_session_factory, ping
+from bayram.db.enums import CreditEntryKind, PaymeState
+from bayram.db.models import Base, CreditAccountRow, CreditLedgerRow
+from bayram.db.models.payme_transaction import PaymeTransactionRow
+from bayram.db.models.payment_intent import PaymentIntentRow
+from bayram.db.models.plan_purchase import PlanPurchaseRow
+from bayram.db.models.topup_purchase import TopupPurchaseRow
+from bayram.db.payme import SqlPaymeLedger
+from bayram.db.payme_sql import anonymise_intents, insert_transaction
+from bayram.errors import BayramError
+from bayram.payme.errors import PaymeFault
+from bayram.payme.protocol import CancelReason, PaymeErrorCode
+from bayram.payme.protocol import PaymeState as WireState
+from bayram.payme.rules import DEFAULT_TRANSACTION_TIMEOUT_MS
 from tests.conftest import FIXED_NOW
 from tests.test_db.conftest import MovableClock
 
@@ -85,7 +85,7 @@ _PRICE: Final[int] = 700_000
 _PAST_THE_WINDOW_S: Final[int] = DEFAULT_TRANSACTION_TIMEOUT_MS // 1000 + 1
 
 _POSTGRES_URL: Final[str] = os.environ.get(
-    "HBD_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
+    "BAYRAM_TEST_POSTGRES_URL", "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_test"
 )
 
 
@@ -210,7 +210,7 @@ async def created_transaction(
 def fault_code(result: Result[Any]) -> int:
     """The JSON-RPC code an ``Err`` renders as. Fails loudly on an ``Ok``."""
     assert is_err(result), f"expected a refusal, got {result}"
-    error: HbdError = result.error
+    error: BayramError = result.error
     assert isinstance(error, PaymeFault), f"expected a PaymeFault, got {type(error).__name__}"
     return error.rpc_code
 

@@ -15,7 +15,7 @@ stage — after the song and all three greetings had been generated and billed. 
 saw a failure for a kit that existed.
 
 The column is still bounded, and writers now clip to the bound
-(``hbd.db.attempts.truncate_transcript``), so a longer song cannot revive this failure.
+(``bayram.db.attempts.truncate_transcript``), so a longer song cannot revive this failure.
 
 This DOES change what is retained, and the first draft of this docstring claimed otherwise.
 Going from 200 to 4000 characters turns a fragment of a transcript into the whole song, and

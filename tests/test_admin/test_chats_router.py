@@ -8,12 +8,12 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.routers.chats import CHATS_PATH
-from hbd.db.admin.chats import ChatLineDraft, record_chat_batch
-from hbd.db.enums import AdminRole, ChatDirection, ChatMessageKind
-from hbd.db.models.user import UserRow
-from hbd.db.models.user_profile import UserProfileRow
+from bayram.admin.container import AdminContainer
+from bayram.admin.routers.chats import CHATS_PATH
+from bayram.db.admin.chats import ChatLineDraft, record_chat_batch
+from bayram.db.enums import AdminRole, ChatDirection, ChatMessageKind
+from bayram.db.models.user import UserRow
+from bayram.db.models.user_profile import UserProfileRow
 from tests.test_admin.conftest import PASSWORD, create_account, sign_in
 
 

@@ -22,7 +22,7 @@ import {
  * session lifetime is `adminSessionTtlS`/`adminSessionIdleTtlS` on the server — so the
  * checkbox only decides whether this browser prefills the username next time.
  */
-const REMEMBERED_USERNAME_KEY = "hbd.dashboard.rememberedUsername";
+const REMEMBERED_USERNAME_KEY = "bayram.dashboard.rememberedUsername";
 
 /**
  * The pinned wording for a forced rotation, copied from admin-ui's

@@ -14,16 +14,16 @@
 #
 #   docker compose down -v && docker compose up -d      # re-run the init script
 #
-#   export HBD_DB_MIGRATION_URL="postgresql+asyncpg://hbd:hbd@localhost:5432/hbd"
-#   export HBD_DATABASE_URL="postgresql+asyncpg://hbd_app:hbd_app@localhost:5432/hbd"
+#   export BAYRAM_DB_MIGRATION_URL="postgresql+asyncpg://hbd:hbd@localhost:5432/hbd"
+#   export BAYRAM_DATABASE_URL="postgresql+asyncpg://hbd_app:hbd_app@localhost:5432/hbd"
 #
-# Leaving HBD_DB_MIGRATION_URL unset still works: migrations fall back to HBD_DATABASE_URL
+# Leaving BAYRAM_DB_MIGRATION_URL unset still works: migrations fall back to BAYRAM_DATABASE_URL
 # with a WARNING and the panel reports the audit chain as "hmac-only".
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: hbd-postgres
+    container_name: bayram-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: hbd
@@ -32,8 +32,8 @@ services:
       # Deterministic collation so ORDER BY on Uzbek and Russian text is stable.
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
     ports:
-      # Override when the host already runs Postgres: HBD_POSTGRES_PORT=5433 docker compose up -d
-      - "${HBD_POSTGRES_PORT:-5432}:5432"
+      # Override when the host already runs Postgres: BAYRAM_POSTGRES_PORT=5433 docker compose up -d
+      - "${BAYRAM_POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # Read-only, and only ever read once: the entrypoint runs *.sql from this directory
@@ -48,7 +48,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: hbd-redis
+    container_name: bayram-redis
     restart: unless-stopped
     # appendonly keeps FSM state and the idempotency set across a restart.
     command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]

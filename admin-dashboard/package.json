@@ -1,9 +1,9 @@
 {
-  "name": "hbd-admin-dashboard",
+  "name": "bayram-admin-dashboard",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "A standalone hbd admin dashboard SPA. Sibling of admin-ui/; shares its API contract, not its code.",
+  "description": "A standalone Bayram admin dashboard SPA. Sibling of admin-ui/; shares its API contract, not its code.",
   "engines": {
     "node": ">=20.19"
   },

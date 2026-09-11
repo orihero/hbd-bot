@@ -4,23 +4,33 @@ This directory holds the deployment **artefacts**. The prose that explains them 
 [`docs/deployment/`](../docs/deployment/README.md); start there.
 
 ```
-deploy/systemd/hbd-bot.service      the Telegram bot — aiogram long polling
-deploy/systemd/hbd-worker.service   the ARQ worker — every render, every cron job
-deploy/systemd/hbd-admin.service    the admin API — FastAPI, serving its own React bundle
+deploy/systemd/bayram-bot.service      the Telegram bot — aiogram long polling
+deploy/systemd/bayram-worker.service   the ARQ worker — every render, every cron job
+deploy/systemd/bayram-admin.service    the admin API — FastAPI, serving its own React bundle
 ```
 
 ```
+deploy/payme-open-orders.py         opens N *pending* payment intents for a Payme sandbox slot
 deploy/first-install-proposal.md    superseded; kept only as a citation target — see below
 ```
 
-The three unit files are the only thing here meant to be copied onto a machine. Read the
-comments in them: each unit argues for its own hardening lines, and `hbd-admin.service`
-carries the `InaccessiblePaths=` that enforces the vendor-key separation at the kernel level
-rather than only in the application.
+The three unit files are meant to be copied onto a machine. Read the comments in them: each
+unit argues for its own hardening lines, and `bayram-admin.service` carries the
+`InaccessiblePaths=` that enforces the vendor-key separation at the kernel level rather than
+only in the application.
+
+`payme-open-orders.py` is copied too, and is the one artefact here that is **run** rather than
+installed. Payme's engineer asks for pending orders — the `order_id` and the amount in tiyin —
+at every sandbox certification slot, and nothing in the wheel can produce one: the harness
+drives every intent it opens to a terminal state, and the bot's checkout is behind the stub.
+It writes through `PaymeLedger.open_intent` and nothing else, stamps `is_sandbox=true` on every
+row, and imports under **either** package name so it spans the `hbd` → `bayram` cutover. The
+orders it opens expire in twelve hours. Read
+[`08-payme.md`](../docs/deployment/08-payme.md) §6.C.1 before running it.
 
 ## They are a proposal, not a record
 
-The unit files, and the `/srv/hbd` + `/etc/hbd` layout they assume, were authored in this
+The unit files, and the `/srv/bayram` + `/etc/bayram` layout they assume, were authored in this
 repository by an assistant with **no access to the production host**. They describe a
 coherent shape somebody could deploy. They are not evidence that anything is deployed that
 way, and nobody in that workflow could confirm the host runs systemd at all.

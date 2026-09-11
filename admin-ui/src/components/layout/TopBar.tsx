@@ -61,7 +61,7 @@ const ICON_BUTTON_CLASS = buttonVariants({ variant: "quiet", size: "icon", shape
  * request between them.
  *
  * `retry: false` on purpose: `/api/config` answers `CAPABILITY_DISABLED` when
- * `HBD_ADMIN_CONFIG_ENABLED` is off, and that will not become true by asking again. The
+ * `BAYRAM_ADMIN_CONFIG_ENABLED` is off, and that will not become true by asking again. The
  * badge then says "env unknown", which is the honest answer.
  */
 function useEnvironment(): AdminEnvironment | null {
@@ -163,11 +163,12 @@ export function TopBar() {
       )}
     >
       {/*
-       * The product mark. Lower case on purpose — it is the package name, `hbd`. The env
+       * The product mark. The short form of the product name — the full
+       * `Bayram — Tabriklar, Qoʻshiqlar` would not fit this row. The env
        * chip sits immediately beside it, which is where §11.2 wants the loudest answer to
        * "which database am I looking at" to be: in the same glance as the product name.
        */}
-      <span className="type-h2 shrink-0 text-ink">hbd</span>
+      <span className="type-h2 shrink-0 text-ink">Bayram</span>
       <EnvBadge environment={environment} />
 
       <div className="min-w-0 flex-1" />

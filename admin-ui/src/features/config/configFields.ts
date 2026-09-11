@@ -4,7 +4,7 @@
  * Two things about this endpoint decide the whole screen.
  *
  * **1. It is the admin PROCESS's own settings, not the bot's.** Every field is an
- * `HBD_ADMIN_*` variable, read once inside the lifespan into a frozen `AdminSettings`. There
+ * `BAYRAM_ADMIN_*` variable, read once inside the lifespan into a frozen `AdminSettings`. There
  * is no override table behind the route, nothing to commit and nothing to roll back — so
  * every field here is **restart only**, and marking any of them `live` would be a claim the
  * server cannot honour. The bot's tiered fields (§8.3) live behind the Phase 7 editor and
@@ -212,7 +212,7 @@ export function configGroups(view: ConfigView): readonly ConfigGroupModel[] {
 /**
  * The bot's tiered fields, which this endpoint does not return.
  *
- * `/generations/names` links here to answer "what should `HBD_NAME_CANDIDATE_ORDER` be?",
+ * `/generations/names` links here to answer "what should `BAYRAM_NAME_CANDIDATE_ORDER` be?",
  * and an operator who arrives to find no such field has been sent to a dead end. These rows
  * carry §8.3's real tiers and say plainly where the value lives — they are documentation of
  * an absence, which is why every one of them has an explicit value rather than a blank.

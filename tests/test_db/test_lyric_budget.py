@@ -1,11 +1,11 @@
 """The daily lyric-write budget, against a real database.
 
 The property that matters is DURABILITY, and it is asserted the only way it can honestly be
-asserted at this layer: by building a second :class:`~hbd.db.lyric_budget.SqlLyricBudget`
+asserted at this layer: by building a second :class:`~bayram.db.lyric_budget.SqlLyricBudget`
 over the same engine and showing the count is still there. A store object is what a process
 holds, so "a new store sees the old count" is exactly "a restart does not hand the budget
 back" — which is the whole reason this is a row and not the in-memory window
-``hbd.ratelimit`` uses for the inbound throttle.
+``bayram.ratelimit`` uses for the inbound throttle.
 """
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import Ok
-from hbd.db.lyric_budget import SqlLyricBudget
-from hbd.db.models.lyric_budget import LyricBudgetRow
-from hbd.lyric_budget import LyricBudgetPolicy, LyricBudgetVerdict
+from bayram.contracts import Ok
+from bayram.db.lyric_budget import SqlLyricBudget
+from bayram.db.models.lyric_budget import LyricBudgetRow
+from bayram.lyric_budget import LyricBudgetPolicy, LyricBudgetVerdict
 
 pytestmark = pytest.mark.anyio
 

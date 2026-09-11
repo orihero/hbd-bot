@@ -263,7 +263,7 @@ function activeFilterCount(state: UrlState): number {
 /**
  * One tab's memory of a keyset walk.
  *
- * `hbd.db.admin.page` hands back an opaque `(created_at, id)` cursor and takes it back
+ * `bayram.db.admin.page` hands back an opaque `(created_at, id)` cursor and takes it back
  * verbatim. It mints no previous cursor and it accepts no page index, so both "go back" and
  * "which page is this" have to be remembered on the client or not offered at all — and a
  * "Page 3 of 12" invented from a row count would be a control whose first use is a jump to a

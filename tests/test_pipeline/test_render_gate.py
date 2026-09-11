@@ -26,18 +26,18 @@ from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async
 from sqlalchemy.ext.asyncio import AsyncSession as SaSession
 from sqlalchemy.pool import StaticPool
 
-from hbd.contracts import Brief, Err, Order, PaymentProvider, Result, ok
-from hbd.db.credits import SqlCreditLedger
-from hbd.db.engine import create_session_factory
-from hbd.db.models import Base
-from hbd.entitlements import (
+from bayram.contracts import Brief, Err, Order, PaymentProvider, Result, ok
+from bayram.db.credits import SqlCreditLedger
+from bayram.db.engine import create_session_factory
+from bayram.db.models import Base
+from bayram.entitlements import (
     EntitlementPolicy,
     EntitlementStore,
     InsufficientCreditsError,
 )
-from hbd.errors import ErrorCode, ProviderTimeoutError
-from hbd.payments import CreditGatedPaymentProvider
-from hbd.pipeline.events import PipelineStage
+from bayram.errors import ErrorCode, ProviderTimeoutError
+from bayram.payments import CreditGatedPaymentProvider
+from bayram.pipeline.events import PipelineStage
 from tests.conftest import make_order
 from tests.test_pipeline.conftest import Studio, failure_of
 
@@ -85,7 +85,7 @@ def ledger(sessions: async_sessionmaker[SaSession]) -> SqlCreditLedger:
 
 @pytest.fixture
 def dark_ledger(sessions: async_sessionmaker[SaSession]) -> SqlCreditLedger:
-    """The SHIPPED configuration: ``HBD_CREDITS_ENFORCED`` unset.
+    """The SHIPPED configuration: ``BAYRAM_CREDITS_ENFORCED`` unset.
 
     The flag lives on the policy rather than on the decorator, and that is the whole point:
     a gate that owned it could only say "do not call the store", which took the block gate
@@ -109,7 +109,7 @@ async def credits_of(ledger: EntitlementStore, order: Order) -> int:
 
 
 async def row_counts(sessions: async_sessionmaker[SaSession]) -> tuple[int, int]:
-    """(accounts, ledger entries). Raw SQL on purpose — see the ``*Row`` rule in hbd.db.
+    """(accounts, ledger entries). Raw SQL on purpose — see the ``*Row`` rule in bayram.db.
 
     A mapped row must not leave persistence, and a test that imported one to count it would
     be the first exception to that. ``COUNT(*)`` needs no mapping and says the one thing
@@ -164,7 +164,7 @@ async def test_an_account_with_no_credits_is_refused_before_a_single_vendor_is_c
 async def test_the_refusal_is_not_retryable_so_the_queue_stops_asking(
     studio: Studio, ready_order: Order, ledger: SqlCreditLedger
 ) -> None:
-    """``Err.is_retryable`` drives the ARQ ladder in ``hbd.runtime.jobs``.
+    """``Err.is_retryable`` drives the ARQ ladder in ``bayram.runtime.jobs``.
 
     A retryable refusal would re-run the whole pipeline against one customer on a schedule,
     for an answer that cannot change until the calendar or an operator changes it.
@@ -285,7 +285,7 @@ async def test_the_dark_default_delivers_for_an_account_with_nothing_but_still_m
     dark_ledger: SqlCreditLedger,
     sessions: async_sessionmaker[SaSession],
 ) -> None:
-    """``HBD_CREDITS_ENFORCED=false`` is what merges, so it is what has to be proven.
+    """``BAYRAM_CREDITS_ENFORCED=false`` is what merges, so it is what has to be proven.
 
     The account below has no credits at all and renders anyway — nobody is refused for
     having run out, which is the entire purpose of the flag. What it does NOT mean any more

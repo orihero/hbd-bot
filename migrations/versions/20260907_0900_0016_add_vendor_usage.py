@@ -60,7 +60,7 @@ integer, a machine id or a bounded error code: no name, no note, no transcript, 
 id, no free text of any kind. So the table belongs in neither of
 ``tests/test_db/test_privacy_constraints.py``'s two sets — that omission is recorded there
 as a comment rather than left silent — and its growth is bounded by a 400-day CUTOFF in
-``hbd.db.purge``, not by a per-row clock. The ``*_expires_at`` suffix is reserved:
+``bayram.db.purge``, not by a per-row clock. The ``*_expires_at`` suffix is reserved:
 ``tests/test_db/test_audit_retention.py`` derives "every clock in the schema is read by a
 sweep" from that suffix alone, and using it here would claim a legal schedule this table
 does not have. The counter for that sweep is the ``purge_runs.vendor_usage_deleted`` column

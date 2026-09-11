@@ -111,7 +111,7 @@ const LATIN_CHARACTERS = CHARACTERS.filter(
  * §11.3's status glyphs, and the reason a fourth face is vendored at all.
  *
  * "Status pills are never colour alone — glyph + text + colour." Neither Mulish nor Urbanist
- * contains ONE of these; before `hbd-status-symbols.woff2` they were drawn by whatever
+ * contains ONE of these; before `bayram-status-symbols.woff2` they were drawn by whatever
  * symbol font the operator's OS happened to ship, which is fine on a Mac and is a row of
  * hollow boxes on a bare container. A pill whose glyph is tofu IS colour alone.
  *
@@ -183,7 +183,7 @@ test("the four acceptance strings render with real glyphs, not tofu", async ({ p
     { family: "Mulish", text: sampleText },
     { family: "Urbanist", text: sampleText },
     { family: "Noto Sans Mono", text: sampleText },
-    { family: "HBD Status Symbols", text: statusText },
+    { family: "Bayram Status Symbols", text: statusText },
   ]);
 
   await test.step("§12.1 T7: the faces are self-hosted, and nothing comes from anywhere else", async () => {
@@ -443,7 +443,7 @@ test("the four acceptance strings render with real glyphs, not tofu", async ({ p
 
   await test.step("§11.3's status glyphs come from the vendored symbol face", async () => {
     const coverage = await measureProvenance(page, {
-      family: "HBD Status Symbols",
+      family: "Bayram Status Symbols",
       variable: "--font-sans",
       characters: STATUS_GLYPHS.map((entry) => entry.glyph),
     });
@@ -456,7 +456,7 @@ test("the four acceptance strings render with real glyphs, not tofu", async ({ p
       .join(", ");
     expect(
       host,
-      "these status glyphs came from the host rather than hbd-status-symbols.woff2, so on a " +
+      "these status glyphs came from the host rather than bayram-status-symbols.woff2, so on a " +
         `machine without them the pill is colour alone: ${named}\n` +
         describeProvenance(coverage),
     ).toHaveLength(0);

@@ -30,18 +30,18 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
 from aiogram.methods import SendMessage
 
-from hbd.bot.i18n import translate
-from hbd.bot.keyboards import start_over_keyboard
-from hbd.checkout import PaymentIntentState, Product
-from hbd.config import Settings
-from hbd.contracts import Language, is_ok
-from hbd.db.enums import PaymeState as DbPaymeState
-from hbd.db.models import CreditLedgerRow, TopupPurchaseRow
-from hbd.db.models.payme_transaction import PaymeTransactionRow
-from hbd.db.payme import SqlPaymeLedger
-from hbd.runtime.container import AppContainer, build_container
-from hbd.runtime.jobs import build_kit_worker_settings
-from hbd.runtime.payme_jobs import (
+from bayram.bot.i18n import translate
+from bayram.bot.keyboards import start_over_keyboard
+from bayram.checkout import PaymentIntentState, Product
+from bayram.config import Settings
+from bayram.contracts import Language, is_ok
+from bayram.db.enums import PaymeState as DbPaymeState
+from bayram.db.models import CreditLedgerRow, TopupPurchaseRow
+from bayram.db.models.payme_transaction import PaymeTransactionRow
+from bayram.db.payme import SqlPaymeLedger
+from bayram.runtime.container import AppContainer, build_container
+from bayram.runtime.jobs import build_kit_worker_settings
+from bayram.runtime.payme_jobs import (
     PAID_LATE_PLAN_KEY,
     PAID_LATE_SINGLE_KEY,
     PAYME_NOTIFY_JOB_NAME,
@@ -832,7 +832,7 @@ def test_the_gateway_and_the_worker_mint_the_same_notification_job_id() -> None:
     """The deduplication is BETWEEN TWO PROCESSES, so the id has to be one string.
 
     The gateway deliberately restates the job name rather than importing this module — an
-    import would pull ``hbd.runtime``'s whole graph, and with it the bot and every vendor
+    import would pull ``bayram.runtime``'s whole graph, and with it the bot and every vendor
     adapter, into the one process that holds the cashbox key. The cost of that restatement is
     that nothing in either process can see both spellings, and the two DID diverge while this
     rail was being built: the gateway minted ``payme-notify:<ref>`` while the sweep's backstop
@@ -840,14 +840,14 @@ def test_the_gateway_and_the_worker_mint_the_same_notification_job_id() -> None:
     both run — the customer is told twice about one payment and no check anywhere fails.
 
     This test is the seam. It is in the WORKER's suite because that is where importing both is
-    free, and it is the reason ``hbd.payme.container._NOTIFY_JOB_PREFIX`` is the job name
+    free, and it is the reason ``bayram.payme.container._NOTIFY_JOB_PREFIX`` is the job name
     rather than a prefix somebody chose to read nicely.
     """
     # Arrange
-    from hbd.payme.container import (
+    from bayram.payme.container import (
         PAYME_NOTIFY_JOB_NAME as GATEWAY_JOB_NAME,
     )
-    from hbd.payme.container import (
+    from bayram.payme.container import (
         notify_job_id as gateway_notify_job_id,
     )
 

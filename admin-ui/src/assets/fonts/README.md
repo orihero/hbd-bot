@@ -10,11 +10,11 @@ Four `.woff2` binaries, 199 KiB together, served from this origin and from nowhe
 | `mulish-latin-cyrillic-var.woff2` | Mulish | 85,732 | `wght 200–1000` | body, tables, all UI text |
 | `urbanist-latin-var.woff2` | Urbanist | 34,132 | `wght 100–900` | headings and numerals |
 | `noto-sans-mono-latin-cyrillic-var.woff2` | Noto Sans Mono | 81,168 | `wght 400–700` | ids, hashes, payloads |
-| `hbd-status-symbols.woff2` | HBD Status Symbols | 2,244 | static | §11.3's status glyphs |
+| `bayram-status-symbols.woff2` | Bayram Status Symbols | 2,244 | static | §11.3's status glyphs |
 
 ## Coverage, read out of the binaries
 
-| codepoint | Mulish | Urbanist | Noto Sans Mono | HBD Status Symbols |
+| codepoint | Mulish | Urbanist | Noto Sans Mono | Bayram Status Symbols |
 | --- | --- | --- | --- | --- |
 | U+02BB `ʻ` MODIFIER LETTER TURNED COMMA | yes | yes (shares the `quoteleft` outline) | yes | – |
 | U+02BC `ʼ` MODIFIER LETTER APOSTROPHE | yes | yes | yes | – |
@@ -31,7 +31,7 @@ does not draw `Дилноза`. Read the header of `../../styles/fonts.css` befo
 Everything here is SIL Open Font License 1.1. None of the six upstream families reserves its
 name: the phrase "Reserved Font Name" appears in these licence files only in the definitions
 section, never in a copyright line. So the three text faces keep their own family names, and
-only `HBD Status Symbols` — which is a merge of three Noto faces and therefore none of them —
+only `Bayram Status Symbols` — which is a merge of three Noto faces and therefore none of them —
 is renamed.
 
 `licences/` carries the upstream `OFL.txt` for each source, unmodified:

@@ -1,8 +1,8 @@
 """Which dotenv file each process reads, and the one security control that follows it.
 
-``HBD_ENV_FILE`` and ``HBD_ADMIN_ENV_FILE`` exist so a production configuration can be
+``BAYRAM_ENV_FILE`` and ``BAYRAM_ADMIN_ENV_FILE`` exist so a production configuration can be
 exercised from a development checkout (``ENV=prod make dev``) and so a systemd unit can
-point at ``/etc/hbd/bot.env`` — outside the checkout, where a stray ``.env`` cannot be read
+point at ``/etc/bayram/bot.env`` — outside the checkout, where a stray ``.env`` cannot be read
 by accident. Three claims are worth a test:
 
 * the **default is unchanged**, because every existing checkout depends on it;
@@ -25,14 +25,14 @@ from typing import Final
 
 import pytest
 
-from hbd.admin.app import _present_vendor_vars
-from hbd.admin.settings import (
+from bayram.admin.app import _present_vendor_vars
+from bayram.admin.settings import (
     ADMIN_ENV_FILE,
     ADMIN_ENV_FILE_VAR,
     admin_env_file,
     build_admin_settings,
 )
-from hbd.config import ENV_FILE, ENV_FILE_VAR, ENV_PREFIX, build_settings, env_file
+from bayram.config import ENV_FILE, ENV_FILE_VAR, ENV_PREFIX, build_settings, env_file
 
 _HMAC_KEY: Final[str] = "k" * 48
 _APP_DSN: Final[str] = "postgresql+asyncpg://hbd_app:secret@db:5432/hbd"
@@ -40,9 +40,9 @@ _APP_DSN: Final[str] = "postgresql+asyncpg://hbd_app:secret@db:5432/hbd"
 
 @pytest.fixture(autouse=True)
 def _no_developer_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """No ``HBD_`` variable from the developer's shell reaches a test in this module.
+    """No ``BAYRAM_`` variable from the developer's shell reaches a test in this module.
 
-    Including the two this module is about: an operator who exports ``HBD_ENV_FILE`` in
+    Including the two this module is about: an operator who exports ``BAYRAM_ENV_FILE`` in
     their own shell would otherwise flip every assertion below.
     """
     for name in tuple(os.environ):
@@ -84,7 +84,7 @@ def test_each_variable_selects_its_own_file_and_only_its_own(
 def test_an_exported_but_empty_variable_falls_back_rather_than_reading_nothing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """``HBD_ENV_FILE=`` is what a deploy script's unset interpolation produces.
+    """``BAYRAM_ENV_FILE=`` is what a deploy script's unset interpolation produces.
 
     Resolving it to the empty path would boot the process on defaults with no dotenv file
     and no complaint — the silent failure this branch exists to avoid.
@@ -106,11 +106,11 @@ def test_build_settings_reads_the_selected_file(
     # Arrange
     selected = _write(
         tmp_path / ".env.prod",
-        HBD_ENVIRONMENT="prod",
-        HBD_DATABASE_URL=_APP_DSN,
-        HBD_TELEGRAM_BOT_TOKEN="123456:from-the-selected-file",
-        HBD_ELEVENLABS_API_KEY="eleven-from-the-selected-file",
-        HBD_LLM_API_KEY="llm-from-the-selected-file",
+        BAYRAM_ENVIRONMENT="prod",
+        BAYRAM_DATABASE_URL=_APP_DSN,
+        BAYRAM_TELEGRAM_BOT_TOKEN="123456:from-the-selected-file",
+        BAYRAM_ELEVENLABS_API_KEY="eleven-from-the-selected-file",
+        BAYRAM_LLM_API_KEY="llm-from-the-selected-file",
     )
     monkeypatch.setenv(ENV_FILE_VAR, str(selected))
 
@@ -128,11 +128,11 @@ def test_an_explicit_env_file_from_the_caller_beats_the_variable(
 ) -> None:
     """``build_settings({"_env_file": None})`` is how every other test reads no file.
 
-    The selection is a *default*, so pointing ``HBD_ENV_FILE`` at a populated file must not
+    The selection is a *default*, so pointing ``BAYRAM_ENV_FILE`` at a populated file must not
     smuggle values into a test that asked for none.
     """
     # Arrange
-    selected = _write(tmp_path / ".env.prod", HBD_ENVIRONMENT="prod", HBD_DATABASE_URL=_APP_DSN)
+    selected = _write(tmp_path / ".env.prod", BAYRAM_ENVIRONMENT="prod", BAYRAM_DATABASE_URL=_APP_DSN)
     monkeypatch.setenv(ENV_FILE_VAR, str(selected))
 
     # Act
@@ -150,11 +150,11 @@ def test_build_admin_settings_reads_the_selected_admin_file(
     # Arrange
     selected = _write(
         tmp_path / ".env.admin.prod",
-        HBD_ENVIRONMENT="prod",
-        HBD_DATABASE_URL=_APP_DSN,
-        HBD_ADMIN_ENABLED="true",
-        HBD_ADMIN_PUBLIC_ORIGIN="https://panel.example.com",
-        HBD_ADMIN_AUDIT_HMAC_KEY=_HMAC_KEY,
+        BAYRAM_ENVIRONMENT="prod",
+        BAYRAM_DATABASE_URL=_APP_DSN,
+        BAYRAM_ADMIN_ENABLED="true",
+        BAYRAM_ADMIN_PUBLIC_ORIGIN="https://panel.example.com",
+        BAYRAM_ADMIN_AUDIT_HMAC_KEY=_HMAC_KEY,
     )
     monkeypatch.setenv(ADMIN_ENV_FILE_VAR, str(selected))
 
@@ -182,8 +182,8 @@ def test_the_vendor_credential_scan_follows_the_selected_admin_file(
     # Arrange
     selected = _write(
         tmp_path / ".env.admin.prod",
-        HBD_ADMIN_AUDIT_HMAC_KEY=_HMAC_KEY,
-        HBD_LLM_API_KEY="a key that must not be within reach of the panel",
+        BAYRAM_ADMIN_AUDIT_HMAC_KEY=_HMAC_KEY,
+        BAYRAM_LLM_API_KEY="a key that must not be within reach of the panel",
     )
     monkeypatch.setenv(ADMIN_ENV_FILE_VAR, str(selected))
 
@@ -191,7 +191,7 @@ def test_the_vendor_credential_scan_follows_the_selected_admin_file(
     present = _present_vendor_vars()
 
     # Assert - the NAME, never the value
-    assert present == ("HBD_LLM_API_KEY",)
+    assert present == ("BAYRAM_LLM_API_KEY",)
 
 
 def test_the_scan_reports_nothing_when_the_selected_file_is_clean(
@@ -199,7 +199,7 @@ def test_the_scan_reports_nothing_when_the_selected_file_is_clean(
 ) -> None:
     """The negative case, so the test above is not passing on an unconditional hit."""
     # Arrange
-    selected = _write(tmp_path / ".env.admin.prod", HBD_ADMIN_AUDIT_HMAC_KEY=_HMAC_KEY)
+    selected = _write(tmp_path / ".env.admin.prod", BAYRAM_ADMIN_AUDIT_HMAC_KEY=_HMAC_KEY)
     monkeypatch.setenv(ADMIN_ENV_FILE_VAR, str(selected))
 
     # Act / Assert

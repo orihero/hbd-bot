@@ -16,10 +16,18 @@
  * a previous answer under a different question to keep, so `isPlaceholderData` never becomes
  * true and the screen has no "dim the old rows" state to render.
  *
- * **No mutation lives here, and none may.** There is no admin-account write endpoint on this
- * build: `admins.py` declares one `GET`, and `POST /admins`, `PATCH /admins/{id}`,
- * `POST /admins/{id}/reset-password` and `DELETE /admins/{id}/sessions` are §6.8 future work
- * that will 404 today. A mutation hook here is how a screen grows a button that cannot work.
+ * **One mutation lives here: the create.** `POST /admins` is the first of §6.8's four account
+ * writes to land. The other three — `PATCH /admins/{id}`, `POST /admins/{id}/reset-password`
+ * and `DELETE /admins/{id}/sessions` — are still future work that would 404 today, so a hook
+ * for them belongs here only when the route does; one added early is how a screen grows a
+ * button that cannot work.
+ *
+ * The create invalidates `lists()`, which is why the key factory has always had a `lists()`
+ * distinct from `list()`: "every roster read" was expressible before there was anything to
+ * invalidate it for. It does NOT write the new row into the cache by hand — the roster is one
+ * bounded read with a server-side ordering (`created_at ASC, id ASC`) and a `MAX_ADMIN_ACCOUNTS`
+ * ceiling, so re-asking the one question is both cheap and the only way the list stays the
+ * server's answer rather than this bundle's guess at where the row goes.
  *
  * **Refusals are not retried, and — the part `shouldRetryRead` cannot do — they are not
  * re-ASKED either.** The roster is OWNER-only, the guard writes a `permission.denied` audit
@@ -43,10 +51,27 @@
  * The screen withholds its own Retry button on that failure for the same reason.
  */
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
-import { listAdmins, type AdminRoster } from "@/api/admins";
-import { LIST_READ, unwrap, type AdminQueryError } from "@/lib/adminQuery";
+import {
+  createAdmin,
+  listAdmins,
+  type AdminAccountView,
+  type AdminCreateRequest,
+  type AdminRoster,
+} from "@/api/admins";
+import {
+  LIST_READ,
+  PRIVILEGED_WRITE,
+  unwrap,
+  type AdminQueryError,
+} from "@/lib/adminQuery";
 
 /* -------------------------------------------------------------------------- */
 /* Keys                                                                        */
@@ -91,5 +116,38 @@ export function useAdmins(): UseQueryResult<AdminRoster, AdminQueryError> {
     // guaranteed to buy nothing but that row.
     refetchOnWindowFocus: (query) => query.state.status !== "error",
     refetchOnReconnect: (query) => query.state.status !== "error",
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/* The write                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Add one operator account.
+ *
+ * OWNER only, and it needs a live step-up scoped to `admin.manage:{username}` — so expect
+ * `STEP_UP_REQUIRED` on the first attempt, take the target from the refusal's `details`
+ * (`stepUpTargetOf`) and replay the SAME body once the grant lands. The username is the
+ * subject, so a body whose name changed between the two is a different subject and a second
+ * refusal; that is the grant doing its job.
+ *
+ * `PRIVILEGED_WRITE` for the reason every other account-touching write takes it: no retry.
+ * A create that timed out may well have landed, and a second attempt would either mint a
+ * second operator or collide with the first — and the refusal it earns costs an audit row
+ * either way. The roster read after invalidation is what says which happened.
+ */
+export function useCreateAdmin(): UseMutationResult<
+  AdminAccountView,
+  AdminQueryError,
+  AdminCreateRequest
+> {
+  const queryClient = useQueryClient();
+  return useMutation<AdminAccountView, AdminQueryError, AdminCreateRequest>({
+    mutationFn: (body) => unwrap(createAdmin(body)),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: adminsKeys.lists() });
+    },
+    ...PRIVILEGED_WRITE,
   });
 }

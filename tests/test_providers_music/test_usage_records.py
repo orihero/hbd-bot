@@ -18,12 +18,12 @@ import logging
 import httpx
 import pytest
 
-from hbd.contracts import CostSource, HealthState, Vendor, VendorOperation
-from hbd.errors import ErrorCode, ProviderRateLimitedError
-from hbd.providers.music.elevenlabs import PROVIDER_NAME
-from hbd.providers.music.fake import FAKE_PROVIDER_NAME, FakeMusicProvider
-from hbd.providers.music.usage import USAGE_EVENT
-from hbd.usage import VendorUsage
+from bayram.contracts import CostSource, HealthState, Vendor, VendorOperation
+from bayram.errors import ErrorCode, ProviderRateLimitedError
+from bayram.providers.music.elevenlabs import PROVIDER_NAME
+from bayram.providers.music.fake import FAKE_PROVIDER_NAME, FakeMusicProvider
+from bayram.providers.music.usage import USAGE_EVENT
+from bayram.usage import VendorUsage
 from tests.test_providers_music.conftest import (
     AUDIO_BODY,
     TEST_MODEL_ID,
@@ -35,7 +35,7 @@ from tests.test_providers_music.conftest import (
     usage_line,
 )
 
-LOGGER_NAME = "hbd.providers.music.elevenlabs"
+LOGGER_NAME = "bayram.providers.music.elevenlabs"
 IDEMPOTENCY_KEY = "order-123-compose-1"
 TIMEOUT_S = 30.0
 

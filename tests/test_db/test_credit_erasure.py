@@ -27,7 +27,7 @@ from uuid import UUID, uuid4
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import (
+from bayram.contracts import (
     BotBlockSource,
     BroadcastKind,
     BroadcastRecipientState,
@@ -36,22 +36,22 @@ from hbd.contracts import (
     OrderState,
     is_ok,
 )
-from hbd.db.churn import SqlBotBlocks
-from hbd.db.credit_erasure import forget_account
-from hbd.db.credit_sql import stale_debits, verify_balances
-from hbd.db.credits import SqlCreditLedger
-from hbd.db.enums import IntentProduct, PaymentIntentState, TopupKind
-from hbd.db.models import (
+from bayram.db.churn import SqlBotBlocks
+from bayram.db.credit_erasure import forget_account
+from bayram.db.credit_sql import stale_debits, verify_balances
+from bayram.db.credits import SqlCreditLedger
+from bayram.db.enums import IntentProduct, PaymentIntentState, TopupKind
+from bayram.db.models import (
     BroadcastRecipientRow,
     BroadcastRow,
     CreditAccountRow,
     CreditLedgerRow,
 )
-from hbd.db.models.bot_membership_event import BotMembershipEventRow
-from hbd.db.models.payment_intent import PaymentIntentRow
-from hbd.db.models.user import UserRow
-from hbd.db.topup_sql import insert_topup, topup_by_key
-from hbd.entitlements import EntitlementPolicy, SettlementOutcome
+from bayram.db.models.bot_membership_event import BotMembershipEventRow
+from bayram.db.models.payment_intent import PaymentIntentRow
+from bayram.db.models.user import UserRow
+from bayram.db.topup_sql import insert_topup, topup_by_key
+from bayram.entitlements import EntitlementPolicy, SettlementOutcome
 from tests.test_db.conftest import MovableClock
 
 #: Outside the 32-bit range, like every id in ``test_credits.py``: the erasure travels

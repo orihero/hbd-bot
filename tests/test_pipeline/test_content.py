@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from hbd.config import Settings
-from hbd.contracts import (
+from bayram.config import Settings
+from bayram.contracts import (
     Brief,
     Err,
     Language,
@@ -12,8 +12,8 @@ from hbd.contracts import (
     VoiceDescriptor,
     VoiceGender,
 )
-from hbd.errors import ErrorCode, ProviderTimeoutError
-from hbd.pipeline.content import (
+from bayram.errors import ErrorCode, ProviderTimeoutError
+from bayram.pipeline.content import (
     GreetingPayload,
     GreetingsPayload,
     LlmContentWriter,

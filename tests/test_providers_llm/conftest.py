@@ -10,17 +10,17 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from hbd.contracts import (
+from bayram.contracts import (
     HealthState,
     LlmRequest,
     ProviderHealth,
     Result,
     ok,
 )
-from hbd.providers.llm.parsing import parse_model_json
-from hbd.providers.llm.schemas import PersonaBrief
-from hbd.providers.llm.task_settings import LlmTaskSettings
-from hbd.providers.llm.utils import utc_now
+from bayram.providers.llm.parsing import parse_model_json
+from bayram.providers.llm.schemas import PersonaBrief
+from bayram.providers.llm.task_settings import LlmTaskSettings
+from bayram.providers.llm.utils import utc_now
 
 STUB_PROVIDER_NAME = "stub-llm"
 

@@ -37,7 +37,7 @@ export type ThemeChoice = "light" | "dark" | null;
 /** What is actually on screen. Always one of two: the attribute value, and the CSS selector. */
 export type ResolvedTheme = "light" | "dark";
 
-const STORAGE_KEY = "hbd.dashboard.theme";
+const STORAGE_KEY = "bayram.dashboard.theme";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 function readChoice(): ThemeChoice {

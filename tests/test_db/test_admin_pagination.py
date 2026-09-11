@@ -2,7 +2,7 @@
 
 Two things are being proved here, and they are different.
 
-*The primitives are total.* :func:`hbd.db.admin.page.decode_cursor` takes a string a browser
+*The primitives are total.* :func:`bayram.db.admin.page.decode_cursor` takes a string a browser
 sent and must never raise — every malformed shape becomes a typed ``Err``, because a 500 on
 a hand-edited query parameter is a denial of service anybody can trigger.
 
@@ -15,7 +15,7 @@ sharing one ``created_at``.
 adds two ways to lose a row silently, and both are asserted below against real rows: a
 cursor replayed under a different sort must come back as a typed ``Err`` rather than resume
 inside another ordering, and a nullable sort key must be made total by
-:func:`hbd.db.admin.page.total_sort_key` so that "never delivered" is a position the cursor
+:func:`bayram.db.admin.page.total_sort_key` so that "never delivered" is a position the cursor
 can name instead of a NULL every comparison is false against.
 
 The seed helpers come from ``test_admin_queries`` rather than being copied: two definitions
@@ -33,9 +33,9 @@ from uuid import UUID, uuid4
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import OrderState, is_err, is_ok
-from hbd.db.admin import orders
-from hbd.db.admin.page import (
+from bayram.contracts import OrderState, is_err, is_ok
+from bayram.db.admin import orders
+from bayram.db.admin.page import (
     DEFAULT_PAGE_LIMIT,
     MAX_PAGE_LIMIT,
     SORT_EPOCH,
@@ -57,9 +57,9 @@ from hbd.db.admin.page import (
     sorted_keyset_predicate,
     total_sort_key,
 )
-from hbd.db.admin.views import OrderLedger, OrderListItem
-from hbd.db.models import OrderRow
-from hbd.errors import ErrorCode
+from bayram.db.admin.views import OrderLedger, OrderListItem
+from bayram.db.models import OrderRow
+from bayram.errors import ErrorCode
 from tests.test_db.test_admin_queries import seed_order, seed_user
 
 _AT: Final[datetime] = datetime(2026, 3, 21, 9, 0, tzinfo=UTC)

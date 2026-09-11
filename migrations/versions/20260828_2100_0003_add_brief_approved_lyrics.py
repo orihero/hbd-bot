@@ -11,7 +11,7 @@ place the approved words can live is the brief row the worker re-reads.
 
 It is stored as the serialised ``LyricDraft`` in a JSON column rather than as columns,
 because a lyric is a nested shape (sections, lines, a hook flag) that no query ever filters
-on, and ``hbd.db.mapping.approved_lyrics_from_json`` validates it back through the model on
+on, and ``bayram.db.mapping.approved_lyrics_from_json`` validates it back through the model on
 the way out.
 
 It rides the 30-day note clock, not the 90-day identity clock. A lyric is free text about a

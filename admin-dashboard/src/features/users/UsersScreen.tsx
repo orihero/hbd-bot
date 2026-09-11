@@ -3,7 +3,7 @@
  *
  * ## The search box matches the Telegram id and NOTHING else
  *
- * `UserFilters.search` (src/hbd/db/admin/users.py) is a substring of `telegram_user_id`. That
+ * `UserFilters.search` (src/bayram/db/admin/users.py) is a substring of `telegram_user_id`. That
  * is a privacy decision, not an unfinished feature: every other free-text column this list can
  * reach — `telegram_username`, `first_name`, `last_name`, `phone_e164` — is masked at all four
  * roles, so a `LIKE '%…%'` over any of them would let an operator with no reveal cell confirm a

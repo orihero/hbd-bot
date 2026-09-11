@@ -153,7 +153,7 @@ export async function runChallengerM2Stress(): Promise<{ passed: number; failed:
         const storeLocale = useI18n.getState().locale;
         const getLocaleVal = getLocale();
         const docLang = env.doc.documentElement.lang;
-        const stored = env.storage.getItem("hbd.dashboard.locale");
+        const stored = env.storage.getItem("bayram.dashboard.locale");
 
         // Verify translation lookup consistency for each locale (uses unicode ellipsis U+2026)
         const sampleTranslation = t("common.loading");

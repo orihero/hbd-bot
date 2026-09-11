@@ -322,7 +322,7 @@ export function humaniseEnum(value: string): string {
 /**
  * The tri-state retryability label. Three states, never two.
  *
- * `null` means no class in `hbd.errors` claims the code — the system has no opinion, so the
+ * `null` means no class in `bayram.errors` claims the code — the system has no opinion, so the
  * UI must not invent one. "unknown" is not "not retryable": one is an absent decision, the
  * other is a decision, and only the second justifies hiding a retry button as settled.
  */

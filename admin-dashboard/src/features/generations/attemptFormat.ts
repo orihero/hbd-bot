@@ -8,7 +8,7 @@
  *
  * ## `costUsd` and `latencyMs` are claims, not measurements
  *
- * Both columns are NOT NULL with defaults of `0.0`/`0` and nothing in `src/hbd` writes
+ * Both columns are NOT NULL with defaults of `0.0`/`0` and nothing in `src/bayram` writes
  * either, so every row in production today is uninstrumented. The wire says so twice — the
  * value arrives `null`, and `isInstrumented` is `false` — and this module refuses to render
  * either as a number. "$0.00 / 0 ms" on the one screen an operator uses to decide what to

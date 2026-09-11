@@ -25,7 +25,7 @@ from typing import Final
 
 import pytest
 
-from hbd.db.models import Base, BriefRow
+from bayram.db.models import Base, BriefRow
 
 #: Column-name shapes that would constitute, or trivially reconstruct, a date of birth.
 #: A stored age is on the list because an age plus a timestamp is a birth year with one
@@ -180,11 +180,11 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     # ``vendor_usage`` (revision 0016) is deliberately in NEITHER set. It holds no personal
     # data to be clocked or erased: every column is a closed enum, an integer, a machine id
     # (an adapter name, a vendor model id, a correlation id) or a bounded error code from the
-    # ``hbd.errors`` taxonomy — no name, no note, no lyric, no transcript, no telegram id, no
+    # ``bayram.errors`` taxonomy — no name, no note, no lyric, no transcript, no telegram id, no
     # free text of any kind — so there is nothing on that table that is text ABOUT a person.
     # Written down because the comment above says a table not named here is silently exempt,
     # and this one's exemption has to stay a decision. Its growth is still bounded, by a
-    # 400-day CUTOFF on ``created_at`` in ``hbd.db.purge``; a cutoff is not a clock, which is
+    # 400-day CUTOFF on ``created_at`` in ``bayram.db.purge``; a cutoff is not a clock, which is
     # why no column on it ends in ``expires_at`` and why ``test_audit_retention.py`` passes
     # over it by construction, exactly as it does over ``user_profiles``.
     #
@@ -192,7 +192,7 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     # argument and slightly stronger. Every column is a closed enum, a number, a boolean, an
     # instant, a machine id (the probe's own name), a bounded string from the VENDOR's own
     # vocabulary (plan tier, subscription status, reset hint) or a bounded error code from the
-    # ``hbd.errors`` taxonomy — and the row is about OUR account with a vendor, not about a
+    # ``bayram.errors`` taxonomy — and the row is about OUR account with a vendor, not about a
     # customer at all. ONE FIELD WAS AVAILABLE AND IS DELIBERATELY NOT STORED, which is what
     # keeps that claim true rather than nearly true: OpenRouter's ``data.label`` is the
     # operator's own free-text name for the API key and reads in practice like "Sardor laptop
@@ -221,7 +221,7 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     # ``telegram_user_id`` and is therefore about an identified person. Its route is
     # ``credit_ledger``'s and ``plan_purchases``' — both of which are in neither set for the
     # same reason — namely erasure by ANONYMISATION on request, in
-    # ``hbd.db.credit_erasure.forget_account``, which nulls ``telegram_user_id`` and keeps the
+    # ``bayram.db.credit_erasure.forget_account``, which nulls ``telegram_user_id`` and keeps the
     # row so the aggregate survives. (The column is nullable for exactly and only that
     # purpose; the arm that nulls it lands with the churn write path.) It is NOT in
     # ``tables_erased_on_request`` because that set's stated semantics are "the absence of a
@@ -230,7 +230,7 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     # because that set demands a ``*_expires_at`` clock, and adding that suffix here would
     # oblige a sweep BY NAME in ``tests/test_db/test_audit_retention.py`` and claim a legal
     # schedule this table does not have — its bound is a 400-day CUTOFF on ``at``
-    # (``hbd.db.purge.BOT_MEMBERSHIP_RETENTION_DAYS``), which is defence in depth beside the
+    # (``bayram.db.purge.BOT_MEMBERSHIP_RETENTION_DAYS``), which is defence in depth beside the
     # erasure arm and never a substitute for it.
     #
     # ``topup_purchases`` (revision 0020) — AND ``plan_purchases`` (revision 0015), which has
@@ -255,7 +255,7 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     # idempotency key, an opaque hex token minted by ``secrets.token_hex``, a merchant account
     # id, a boolean or a clock — no name, no note, no lyric, no free text of any kind, so
     # nothing on it is text ABOUT a person. Its erasure route is ANONYMISATION in
-    # ``hbd.db.credit_erasure.forget_account``, which nulls ``telegram_user_id`` and keeps
+    # ``bayram.db.credit_erasure.forget_account``, which nulls ``telegram_user_id`` and keeps
     # everything else. It is NOT in ``tables_erased_on_request`` because that set's stated
     # semantics are "the absence of a row IS the erasure record", and here the absence of a row
     # would be a LIE TOLD TO A THIRD PARTY: the payment rail keeps its own copy of the
@@ -266,7 +266,7 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     # ``valid_until``, how long the payment page stays payable — is a BUSINESS clock, named
     # without that suffix on purpose, exactly as ``plan_purchases.plan_ends_at`` is. Its growth
     # is bounded by a 400-day CUTOFF on ``created_at`` restricted to TERMINAL UNPAID rows
-    # (``hbd.db.purge.PAYMENT_INTENT_RETENTION_DAYS``) — a ``paid`` intent is never swept —
+    # (``bayram.db.purge.PAYMENT_INTENT_RETENTION_DAYS``) — a ``paid`` intent is never swept —
     # which is defence in depth beside the erasure arm and never a substitute for it.
     #
     # ``payme_transactions`` makes a stronger claim than any receipt table above: IT HOLDS NO
@@ -286,7 +286,7 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     # bodies would have been convenient and is refused for exactly this reason: it would drag
     # the one table an operator reads DURING an incident into the set above, onto a retention
     # clock, deleting itself on a schedule. Its growth is bounded by a 90-day CUTOFF on ``at``
-    # (``hbd.db.purge.PAYME_RPC_LOG_RETENTION_DAYS``), which is ``vendor_usage``'s shape and
+    # (``bayram.db.purge.PAYME_RPC_LOG_RETENTION_DAYS``), which is ``vendor_usage``'s shape and
     # ``vendor_usage``'s argument.
     #
     # ``broadcasts``, ``broadcast_bodies`` and ``broadcast_recipients`` (revision 0024) are all
@@ -314,13 +314,13 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     # ``*_expires_at`` clock, which would oblige a sweep BY NAME in ``test_audit_retention.py``
     # and claim a legal schedule this table does not have; its growth — the fastest in this
     # schema, one row per account per campaign — is bounded instead by a 400-day CUTOFF on
-    # ``created_at`` (``hbd.db.purge.BROADCAST_RECIPIENT_RETENTION_DAYS``), counted by
+    # ``created_at`` (``bayram.db.purge.BROADCAST_RECIPIENT_RETENTION_DAYS``), counted by
     # ``purge_runs.broadcast_recipients_deleted``, which is defence in depth beside the
     # erasure arm and never a substitute for it.
     #
     # THE ROUTE IS THEREFORE THE THIRD ONE, STATED ONCE SO A LATER READER DOES NOT HAVE TO
-    # RECONSTRUCT IT: identity leaves by ``hbd.db.credit_erasure.forget_account``'s
-    # anonymising ``UPDATE``, growth leaves by ``hbd.db.purge._purge_broadcast_recipients``'
+    # RECONSTRUCT IT: identity leaves by ``bayram.db.credit_erasure.forget_account``'s
+    # anonymising ``UPDATE``, growth leaves by ``bayram.db.purge._purge_broadcast_recipients``'
     # cutoff, and nothing about this table is on a clock. Moving it into either set above
     # would break one of those two: naming it personal data demands an ``*_expires_at`` the
     # sweep would then have to read as a legal schedule, and naming it erased-on-request

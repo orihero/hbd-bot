@@ -4,7 +4,7 @@ Every test here is a regression test for a specific finding against slice 1a, an
 fails against the code as it shipped:
 
 * **The vendor refusal missed a credential.** ``VENDOR_SECRET_FIELDS`` listed three keys
-  while ``Settings`` carried four, so ``HBD_LLM_FALLBACK_API_KEY`` reached a prod admin host
+  while ``Settings`` carried four, so ``BAYRAM_LLM_FALLBACK_API_KEY`` reached a prod admin host
   with neither a refusal nor a warning. The shape test below is the part that matters: it
   fails for the *fifth* credential too, without anyone remembering this file exists.
 * **``__Host-`` cookies were unusable in dev.** The prefix is defined to make a browser
@@ -29,18 +29,18 @@ from typing import Any, Final
 import httpx
 import pytest
 
-from hbd.admin.app import FORBIDDEN_ENV_VARS, create_app
-from hbd.admin.container import AdminContainer
-from hbd.admin.csrf import ANY_ORIGIN, CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
-from hbd.admin.settings import AdminEnvironment, AdminSettings, build_admin_settings
-from hbd.config import (
+from bayram.admin.app import FORBIDDEN_ENV_VARS, create_app
+from bayram.admin.container import AdminContainer
+from bayram.admin.csrf import ANY_ORIGIN, CSRF_COOKIE_NAME, SESSION_COOKIE_NAME
+from bayram.admin.settings import AdminEnvironment, AdminSettings, build_admin_settings
+from bayram.config import (
     ENV_PREFIX,
     REQUIRED_VENDOR_SECRET_FIELDS,
     VENDOR_SECRET_FIELDS,
     Settings,
     build_settings,
 )
-from hbd.errors import ConfigError
+from bayram.errors import ConfigError
 from tests.test_admin.conftest import HMAC_KEY, create_account, make_settings, sign_in
 
 #: A field whose name *ends* in one of these words holds a credential. Anchored so
@@ -59,7 +59,7 @@ _HOST_PREFIX: Final[str] = "__Host-"
 _ENVIRONMENTS: Final[tuple[AdminEnvironment, ...]] = ("dev", "staging", "prod")
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _ENV_EXAMPLE: Final[Path] = _REPO_ROOT / ".env.admin.example"
-_DOCUMENTED_VARIABLE: Final[re.Pattern[str]] = re.compile(r"^HBD_([A-Z0-9_]+)=", re.MULTILINE)
+_DOCUMENTED_VARIABLE: Final[re.Pattern[str]] = re.compile(r"^BAYRAM_([A-Z0-9_]+)=", re.MULTILINE)
 _MEMORY_URL: Final[str] = "sqlite+aiosqlite:///:memory:"
 
 
@@ -80,7 +80,7 @@ def _admin_values(**overrides: Any) -> dict[str, Any]:
 def test_every_secret_shaped_settings_field_is_a_declared_vendor_secret() -> None:
     """The shape test, so the *next* credential cannot be forgotten either.
 
-    ``VENDOR_SECRET_FIELDS`` is what ``hbd.admin.app`` derives ``FORBIDDEN_ENV_VARS`` from.
+    ``VENDOR_SECRET_FIELDS`` is what ``bayram.admin.app`` derives ``FORBIDDEN_ENV_VARS`` from.
     A credential on ``Settings`` that is missing from it is a credential the admin host may
     hold in prod with no refusal and no warning.
     """
@@ -153,7 +153,7 @@ async def test_prod_refuses_to_start_with_the_payme_merchant_key_in_the_admin_en
     variable = f"{ENV_PREFIX}PAYME_MERCHANT_KEY"
     env_file = tmp_path / ".env.admin"
     env_file.write_text(f"{variable}=a-value-that-must-not-be-here\n", encoding="utf-8")
-    monkeypatch.setattr("hbd.admin.app.ADMIN_ENV_FILE", str(env_file))
+    monkeypatch.setattr("bayram.admin.app.ADMIN_ENV_FILE", str(env_file))
     application = create_app(make_settings(environment="prod"))
 
     # Act / Assert
@@ -262,7 +262,7 @@ def test_a_missing_public_origin_is_a_boot_refusal_outside_dev(environment: str)
         build_admin_settings(_admin_values(environment=environment))
     message = caught.value.operator_message
     assert f"{ENV_PREFIX}ADMIN_PUBLIC_ORIGIN" in message
-    # A cross-field refusal has no single field to blame, and "HBD_<ROOT>" names nothing.
+    # A cross-field refusal has no single field to blame, and "BAYRAM_<ROOT>" names nothing.
     assert "<ROOT>" not in message
 
 
@@ -454,7 +454,7 @@ def test_a_similarity_threshold_outside_zero_to_one_is_refused_at_boot(value: fl
 def test_the_mirrored_settlement_grace_defaults_to_unpublished() -> None:
     """The second mirror, and the same argument: the worker owns the number.
 
-    It is either ``HBD_SETTLEMENT_GRACE_S`` or derived from the worker's queue ladder, and
+    It is either ``BAYRAM_SETTLEMENT_GRACE_S`` or derived from the worker's queue ladder, and
     this process reads neither. Unset means the panel counts in-flight renders against
     ``DEFAULT_ENTITLEMENT_POLICY`` and says so on ``GET /api/config``, rather than asserting
     a parity with the customer's gate that it cannot know it has.
@@ -514,7 +514,7 @@ def test_a_free_allowance_outside_the_workers_range_is_refused_at_boot(value: in
 
 def test_the_audit_dsn_is_carried_verbatim_for_the_two_places_that_read_it() -> None:
     """Migration 0006's REVOKE guard and ``/audit/verify``'s report both read this."""
-    dsn = "postgresql+asyncpg://hbd_owner:pw@localhost:5432/hbd"
+    dsn = "postgresql+asyncpg://bayram_owner:pw@localhost:5432/hbd"
     assert make_settings(admin_audit_dsn=dsn).admin_audit_dsn == dsn
 
 
@@ -545,7 +545,7 @@ def test_the_dotenv_library_the_boot_check_imports_is_a_declared_dependency() ->
     resting on somebody else's dependency graph.
     """
     # Arrange - the import is real, not hypothetical
-    source = (_REPO_ROOT / "src" / "hbd" / "admin" / "app.py").read_text(encoding="utf-8")
+    source = (_REPO_ROOT / "src" / "bayram" / "admin" / "app.py").read_text(encoding="utf-8")
     assert "from dotenv import" in source
 
     # Act - the declared runtime dependency names, normalised the way PEP 508 compares them

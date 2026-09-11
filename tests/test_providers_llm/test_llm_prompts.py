@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.contracts import Language
-from hbd.errors import ConfigError
-from hbd.providers.llm.prompt_loader import language_guide, load_prompt, render_prompt
+from bayram.contracts import Language
+from bayram.errors import ConfigError
+from bayram.providers.llm.prompt_loader import language_guide, load_prompt, render_prompt
 
 MODIFIER_TURNED_COMMA = "ʻ"
 ALL_TEMPLATES = (

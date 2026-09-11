@@ -50,7 +50,7 @@ export interface PrefsState {
   toggleCommandPalette: () => void;
 }
 
-export const PREFS_STORAGE_KEY = "hbd.admin.prefs";
+export const PREFS_STORAGE_KEY = "bayram.admin.prefs";
 
 export const usePrefsStore = create<PrefsState>()(
   persist(

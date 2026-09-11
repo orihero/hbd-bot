@@ -7,7 +7,7 @@
  * `export const Component = XScreen;` — keep that line when you replace a placeholder.
  *
  * `createBrowserRouter`, not the hash router: the server serves `index.html` for every
- * non-`/api` GET (see `_mount_spa` in `src/hbd/admin/app.py`), so a deep link pasted into
+ * non-`/api` GET (see `_mount_spa` in `src/bayram/admin/app.py`), so a deep link pasted into
  * Slack resolves on a cold load. A hash router would work without that server support and
  * would break every URL an operator has already shared, so the server support is the thing
  * that must not regress.

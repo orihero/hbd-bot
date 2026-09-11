@@ -38,10 +38,10 @@ from typing import Final
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.db.admin.plan_purchases import plan_liability, subscription_churn
-from hbd.db.admin.sql import TimeWindow
-from hbd.db.enums import PlanKind
-from hbd.db.models import PlanPurchaseRow
+from bayram.db.admin.plan_purchases import plan_liability, subscription_churn
+from bayram.db.admin.sql import TimeWindow
+from bayram.db.enums import PlanKind
+from bayram.db.models import PlanPurchaseRow
 from tests.conftest import FIXED_NOW
 
 #: The instant every assertion here is read at. Plans end before it or after it, and exactly

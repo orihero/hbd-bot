@@ -603,7 +603,7 @@ export function UsersScreen(): ReactElement {
             visible as a removal chip up there as well.
 
             There is deliberately no "In Wizard" chip, and it is not an oversight. Wizard state
-            is per-user Redis (`hbd/admin/wizard_state.py`, read one id at a time through
+            is per-user Redis (`bayram/admin/wizard_state.py`, read one id at a time through
             `GET /users/{id}/wizard-state`); there is no list-level source and no `users`
             column to filter on, so the chip could only be built by fetching every row's Redis
             key — which is a scan, not a filter. It arrives when a list-level source does.

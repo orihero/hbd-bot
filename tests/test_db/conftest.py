@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
-from hbd.contracts import (
+from bayram.contracts import (
     AssetKind,
     Kit,
     NameCandidate,
@@ -38,12 +38,12 @@ from hbd.contracts import (
     Order,
     OrderState,
 )
-from hbd.db.attempts import GenerationAttemptRepository
-from hbd.db.engine import create_session_factory
-from hbd.db.models import Base
-from hbd.db.names import NameRecordRepository
-from hbd.db.repository import SqlKitRepository
-from hbd.db.retention import DEFAULT_RETENTION_POLICY, RetentionPolicy
+from bayram.db.attempts import GenerationAttemptRepository
+from bayram.db.engine import create_session_factory
+from bayram.db.models import Base
+from bayram.db.names import NameRecordRepository
+from bayram.db.repository import SqlKitRepository
+from bayram.db.retention import DEFAULT_RETENTION_POLICY, RetentionPolicy
 from tests.conftest import FIXED_NOW, make_asset, make_lyrics, make_order
 
 
@@ -186,7 +186,7 @@ async def refuse_a_foreign_database(engine: AsyncEngine) -> None:
     """Raise unless every table in this database belongs to this project.
 
     Every Postgres fixture in the suite runs ``Base.metadata.drop_all`` against whatever
-    answers at ``HBD_TEST_POSTGRES_URL``, whose default is ``localhost:5432`` — the port a
+    answers at ``BAYRAM_TEST_POSTGRES_URL``, whose default is ``localhost:5432`` — the port a
     developer's unrelated Postgres is most likely to be on. ``drop_all`` only drops tables
     the metadata names, so the blast radius was always bounded, but "bounded" is not the
     same as "checked": a database that happens to contain a table called ``users`` or
@@ -198,7 +198,7 @@ async def refuse_a_foreign_database(engine: AsyncEngine) -> None:
     """
     import sqlalchemy as sa
 
-    from hbd.db.models import Base
+    from bayram.db.models import Base
 
     async with engine.connect() as connection:
         found = await connection.run_sync(lambda sync: set(sa.inspect(sync).get_table_names()))
@@ -206,6 +206,6 @@ async def refuse_a_foreign_database(engine: AsyncEngine) -> None:
     if unknown:
         raise RuntimeError(
             "refusing to drop_all against a database this project did not create; it holds "
-            f"{sorted(unknown)}. Point HBD_TEST_POSTGRES_URL at the project's container "
-            "(docker compose up -d), or set HBD_POSTGRES_PORT to a free port."
+            f"{sorted(unknown)}. Point BAYRAM_TEST_POSTGRES_URL at the project's container "
+            "(docker compose up -d), or set BAYRAM_POSTGRES_PORT to a free port."
         )

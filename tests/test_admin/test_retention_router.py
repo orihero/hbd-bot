@@ -28,14 +28,14 @@ from typing import Any, Final
 import httpx
 import pytest
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.routers.retention import RETENTION_PATH
-from hbd.admin.schemas.retention import _SEVERITY, StorageReconciliation, SweepCounts
-from hbd.db.admin.retention import MAX_RUN_HISTORY, record_run
-from hbd.db.base import utc_now
-from hbd.db.enums import AdminRole, PurgeTrigger
-from hbd.db.models.purge_run import PurgeRunRow
-from hbd.db.purge import PurgeReport, rows_past_expiry_statements
+from bayram.admin.container import AdminContainer
+from bayram.admin.routers.retention import RETENTION_PATH
+from bayram.admin.schemas.retention import _SEVERITY, StorageReconciliation, SweepCounts
+from bayram.db.admin.retention import MAX_RUN_HISTORY, record_run
+from bayram.db.base import utc_now
+from bayram.db.enums import AdminRole, PurgeTrigger
+from bayram.db.models.purge_run import PurgeRunRow
+from bayram.db.purge import PurgeReport, rows_past_expiry_statements
 from tests.test_admin.conftest import PASSWORD, create_account, sign_in
 
 #: Every seeded run is anchored to the wall clock, because the route counts the live backlog

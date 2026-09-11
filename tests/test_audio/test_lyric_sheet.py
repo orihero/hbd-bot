@@ -12,13 +12,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hbd.audio.lyric_sheet import (
+from bayram.audio.lyric_sheet import (
     canonicalize_uzbek_latin,
     enforce_display_name,
     render_lyric_sheet,
     write_lyric_sheet,
 )
-from hbd.contracts import Language, LyricSection, is_err, is_ok
+from bayram.contracts import Language, LyricSection, is_err, is_ok
 from tests.conftest import UZBEK_NAME_CANONICAL, UZBEK_NAME_TYPED, make_lyrics
 
 TURNED_COMMA = "ʻ"  # MODIFIER LETTER TURNED COMMA — correct in oʻ / gʻ

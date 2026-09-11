@@ -91,7 +91,7 @@ const CAPABILITY_ROWS: readonly {
    * The two `vendor_usage` probes, and they are a PAIR because they are two different
    * absences with two different remedies. "not instrumented" means no worker writes a row —
    * deploy one. "no rate configured" means the rows are there and the money is not — set
-   * `HBD_LLM_USD_PER_MILLION_*` or `HBD_ELEVENLABS_USD_PER_CHARACTER`. Collapsing them into
+   * `BAYRAM_LLM_USD_PER_MILLION_*` or `BAYRAM_ELEVENLABS_USD_PER_CHARACTER`. Collapsing them into
    * one row would send an operator looking for a missing writer that is already running.
    */
   { key: "isVendorUsage", label: "vendor usage", offLabel: NOT_INSTRUMENTED_LABEL },

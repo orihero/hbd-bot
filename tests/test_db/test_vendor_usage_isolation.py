@@ -1,6 +1,6 @@
 """The structural half of "fake-provider rows are excluded", asserted with ``ast``.
 
-``hbd.db.admin.vendor_usage._narrow`` applies ``is_fake IS false`` unless a caller opts in,
+``bayram.db.admin.vendor_usage._narrow`` applies ``is_fake IS false`` unless a caller opts in,
 and every reporting aggregate in that module is built through it. That is a property of one
 file, and a property of one file is only an invariant of the SYSTEM if no second file can
 build a ``vendor_usage`` SELECT behind its back.
@@ -13,14 +13,14 @@ importing ``VendorUsageRow``, and that import fails here.
 The allowlist is six modules and each one is on it for a stated reason:
 
 * the model itself, and the registry that re-exports it;
-* ``hbd.db.vendor_usage`` — the WRITER, which by definition sees every row including the
+* ``bayram.db.vendor_usage`` — the WRITER, which by definition sees every row including the
   fake ones, because recording a demo run is the whole reason ``is_fake`` exists;
-* ``hbd.db.purge`` — the retention sweep, which DELETES by age and must not skip fake rows;
+* ``bayram.db.purge`` — the retention sweep, which DELETES by age and must not skip fake rows;
   filtering them there would leak a demo run past its cutoff for ever;
-* ``hbd.db.vendor_balances`` — the balance poller's per-song rate measurement, the one
+* ``bayram.db.vendor_balances`` — the balance poller's per-song rate measurement, the one
   non-reporting reader, which spells ``is_fake.is_(False)`` itself and is therefore on this
   list by name rather than by accident;
-* ``hbd.db.admin.vendor_usage`` — the only module in ``src/`` that reports on the table.
+* ``bayram.db.admin.vendor_usage`` — the only module in ``src/`` that reports on the table.
 
 Adding a seventh is a decision, not an accident, and this test is where it gets made.
 """
@@ -35,12 +35,12 @@ from typing import Final
 #: the argument behind each entry; a name added here without one is the failure this guards.
 ALLOWED_MODULES: Final[frozenset[str]] = frozenset(
     {
-        "hbd.db.models.vendor_usage",
-        "hbd.db.models.__init__",
-        "hbd.db.vendor_usage",
-        "hbd.db.purge",
-        "hbd.db.vendor_balances",
-        "hbd.db.admin.vendor_usage",
+        "bayram.db.models.vendor_usage",
+        "bayram.db.models.__init__",
+        "bayram.db.vendor_usage",
+        "bayram.db.purge",
+        "bayram.db.vendor_balances",
+        "bayram.db.admin.vendor_usage",
     }
 )
 
@@ -49,7 +49,7 @@ _SOURCE_ROOT: Final[Path] = Path(__file__).resolve().parents[2] / "src"
 
 
 def _module_name(path: Path) -> str:
-    """``src/hbd/db/purge.py`` → ``hbd.db.purge``; a package file keeps its ``__init__``."""
+    """``src/bayram/db/purge.py`` → ``bayram.db.purge``; a package file keeps its ``__init__``."""
     return ".".join(path.relative_to(_SOURCE_ROOT).with_suffix("").parts)
 
 
@@ -85,7 +85,7 @@ def test_only_the_named_modules_can_build_a_vendor_usage_query() -> None:
     assert importers - ALLOWED_MODULES == set(), (
         "a module outside the allowlist imports VendorUsageRow and can therefore build a "
         "SELECT that skipped _narrow's is_fake filter; either route the query through "
-        "hbd.db.admin.vendor_usage, or add the module to ALLOWED_MODULES with the reason"
+        "bayram.db.admin.vendor_usage, or add the module to ALLOWED_MODULES with the reason"
     )
 
 

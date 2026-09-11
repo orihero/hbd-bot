@@ -5,14 +5,14 @@ data now holds EIGHT keys — the draft, the in-flight order id, its progress me
 checkout's three purchase markers, and the two identity caches ``clear_keeping_identity``
 preserves. That count has been wrong in a comment three times: ``submitting.py`` once claimed
 there were two, and this docstring itself said five until the checkout's keys were counted.
-``src/hbd/bot/draft.py``'s module docstring is the list of record; this line exists only so a
+``src/bayram/bot/draft.py``'s module docstring is the list of record; this line exists only so a
 reader here knows the dict is shared. A draft reader that assumed it was alone in it would
 report an expired session to a customer whose draft is sitting right there.
 """
 
 from __future__ import annotations
 
-from hbd.bot.draft import (
+from bayram.bot.draft import (
     DRAFT_KEY,
     MAX_NOTE_CHARS,
     ONBOARDED_KEY,
@@ -21,7 +21,7 @@ from hbd.bot.draft import (
     WizardDraft,
     load_draft,
 )
-from hbd.contracts import Brief, Err, Genre, Language, Occasion, Ok, VoiceGender
+from bayram.contracts import Brief, Err, Genre, Language, Occasion, Ok, VoiceGender
 from tests.conftest import make_name
 
 

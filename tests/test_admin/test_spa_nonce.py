@@ -1,7 +1,7 @@
 """The style nonce, end to end: minted per response, spent in exactly one document.
 
 ``SecurityHeadersMiddleware`` has always minted a fresh nonce and put it in the CSP. Until
-:mod:`hbd.admin.shell` existed, nothing ever read it — the policy promised
+:mod:`bayram.admin.shell` existed, nothing ever read it — the policy promised
 ``style-src 'self' 'nonce-<per-response>'`` and the bundle never learned the value, so every
 ``<style>`` element the SPA injects at runtime was blocked. The observable symptom was one
 ``style-src-elem`` violation on opening any Radix modal and a scroll lock that silently did
@@ -31,18 +31,18 @@ from typing import Final
 import httpx
 import pytest
 
-from hbd.admin import app as app_module
-from hbd.admin.app import create_app
-from hbd.admin.container import AdminContainer
-from hbd.admin.middleware.security_headers import build_csp
-from hbd.admin.shell import CSP_NONCE_META_NAME, CSP_NONCE_PLACEHOLDER, render_shell
+from bayram.admin import app as app_module
+from bayram.admin.app import create_app
+from bayram.admin.container import AdminContainer
+from bayram.admin.middleware.security_headers import build_csp
+from bayram.admin.shell import CSP_NONCE_META_NAME, CSP_NONCE_PLACEHOLDER, render_shell
 from tests.test_admin.conftest import ORIGIN
 
 #: Shaped like the real shell: the meta element carries the literal placeholder.
 _SHELL: Final[str] = (
     "<!doctype html><html><head>"
     f'<meta name="{CSP_NONCE_META_NAME}" content="{CSP_NONCE_PLACEHOLDER}" />'
-    "<title>hbd admin</title></head><body><div id=root></div></body></html>"
+    "<title>Bayram Admin</title></head><body><div id=root></div></body></html>"
 )
 
 #: The repository's own shell, the one ``vite build`` copies into the wheel verbatim.
@@ -58,7 +58,7 @@ _HEADER_NONCE: Final[re.Pattern[str]] = re.compile(r"style-src 'self' 'nonce-([^
 def shell_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A bundle whose shell carries the placeholder, patched onto the module.
 
-    Never written into ``src/hbd/admin/static``: the suite must not depend on whether
+    Never written into ``src/bayram/admin/static``: the suite must not depend on whether
     anybody has run ``make ui-build``, and must not leave a bundle behind for a later test.
     """
     static = tmp_path / "static"
@@ -182,7 +182,7 @@ def test_a_shell_with_no_placeholder_is_served_unchanged_and_logged(
     # Arrange - the shape of a bundle built before the placeholder existed. An operator
     # reaching for the console mid-incident is better served by a panel whose modals do not
     # lock the background than by a 500; the log line is what keeps it from being silent.
-    stale = "<!doctype html><title>hbd admin</title>"
+    stale = "<!doctype html><title>Bayram Admin</title>"
 
     # Act
     with caplog.at_level("WARNING"):

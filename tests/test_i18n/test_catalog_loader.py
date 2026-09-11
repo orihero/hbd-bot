@@ -8,9 +8,9 @@ from typing import Any
 
 import pytest
 
-from hbd.contracts import Language
-from hbd.errors import ConfigError, ErrorCode
-from hbd.i18n.catalog import (
+from bayram.contracts import Language
+from bayram.errors import ConfigError, ErrorCode
+from bayram.i18n.catalog import (
     Catalog,
     key_parity_report,
     load_catalog_file,

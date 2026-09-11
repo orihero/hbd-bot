@@ -94,7 +94,7 @@ export const SELF_HOSTED_FACES = [
   "Mulish",
   "Urbanist",
   "Noto Sans Mono",
-  "HBD Status Symbols",
+  "Bayram Status Symbols",
 ] as const;
 
 /** One character, rasterised. */
@@ -114,7 +114,7 @@ export interface GlyphMeasurement {
 export interface StackCoverage {
   /** The custom property this stack came from — `--font-sans`, `--font-heading`, `--font-mono`. */
   readonly variable: string;
-  /** The stack as the page computed it, e.g. `Mulish, "HBD Status Symbols", …`. */
+  /** The stack as the page computed it, e.g. `Mulish, "Bayram Status Symbols", …`. */
   readonly stack: string;
   /** `ctx.font` after assignment. If the stack failed to parse this is the browser default. */
   readonly resolvedFont: string;
@@ -379,7 +379,7 @@ export interface FaceStatus {
  *
  * `document.fonts.ready` is not enough on its own. A face is fetched lazily, when a
  * character it can serve is actually laid out, and a `unicode-range` narrows that further —
- * "HBD Status Symbols" is not requested at all until a page draws one of its nineteen
+ * "Bayram Status Symbols" is not requested at all until a page draws one of its nineteen
  * codepoints. A canvas probe never triggers that: `ctx.font` matches only against fonts
  * that are already loaded, so an unloaded face is invisible to it and every measurement
  * would silently be of the fallback. `load()` per family, with the text that will be

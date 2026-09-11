@@ -2,10 +2,10 @@
  * The segment document — the one JSON both `?segment=` and a campaign's audience carry — and
  * the base64url envelope it rides in.
  *
- * This is the client half of `hbd.admin.schemas.segment`. It owns the wire SHAPE and the
+ * This is the client half of `bayram.admin.schemas.segment`. It owns the wire SHAPE and the
  * envelope, and it decides no audience whatsoever: which fields exist, which operator applies
  * to which kind and how many rules a document may carry are questions
- * `hbd.db.admin.segment` answers, published to this app as data by
+ * `bayram.db.admin.segment` answers, published to this app as data by
  * `GET /api/segments/fields` (`api/segments.ts`). Nothing here is a second copy of that
  * registry, and nothing here may become one — a builder generated from a hand-kept list
  * eventually offers a field the compiler refuses, which is a 422 the operator cannot read.

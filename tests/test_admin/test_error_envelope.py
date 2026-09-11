@@ -34,10 +34,10 @@ import pytest
 from fastapi import FastAPI
 from starlette.types import Message, Receive, Scope, Send
 
-from hbd.admin import app as app_module
-from hbd.admin.app import FORBIDDEN_ENV_VARS, create_app, derive_forbidden_env_vars
-from hbd.admin.container import AdminContainer
-from hbd.admin.errors import (
+from bayram.admin import app as app_module
+from bayram.admin.app import FORBIDDEN_ENV_VARS, create_app, derive_forbidden_env_vars
+from bayram.admin.container import AdminContainer
+from bayram.admin.errors import (
     STATUS_BY_ADMIN_CODE,
     AdminErrorCode,
     AdminProblem,
@@ -45,15 +45,15 @@ from hbd.admin.errors import (
     problem,
     status_for,
 )
-from hbd.admin.middleware import (
+from bayram.admin.middleware import (
     CORRELATION_HEADER,
     UnhandledErrorMiddleware,
     is_valid_correlation_id,
 )
-from hbd.admin.settings import ADMIN_ENV_FILE
-from hbd.config import FOREIGN_SECRET_ENV_VARS, VENDOR_SECRET_FIELDS
-from hbd.errors import ConfigError
-from hbd.logging import current_correlation_id
+from bayram.admin.settings import ADMIN_ENV_FILE
+from bayram.config import FOREIGN_SECRET_ENV_VARS, VENDOR_SECRET_FIELDS
+from bayram.errors import ConfigError
+from bayram.logging import current_correlation_id
 from tests.test_admin.conftest import ORIGIN, make_settings
 
 #: Registered on a per-test application only, so the route-enumerating permission test
@@ -86,7 +86,7 @@ class LoggedLine:
 class LineCapture(logging.Handler):
     """Capture records with the correlation id bound *at emit time*.
 
-    That is precisely what ``hbd.logging._CorrelationFilter`` stamps onto a record in
+    That is precisely what ``bayram.logging._CorrelationFilter`` stamps onto a record in
     production, so reading it here proves the incident line and the request line are
     joinable without asserting on a formatted string.
     """
@@ -117,7 +117,7 @@ def captured(monkeypatch: pytest.MonkeyPatch) -> Iterator[LineCapture]:
     ``configure_logging`` replaces every root handler, so it is stubbed out: this test is
     about which level a failure is logged at, not about how logging is configured.
     """
-    monkeypatch.setattr("hbd.admin.app.configure_logging", lambda **_: None)
+    monkeypatch.setattr("bayram.admin.app.configure_logging", lambda **_: None)
     handler = LineCapture()
     root = logging.getLogger()
     previous_level = root.level
@@ -316,7 +316,7 @@ def write_env_admin(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, line: str) 
     """Point the boot check at a throwaway ``.env.admin`` holding exactly ``line``."""
     env_file = tmp_path / ".env.admin"
     env_file.write_text(f"{line}\n", encoding="utf-8")
-    monkeypatch.setattr("hbd.admin.app.ADMIN_ENV_FILE", str(env_file))
+    monkeypatch.setattr("bayram.admin.app.ADMIN_ENV_FILE", str(env_file))
 
 
 @pytest.mark.parametrize("variable", FORBIDDEN_ENV_VARS)
@@ -361,7 +361,7 @@ async def test_dev_warns_about_a_vendor_key_in_the_env_admin_file(
     # Arrange
     variable = FORBIDDEN_ENV_VARS[-1]
     write_env_admin(tmp_path, monkeypatch, f"{variable}={_SECRET_VALUE}")
-    monkeypatch.setattr("hbd.admin.app.configure_logging", lambda **_: None)
+    monkeypatch.setattr("bayram.admin.app.configure_logging", lambda **_: None)
     application = create_app(container=container)
 
     # Act
@@ -383,7 +383,7 @@ async def test_an_empty_value_in_the_env_admin_file_is_not_a_present_credential(
 ) -> None:
     # Arrange - a blanked key is the normal shape of "not set", not of "present"
     write_env_admin(tmp_path, monkeypatch, f"{FORBIDDEN_ENV_VARS[0]}=")
-    monkeypatch.setattr("hbd.admin.app.configure_logging", lambda **_: None)
+    monkeypatch.setattr("bayram.admin.app.configure_logging", lambda **_: None)
     application = create_app(container=container)
 
     # Act
@@ -402,7 +402,7 @@ async def test_a_missing_env_admin_file_is_not_an_error(
     container: AdminContainer, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     # Arrange
-    monkeypatch.setattr("hbd.admin.app.ADMIN_ENV_FILE", str(tmp_path / "absent.env"))
+    monkeypatch.setattr("bayram.admin.app.ADMIN_ENV_FILE", str(tmp_path / "absent.env"))
     application = create_app(container=container)
 
     # Act
@@ -426,8 +426,8 @@ async def test_an_unreadable_env_admin_file_is_reported_rather_than_swallowed(
     # Arrange - the file is there; the OS refuses it. A missing file is simply empty, so
     # only a real OSError reaches the handler under test.
     write_env_admin(tmp_path, monkeypatch, f"{FORBIDDEN_ENV_VARS[0]}={_SECRET_VALUE}")
-    monkeypatch.setattr("hbd.admin.app.dotenv_values", refuse_to_read)
-    monkeypatch.setattr("hbd.admin.app.configure_logging", lambda **_: None)
+    monkeypatch.setattr("bayram.admin.app.dotenv_values", refuse_to_read)
+    monkeypatch.setattr("bayram.admin.app.configure_logging", lambda **_: None)
     application = create_app(container=container)
 
     # Act - the boot continues on the half of the check that still works
@@ -443,18 +443,18 @@ async def test_an_unreadable_env_admin_file_is_reported_rather_than_swallowed(
 
 
 def test_the_forbidden_list_is_derived_rather_than_restated() -> None:
-    """The list is a spelling of two tuples in ``hbd.config``, not a third hand-written one.
+    """The list is a spelling of two tuples in ``bayram.config``, not a third hand-written one.
 
     Read through the module's own helper rather than by restating the derivation here: the
     forbidden set now covers two populations that are different kinds of thing - credentials
     declared as FIELDS on ``Settings``, and environment variable NAMES belonging to a settings
-    model this host never loads (``HBD_PAYME_MERCHANT_KEY``) - and a copy of that arithmetic
+    model this host never loads (``BAYRAM_PAYME_MERCHANT_KEY``) - and a copy of that arithmetic
     living in a test is a copy that keeps passing while the two spellings diverge.
     """
     # Arrange / Act
     derived = derive_forbidden_env_vars()
 
-    # Assert - a sixth credential added to hbd.config is covered without an edit here, and
+    # Assert - a sixth credential added to bayram.config is covered without an edit here, and
     # so is a second foreign secret; the length pins that neither population was dropped.
     assert derived == FORBIDDEN_ENV_VARS
     assert len(FORBIDDEN_ENV_VARS) == len(VENDOR_SECRET_FIELDS) + len(FOREIGN_SECRET_ENV_VARS)

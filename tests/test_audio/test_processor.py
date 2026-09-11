@@ -20,10 +20,10 @@ from pathlib import Path
 
 import pytest
 
-from hbd.audio.processor import FfmpegAudioPostProcessor
-from hbd.audio.startup import ensure_ffmpeg_available
-from hbd.config import Settings
-from hbd.contracts import AudioPostProcessor, is_err, is_ok
+from bayram.audio.processor import FfmpegAudioPostProcessor
+from bayram.audio.startup import ensure_ffmpeg_available
+from bayram.config import Settings
+from bayram.contracts import AudioPostProcessor, is_err, is_ok
 from tests.test_audio.conftest import (
     ABSENT_BINARY,
     FFPROBE_BINARY,

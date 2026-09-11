@@ -33,19 +33,19 @@ import httpx
 import pytest
 from fastapi.routing import APIRoute
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.deps import RequirePermission
-from hbd.admin.routers.generations import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.deps import RequirePermission
+from bayram.admin.routers.generations import (
     GENERATIONS_PATH,
     build_generations_router,
 )
-from hbd.admin.security.permissions import RBAC_MATRIX, Permission
-from hbd.admin.serializers.redaction import MASK
-from hbd.contracts import CostSource, NameStrategy, OrderState
-from hbd.db.enums import AdminRole, GenerationKind
-from hbd.db.models.generation_attempt import GenerationAttemptRow
-from hbd.db.models.order import OrderRow
-from hbd.db.models.user import UserRow
+from bayram.admin.security.permissions import RBAC_MATRIX, Permission
+from bayram.admin.serializers.redaction import MASK
+from bayram.contracts import CostSource, NameStrategy, OrderState
+from bayram.db.enums import AdminRole, GenerationKind
+from bayram.db.models.generation_attempt import GenerationAttemptRow
+from bayram.db.models.order import OrderRow
+from bayram.db.models.user import UserRow
 from tests.test_admin.conftest import NOW, PASSWORD, create_account, sign_in
 
 #: The name §12.3 names as the case that breaks naive slicing. U+02BB MODIFIER LETTER TURNED

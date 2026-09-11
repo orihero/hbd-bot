@@ -2,7 +2,7 @@
  * The two numbers `/generations` and `/generations/names` exist to produce.
  *
  * §11.2 gives `/generations` the dominant signal "overall verification rate" and
- * `/generations/names` the question "what should `HBD_NAME_CANDIDATE_ORDER` be?".
+ * `/generations/names` the question "what should `BAYRAM_NAME_CANDIDATE_ORDER` be?".
  * `config.py` answers the second's shape: `name_candidate_order` is `NoDecode` with a
  * comma-separated env spelling, and its own docstring says **"a bake-off result is applied
  * by reordering this list in the environment — never by editing code"**. So the screen's
@@ -71,7 +71,7 @@ export function suggestedCandidateOrder(
 }
 
 /** The environment variable a bake-off result is applied to. */
-export const CANDIDATE_ORDER_ENV = "HBD_NAME_CANDIDATE_ORDER";
+export const CANDIDATE_ORDER_ENV = "BAYRAM_NAME_CANDIDATE_ORDER";
 
 /** `canonical,stripped,ascii,…` — `_split_csv` in `config.py` is what reads this back. */
 export function candidateOrderValue(order: readonly NameStrategy[]): string {

@@ -25,10 +25,10 @@ from typing import Final
 import pytest
 import sqlalchemy as sa
 
-from hbd.admin.bootstrap import EXIT_CONFIG, EXIT_OK, EXIT_REFUSED, main
-from hbd.db.base import Base
-from hbd.db.enums import AdminRole
-from hbd.db.models.admin_user import AdminUserRow
+from bayram.admin.bootstrap import EXIT_CONFIG, EXIT_OK, EXIT_REFUSED, main
+from bayram.db.base import Base
+from bayram.db.enums import AdminRole
+from bayram.db.models.admin_user import AdminUserRow
 from tests.test_admin.conftest import HMAC_KEY, ORIGIN
 
 _PASSWORD: Final[str] = "a-long-enough-bootstrap-password"
@@ -41,12 +41,12 @@ _GROUP_READABLE_MODE: Final[int] = 0o640
 def admin_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> sa.Engine:
     """Point the CLI at a throwaway SQLite file, and hand back a synchronous reader."""
     path = tmp_path / "admin.db"
-    monkeypatch.setenv("HBD_DATABASE_URL", f"sqlite+aiosqlite:///{path}")
-    monkeypatch.setenv("HBD_ADMIN_AUDIT_HMAC_KEY", HMAC_KEY)
-    monkeypatch.setenv("HBD_ADMIN_PUBLIC_ORIGIN", ORIGIN)
-    monkeypatch.setenv("HBD_ADMIN_ARGON2_TIME_COST", "2")
-    monkeypatch.setenv("HBD_ADMIN_ARGON2_MEMORY_KIB", "32768")
-    monkeypatch.setenv("HBD_ADMIN_ARGON2_PARALLELISM", "1")
+    monkeypatch.setenv("BAYRAM_DATABASE_URL", f"sqlite+aiosqlite:///{path}")
+    monkeypatch.setenv("BAYRAM_ADMIN_AUDIT_HMAC_KEY", HMAC_KEY)
+    monkeypatch.setenv("BAYRAM_ADMIN_PUBLIC_ORIGIN", ORIGIN)
+    monkeypatch.setenv("BAYRAM_ADMIN_ARGON2_TIME_COST", "2")
+    monkeypatch.setenv("BAYRAM_ADMIN_ARGON2_MEMORY_KIB", "32768")
+    monkeypatch.setenv("BAYRAM_ADMIN_ARGON2_PARALLELISM", "1")
     engine = sa.create_engine(f"sqlite:///{path}")
     # Created up front so a refusal that never opens the database is still readable here.
     Base.metadata.create_all(engine)
@@ -82,7 +82,7 @@ def _answer_prompts(monkeypatch: pytest.MonkeyPatch, *answers: str) -> list[str]
         prompts.append(prompt)
         return queued.pop(0)
 
-    monkeypatch.setattr("hbd.admin.bootstrap.getpass.getpass", fake_getpass)
+    monkeypatch.setattr("bayram.admin.bootstrap.getpass.getpass", fake_getpass)
     return prompts
 
 
@@ -200,7 +200,7 @@ def test_a_second_run_reusing_the_first_login_is_refused_by_the_conditional_inse
 ) -> None:
     """The same login twice. Not a concurrency test, and no longer pretending to be one.
 
-    This used to monkeypatch ``hbd.admin.bootstrap.accounts.count_all`` to model "the second
+    This used to monkeypatch ``bayram.admin.bootstrap.accounts.count_all`` to model "the second
     run reads the table as the first left it". ``count_all`` has **zero call sites** in
     ``bootstrap.py`` — the pre-check was deleted — so the arrangement was inert and this was
     always a plain sequential double-run. The genuine two-connection race lives in
@@ -286,9 +286,9 @@ def test_a_missing_database_url_is_reported_as_a_configuration_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     # Arrange
-    monkeypatch.setattr("hbd.admin.settings.ADMIN_ENV_FILE", str(tmp_path / "absent.env"))
-    monkeypatch.delenv("HBD_DATABASE_URL", raising=False)
-    monkeypatch.setenv("HBD_ADMIN_AUDIT_HMAC_KEY", HMAC_KEY)
+    monkeypatch.setattr("bayram.admin.settings.ADMIN_ENV_FILE", str(tmp_path / "absent.env"))
+    monkeypatch.delenv("BAYRAM_DATABASE_URL", raising=False)
+    monkeypatch.setenv("BAYRAM_ADMIN_AUDIT_HMAC_KEY", HMAC_KEY)
     path = _password_file(tmp_path, _PASSWORD)
 
     # Act
@@ -296,4 +296,4 @@ def test_a_missing_database_url_is_reported_as_a_configuration_error(
 
     # Assert
     assert code == EXIT_CONFIG
-    assert "HBD_DATABASE_URL" in capsys.readouterr().out
+    assert "BAYRAM_DATABASE_URL" in capsys.readouterr().out

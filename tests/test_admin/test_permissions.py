@@ -27,7 +27,7 @@ from typing import Final
 
 import pytest
 
-from hbd.admin.security.permissions import (
+from bayram.admin.security.permissions import (
     MAX_STEP_UP_SCOPE_CHARS,
     RBAC_MATRIX,
     ROLE_PERMISSIONS,
@@ -48,7 +48,7 @@ from hbd.admin.security.permissions import (
     require_step_up,
     step_up_from_session,
 )
-from hbd.db.enums import AdminRole
+from bayram.db.enums import AdminRole
 
 _NOW: Final[datetime] = datetime(2026, 3, 21, 9, 0, 0, tzinfo=UTC)
 #: The window now arrives from ``AdminSettings.admin_step_up_grace_seconds``; these
@@ -142,6 +142,22 @@ _PLAN_MATRIX: Final[Mapping[Permission, tuple[str | None, str | None, str | None
     # transcribed from §6.8 as a bare owner ``W`` and the writes keep §12.2's ``W+S``.
     Permission.ADMIN_READ: (None, None, None, _W),
     Permission.ADMIN_MANAGE: (None, None, None, _WS),
+    # The role half of the row above, and the fifth time this table splits one. ``POST
+    # /admins`` declares it at the router and enforces ADMIN_MANAGE's step-up in the
+    # handler, on the username in the body — because ``check_role`` holds no subject and
+    # answers STEP_UP_REQUIRED to a ``W+S`` cell for ever. Its cells are ADMIN_MANAGE's with
+    # the ``+S`` removed and nothing else: OWNER alone, and no wider than the row it splits.
+    Permission.ADMIN_MANAGE_WRITE: (None, None, None, _W),
+    # Two more rulings §12.2 has no rows for — the Payme rail shipped after the plan's table
+    # was written, and ``BILLING_RAIL_BOARD §3`` is the source. Both are plain ``W`` cells and
+    # neither carries ``+S``, which makes them the first operator actions in this table that
+    # are NOT split into a role half and a step-up half. ``permissions.py`` argues both at
+    # length; the two-line version is that ``bayram.payme.pause``'s own docstring disclaims the
+    # switch as a security control and pausing stops the bot QUOTING rather than moving money,
+    # and that re-sending a confirmation the customer was already owed writes no money row and
+    # creates no state anybody can spend.
+    Permission.RAIL_CONTROL: (None, None, _W, _W),
+    Permission.PAYMENT_NOTIFY: (None, _W, _W, _W),
 }
 
 _ROLES_IN_PLAN_ORDER: Final[tuple[AdminRole, ...]] = (

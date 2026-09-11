@@ -28,13 +28,19 @@
  * to look for. A "hide deactivated" toggle would be worse still: it answers "who has access?"
  * with a number smaller than the number of credentials that exist.
  *
- * ## Read-only, and every write affordance is ABSENT rather than disabled
+ * ## One write, and every affordance without a route behind it is ABSENT rather than disabled
  *
- * See `NO_WRITES_NOTE` below and the comment above the column list. There is no create, no
- * role edit, no reset-password, no deactivate toggle, no revoke-sessions and no row menu,
- * because none of those endpoints exists on this build and each would 404. The `isActive`
- * flag is display-only for the same reason: a control that looks like a switch and cannot
- * move is a lie about what this screen can do.
+ * `POST /api/admins` exists, so this screen has a create — one button, one dialog, and a
+ * confirmation line naming the account it made. Everything else in §6.8's account block still
+ * does not: there is no role edit, no reset-password, no deactivate toggle, no revoke-sessions
+ * and no row menu, because those endpoints would 404. The `isActive` flag stays display-only
+ * for the same reason — a control that looks like a switch and cannot move is a lie about what
+ * this screen can do.
+ *
+ * The create button is drawn only for OWNER, and only once the roster read has come back. Both
+ * halves matter: `ADMIN_MANAGE_WRITE` is OWNER's alone, so anybody else pressing it earns a
+ * `FORBIDDEN` and an audit row for nothing — and a button over a failed read is a button over
+ * a screen that cannot show whether the name being typed is already taken.
  *
  * ## The 403 is a first-class state, not "something went wrong"
  *
@@ -61,16 +67,17 @@
  * either, so no value here has a purged state.
  */
 
-import { Ban, Check, KeyRound, UserCog } from "lucide-react";
-import { useMemo, type JSX } from "react";
+import { Ban, Check, KeyRound, UserCog, UserPlus } from "lucide-react";
+import { useMemo, useState, type JSX } from "react";
 
+import type { AdminAccountView } from "@/api/admins";
 import { CLIENT_ERROR_CODES } from "@/api/client";
 import { MAX_ADMIN_ACCOUNTS } from "@/api/constants";
 import { Badge, type BadgeTone } from "@/components/Badge";
 import { CELL_SECONDARY_CLASS, DataTable, type Column } from "@/components/DataTable";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorNote, type NoteTone } from "@/components/ErrorNote";
-import { Toolbar } from "@/components/Toolbar";
+import { Toolbar, ToolbarButton } from "@/components/Toolbar";
 import { formatCount } from "@/features/dashboard/adapt";
 import { EMPTY_VALUE } from "@/features/reveal";
 import type { AdminQueryError } from "@/lib/adminQuery";
@@ -90,6 +97,7 @@ import {
   type RosterEntry,
   type StaleReason,
 } from "./adminRoster";
+import { CreateAdminDialog } from "./CreateAdminDialog";
 import { useAdmins } from "./useAdmins";
 
 /* -------------------------------------------------------------------------- */
@@ -103,7 +111,7 @@ import { useAdmins } from "./useAdmins";
  * otherwise concludes the console is broken and files a ticket, and the honest answer — the
  * endpoints do not exist yet — is short enough to print.
  *
- * It names what `hbd.admin.bootstrap` ACTUALLY does, which is two things: insert the first
+ * It names what `bayram.admin.bootstrap` ACTUALLY does, which is two things: insert the first
  * OWNER into an empty table, and recover ownership when no active OWNER is left. Its parser
  * takes `--username`, `--password-file` and `--reset-owner` and nothing else, and
  * `db/admin/accounts.py` exports no role setter and no deactivator, so "all done through the
@@ -393,6 +401,17 @@ export function AdminsScreen(): JSX.Element {
   const { t } = useI18n();
   const admins = useAdmins();
   const role = useRole();
+  const [isCreateOpen, setCreateOpen] = useState(false);
+  /**
+   * The account this session just created, kept until the next one replaces it.
+   *
+   * It is not read from the roster: the row is in there after the invalidation, but "which of
+   * these forty accounts did I just make, and what do I still owe its holder?" is not a
+   * question a list sorted by creation date answers at a glance. The line below the toolbar
+   * says the name and says the password has to be handed over and then replaced — which is the
+   * only part of this flow that lives outside the panel.
+   */
+  const [created, setCreated] = useState<AdminAccountView | null>(null);
 
   useSessionGuard([admins.error]);
 
@@ -426,10 +445,11 @@ export function AdminsScreen(): JSX.Element {
    * Seven read-only columns and no eighth.
    *
    * There is no action column, no kebab menu, no inline role editor and no deactivate switch,
-   * because `POST /admins`, `PATCH /admins/{id}`, `POST /admins/{id}/reset-password` and
+   * because `PATCH /admins/{id}`, `POST /admins/{id}/reset-password` and
    * `DELETE /admins/{id}/sessions` do not exist on this build and would 404 — and a control
    * that 404s is worse than an absent one. If you are here to "fix" the omission, add the
-   * endpoint first: each of those is an OWNER cell demanding a step-up and an audit row.
+   * endpoint first: each of those is an OWNER cell demanding a step-up and an audit row, which
+   * is exactly what the create in the toolbar turned out to be.
    *
    * There is also no row click and no `/admins/:id` detail route: the row already holds every
    * field the contract exposes, so a detail panel would be the same eight values again.
@@ -565,7 +585,28 @@ export function AdminsScreen(): JSX.Element {
       {/* The 1392px content box the shell's screens are composed against. The page ground and
           the min-height belong to `AppShell`; a second one here would paint over the rail's. */}
       <div className="mx-auto flex w-[min(1392px,100%-2rem)] flex-col gap-4">
-        <Toolbar title="Admins" subtitle={subtitle} />
+        <Toolbar
+          title="Admins"
+          subtitle={subtitle}
+          actions={
+            /* OWNER only, and only over a roster that was actually read. Anybody else pressing
+               this earns a FORBIDDEN and an audit row for nothing, and over a failed read the
+               dialog could not show whether the username being typed is already taken. */
+            role === "owner" && admins.data !== undefined ? (
+              <ToolbarButton
+                variant="primary"
+                icon={<UserPlus className="h-4 w-4" strokeWidth={1.75} />}
+                onClick={() => {
+                  setCreateOpen(true);
+                }}
+              >
+                {t("admins.create.button")}
+              </ToolbarButton>
+            ) : null
+          }
+        />
+
+        {created === null ? null : <CreatedNote account={created} />}
 
         {note === null || failure === null ? null : (
           <ErrorNote
@@ -610,6 +651,14 @@ export function AdminsScreen(): JSX.Element {
             </p>
           </section>
         )}
+
+        <CreateAdminDialog
+          isOpen={isCreateOpen}
+          onClose={() => {
+            setCreateOpen(false);
+          }}
+          onCreated={setCreated}
+        />
       </div>
     </main>
   );
@@ -618,6 +667,36 @@ export function AdminsScreen(): JSX.Element {
 /* -------------------------------------------------------------------------- */
 /* Parts                                                                       */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * What was just created, and the one thing left to do about it.
+ *
+ * `ErrorNote` is deliberately not reused: its four tones are all failures, and a create that
+ * worked is not one of them — adding a fifth tone to a shared component for one line on one
+ * screen is the wrong direction. The line says the password still has to be handed over out of
+ * band and replaced at first sign-in, because that is the half of this flow the panel cannot
+ * do and the half an owner forgets.
+ */
+function CreatedNote({ account }: { readonly account: AdminAccountView }): JSX.Element {
+  const { t } = useI18n();
+
+  return (
+    <section
+      aria-live="polite"
+      className="flex items-start gap-2 rounded-card border border-stroke bg-card px-4 py-3"
+    >
+      <Check className="mt-[2px] h-4 w-4 shrink-0 text-ink-400" strokeWidth={1.75} />
+      <div className="flex min-w-0 flex-col gap-1">
+        <span className="text-[13px] leading-[18px] text-ink-800">
+          {t("admins.create.createdTitle", { username: account.username })}
+        </span>
+        <span className="text-[12px] leading-4 text-ink-400">
+          {t("admins.create.createdMessage", { username: account.username })}
+        </span>
+      </div>
+    </section>
+  );
+}
 
 /**
  * The accounts that are worth doing something about, above the table rather than inside it.

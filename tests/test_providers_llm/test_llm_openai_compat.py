@@ -9,9 +9,9 @@ import httpx
 import pytest
 from pydantic import BaseModel, Field
 
-from hbd.contracts import Err, HealthState, LlmProvider, LlmRequest, Ok
-from hbd.errors import ErrorCode
-from hbd.providers.llm.openai_compat import OpenAiCompatLlmProvider
+from bayram.contracts import Err, HealthState, LlmProvider, LlmRequest, Ok
+from bayram.errors import ErrorCode
+from bayram.providers.llm.openai_compat import OpenAiCompatLlmProvider
 from tests.test_providers_llm.conftest import mock_client, openai_response
 
 

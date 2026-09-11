@@ -1,6 +1,6 @@
 /**
- * The `/api/broadcasts/**` contract, transcribed from `hbd/admin/routers/broadcasts.py` over
- * `hbd/admin/schemas/broadcasts.py`.
+ * The `/api/broadcasts/**` contract, transcribed from `bayram/admin/routers/broadcasts.py` over
+ * `bayram/admin/schemas/broadcasts.py`.
  *
  * Eleven routes across two routers: three reads on `broadcast.read` (**M** for all four roles,
  * because a campaign record holds operator copy, closed enums and counters and no customer data

@@ -2,7 +2,7 @@
 
 ``test_checkout.py`` drives the inline rail — charge, fulfil, receipt, redraw — and every one
 of its assertions still holds unchanged. This file drives the third answer, which that file
-had no way to express until ``hbd.payme`` landed: ``Ok`` with ``is_paid=False`` and a
+had no way to express until ``bayram.payme`` landed: ``Ok`` with ``is_paid=False`` and a
 ``checkout_url``, which is what a redirect rail returns EVERY time it successfully opens a
 payment. Read as a decline — which is what the handler did before the pending branch existed —
 it told a customer "That did not go through, and nothing was charged" at the exact moment their
@@ -46,18 +46,18 @@ from aiogram import Bot
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
 
-from hbd.bot.app import build_dispatcher
-from hbd.bot.callbacks import NavAction, NavCB
-from hbd.bot.handlers.checkout import DOUBLE_TAP_WINDOW, PURCHASE_SEQ_KEY, SettleOutcome
-from hbd.bot.handlers.start import PAID_DEEP_LINK
-from hbd.bot.i18n import translate
-from hbd.bot.pricing import Pricing
-from hbd.bot.screens import checkout_link_screen
-from hbd.bot.states import Wizard
-from hbd.checkout import Purchase, PurchaseRequest
-from hbd.config import Settings
-from hbd.contracts import Language, Result, err
-from hbd.errors import CheckoutPausedError
+from bayram.bot.app import build_dispatcher
+from bayram.bot.callbacks import NavAction, NavCB
+from bayram.bot.handlers.checkout import DOUBLE_TAP_WINDOW, PURCHASE_SEQ_KEY, SettleOutcome
+from bayram.bot.handlers.start import PAID_DEEP_LINK
+from bayram.bot.i18n import translate
+from bayram.bot.pricing import Pricing
+from bayram.bot.screens import checkout_link_screen
+from bayram.bot.states import Wizard
+from bayram.checkout import Purchase, PurchaseRequest
+from bayram.config import Settings
+from bayram.contracts import Language, Result, err
+from bayram.errors import CheckoutPausedError
 from tests.test_bot.conftest import (
     FakePurchases,
     RecordingCheckout,
@@ -519,7 +519,7 @@ async def test_an_unpaid_receipt_with_nowhere_to_pay_still_says_nothing_was_char
     await walk_to_confirm(dispatcher, bot)
 
     # Act
-    with caplog.at_level(logging.ERROR, logger="hbd.bot.handlers.checkout"):
+    with caplog.at_level(logging.ERROR, logger="bayram.bot.handlers.checkout"):
         await press(dispatcher, bot, PAY)
 
     # Assert

@@ -30,20 +30,20 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hbd.admin import audit_sink
-from hbd.admin.container import AdminContainer
-from hbd.admin.errors import AdminErrorCode
-from hbd.admin.routers.dashboard import AUDIENCE_LISTS_PATH, AUDIENCE_PATH
-from hbd.admin.security import permissions
-from hbd.admin.security.permissions import RBAC_MATRIX, Permission
-from hbd.contracts import Language, OrderState
-from hbd.db.admin.audit import verify_chain
-from hbd.db.enums import AdminRole, AuditAction, PlanKind
-from hbd.db.models.admin_audit import AdminAuditRow, AuditOutcome
-from hbd.db.models.order import OrderRow
-from hbd.db.models.plan_purchase import PlanPurchaseRow
-from hbd.db.models.user import UserRow
-from hbd.db.models.user_profile import UserProfileRow
+from bayram.admin import audit_sink
+from bayram.admin.container import AdminContainer
+from bayram.admin.errors import AdminErrorCode
+from bayram.admin.routers.dashboard import AUDIENCE_LISTS_PATH, AUDIENCE_PATH
+from bayram.admin.security import permissions
+from bayram.admin.security.permissions import RBAC_MATRIX, Permission
+from bayram.contracts import Language, OrderState
+from bayram.db.admin.audit import verify_chain
+from bayram.db.enums import AdminRole, AuditAction, PlanKind
+from bayram.db.models.admin_audit import AdminAuditRow, AuditOutcome
+from bayram.db.models.order import OrderRow
+from bayram.db.models.plan_purchase import PlanPurchaseRow
+from bayram.db.models.user import UserRow
+from bayram.db.models.user_profile import UserProfileRow
 from tests.test_admin.test_dashboard_router import signed_in
 
 DAY_ONE: Final[datetime] = datetime(2026, 3, 20, 9, 0, tzinfo=UTC)

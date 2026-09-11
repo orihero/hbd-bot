@@ -8,8 +8,8 @@ from typing import Final
 
 import pytest
 
-from hbd.contracts import Language
-from hbd.i18n.catalog import (
+from bayram.contracts import Language
+from bayram.i18n.catalog import (
     SUPPORTED_LANGUAGES,
     Catalog,
     Entry,
@@ -18,13 +18,13 @@ from hbd.i18n.catalog import (
     load_catalogs,
     locale_path,
 )
-from hbd.i18n.orthography import (
+from bayram.i18n.orthography import (
     FORBIDDEN_UZ_LATN_CHARS,
     UZ_LATN_TURNED_COMMA,
     describe_chars,
     find_forbidden_chars,
 )
-from hbd.i18n.plurals import REQUIRED_PLURAL_CATEGORIES
+from bayram.i18n.plurals import REQUIRED_PLURAL_CATEGORIES
 
 #: Keys the error hierarchy promises every catalogue defines. Mirrors errors.py.
 REQUIRED_ERROR_KEYS: Final[frozenset[str]] = frozenset(
@@ -128,7 +128,7 @@ def test_every_language_and_genre_enum_member_has_a_button_label(
     catalogs: Mapping[Language, Catalog],
 ) -> None:
     # Arrange
-    from hbd.contracts import Genre, Occasion, VoiceGender
+    from bayram.contracts import Genre, Occasion, VoiceGender
 
     expected = (
         {f"language.{member.value}" for member in Language}

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hbd.contracts import (
+from bayram.contracts import (
     AssetKind,
     Err,
     LyricDraft,
@@ -18,13 +18,13 @@ from hbd.contracts import (
     RecipientName,
     Script,
 )
-from hbd.errors import (
+from bayram.errors import (
     ErrorCode,
     ProviderTimeoutError,
     StorageError,
 )
-from hbd.pipeline.events import PipelineStage, ProgressStatus
-from hbd.pipeline.outcome import PipelineOutcome
+from bayram.pipeline.events import PipelineStage, ProgressStatus
+from bayram.pipeline.outcome import PipelineOutcome
 from tests.conftest import (
     UZBEK_NAME_CANONICAL,
     make_brief,
@@ -393,7 +393,7 @@ async def test_the_kit_price_comes_from_configuration_not_a_baked_in_constant(
 ) -> None:
     # Arrange — payment is out of scope, but the amount the seam is handed is configuration.
     # The orchestrator used to pass its own KIT_PRICE_MINOR / KIT_CURRENCY module constants,
-    # so HBD_KIT_PRICE_AMOUNT_MINOR and HBD_KIT_CURRENCY did nothing at all.
+    # so BAYRAM_KIT_PRICE_AMOUNT_MINOR and BAYRAM_KIT_CURRENCY did nothing at all.
     priced = studio.settings.model_copy(
         update={"kit_price_amount_minor": 25_000, "kit_currency": "USD"}
     )
@@ -410,7 +410,7 @@ async def test_the_worker_gate_is_told_which_telegram_user_the_order_belongs_to(
 ) -> None:
     """The worker re-runs the gate, and it must name the same payer the bot named.
 
-    ``Order.id`` is a UUID5 over one draft (``hbd.bot.handlers.confirm._order_id_for``), so
+    ``Order.id`` is a UUID5 over one draft (``bayram.bot.handlers.confirm._order_id_for``), so
     a provider that meters per person cannot recover the payer from it. The worker runs long
     after the tap, on a job carrying no user of its own, so the only honest source is the
     order — take it from anywhere else and the retry meters against the wrong human.

@@ -3,7 +3,7 @@
 Two things are asserted here that no unit test of the sweep itself can reach.
 
 **That it is actually hosted.** ``settle_stale_debits`` composes into ``purge_expired``,
-which the hourly ``cron`` in :mod:`hbd.runtime.jobs` fires — so the proof that a debit gets
+which the hourly ``cron`` in :mod:`bayram.runtime.jobs` fires — so the proof that a debit gets
 closed in production is a proof that runs the real cron entry point against a real container
 and looks at the balance afterwards, not one that calls the sweep directly. Before this, the
 in-flight cutoff and ``jobs._settle`` both pointed at a sweep with no caller.
@@ -11,8 +11,8 @@ in-flight cutoff and ``jobs._settle`` both pointed at a sweep with no caller.
 **That the grace is derived rather than chosen.** A fixed hour — the literal this work
 replaced — is SHORTER than the 4500 seconds of job timeouts arq alone will spend on one
 order under the shipped defaults, which would have let the sweep refund orders that were
-still rendering. The derivation is in ``hbd.entitlements`` (a leaf module that may not import
-``hbd.config``), so the numbers it restates are pinned against the real ``Settings`` here.
+still rendering. The derivation is in ``bayram.entitlements`` (a leaf module that may not import
+``bayram.config``), so the numbers it restates are pinned against the real ``Settings`` here.
 """
 
 from __future__ import annotations
@@ -26,22 +26,22 @@ from typing import Any, Final
 
 import pytest
 
-from hbd.config import ENV_PREFIX, Settings
-from hbd.contracts import OrderState, is_ok
-from hbd.entitlements import (
+from bayram.config import ENV_PREFIX, Settings
+from bayram.contracts import OrderState, is_ok
+from bayram.entitlements import (
     DEFAULT_ENTITLEMENT_POLICY,
     derive_settlement_grace_s,
     resolve_entitlement_policy,
 )
-from hbd.runtime.broadcast_job import (
+from bayram.runtime.broadcast_job import (
     EXPAND_JOB_NAME,
     SEND_JOB_NAME,
     TEST_SEND_JOB_NAME,
     sweep_due_broadcasts,
 )
-from hbd.runtime.container import build_container
-from hbd.runtime.jobs import build_kit_worker_settings
-from hbd.runtime.retention_job import run_retention_sweep
+from bayram.runtime.container import build_container
+from bayram.runtime.jobs import build_kit_worker_settings
+from bayram.runtime.retention_job import run_retention_sweep
 from tests.test_db.conftest import new_order
 
 _USER: Final[int] = 6_100_000_000_001
@@ -50,7 +50,7 @@ _DATABASE_URL: Final[str] = "postgresql+asyncpg://hbd:hbd@localhost:5432/hbd_tes
 
 @pytest.fixture(autouse=True)
 def _isolated_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """A developer's own ``HBD_`` variables must not decide what the shipped default is."""
+    """A developer's own ``BAYRAM_`` variables must not decide what the shipped default is."""
     for name in tuple(os.environ):
         if name.startswith(ENV_PREFIX):
             monkeypatch.delenv(name, raising=False)
@@ -169,8 +169,8 @@ def test_the_broadcast_due_sweep_has_a_cron_to_run_on_at_all(tmp_path: Path) -> 
 # The grace
 # ---------------------------------------------------------------------------
 def test_the_shipped_queue_defaults_derive_the_shipped_grace() -> None:
-    # Arrange — the drift guard between ``hbd.config`` and the queue numbers
-    # ``hbd.entitlements`` has to restate because it is a leaf and may not import config.
+    # Arrange — the drift guard between ``bayram.config`` and the queue numbers
+    # ``bayram.entitlements`` has to restate because it is a leaf and may not import config.
     # ``database_url`` is the model's own required field and has nothing to do with the
     # grace: everything the derivation reads is defaulted, so this construction is the
     # assertion that the new setting did not make the shipped configuration invalid.

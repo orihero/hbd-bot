@@ -1,5 +1,5 @@
 /**
- * `<StrategyBakeoffChart>` — the bars behind "what should `HBD_NAME_CANDIDATE_ORDER` be?"
+ * `<StrategyBakeoffChart>` — the bars behind "what should `BAYRAM_NAME_CANDIDATE_ORDER` be?"
  *
  * §11.2 gives `/generations/names` exactly that question, and §8.3 says why it matters:
  * `name_candidate_order` is the flagship live-editable field, and the README and

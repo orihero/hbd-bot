@@ -20,7 +20,7 @@ silently:
 * **It does not swallow a wrong method.** ``POST /healthz`` must stay a 405.
 * **The bundle is the only cacheable thing in the process.** Everything else is ``no-store``,
   because a disk cache is a copy of personal data that outlives every retention clock and
-  that ``hbd.db.purge`` cannot reach (§12.1 T10).
+  that ``bayram.db.purge`` cannot reach (§12.1 T10).
 """
 
 from __future__ import annotations
@@ -34,20 +34,20 @@ import httpx
 import pytest
 from fastapi.routing import APIRoute
 
-from hbd.admin import app as app_module
-from hbd.admin.app import create_app
-from hbd.admin.container import AdminContainer
-from hbd.admin.middleware.security_headers import IMMUTABLE_CACHE_CONTROL
-from hbd.admin.shell import CSP_NONCE_META_NAME, CSP_NONCE_PLACEHOLDER
-from hbd.errors import ErrorCode
+from bayram.admin import app as app_module
+from bayram.admin.app import create_app
+from bayram.admin.container import AdminContainer
+from bayram.admin.middleware.security_headers import IMMUTABLE_CACHE_CONTROL
+from bayram.admin.shell import CSP_NONCE_META_NAME, CSP_NONCE_PLACEHOLDER
+from bayram.errors import ErrorCode
 from tests.test_admin.conftest import ORIGIN, api_routes
 
 #: Shaped like the real shell: the ``csp-nonce`` meta element carries the placeholder the
-#: server substitutes per response (``hbd.admin.shell``). Without it every assertion below
+#: server substitutes per response (``bayram.admin.shell``). Without it every assertion below
 #: would still pass while the served document carried a dead nonce, so it is here rather
 #: than only in ``test_spa_nonce.py``.
 _SHELL: Final[str] = (
-    "<!doctype html><title>hbd admin</title>"
+    "<!doctype html><title>Bayram Admin</title>"
     f'<meta name="{CSP_NONCE_META_NAME}" content="{CSP_NONCE_PLACEHOLDER}" />'
     "<div id=root></div>"
 )
@@ -58,7 +58,7 @@ _CHUNK: Final[str] = "console.log('the bundle')"
 def built_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A directory shaped like the one ``vite build`` writes.
 
-    Patched onto the module rather than written into ``src/hbd/admin/static`` so the suite
+    Patched onto the module rather than written into ``src/bayram/admin/static`` so the suite
     never depends on whether anybody has run ``make ui-build`` — and never leaves a bundle
     behind that a later test could accidentally serve.
     """
@@ -99,7 +99,7 @@ async def _client(container: AdminContainer) -> AsyncIterator[httpx.AsyncClient]
 
     Order is load-bearing: ``StaticFiles(directory=...)`` reads ``STATIC_DIR`` once, at
     ``create_app`` time, so a client fixture that did not depend on the bundle fixture would
-    mount the real ``src/hbd/admin/static`` and serve whatever happens to be on disk.
+    mount the real ``src/bayram/admin/static`` and serve whatever happens to be on disk.
     """
     application = create_app(container=container)
     async with application.router.lifespan_context(application):
@@ -267,7 +267,7 @@ async def test_the_shell_is_never_cached(served: httpx.AsyncClient, built_bundle
 async def test_an_unbuilt_console_answers_404_rather_than_500(
     served_unbuilt: httpx.AsyncClient,
 ) -> None:
-    # Arrange — `src/hbd/admin/static/` is gitignored, so a fresh checkout has no bundle at
+    # Arrange — `src/bayram/admin/static/` is gitignored, so a fresh checkout has no bundle at
     # all and the API must still be entirely usable. That is how every other test in this
     # package runs, and it is why a missing shell is a 404 rather than an unhandled OSError.
 

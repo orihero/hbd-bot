@@ -2,7 +2,7 @@
  * `GET /api/generations` and `GET /api/generations/{attemptId}` — the render ledger.
  *
  * Transcribed from `.openpencil-export/users-generations-openapi.json` (produced by
- * `hbd/admin/routers/generations.py` over `hbd/admin/schemas/orders.py` — there is exactly
+ * `bayram/admin/routers/generations.py` over `bayram/admin/schemas/orders.py` — there is exactly
  * ONE projection of a `generation_attempts` row in that codebase, so the masking it applies
  * is applied everywhere the row is read).
  *
@@ -110,7 +110,7 @@ export type NameStrategy = z.infer<typeof nameStrategySchema>;
  * else. A vendor remembered from a plan document or from another product is not in this
  * system; a filter offering one would return an empty page for ever and read as an outage.
  *
- * The `fake_*` four are `HBD_USE_FAKE_PROVIDERS` runs: recorded rather than dropped, because
+ * The `fake_*` four are `BAYRAM_USE_FAKE_PROVIDERS` runs: recorded rather than dropped, because
  * no rows at all cannot be told from an uninstrumented deploy.
  */
 export const PROVIDER_VALUES = [

@@ -17,21 +17,21 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from hbd.admin.app import FORBIDDEN_ENV_VARS, create_app
-from hbd.admin.container import AdminContainer
-from hbd.admin.deps import CurrentAdmin, require_permission
-from hbd.admin.errors import AdminErrorCode, AdminProblem, ProblemError
-from hbd.admin.middleware import CORRELATION_HEADER
-from hbd.admin.routers import auth as auth_router
-from hbd.admin.security.passwords import verify_password_async
-from hbd.admin.security.permissions import Permission
-from hbd.admin.security.ratelimit import LOGIN_MAX_PER_USER_IP, LOGIN_WINDOW_S
-from hbd.admin.sessions import SessionSnapshot
-from hbd.admin.settings import AdminSettings, build_admin_settings
-from hbd.config import VENDOR_SECRET_FIELDS
-from hbd.db.base import utc_now
-from hbd.db.enums import AdminRole
-from hbd.errors import ConfigError, ErrorCode
+from bayram.admin.app import FORBIDDEN_ENV_VARS, create_app
+from bayram.admin.container import AdminContainer
+from bayram.admin.deps import CurrentAdmin, require_permission
+from bayram.admin.errors import AdminErrorCode, AdminProblem, ProblemError
+from bayram.admin.middleware import CORRELATION_HEADER
+from bayram.admin.routers import auth as auth_router
+from bayram.admin.security.passwords import verify_password_async
+from bayram.admin.security.permissions import Permission
+from bayram.admin.security.ratelimit import LOGIN_MAX_PER_USER_IP, LOGIN_WINDOW_S
+from bayram.admin.sessions import SessionSnapshot
+from bayram.admin.settings import AdminSettings, build_admin_settings
+from bayram.config import VENDOR_SECRET_FIELDS
+from bayram.db.base import utc_now
+from bayram.db.enums import AdminRole
+from bayram.errors import ConfigError, ErrorCode
 from tests.test_admin.conftest import (
     ORIGIN,
     PASSWORD,
@@ -118,7 +118,7 @@ async def test_dev_only_warns_when_a_vendor_secret_is_in_the_environment(
     # Arrange - the lifespan installs the real root handler, which would evict caplog's;
     # this test is about the warning, not about how logging is configured.
     monkeypatch.setenv(variable, "a-value-that-must-not-be-here")
-    monkeypatch.setattr("hbd.admin.app.configure_logging", lambda **_: None)
+    monkeypatch.setattr("bayram.admin.app.configure_logging", lambda **_: None)
 
     # Act
     with caplog.at_level("WARNING"):
@@ -139,7 +139,7 @@ async def test_the_lifespan_refuses_while_the_panel_is_disabled(
     application = create_app(disabled)
 
     # Act / Assert
-    with pytest.raises(ConfigError, match="HBD_ADMIN_ENABLED"):
+    with pytest.raises(ConfigError, match="BAYRAM_ADMIN_ENABLED"):
         async with application.router.lifespan_context(application):
             pass  # pragma: no cover - the lifespan must not reach here
 
@@ -176,7 +176,7 @@ def test_a_public_origin_with_a_path_is_refused() -> None:
 
 
 def test_a_malformed_trusted_proxy_cidr_fails_the_build_naming_the_variable() -> None:
-    with pytest.raises(ConfigError, match="HBD_ADMIN_TRUSTED_PROXY_CIDRS"):
+    with pytest.raises(ConfigError, match="BAYRAM_ADMIN_TRUSTED_PROXY_CIDRS"):
         build_admin_settings(
             {
                 "database_url": "sqlite+aiosqlite:///:memory:",
@@ -214,8 +214,8 @@ async def test_signing_in_sets_both_cookies_with_the_documented_flags(
     assert response.status_code == 200
     assert response.json() == {"mustChangePassword": False}
     cookies = "; ".join(response.headers.get_list("set-cookie"))
-    assert "__Host-hbd_session=" in cookies
-    assert "__Host-hbd_csrf=" in cookies
+    assert "__Host-bayram_session=" in cookies
+    assert "__Host-bayram_csrf=" in cookies
     assert cookies.count("SameSite=lax") == 2
     assert cookies.count("HttpOnly") == 1  # the session cookie only; the SPA reads the CSRF one
     assert "Domain=" not in cookies
@@ -288,7 +288,7 @@ async def test_a_header_matching_the_cookie_but_not_the_session_row_is_refused(
     await create_account(container)
     await sign_in(client)
     forged = "forged-value-an-attacker-can-set"
-    client.cookies.set("__Host-hbd_csrf", forged)
+    client.cookies.set("__Host-bayram_csrf", forged)
 
     # Act
     response = await client.post(
@@ -358,7 +358,7 @@ async def test_changing_the_password_lifts_the_gate_and_re_issues_the_session(
     # Arrange
     await create_account(container, must_change_password=True)
     await sign_in(client)
-    before = client.cookies.get("__Host-hbd_session")
+    before = client.cookies.get("__Host-bayram_session")
 
     # Act
     changed = await client.post(
@@ -366,7 +366,7 @@ async def test_changing_the_password_lifts_the_gate_and_re_issues_the_session(
         json={"currentPassword": PASSWORD, "newPassword": "a-much-longer-new-password"},
         headers=csrf_headers(client),
     )
-    after = client.cookies.get("__Host-hbd_session")
+    after = client.cookies.get("__Host-bayram_session")
     logout = await client.post("/api/auth/logout", headers=csrf_headers(client))
 
     # Assert

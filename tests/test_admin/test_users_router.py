@@ -1,7 +1,7 @@
 """The ``/users`` READS over the real ASGI stack — real container, login and guard.
 
 The two writes on this namespace — ``POST /block`` and ``POST /unblock``, built by
-:func:`~hbd.admin.routers.users.build_user_block_router` — live in
+:func:`~bayram.admin.routers.users.build_user_block_router` — live in
 ``test_user_actions_router.py``, because everything they need (a scoped step-up, an audit row,
 a rolled-back transaction) is machinery no read here touches. The ledger read and the grant
 that hang off the same path are in ``test_credits_router.py`` for the same reason.
@@ -11,7 +11,7 @@ The assertion this file exists for is the negative one. ``/users/{id}/wizard-sta
 reveal surface wearing a read's clothes: the FSM draft holds the recipient's display name,
 the free-text note and the whole approved lyric, and for a session somebody abandoned it is
 the only copy of any of it that exists anywhere. So the draft seeded here is a **real**
-:class:`~hbd.bot.draft.WizardDraft`, written through aiogram's own storage, carrying a note
+:class:`~bayram.bot.draft.WizardDraft`, written through aiogram's own storage, carrying a note
 and a name distinctive enough that a substring test cannot pass by accident — and neither
 string may appear in the response body at any role, OWNER included. §12.3 has no unmasked
 variant of this screen; the plaintext is reachable only through ``POST /reveal`` in Phase 2.
@@ -63,9 +63,9 @@ from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.redis import RedisStorage
 from redis.asyncio import Redis
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.deps import RequirePermission
-from hbd.admin.routers.users import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.deps import RequirePermission
+from bayram.admin.routers.users import (
     AVATAR_MIMES,
     USER_AVATAR_PATH,
     USER_ORDERS_PATH,
@@ -75,21 +75,21 @@ from hbd.admin.routers.users import (
     build_users_router,
     build_wizard_state_router,
 )
-from hbd.admin.schemas import users as user_schemas
-from hbd.admin.security.permissions import RBAC_MATRIX, Permission
-from hbd.admin.serializers.redaction import mask_name, mask_phone, mask_username
-from hbd.contracts import Err, Language, OrderState, Result
-from hbd.db.admin.sql import MAX_SEARCH_CHARS
-from hbd.db.base import utc_now
-from hbd.db.enums import AdminRole, CreditEntryKind, CreditReason
-from hbd.db.models.admin_audit import AdminAuditRow
-from hbd.db.models.credit_account import CreditAccountRow
-from hbd.db.models.credit_ledger import CreditLedgerRow
-from hbd.db.models.order import OrderRow
-from hbd.db.models.user import UserRow
-from hbd.db.models.user_profile import UserProfileRow
-from hbd.storage import LocalFileStorage
-from hbd.user_profiles import AVATAR_MIME, avatar_key
+from bayram.admin.schemas import users as user_schemas
+from bayram.admin.security.permissions import RBAC_MATRIX, Permission
+from bayram.admin.serializers.redaction import mask_name, mask_phone, mask_username
+from bayram.contracts import Err, Language, OrderState, Result
+from bayram.db.admin.sql import MAX_SEARCH_CHARS
+from bayram.db.base import utc_now
+from bayram.db.enums import AdminRole, CreditEntryKind, CreditReason
+from bayram.db.models.admin_audit import AdminAuditRow
+from bayram.db.models.credit_account import CreditAccountRow
+from bayram.db.models.credit_ledger import CreditLedgerRow
+from bayram.db.models.order import OrderRow
+from bayram.db.models.user import UserRow
+from bayram.db.models.user_profile import UserProfileRow
+from bayram.storage import LocalFileStorage
+from bayram.user_profiles import AVATAR_MIME, avatar_key
 from tests.test_admin.conftest import (
     PASSWORD,
     FakeRedis,
@@ -254,7 +254,7 @@ async def store_avatar(
 ) -> str:
     """Write the bytes where the route will look for them, and return that key.
 
-    Built through :func:`~hbd.user_profiles.avatar_key` rather than spelled out, because a
+    Built through :func:`~bayram.user_profiles.avatar_key` rather than spelled out, because a
     literal here would pass while the route and the writer disagreed — which is the one
     failure the absence of an ``avatar_storage_key`` column makes structurally impossible and
     a hand-written key in a test would quietly reintroduce.
@@ -735,7 +735,7 @@ async def test_the_in_flight_count_is_counted_with_this_deployments_settlement_g
     """``inFlightRenderCount`` must agree with the gate that actually refused the customer.
 
     The gate counts unsettled debits newer than ``now - settlement_grace_s``, and that grace
-    is the WORKER's — ``HBD_SETTLEMENT_GRACE_S`` or derived from its queue ladder. This read
+    is the WORKER's — ``BAYRAM_SETTLEMENT_GRACE_S`` or derived from its queue ladder. This read
     used to default it to ``DEFAULT_ENTITLEMENT_POLICY``, so on a deployment that lowered the
     grace to five minutes the panel counted a half-hour-old debit the customer's own gate had
     already forgotten, and reported a refusal that was not happening. Under shipped defaults
@@ -788,10 +788,10 @@ async def test_the_projection_is_computed_with_this_deployments_free_allowance(
     """``creditsProjected`` must be the number the CUSTOMER is shown, not a dataclass default.
 
     This is the router-level pin for the divergence that shipped with the paywall. The route
-    used to build its :class:`~hbd.entitlements.EntitlementPolicy` without an allowance, so it
-    carried the dataclass's 3 while :func:`hbd.entitlements.resolve_entitlement_policy` read
+    used to build its :class:`~bayram.entitlements.EntitlementPolicy` without an allowance, so it
+    carried the dataclass's 3 while :func:`bayram.entitlements.resolve_entitlement_policy` read
     ``free_allowance_credits``, which went to 0. Both numbers land in
-    :func:`hbd.db.credit_sql.read_balance`, which adds the allowance whenever one is due — and
+    :func:`bayram.db.credit_sql.read_balance`, which adds the allowance whenever one is due — and
     with the worker's 0 nothing ever stamps ``allowance_period_index``, so "due" is
     permanently true and the overstatement never expired. A customer who had paid 7 000 UZS
     for one song read 1 on their Confirm screen while the operator opening their record read
@@ -1391,7 +1391,7 @@ def test_the_avatar_literal_has_exactly_one_home() -> None:
     # would drift from the route the day either moves, and every ``avatarUrl`` on the wire
     # would be a 404 nobody could attribute — the SPA would just draw monograms. It is also
     # not merely a style rule: ``USER_PATH`` is built from ``API_PREFIX``, which lives in
-    # ``hbd.admin.deps`` and drags the container, the session factory and the permission
+    # ``bayram.admin.deps`` and drags the container, the session factory and the permission
     # machinery behind it, so a schema module importing it is an import cycle waiting for the
     # next route.
 

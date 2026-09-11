@@ -1,7 +1,7 @@
 """The three audit columns that bypassed the boundary that is supposed to guard them.
 
 ``correlation_id``, ``ip`` and ``user_agent_hash`` were written straight into the row with
-no check at all. ``hbd.db.admin.audit``'s module docstring says "no secret ever enters this
+no check at all. ``bayram.db.admin.audit``'s module docstring says "no secret ever enters this
 table"; the function enforcing it skipped three columns, and every credential shape below
 landed verbatim — in the table with the longest clock in the system.
 
@@ -19,8 +19,8 @@ from typing import Final
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.db.admin.audit import AuditEntry, AuditValueRejectedError, append
-from hbd.db.enums import AdminRole, AuditAction, AuditReasonCode
+from bayram.db.admin.audit import AuditEntry, AuditValueRejectedError, append
+from bayram.db.enums import AdminRole, AuditAction, AuditReasonCode
 
 KEY: Final[str] = "a-test-hmac-key-of-more-than-32-characters"
 NOW: Final[datetime] = datetime(2026, 8, 30, 12, 0, tzinfo=UTC)

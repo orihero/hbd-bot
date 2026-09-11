@@ -86,7 +86,7 @@ export async function runTier1Tests(): Promise<TestCaseResult[]> {
         const store = mod.useI18n();
         store.setLocale("uz");
         assertEqual(store.locale, "uz", "Store locale should be updated to 'uz'");
-        assertEqual(env.storage.getItem("hbd.dashboard.locale"), "uz", "Storage should be updated to 'uz'");
+        assertEqual(env.storage.getItem("bayram.dashboard.locale"), "uz", "Storage should be updated to 'uz'");
       } finally {
         restoreTestEnv();
       }
@@ -137,14 +137,14 @@ export async function runTier1Tests(): Promise<TestCaseResult[]> {
   // =========================================================================
 
   results.push(
-    await runTest("T1.2.1", "F2: persistence writes to key 'hbd.dashboard.locale'", async () => {
+    await runTest("T1.2.1", "F2: persistence writes to key 'bayram.dashboard.locale'", async () => {
       const env = setupTestEnv("en");
       try {
         const mod = await loadModuleSafely<{
           useI18n: () => { setLocale: (l: string) => void };
         }>("src/i18n/index.ts");
         mod.useI18n().setLocale("ru");
-        assertEqual(env.storage.getItem("hbd.dashboard.locale"), "ru", "localStorage key must be hbd.dashboard.locale");
+        assertEqual(env.storage.getItem("bayram.dashboard.locale"), "ru", "localStorage key must be bayram.dashboard.locale");
       } finally {
         restoreTestEnv();
       }

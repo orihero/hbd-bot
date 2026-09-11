@@ -20,7 +20,7 @@
  *   control and do not send the parameter (contract D2).
  *
  * - **`from`/`to` are ONE WINDOW everywhere except `/api/audit`, and half of one is now
- *   legal.** `hbd/admin/window.py::resolve_window` — the single parser all five list routers
+ *   legal.** `bayram/admin/window.py::resolve_window` — the single parser all five list routers
  *   and the metrics routes share — resolves a missing `to` to the request's own `now` and
  *   leaves a missing `from` genuinely absent (`TimeWindow.start is None`, no epoch sentinel).
  *   So `?from=X` alone means "since X, and still going" and `?to=Y` alone means "everything up
@@ -510,7 +510,7 @@ export function postPasswordChange(
  * `"<action>:<subjectId>"`. The window is zero for `user.purge` and `config.write`.
  *
  * **Nothing consumes a grant yet.** `require_step_up` / `check_step_up` have no handler
- * callers anywhere in `src/hbd/admin/routers/`, and the one router guard that reports
+ * callers anywhere in `src/bayram/admin/routers/`, and the one router guard that reports
  * `STEP_UP_REQUIRED` (`RequirePermission` → `check_role`) decides from the §12.2 cell alone
  * and never reads the session's grant. So a 200 from here changes the outcome of no request
  * on this build. Phase 2's A+S cells are what this is for; until one of them lands, calling
@@ -588,7 +588,7 @@ export function getLatency(
   );
 }
 
-/** Bare array. Feeds the `/generations/names` bake-off and the `HBD_NAME_CANDIDATE_ORDER`
+/** Bare array. Feeds the `/generations/names` bake-off and the `BAYRAM_NAME_CANDIDATE_ORDER`
  *  recommendation that links to `/config`. */
 export function getNameStrategies(
   query: WindowQuery = {},
@@ -1203,7 +1203,7 @@ function pageParams(query: PageQuery): QueryParams {
  *
  * **Half a window is a legal question now, so half a window goes on the wire.** The rule
  * this helper used to enforce — "both bounds or neither" — was written against a 422 that
- * `hbd/admin/window.py::resolve_window` no longer raises: a missing `to` is closed at the
+ * `bayram/admin/window.py::resolve_window` no longer raises: a missing `to` is closed at the
  * instant the request was served, and a missing `from` is left genuinely absent
  * (`TimeWindow.start is None`, never an epoch sentinel). All six windowed routers reach that
  * one parser through the same three-line clock adapter — `orders`, `users`, `generations`,

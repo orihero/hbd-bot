@@ -12,8 +12,8 @@ from __future__ import annotations
 import stat
 from pathlib import Path
 
-from hbd.config import Settings
-from hbd.contracts import (
+from bayram.config import Settings
+from bayram.contracts import (
     AssetKind,
     CostSource,
     Language,
@@ -22,8 +22,8 @@ from hbd.contracts import (
     RenderedAudio,
     SpokenScript,
 )
-from hbd.errors import ErrorCode
-from hbd.pipeline.assets import (
+from bayram.errors import ErrorCode
+from bayram.pipeline.assets import (
     VOICE_NOTE_MIME,
     archive_assets,
     cover_asset,
@@ -33,7 +33,7 @@ from hbd.pipeline.assets import (
     sha256_of,
     song_asset,
 )
-from hbd.watermark import SHEET_RULE, WATERMARK_HANDLE, contains_watermark
+from bayram.watermark import SHEET_RULE, WATERMARK_HANDLE, contains_watermark
 from tests.conftest import UZBEK_NAME_CANONICAL, make_lyrics
 from tests.test_pipeline.conftest import (
     FakeAudioPostProcessor,

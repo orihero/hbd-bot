@@ -13,8 +13,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.middleware.security_headers import CSP_TEMPLATE
+from bayram.admin.container import AdminContainer
+from bayram.admin.middleware.security_headers import CSP_TEMPLATE
 from tests.test_admin.conftest import ORIGIN, create_account, csrf_headers, sign_in
 
 _PATHS = ("/healthz", "/readyz", "/api/auth/me", "/api/nothing-here")

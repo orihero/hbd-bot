@@ -8,7 +8,7 @@ compromise of the bot; and an example file that has drifted from the model is a 
 operator cannot set.
 
 Every test builds settings with ``_env_file=None`` so a developer's own ``.env.payme`` cannot
-change the answer, and points ``HBD_PAYME_ENV_FILE`` at a path that does not exist wherever a
+change the answer, and points ``BAYRAM_PAYME_ENV_FILE`` at a path that does not exist wherever a
 boot scan is involved, so the scan sees the process environment and nothing else.
 """
 
@@ -20,11 +20,11 @@ from typing import Any, Final
 
 import pytest
 
-from hbd.config import ENV_PREFIX, VENDOR_SECRET_FIELDS
-from hbd.errors import ConfigError
-from hbd.payme.app import FORBIDDEN_ENV_VARS, create_app
-from hbd.payme.protocol import DEFAULT_ACCOUNT_FIELD, DEFAULT_AUTH_LOGIN
-from hbd.payme.settings import (
+from bayram.config import ENV_PREFIX, VENDOR_SECRET_FIELDS
+from bayram.errors import ConfigError
+from bayram.payme.app import FORBIDDEN_ENV_VARS, create_app
+from bayram.payme.protocol import DEFAULT_ACCOUNT_FIELD, DEFAULT_AUTH_LOGIN
+from bayram.payme.settings import (
     PAYME_ENV_FILE_VAR,
     PAYME_SECRET_FIELDS,
     PaymeSettings,
@@ -33,7 +33,7 @@ from hbd.payme.settings import (
 
 _REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[2]
 _ENV_EXAMPLE: Final[Path] = _REPO_ROOT / ".env.payme.example"
-_DOCUMENTED_VARIABLE: Final[re.Pattern[str]] = re.compile(r"^HBD_([A-Z0-9_]+)=", re.MULTILINE)
+_DOCUMENTED_VARIABLE: Final[re.Pattern[str]] = re.compile(r"^BAYRAM_([A-Z0-9_]+)=", re.MULTILINE)
 
 _MEMORY_URL: Final[str] = "sqlite+aiosqlite:///:memory:"
 #: A made-up 36-character key. The gateway only ever compares the key against itself, so this
@@ -107,7 +107,7 @@ def test_a_semicolon_in_the_return_url_is_refused() -> None:
 def test_a_plain_return_url_is_accepted_untouched() -> None:
     """Percent-encoding is not decoded by their parser, so the value is passed through raw."""
     # Arrange
-    url = "https://t.me/hbd_bot?start=paid"
+    url = "https://t.me/bayram_uzbot?start=paid"
 
     # Act
     settings = build_payme_settings(_payme_values(payme_return_url=url))
@@ -151,7 +151,7 @@ def test_a_positive_duplicate_transaction_code_is_refused() -> None:
 def test_the_merchant_key_never_appears_in_a_repr_or_a_dump() -> None:
     """``SecretStr``, following ``admin_audit_hmac_key`` — the only precedent in the tree.
 
-    ``hbd.logging.redact`` masks a value only when the field NAME is supplied beside it, and a
+    ``bayram.logging.redact`` masks a value only when the field NAME is supplied beside it, and a
     settings repr is exactly a bare value. Without ``SecretStr`` the only thing keeping the key
     out of a log line would be that nobody had written the offending line yet.
     """
@@ -253,7 +253,7 @@ async def test_the_lifespan_refuses_to_start_a_disabled_gateway() -> None:
     with pytest.raises(ConfigError) as caught:
         async with application.router.lifespan_context(application):
             pass  # pragma: no cover - the lifespan must not reach here
-    assert "HBD_PAYME_ENABLED" in caught.value.operator_message
+    assert "BAYRAM_PAYME_ENABLED" in caught.value.operator_message
 
 
 async def test_the_lifespan_refuses_a_whitespace_only_key() -> None:
@@ -274,8 +274,8 @@ async def test_prod_refuses_to_start_with_a_vendor_credential_in_the_environment
 ) -> None:
     """The mirror image of the admin app's refusal, and it must cover the same four names.
 
-    Parametrised over ``VENDOR_SECRET_FIELDS`` rather than hardcoding ``HBD_TELEGRAM_BOT_TOKEN``
-    so a fifth vendor credential added to ``hbd.config`` is covered here the day it lands.
+    Parametrised over ``VENDOR_SECRET_FIELDS`` rather than hardcoding ``BAYRAM_TELEGRAM_BOT_TOKEN``
+    so a fifth vendor credential added to ``bayram.config`` is covered here the day it lands.
     """
     # Arrange
     variable = f"{ENV_PREFIX}{field.upper()}"

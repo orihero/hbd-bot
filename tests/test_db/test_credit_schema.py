@@ -10,7 +10,7 @@ The tables carry **no personal data and no retention clock**, deliberately, whic
 they are absent from ``tables_with_personal_data`` in ``test_privacy_constraints.py``:
 every column is a Telegram id, a closed enum, an integer or a machine-built key, so there
 is no text *about* a person anywhere. An audit trail that deleted itself on the 30/90-day
-schedules in ``hbd.db.retention`` could not answer a billing or fraud question about the
+schedules in ``bayram.db.retention`` could not answer a billing or fraud question about the
 period it had just erased — so the ledger outlives those clocks on purpose, and
 :func:`test_neither_credit_table_carries_a_retention_clock` pins that decision down rather
 than leaving it to be re-litigated by whoever next reads the purge code.
@@ -27,9 +27,9 @@ from alembic.script import ScriptDirectory
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.db.base import ENUM_LENGTH
-from hbd.db.enums import CreditEntryKind, CreditReason
-from hbd.db.models import Base, CreditAccountRow, CreditLedgerRow
+from bayram.db.base import ENUM_LENGTH
+from bayram.db.enums import CreditEntryKind, CreditReason
+from bayram.db.models import Base, CreditAccountRow, CreditLedgerRow
 from tests.test_db.test_enum_lengths import _all_declared_str_enums
 from tests.test_db.test_migrations import _config
 
@@ -435,7 +435,7 @@ def test_no_credit_column_holds_free_text_about_a_person() -> None:
 
 
 def test_both_credit_enums_are_picked_up_by_the_enum_width_sweep() -> None:
-    # Arrange — test_enum_lengths.py collects StrEnums *declared in* hbd.db.enums, so a
+    # Arrange — test_enum_lengths.py collects StrEnums *declared in* bayram.db.enums, so a
     # member added here is checked against ENUM_LENGTH before Postgres rejects the insert
     # that SQLite would have accepted. This asserts the pickup rather than assuming it.
     covered = {enum_cls.__name__ for enum_cls in _all_declared_str_enums()}

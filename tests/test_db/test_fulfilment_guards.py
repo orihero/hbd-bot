@@ -5,7 +5,7 @@
 guard. Those two refusals used to live in that caller, ABOVE the clock read and above
 ``begin()``, and the whole risk of extracting the sale-writing bodies was that a mechanical
 "move the body" starts at ``now =`` and leaves them behind. Every test here calls
-:func:`hbd.db.fulfilment.write_single_sale` and :func:`hbd.db.fulfilment.write_plan_sale`
+:func:`bayram.db.fulfilment.write_single_sale` and :func:`bayram.db.fulfilment.write_plan_sale`
 DIRECTLY, against a real session, because that is the door a payment gateway settling an
 inbound HTTP request comes through and the ledger's own suite would stay green with the
 guards gone.
@@ -26,10 +26,10 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.checkout import Product, Purchase
-from hbd.db.fulfilment import write_plan_sale, write_single_sale
-from hbd.db.models import CreditLedgerRow, PlanPurchaseRow, TopupPurchaseRow
-from hbd.errors import ErrorCode, PaymentError
+from bayram.checkout import Product, Purchase
+from bayram.db.fulfilment import write_plan_sale, write_single_sale
+from bayram.db.models import CreditLedgerRow, PlanPurchaseRow, TopupPurchaseRow
+from bayram.errors import ErrorCode, PaymentError
 from tests.test_db.conftest import MovableClock
 
 #: Outside the 32-bit range, so a column that quietly became an ``Integer`` on either engine

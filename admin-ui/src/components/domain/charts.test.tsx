@@ -4,7 +4,7 @@
  * Both tests are really about the same failure: a number that is arithmetically defensible
  * and operationally wrong. A 0% bar for a strategy nothing ran, and a pile at 0.00 built
  * from attempts where verification never happened, both argue for exactly the wrong change
- * to `HBD_NAME_CANDIDATE_ORDER`.
+ * to `BAYRAM_NAME_CANDIDATE_ORDER`.
  */
 
 import { render, screen } from "@testing-library/react";

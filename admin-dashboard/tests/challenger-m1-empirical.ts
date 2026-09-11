@@ -316,7 +316,7 @@ const enMap = new Map(enLeaves.map((l) => [l.path, l.val]));
  * own name, and the currency and unit codes a figure is quoted in. `soʻm` is here in its
  * Uzbek spelling because that IS the spelling all three use.
  */
-const INVARIANT_TOKENS = new Set(["hbd", "bot", "admin", "usd", "uzs", "soʻm", "som"]);
+const INVARIANT_TOKENS = new Set(["bayram", "bot", "admin", "usd", "uzs", "soʻm", "som"]);
 
 function isTranslatablePhrase(value: string): boolean {
   const words = value

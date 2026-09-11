@@ -17,13 +17,13 @@ from sqlalchemy.dialects import sqlite
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.pool import QueuePool
 
-from hbd.contracts import AssetKind, Language, OrderState
-from hbd.db.base import Base, UtcDateTime, enum_type, utc_now
-from hbd.db.engine import SQLITE_MEMORY_URL, create_engine, ping
-from hbd.db.enums import GenerationKind, NameSource
-from hbd.db.models import AssetRow, BriefRow, UserRow
-from hbd.db.repository import SqlKitRepository
-from hbd.db.retention import (
+from bayram.contracts import AssetKind, Language, OrderState
+from bayram.db.base import Base, UtcDateTime, enum_type, utc_now
+from bayram.db.engine import SQLITE_MEMORY_URL, create_engine, ping
+from bayram.db.enums import GenerationKind, NameSource
+from bayram.db.models import AssetRow, BriefRow, UserRow
+from bayram.db.repository import SqlKitRepository
+from bayram.db.retention import (
     DEFAULT_RETENTION_POLICY,
     RetentionClass,
     RetentionPolicy,

@@ -474,7 +474,7 @@
      "characters"
     ],
     "title": "BalanceUnit",
-    "description": "What a ``vendor_balances`` row's quantities are counted in.\n\nA balance with no unit is unreadable in the same way a cost with no\n:class:`CostSource` is: \"4 312 remaining\" is a fortune in dollars and an afternoon in\nElevenLabs characters, and the two vendors this system polls report in one each. It\nlives beside :class:`Vendor` rather than in ``hbd.db.enums`` for that class's stated\nreason \u2014 the probe that reads a vendor's own body is a provider-shaped module, and a\nprovider must never import ``hbd.db``."
+    "description": "What a ``vendor_balances`` row's quantities are counted in.\n\nA balance with no unit is unreadable in the same way a cost with no\n:class:`CostSource` is: \"4 312 remaining\" is a fortune in dollars and an afternoon in\nElevenLabs characters, and the two vendors this system polls report in one each. It\nlives beside :class:`Vendor` rather than in ``bayram.db.enums`` for that class's stated\nreason \u2014 the probe that reads a vendor's own body is a provider-shaped module, and a\nprovider must never import ``bayram.db``."
    },
    "CapabilitiesView": {
     "properties": {
@@ -549,7 +549,7 @@
      "isActivityHistory"
     ],
     "title": "CapabilitiesView",
-    "description": "What this deployment can honestly answer. Measured from the schema and the rows.\n\nNamed one-to-one with :class:`~hbd.db.admin.views.ReadCapabilities`. A capability\nrenamed on the way to the wire is one that drifts from the probe that produces it, and\nthe SPA branches on these to decide whether to draw a panel or say \"not instrumented\"."
+    "description": "What this deployment can honestly answer. Measured from the schema and the rows.\n\nNamed one-to-one with :class:`~bayram.db.admin.views.ReadCapabilities`. A capability\nrenamed on the way to the wire is one that drifts from the probe that produces it, and\nthe SPA branches on these to decide whether to draw a panel or say \"not instrumented\"."
    },
    "ChurnView": {
     "properties": {
@@ -614,7 +614,7 @@
      "evidence"
     ],
     "title": "ComponentStatusView",
-    "description": "One dot on the System status strip, with the evidence it was derived from.\n\n**No outbound call produces any of these.** They are read from\n:func:`~hbd.db.admin.metrics.read_capabilities` and from the cached balance rows the\nARQ worker writes; the admin process holds no vendor credential and makes no HTTP\nrequest. A \"System status\" card is exactly where somebody reaches for a client, so the\nrefusal is a property of the shape: there is no field here a probe would fill.\n\n``evidence`` is a short machine-readable phrase naming what was actually observed, so a\ndot that says ``NOT_PROBED`` also says why nobody probed it."
+    "description": "One dot on the System status strip, with the evidence it was derived from.\n\n**No outbound call produces any of these.** They are read from\n:func:`~bayram.db.admin.metrics.read_capabilities` and from the cached balance rows the\nARQ worker writes; the admin process holds no vendor credential and makes no HTTP\nrequest. A \"System status\" card is exactly where somebody reaches for a client, so the\nrefusal is a property of the shape: there is no field here a probe would fill.\n\n``evidence`` is a short machine-readable phrase naming what was actually observed, so a\ndot that says ``NOT_PROBED`` also says why nobody probed it."
    },
    "CostPerSongView": {
     "properties": {
@@ -1536,7 +1536,7 @@
      "count"
     ],
     "title": "PlanUtilisationBucketView",
-    "description": "One tenth of the ENDED-plan utilisation distribution. All ten always present.\n\n``from``/``to`` rather than ``lower``/``upper`` because that is the vocabulary\n:class:`~hbd.admin.schemas.dashboard.SimilarityBucketView` already put on the wire for\nthe only other histogram in this panel, and a second spelling for the same thing is a\nsecond chart component. ``from`` is a Python keyword, so the field is ``from_`` with an\nexplicit alias \u2014 overridden towards the SPA rather than away from it."
+    "description": "One tenth of the ENDED-plan utilisation distribution. All ten always present.\n\n``from``/``to`` rather than ``lower``/``upper`` because that is the vocabulary\n:class:`~bayram.admin.schemas.dashboard.SimilarityBucketView` already put on the wire for\nthe only other histogram in this panel, and a second spelling for the same thing is a\nsecond chart component. ``from`` is a Python keyword, so the field is ``from_`` with an\nexplicit alias \u2014 overridden towards the SPA rather than away from it."
    },
    "PulseView": {
     "properties": {
@@ -1618,7 +1618,7 @@
      "month"
     ],
     "title": "SeriesBucket",
-    "description": "The grains a CHART may ask for. Wider than the two the database groups at.\n\n``WEEK`` and ``MONTH`` are folded from ``DAY`` in this module \u2014 see\n:class:`~hbd.db.admin.sql.SeriesGrain` for why they are not SQL."
+    "description": "The grains a CHART may ask for. Wider than the two the database groups at.\n\n``WEEK`` and ``MONTH`` are folded from ``DAY`` in this module \u2014 see\n:class:`~bayram.db.admin.sql.SeriesGrain` for why they are not SQL."
    },
    "SeriesResponse": {
     "properties": {
@@ -1901,7 +1901,7 @@
      "fake"
     ],
     "title": "Vendor",
-    "description": "Who was billed for one call, at the granularity an invoice arrives at.\n\nCoarser than the adapter name on purpose. ``vendor_usage.provider`` records which\nadapter made the call (``elevenlabs_music`` vs ``elevenlabs_tts``) and both roll up to\n``ELEVENLABS`` here, because one invoice arrives from ElevenLabs and an operator\nreconciling it needs the total, not three of them.\n\n``OPENAI_COMPATIBLE`` is the honest member for a self-hosted or third-party\nOpenAI-shaped endpoint that is not OpenRouter: the wire protocol is the same, the\nbilling relationship is not, and ``usage.cost`` is an OpenRouter extension nobody else\nreturns. ``FAKE`` exists so a ``HBD_USE_FAKE_PROVIDERS`` run is RECORDED and visibly\nexcluded rather than invisible \u2014 ``vendor_usage.is_fake`` carries the same fact on the\nrow, and a demo that wrote no rows at all would be indistinguishable from a deployment\nnobody instrumented.\n\nThis lives here and not in ``hbd.db.enums`` because a provider adapter records usage\nand a provider adapter must never import ``hbd.db``."
+    "description": "Who was billed for one call, at the granularity an invoice arrives at.\n\nCoarser than the adapter name on purpose. ``vendor_usage.provider`` records which\nadapter made the call (``elevenlabs_music`` vs ``elevenlabs_tts``) and both roll up to\n``ELEVENLABS`` here, because one invoice arrives from ElevenLabs and an operator\nreconciling it needs the total, not three of them.\n\n``OPENAI_COMPATIBLE`` is the honest member for a self-hosted or third-party\nOpenAI-shaped endpoint that is not OpenRouter: the wire protocol is the same, the\nbilling relationship is not, and ``usage.cost`` is an OpenRouter extension nobody else\nreturns. ``FAKE`` exists so a ``BAYRAM_USE_FAKE_PROVIDERS`` run is RECORDED and visibly\nexcluded rather than invisible \u2014 ``vendor_usage.is_fake`` carries the same fact on the\nrow, and a demo that wrote no rows at all would be indistinguishable from a deployment\nnobody instrumented.\n\nThis lives here and not in ``bayram.db.enums`` because a provider adapter records usage\nand a provider adapter must never import ``bayram.db``."
    },
    "VendorBalanceView": {
     "properties": {
@@ -2156,7 +2156,7 @@
      "to"
     ],
     "title": "WindowView",
-    "description": "The half-open ``[from, to)`` the numbers were counted over. ``null`` for all time.\n\n**``from`` is nullable and ``to`` is not**, and the asymmetry is the whole contract of a\none-sided range. ``?to=Y`` with no lower bound counts everything ever recorded up to ``Y``\nand there is no instant to echo for the start \u2014 an epoch would be a timestamp the operator\nnever chose and the panel would render it as if they had. ``?from=X`` with no upper bound\nalways has one to echo, because the server resolved it to the moment it served the request\n(:func:`hbd.admin.window.resolve_window`), and echoing it is what keeps the chart\nreproducible: the response says what it counted over even when the request did not."
+    "description": "The half-open ``[from, to)`` the numbers were counted over. ``null`` for all time.\n\n**``from`` is nullable and ``to`` is not**, and the asymmetry is the whole contract of a\none-sided range. ``?to=Y`` with no lower bound counts everything ever recorded up to ``Y``\nand there is no instant to echo for the start \u2014 an epoch would be a timestamp the operator\nnever chose and the panel would render it as if they had. ``?from=X`` with no upper bound\nalways has one to echo, because the server resolved it to the moment it served the request\n(:func:`bayram.admin.window.resolve_window`), and echoing it is what keeps the chart\nreproducible: the response says what it counted over even when the request did not."
    }
   }
  }

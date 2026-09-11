@@ -3,7 +3,7 @@
  * (§11.4).
  *
  * The redaction here is the second belt, not the first. §12.3 is explicit that masking is
- * server-side, in `hbd/admin/serializers/redaction.py`, applied at the response boundary:
+ * server-side, in `bayram/admin/serializers/redaction.py`, applied at the response boundary:
  * "not a CSS blur, not a client toggle — an unmasked value must never be in a JSON payload
  * the operator did not explicitly request". That control is the one that matters, and this
  * one cannot substitute for it: the value is already in the browser's memory by the time

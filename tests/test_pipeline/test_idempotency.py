@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from hbd.pipeline.events import PipelineStage
-from hbd.pipeline.idempotency import KEY_DIGEST_CHARS, idempotency_key
+from bayram.pipeline.events import PipelineStage
+from bayram.pipeline.idempotency import KEY_DIGEST_CHARS, idempotency_key
 
 
 def test_the_same_request_produces_the_same_key_every_time() -> None:
@@ -58,5 +58,5 @@ def test_the_key_is_short_enough_for_a_header_and_names_its_stage() -> None:
     key = idempotency_key(uuid4(), PipelineStage.COMPOSING_SONG, 0)
 
     # Assert
-    assert key.startswith("hbd-composing_song-")
+    assert key.startswith("bayram-composing_song-")
     assert len(key.rsplit("-", 1)[-1]) == KEY_DIGEST_CHARS

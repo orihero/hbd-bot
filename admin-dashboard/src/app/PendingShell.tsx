@@ -17,7 +17,7 @@ export function PendingShell() {
         aria-hidden
         className="font-wordmark text-2xl tracking-tight text-wordmark opacity-40"
       >
-        hbd
+        Bayram
       </span>
       <span className="sr-only">{t("common.loadingApp")}</span>
     </div>

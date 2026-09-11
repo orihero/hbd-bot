@@ -23,7 +23,7 @@ weaker claim than "the digits are not in the bytes", and it is the claim that su
 somebody adding a field to a projection later.
 
 **4. Persist, then enqueue.** The queue is a recording
-:class:`~hbd.admin.queue.NullAdminQueue`, so every route that hands work to the worker is
+:class:`~bayram.admin.queue.NullAdminQueue`, so every route that hands work to the worker is
 asserted on the job NAME, the campaign id and the frozen instant it passed — a counter could
 not tell a right id from a wrong one. A refusing queue is a 503 and not a 500.
 
@@ -45,15 +45,15 @@ import httpx
 import pytest
 import sqlalchemy as sa
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.errors import AdminErrorCode
-from hbd.admin.queue import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.errors import AdminErrorCode
+from bayram.admin.queue import (
     EXPAND_JOB_NAME,
     SEND_JOB_NAME,
     TEST_SEND_JOB_NAME,
     NullAdminQueue,
 )
-from hbd.admin.routers.broadcasts import (
+from bayram.admin.routers.broadcasts import (
     BROADCAST_CANCEL_PATH,
     BROADCAST_PATH,
     BROADCAST_PAUSE_PATH,
@@ -65,19 +65,19 @@ from hbd.admin.routers.broadcasts import (
     BROADCAST_TEST_SEND_PATH,
     BROADCASTS_PATH,
 )
-from hbd.admin.security.permissions import StepUpAction
-from hbd.contracts import (
+from bayram.admin.security.permissions import StepUpAction
+from bayram.contracts import (
     BroadcastKind,
     BroadcastRecipientState,
     BroadcastState,
     Language,
 )
-from hbd.db.enums import AdminRole, AuditAction, AuditReasonCode
-from hbd.db.models.admin_audit import AdminAuditRow
-from hbd.db.models.broadcast import BroadcastRow
-from hbd.db.models.broadcast_body import BroadcastBodyRow
-from hbd.db.models.broadcast_recipient import BroadcastRecipientRow
-from hbd.db.models.user import UserRow
+from bayram.db.enums import AdminRole, AuditAction, AuditReasonCode
+from bayram.db.models.admin_audit import AdminAuditRow
+from bayram.db.models.broadcast import BroadcastRow
+from bayram.db.models.broadcast_body import BroadcastBodyRow
+from bayram.db.models.broadcast_recipient import BroadcastRecipientRow
+from bayram.db.models.user import UserRow
 from tests.test_admin.conftest import (
     NOW,
     PASSWORD,

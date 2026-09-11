@@ -391,7 +391,7 @@ wheels = [
 ]
 
 [[package]]
-name = "hbd-bot"
+name = "bayram-bot"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

@@ -7,7 +7,7 @@
  * changes with `isComplete`: an incomplete walk says **holds over the rows checked**, never
  * **holds**, and the row count sits beside it.
  *
- * **2. Which protections are actually deployed.** §12.4: if `HBD_ADMIN_AUDIT_DSN` is empty
+ * **2. Which protections are actually deployed.** §12.4: if `BAYRAM_ADMIN_AUDIT_DSN` is empty
  * the migration skips the `REVOKE`, and `/audit/verify` reports
  * `chainProtection: "hmac-only"` — "which the panel renders verbatim. A control that is not
  * deployed is reported as not deployed." The value contains a `-` and a `+` and is not a
@@ -33,7 +33,7 @@ export interface ChainVerifyPanelProps {
 const PROTECTION_NOTE: Record<string, string> = {
   "revoke+hmac": "the app role cannot UPDATE or DELETE this table, and every row is HMAC-chained",
   "hmac-only":
-    "the database REVOKE is not deployed (HBD_ADMIN_AUDIT_DSN is empty) — the HMAC chain is the only control standing",
+    "the database REVOKE is not deployed (BAYRAM_ADMIN_AUDIT_DSN is empty) — the HMAC chain is the only control standing",
 };
 
 export function ChainVerifyPanel({ verify, className }: ChainVerifyPanelProps): ReactElement {

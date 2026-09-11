@@ -48,7 +48,7 @@ coverage.xml
 # Local artefacts
 /tmp/
 /media/
-# Workspace + local object storage written by hbd.runtime (see AppContainer.data_root)
+# Workspace + local object storage written by bayram.runtime (see AppContainer.data_root)
 /var/
 /assets_local/
 *.mp3
@@ -58,11 +58,11 @@ coverage.xml
 !tests/**/fixtures/**
 
 # Admin panel — the SPA's build output is a build artefact, not source. The API serves
-# src/hbd/admin/static/, which `npm run build` writes; committing it would let the served
+# src/bayram/admin/static/, which `npm run build` writes; committing it would let the served
 # bundle drift from admin-ui/ with nothing to notice.
 admin-ui/node_modules/
 admin-ui/dist/
-src/hbd/admin/static/
+src/bayram/admin/static/
 admin-ui/coverage/
 
 # The browser gate (make ui-e2e). `.manifest.json` is written by the harness at boot and
@@ -77,3 +77,6 @@ admin-ui/blob-report/
 .idea/
 .vscode/
 .DS_Store
+
+# Personal Claude Code overrides — grants production host access, never committed
+.claude/settings.local.json

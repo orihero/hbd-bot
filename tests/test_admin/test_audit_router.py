@@ -1,6 +1,6 @@
 """``/api/audit`` and ``/api/audit/verify`` over the real ASGI stack.
 
-The router is mounted here rather than by ``create_app``: ``src/hbd/admin/app.py`` belongs to
+The router is mounted here rather than by ``create_app``: ``src/bayram/admin/app.py`` belongs to
 the slice that mounts every read-only router at once, and this slice ships the router and its
 tests. Everything else is the production path — the real container, the real login, the real
 permission guard, the real session cookies.
@@ -28,14 +28,14 @@ import pytest
 import sqlalchemy as sa
 from fastapi import FastAPI
 
-from hbd.admin.app import create_app
-from hbd.admin.container import AdminContainer
-from hbd.admin.errors import ProblemError
-from hbd.admin.routers.audit import AUDIT_PATH, VERIFY_PATH, build_audit_router
-from hbd.admin.window import require_aware
-from hbd.db.admin.audit import AuditEntry, append
-from hbd.db.enums import AdminRole, AuditAction, AuditReasonCode
-from hbd.db.models.admin_audit import AdminAuditRow
+from bayram.admin.app import create_app
+from bayram.admin.container import AdminContainer
+from bayram.admin.errors import ProblemError
+from bayram.admin.routers.audit import AUDIT_PATH, VERIFY_PATH, build_audit_router
+from bayram.admin.window import require_aware
+from bayram.db.admin.audit import AuditEntry, append
+from bayram.db.enums import AdminRole, AuditAction, AuditReasonCode
+from bayram.db.models.admin_audit import AdminAuditRow
 from tests.test_admin.conftest import (
     HMAC_KEY,
     ORIGIN,
@@ -250,7 +250,7 @@ async def test_a_naive_timestamp_is_refused(
     # Assert
     assert response.status_code == 422
     # And the wording is the SHARED validator's, byte for byte. This route carried a private
-    # sixth copy of ``_aware`` that ``hbd.admin.window`` was written to delete: identical,
+    # sixth copy of ``_aware`` that ``bayram.admin.window`` was written to delete: identical,
     # untested against the other five, and therefore the exact drift the extraction was for
     # — reword ``require_aware`` and only this endpoint would keep the old refusal.
     with pytest.raises(ProblemError) as refused:

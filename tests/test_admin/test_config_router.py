@@ -26,11 +26,11 @@ from typing import Final
 import httpx
 import pytest
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.routers.config import CONFIG_PATH
-from hbd.admin.schemas.config_view import endpoint_of, to_config_view
-from hbd.admin.settings import AdminSettings
-from hbd.db.enums import AdminRole
+from bayram.admin.container import AdminContainer
+from bayram.admin.routers.config import CONFIG_PATH
+from bayram.admin.schemas.config_view import endpoint_of, to_config_view
+from bayram.admin.settings import AdminSettings
+from bayram.db.enums import AdminRole
 from tests.test_admin.conftest import (
     ORIGIN,
     PASSWORD,
@@ -47,9 +47,9 @@ from tests.test_admin.conftest import (
 #: acceptance criterion of this slice is that the whole body fails to match it.
 DSN_WITH_USERINFO: Final[re.Pattern[str]] = re.compile(r"://[^/\s:@]+:[^/\s@]+@")
 
-DATABASE_DSN: Final[str] = "postgresql+asyncpg://hbd_admin:sup3r-s3cret-pw@db.internal:6432/hbd"
-REDIS_DSN: Final[str] = "redis://hbd_cache:cache-s3cret-pw@cache.internal:6380/2"
-AUDIT_DSN: Final[str] = "postgresql+asyncpg://hbd_owner:owner-r0le-pw@db.internal:6432/hbd"
+DATABASE_DSN: Final[str] = "postgresql+asyncpg://bayram_admin:sup3r-s3cret-pw@db.internal:6432/hbd"
+REDIS_DSN: Final[str] = "redis://bayram_cache:cache-s3cret-pw@cache.internal:6380/2"
+AUDIT_DSN: Final[str] = "postgresql+asyncpg://bayram_owner:owner-r0le-pw@db.internal:6432/hbd"
 AUDIT_HMAC_KEY: Final[str] = "audit-hmac-key-that-must-never-be-shipped"
 PROBE_TOKEN: Final[str] = "probe-token-nobody-outside-the-fleet-monitor-may-read"
 
@@ -240,7 +240,7 @@ async def test_the_non_secret_settings_are_reported_verbatim(
     container: AdminContainer, client: httpx.AsyncClient
 ) -> None:
     # Arrange — every field name is an ``AdminSettings`` attribute name, so a number on the
-    # panel names the HBD_ADMIN_* variable an operator would edit.
+    # panel names the BAYRAM_ADMIN_* variable an operator would edit.
     await signed_in(container, client, role=AdminRole.ADMIN)
     settings = container.settings
 

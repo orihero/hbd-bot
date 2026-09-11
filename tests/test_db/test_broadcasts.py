@@ -41,7 +41,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from hbd.contracts import (
+from bayram.contracts import (
     BroadcastKind,
     BroadcastRecipientState,
     BroadcastState,
@@ -49,8 +49,8 @@ from hbd.contracts import (
     is_err,
     is_ok,
 )
-from hbd.db.admin.page import Cursor
-from hbd.db.broadcasts import (
+from bayram.db.admin.page import Cursor
+from bayram.db.broadcasts import (
     STALE_SENDING_ERROR_CODE,
     BroadcastActor,
     BroadcastBody,
@@ -75,12 +75,12 @@ from hbd.db.broadcasts import (
     roll_up_counters,
     settle_recipient,
 )
-from hbd.db.enums import AuditReasonCode
-from hbd.db.models.broadcast import BroadcastRow
-from hbd.db.models.broadcast_body import BroadcastBodyRow
-from hbd.db.models.broadcast_recipient import BroadcastRecipientRow
-from hbd.db.models.user import UserRow
-from hbd.errors import StorageError, ValidationError
+from bayram.db.enums import AuditReasonCode
+from bayram.db.models.broadcast import BroadcastRow
+from bayram.db.models.broadcast_body import BroadcastBodyRow
+from bayram.db.models.broadcast_recipient import BroadcastRecipientRow
+from bayram.db.models.user import UserRow
+from bayram.errors import StorageError, ValidationError
 
 pytestmark = pytest.mark.anyio
 
@@ -94,7 +94,7 @@ _JOINED: Final[datetime] = datetime(2026, 8, 1, 9, 0, tzinfo=UTC)
 _FIRST_ACCOUNT: Final[int] = 90_001
 
 #: The compiled document, stored verbatim on the campaign. Its shape belongs to
-#: ``hbd.admin.schemas.segment``; this layer only has to keep it unchanged.
+#: ``bayram.admin.schemas.segment``; this layer only has to keep it unchanged.
 _SEGMENT: Final[dict[str, Any]] = {
     "root": {"match": "all", "rules": [{"field": "is_reachable", "op": "is_true"}]},
     "sort": {"key": "joined_at", "direction": "desc"},

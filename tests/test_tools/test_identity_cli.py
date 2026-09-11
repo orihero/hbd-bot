@@ -1,4 +1,4 @@
-"""``python -m hbd.tools.identity`` — the profile writer, tested without a token.
+"""``python -m bayram.tools.identity`` — the profile writer, tested without a token.
 
 Two properties matter about a command that edits what every customer sees before they
 type anything, and neither is the argument parsing.
@@ -22,7 +22,7 @@ import pytest
 from aiogram import Bot
 from aiogram.types import BotDescription, BotName, BotShortDescription, User
 
-from hbd.tools.identity import (
+from bayram.tools.identity import (
     EXIT_REFUSED,
     Change,
     RefusedError,
@@ -42,8 +42,8 @@ _JPEG: Final[bytes] = b"\xff\xd8\xff" + b"\x00" * 64
 def session() -> RecordingSession:
     recording = RecordingSession()
     recording.responses = {
-        "GetMe": User(id=42, is_bot=True, first_name="HBD BOT", username="hbduzbot"),
-        "GetMyName": BotName(name="HBD BOT"),
+        "GetMe": User(id=42, is_bot=True, first_name="BAYRAM BOT", username="bayram_uzbot"),
+        "GetMyName": BotName(name="BAYRAM BOT"),
         "GetMyDescription": BotDescription(description="A song for a birthday."),
         "GetMyShortDescription": BotShortDescription(short_description="Songs, in a minute."),
         "SetMyName": True,
@@ -97,7 +97,7 @@ def test_plan_refuses_text_over_telegrams_cap_before_any_request() -> None:
 
 def test_plan_refuses_a_malformed_locale() -> None:
     with pytest.raises(RefusedError, match="--language-code"):
-        plan(["set", "--name", "HBD", "--language-code", "russian!"])
+        plan(["set", "--name", "Bayram", "--language-code", "russian!"])
 
 
 def test_plan_refuses_a_photo_that_is_not_a_jpeg_and_says_how_to_convert(tmp_path: Path) -> None:
@@ -119,7 +119,7 @@ def test_plan_refuses_a_localised_photo_because_a_bot_has_only_one(photo: Path) 
 
 async def test_show_reports_every_value_and_the_locale_it_read(bot: Bot) -> None:
     report = await apply(bot, Show(language_code="ru"))
-    assert "@hbduzbot (42), locale: ru" in report
+    assert "@bayram_uzbot (42), locale: ru" in report
     assert "'A song for a birthday.'" in report
     assert "'Songs, in a minute.'" in report
 
@@ -141,7 +141,7 @@ async def test_set_writes_all_four_in_a_fixed_order(
         bot,
         Change(
             language_code="",
-            name="HBD Studio",
+            name="Bayram Studio",
             description="A song for a birthday.",
             short_description="Songs, in a minute.",
             photo=photo,
@@ -158,7 +158,7 @@ async def test_set_writes_all_four_in_a_fixed_order(
 async def test_set_carries_the_locale_to_every_text_setter(
     bot: Bot, session: RecordingSession
 ) -> None:
-    await apply(bot, Change(language_code="ru", name="HBD", description="Песня"))
+    await apply(bot, Change(language_code="ru", name="Bayram", description="Песня"))
     assert [call.language_code for call in session.calls] == ["ru", "ru"]  # type: ignore[attr-defined]
 
 
@@ -172,7 +172,7 @@ async def test_a_failure_mid_way_reports_what_had_already_landed(
             bot,
             Change(
                 language_code="",
-                name="HBD Studio",
+                name="Bayram Studio",
                 description="A song for a birthday.",
                 short_description="x",
             ),

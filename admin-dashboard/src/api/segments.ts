@@ -1,7 +1,7 @@
 /**
  * `/api/segments` — the filter vocabulary, and how many people one filter selects.
  *
- * Transcribed from `hbd/admin/routers/segments.py` and `hbd/admin/schemas/segment.py`. Two
+ * Transcribed from `bayram/admin/routers/segments.py` and `bayram/admin/schemas/segment.py`. Two
  * routes, two permissions, and the split is the whole design:
  *
  * **`GET /segments/fields` is the builder's source of truth** (`broadcast.read`). The registry
@@ -245,7 +245,7 @@ export function audienceLanguages(preview: SegmentPreviewView): readonly Languag
 /* -------------------------------------------------------------------------- */
 
 /**
- * `hbd.checkout.PlanStatus` — the four mutually-exclusive, exhaustive cases the compiler
+ * `bayram.checkout.PlanStatus` — the four mutually-exclusive, exhaustive cases the compiler
  * lowers `plan_status` to.
  *
  * **There is no renewal in this product**: no auto-renew, no `renewed_at`, no recurring

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.contracts import Language, NameCandidate, NameStrategy, Transcript
-from hbd.names.matching import (
+from bayram.contracts import Language, NameCandidate, NameStrategy, Transcript
+from bayram.names.matching import (
     compare_names,
     judge_transcript,
     name_similarity,

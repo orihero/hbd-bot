@@ -1,7 +1,7 @@
 """The two logging controls that are privacy controls rather than ergonomics.
 
 Redaction and the noisy-logger floor exist for the same reason: a log line has no
-retention clock, is not reachable by ``hbd.db.purge`` and is not reachable by a per-user
+retention clock, is not reachable by ``bayram.db.purge`` and is not reachable by a per-user
 erasure. Anything that reaches stdout is outside every promise the product makes about how
 long it keeps a recipient's name, so what may reach stdout is asserted here rather than
 reviewed by eye.
@@ -23,7 +23,7 @@ from typing import Final
 
 import pytest
 
-from hbd.logging import REDACTED, configure_logging, redact
+from bayram.logging import REDACTED, configure_logging, redact
 
 #: The three names the redactor deliberately lets through, and the only three.
 _USAGE_COUNTERS: Final[tuple[str, ...]] = ("prompt_tokens", "completion_tokens", "total_tokens")
@@ -208,7 +208,7 @@ def test_the_carve_out_reaches_a_counter_nested_inside_the_formatters_context_ob
 @pytest.mark.parametrize("name", _MUST_BE_FLOORED)
 @pytest.mark.usefixtures("_restore_child_levels")
 def test_root_debug_cannot_pull_a_data_echoing_logger_down_with_it(name: str) -> None:
-    # Arrange / Act — HBD_LOG_LEVEL=DEBUG is one config change away at any time.
+    # Arrange / Act — BAYRAM_LOG_LEVEL=DEBUG is one config change away at any time.
     configure_logging(level="DEBUG", is_json=True)
 
     # Assert — at DEBUG, sqlalchemy.engine logs every statement with its bound parameters:

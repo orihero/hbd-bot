@@ -70,7 +70,7 @@ describe("suggestedCandidateOrder", () => {
 describe("candidateOrderValue", () => {
   it("emits the comma-separated spelling `_split_csv` reads back", () => {
     expect(candidateOrderValue(["canonical", "ascii"])).toBe("canonical,ascii");
-    expect(CANDIDATE_ORDER_ENV).toBe("HBD_NAME_CANDIDATE_ORDER");
+    expect(CANDIDATE_ORDER_ENV).toBe("BAYRAM_NAME_CANDIDATE_ORDER");
   });
 });
 

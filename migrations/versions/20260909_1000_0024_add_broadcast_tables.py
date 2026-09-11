@@ -105,7 +105,7 @@ are stored; ``reason_text`` is not. ``admin_audit_log.reason_text`` owns the 90-
 (``reason_expires_at``) and the sweep that nulls it, and a second copy on this table would be
 unswept operator prose with no clock at all. Adding a ``reason_expires_at`` here instead would
 be worse: ``tests/test_db/test_audit_retention.py`` collects every column whose name ends in
-that suffix and demands ``hbd.db.purge.rows_past_expiry_statements`` read it, so the column
+that suffix and demands ``bayram.db.purge.rows_past_expiry_statements`` read it, so the column
 would claim a published retention schedule this table does not have.
 
 **WHY EACH INDEX EXISTS — AND, MORE IMPORTANTLY, WHICH ONES DO NOT.**

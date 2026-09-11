@@ -6,10 +6,10 @@ cannot hold on its own. The watermark and the lyric live two lines apart in
 invitation into it is a one-character change that goes green everywhere. The consequence is
 not a cosmetic defect: the composition plan is built from ``LyricDraft.sections``, so a
 watermark inside the draft is posted to the music vendor, set to music, and sung. A customer
-hears a voice singing "generate yours at at hbduzbot" in the middle of a birthday song, and
+hears a voice singing "generate yours at at bayram_uzbot" in the middle of a birthday song, and
 there is no way to un-send it.
 
-So this module builds a real ``Kit`` through :func:`~hbd.pipeline.assembly.assemble_kit`
+So this module builds a real ``Kit`` through :func:`~bayram.pipeline.assembly.assemble_kit`
 with a fake post-processor and asserts both halves at once: the four carriers carry it, and
 the draft, the plan and the vendor payload do not.
 """
@@ -21,16 +21,16 @@ from uuid import uuid4
 
 import pytest
 
-from hbd.config import Settings
-from hbd.contracts import AssetKind, CostSource, Kit, LyricDraft, RenderedAudio, err
-from hbd.errors import StorageError
-from hbd.pipeline import assets
-from hbd.pipeline.assembly import assemble_kit
-from hbd.pipeline.greetings import GreetingBatch
-from hbd.pipeline.name_stage import SongRender
-from hbd.pipeline.outcome import RunLedger
-from hbd.pipeline.plan_builder import build_composition_plan
-from hbd.watermark import (
+from bayram.config import Settings
+from bayram.contracts import AssetKind, CostSource, Kit, LyricDraft, RenderedAudio, err
+from bayram.errors import StorageError
+from bayram.pipeline import assets
+from bayram.pipeline.assembly import assemble_kit
+from bayram.pipeline.greetings import GreetingBatch
+from bayram.pipeline.name_stage import SongRender
+from bayram.pipeline.outcome import RunLedger
+from bayram.pipeline.plan_builder import build_composition_plan
+from bayram.watermark import (
     SHEET_RULE,
     WATERMARK_HANDLE,
     audio_tags,

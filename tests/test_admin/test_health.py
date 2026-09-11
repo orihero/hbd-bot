@@ -19,18 +19,18 @@ import httpx
 import pytest
 import sqlalchemy as sa
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.csrf import SESSION_COOKIE_NAME
-from hbd.admin.routers.health import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.csrf import SESSION_COOKIE_NAME
+from bayram.admin.routers.health import (
     CONFIG_VERSION_KEY,
     PROBE_TOKEN_HEADER,
     STATUS_DEGRADED,
     STATUS_OK,
 )
-from hbd.admin.security.tokens import sha256_hex
-from hbd.admin.sessions import mirror_key
-from hbd.db.base import utc_now
-from hbd.db.models.admin_session import AdminSessionRow
+from bayram.admin.security.tokens import sha256_hex
+from bayram.admin.sessions import mirror_key
+from bayram.db.base import utc_now
+from bayram.db.models.admin_session import AdminSessionRow
 from tests.test_admin.conftest import (
     PROBE_TOKEN,
     FakeRedis,

@@ -17,7 +17,7 @@ bug in its name.
 
 Nothing here touches the network. The sandbox echo at ``https://test.paycom.uz/<base64>`` will
 decode one of these blobs and print what it parsed, which is how the parser facts in
-``hbd.payme.link``'s docstring were established, but a unit suite that reached for it would be
+``bayram.payme.link``'s docstring were established, but a unit suite that reached for it would be
 a unit suite that fails when a third party has an outage.
 """
 
@@ -28,8 +28,8 @@ from typing import Final
 
 import pytest
 
-from hbd.contracts import Language
-from hbd.payme.link import (
+from bayram.contracts import Language
+from bayram.payme.link import (
     LANGUAGE_PARAM,
     PARAMETER_SEPARATOR,
     PROD_CHECKOUT_URL,
@@ -169,20 +169,20 @@ def test_all_four_bot_languages_collapse_onto_paymes_three() -> None:
 def test_a_blank_return_url_omits_the_c_parameter_entirely() -> None:
     # Arrange / Act — the default, which is what ships: no return URL configured.
     without = dict(_parameters(_link()))
-    with_url = dict(_parameters(_link(return_url="https://t.me/hbd_bot?start=paid")))
+    with_url = dict(_parameters(_link(return_url="https://t.me/bayram_uzbot?start=paid")))
 
     # Assert — absent, not empty. ``c=`` is a value: Payme would carry an empty callback and
     # redirect the customer to nothing at the end of a successful payment, whereas no ``c`` at
     # all is a fully working payment that simply does not bounce them back.
     assert "c" not in without
-    assert with_url["c"] == "https://t.me/hbd_bot?start=paid"
+    assert with_url["c"] == "https://t.me/bayram_uzbot?start=paid"
 
 
 def test_the_return_url_is_passed_raw_and_never_percent_encoded() -> None:
     # Arrange — Payme's parser does NOT decode percent-encoding, so a ``quote()``-ed callback
     # arrives at the browser still escaped and the deep link is dead. This is the one place in
     # the codebase where the instinct to encode a URL parameter is wrong.
-    deep_link = "https://t.me/hbd_bot?start=paid&ref=abc"
+    deep_link = "https://t.me/bayram_uzbot?start=paid&ref=abc"
 
     # Act
     parameters = dict(_parameters(_link(return_url=deep_link)))
@@ -196,7 +196,7 @@ def test_the_return_url_is_passed_raw_and_never_percent_encoded() -> None:
 def test_a_semicolon_in_a_value_would_truncate_it_which_is_why_settings_refuse_one() -> None:
     # Arrange — the hazard this test documents is Payme's, not ours: there is no escaping
     # mechanism, so a ``;`` inside a value silently ends that value. The builder is pure and
-    # total and cannot refuse anything; the refusal lives on ``HBD_PAYME_RETURN_URL`` at
+    # total and cannot refuse anything; the refusal lives on ``BAYRAM_PAYME_RETURN_URL`` at
     # settings-build time. This test exists so the reason that validator exists is written
     # down HERE, next to the code whose behaviour makes it necessary.
     hostile = "https://example.test/?a=1;b=2"
@@ -217,8 +217,8 @@ def test_the_encoded_blob_decodes_back_to_a_stable_parameter_order() -> None:
     # the customer to guess which one their money went into.
 
     # Act
-    first = _link(return_url="https://t.me/hbd_bot?start=paid")
-    second = _link(return_url="https://t.me/hbd_bot?start=paid")
+    first = _link(return_url="https://t.me/bayram_uzbot?start=paid")
+    second = _link(return_url="https://t.me/bayram_uzbot?start=paid")
 
     # Assert
     assert first == second
@@ -227,13 +227,13 @@ def test_the_encoded_blob_decodes_back_to_a_stable_parameter_order() -> None:
 
 def test_the_account_field_name_is_configurable_because_a_human_types_it_into_a_web_form() -> None:
     # Arrange — the cabinet's «Настройка Аккаунт» field name is entered by hand on Payme's side
-    # and must equal ``HBD_PAYME_ACCOUNT_FIELD``. A mismatch is the likeliest go-live defect.
+    # and must equal ``BAYRAM_PAYME_ACCOUNT_FIELD``. A mismatch is the likeliest go-live defect.
 
     # Act
-    parameters = dict(_parameters(_link(account_field="hbd_ref")))
+    parameters = dict(_parameters(_link(account_field="bayram_ref")))
 
     # Assert
-    assert parameters["ac.hbd_ref"] == _PUBLIC_REF
+    assert parameters["ac.bayram_ref"] == _PUBLIC_REF
     assert "ac.order_id" not in parameters
 
 

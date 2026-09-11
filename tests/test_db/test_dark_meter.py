@@ -1,4 +1,4 @@
-"""What ``HBD_CREDITS_ENFORCED=false`` actually means, at the layer that decides it.
+"""What ``BAYRAM_CREDITS_ENFORCED=false`` actually means, at the layer that decides it.
 
 This is the configuration that merges, so it is the one that has to be pinned. The flag used
 to live on ``CreditGatedPaymentProvider``, which returned before it ever called the store —
@@ -27,18 +27,18 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import Err, Result, is_ok
-from hbd.db.credit_sql import verify_balances
-from hbd.db.credits import UNENFORCED_ACTOR, SqlCreditLedger
-from hbd.db.enums import CreditReason
-from hbd.entitlements import (
+from bayram.contracts import Err, Result, is_ok
+from bayram.db.credit_sql import verify_balances
+from bayram.db.credits import UNENFORCED_ACTOR, SqlCreditLedger
+from bayram.db.enums import CreditReason
+from bayram.entitlements import (
     ChargeOutcome,
     CreditBalance,
     EntitlementPolicy,
     InsufficientCreditsError,
     SettlementOutcome,
 )
-from hbd.errors import ErrorCode, HbdError, TooManyOrdersInFlightError, ValidationError
+from bayram.errors import BayramError, ErrorCode, TooManyOrdersInFlightError, ValidationError
 from tests.test_db.conftest import MovableClock
 
 _USER: Final[int] = 8_912_345_670_001
@@ -58,7 +58,7 @@ def _ledger(
 
 
 async def _reasons(sessions: async_sessionmaker[AsyncSession]) -> list[str]:
-    """Every ledger row's reason, oldest first. Raw SQL — see Rule 15 in ``hbd/db``."""
+    """Every ledger row's reason, oldest first. Raw SQL — see Rule 15 in ``bayram/db``."""
     async with sessions() as session:
         rows = (
             await session.execute(
@@ -74,7 +74,7 @@ async def _charge(
     return await ledger.charge(telegram_user_id=_USER, order_id=order_id, actor=_ACTOR)
 
 
-def _refusal(result: Result[Any]) -> HbdError:
+def _refusal(result: Result[Any]) -> BayramError:
     """Assert a charge was refused and hand back the error the customer would have met."""
     assert isinstance(result, Err), f"expected a refusal, got {result!r}"
     return result.error

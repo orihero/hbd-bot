@@ -2,7 +2,7 @@
 
 §12.4 lists ``admin_audit_hmac_key`` under "never logged", and before this pass the only
 thing enforcing that was that nobody had written the offending line yet: ``repr(settings)``,
-``model_dump()`` and ``model_dump_json()`` all emitted it verbatim. ``hbd.logging.redact``
+``model_dump()`` and ``model_dump_json()`` all emitted it verbatim. ``bayram.logging.redact``
 masks it only when the field NAME is passed alongside the value, and a settings repr is
 exactly a bare value. A boot diagnostic, an unhandled-exception frame dump, or the config
 editor arriving in slice 1c would each have printed the one thing standing between an

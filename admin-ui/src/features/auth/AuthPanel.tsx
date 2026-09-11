@@ -11,8 +11,8 @@
  *
  * It is the first screen anyone sees and, until they sign in, the only one. The shell is not
  * mounted: there is no rail, no top bar, no brand mark anywhere else on the page. So the
- * mark is here, above the card, in the same lower-case `hbd` the top bar uses — the same
- * word in the same face, so signing in and arriving do not look like two products.
+ * mark is here, above the card, in the same short brand name `Bayram` the top bar uses — the
+ * same word in the same face, so signing in and arriving do not look like two products.
  *
  * The card is the language's own: `--surface-card` at 28px on the `--surface` ground,
  * separated by `--shadow-card` and nothing else. No border, no rule under the header, no
@@ -50,7 +50,7 @@ export function AuthPanel({ title, subtitle, children, footer }: AuthPanelProps)
        * without it the operator is asked for a credential by an anonymous white rectangle.
        */}
       <div className="flex items-baseline gap-2 px-1">
-        <span className="type-h2 text-ink">hbd</span>
+        <span className="type-h2 text-ink">Bayram</span>
         <span className="type-caption text-ink-muted">admin console</span>
       </div>
 

@@ -7,7 +7,7 @@ Two assertions carry this file, and the rest of it exists to keep them honest.
 90-day identity sweep leaves behind — so a router that reached for the repository would fail
 a whole page because one lawfully erased row was on it, and the 404 would land on the record
 a data-subject request is about. ``test_a_page_containing_an_identity_purged_order_...`` and
-its detail twin are the regression that pins the router to :mod:`hbd.db.admin.orders`.
+its detail twin are the regression that pins the router to :mod:`bayram.db.admin.orders`.
 
 **The plaintext name must never be in the bytes.** §12.3 is a rule about the payload, not
 about what the SPA renders, so the assertion is a substring search over the whole response
@@ -34,15 +34,15 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.routers.orders import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.routers.orders import (
     ORDER_ASSETS_PATH,
     ORDER_ATTEMPTS_PATH,
     ORDER_STATE_COUNTS_PATH,
     ORDER_TIMELINE_PATH,
     ORDERS_PATH,
 )
-from hbd.contracts import (
+from bayram.contracts import (
     AssetKind,
     Genre,
     Language,
@@ -52,17 +52,17 @@ from hbd.contracts import (
     Script,
     VoiceGender,
 )
-from hbd.db.admin.sql import MAX_SEARCH_CHARS
-from hbd.db.base import utc_now
-from hbd.db.credits import unenforced_key_prefix
-from hbd.db.enums import AdminRole, CreditEntryKind, CreditReason, GenerationKind
-from hbd.db.models.asset import AssetRow
-from hbd.db.models.brief import BriefRow
-from hbd.db.models.credit_ledger import CreditLedgerRow
-from hbd.db.models.generation_attempt import GenerationAttemptRow
-from hbd.db.models.order import OrderRow
-from hbd.db.models.user import UserRow
-from hbd.db.retention import RetentionClass
+from bayram.db.admin.sql import MAX_SEARCH_CHARS
+from bayram.db.base import utc_now
+from bayram.db.credits import unenforced_key_prefix
+from bayram.db.enums import AdminRole, CreditEntryKind, CreditReason, GenerationKind
+from bayram.db.models.asset import AssetRow
+from bayram.db.models.brief import BriefRow
+from bayram.db.models.credit_ledger import CreditLedgerRow
+from bayram.db.models.generation_attempt import GenerationAttemptRow
+from bayram.db.models.order import OrderRow
+from bayram.db.models.user import UserRow
+from bayram.db.retention import RetentionClass
 from tests.test_admin.conftest import NOW, PASSWORD, create_account, sign_in
 
 #: The name the whole privacy assertion is written around. U+02BB MODIFIER LETTER TURNED

@@ -1,7 +1,7 @@
 /**
  * The client half of `render_body_html` — the one function that decides how long a message is.
  *
- * `hbd/admin/schemas/broadcasts.py` measures a body TWICE against the same ceiling: the raw text
+ * `bayram/admin/schemas/broadcasts.py` measures a body TWICE against the same ceiling: the raw text
  * the operator typed, and the string that will actually reach Telegram once literal runs are
  * escaped and allowlisted tags are re-emitted. Neither bound implies the other — `&` is one
  * character typed and five on the wire, `&nbsp;` is six typed and one rendered — so a counter
@@ -99,7 +99,7 @@ export interface BodyScanFailed {
 export type BodyScan = BodyScanOk | BodyScanFailed;
 
 /* -------------------------------------------------------------------------- */
-/* Escaping — `hbd.bot.i18n.escape_html`, and `html.escape(quote=True)` for a href */
+/* Escaping — `bayram.bot.i18n.escape_html`, and `html.escape(quote=True)` for a href */
 /* -------------------------------------------------------------------------- */
 
 /** `html.escape(value, quote=False)`: the three characters that can start markup, and no more. */

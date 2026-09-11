@@ -9,10 +9,10 @@ Three things carry this file's weight, and all three are refusals rather than fe
   wire to be masked. So the assertion is the blunt one: the seeded ids are not substrings of
   either response, at any role.
 * **The published vocabulary is the compiler's own allowlist.** The field list is compared
-  against :data:`~hbd.db.admin.segment.FIELDS` key for key, and against
-  :data:`~hbd.db.admin.segment.SORT_KEYS` flag for flag, so a builder generated from this
+  against :data:`~bayram.db.admin.segment.FIELDS` key for key, and against
+  :data:`~bayram.db.admin.segment.SORT_KEYS` flag for flag, so a builder generated from this
   route can never offer a field or an ordering the server refuses — and
-  :data:`~hbd.db.admin.segment.SEGMENT_REFUSALS` is asserted absent, which is the check that
+  :data:`~bayram.db.admin.segment.SEGMENT_REFUSALS` is asserted absent, which is the check that
   fails the day somebody adds a name predicate back.
 * **The same document narrows the Users list.** ``?segment=`` on ``/users`` and
   ``?segment=`` on ``/segments/preview`` run one codec and one compiler, so the count an
@@ -35,16 +35,16 @@ import httpx
 import pytest
 from fastapi.routing import APIRoute
 
-from hbd.admin.container import AdminContainer
-from hbd.admin.deps import RequirePermission
-from hbd.admin.routers.segments import (
+from bayram.admin.container import AdminContainer
+from bayram.admin.deps import RequirePermission
+from bayram.admin.routers.segments import (
     SEGMENT_FIELDS_PATH,
     SEGMENT_PREVIEW_PATH,
     build_segment_fields_router,
     build_segments_router,
 )
-from hbd.admin.routers.users import USERS_PATH
-from hbd.admin.schemas.segment import (
+from bayram.admin.routers.users import USERS_PATH
+from bayram.admin.schemas.segment import (
     MAX_SEGMENT_CHARS,
     SEGMENT_SCHEMA_VERSION,
     GroupModel,
@@ -53,9 +53,9 @@ from hbd.admin.schemas.segment import (
     SortModel,
     encode_segment,
 )
-from hbd.admin.security.permissions import RBAC_MATRIX, Permission
-from hbd.contracts import Language
-from hbd.db.admin.segment import (
+from bayram.admin.security.permissions import RBAC_MATRIX, Permission
+from bayram.contracts import Language
+from bayram.db.admin.segment import (
     DEFAULT_SORT,
     FIELDS,
     SEGMENT_LIMITS,
@@ -65,8 +65,8 @@ from hbd.db.admin.segment import (
     SegmentOp,
     segment_capabilities,
 )
-from hbd.db.enums import AdminRole
-from hbd.db.models.user import UserRow
+from bayram.db.enums import AdminRole
+from bayram.db.models.user import UserRow
 from tests.test_admin.conftest import NOW, PASSWORD, create_account, sign_in
 
 EVERY_ROLE: Final[tuple[AdminRole, ...]] = (
@@ -532,7 +532,7 @@ async def test_an_unknown_field_is_refused_by_the_registry(
     response = await client.get(SEGMENT_PREVIEW_PATH, params={"segment": unknown})
 
     # Assert — the key is named in the error's context for the log, and is deliberately not
-    # in the body: an ``HbdError``'s context is never rendered into the envelope.
+    # in the body: an ``BayramError``'s context is never rendered into the envelope.
     assert response.status_code == 422
     assert response.json()["error"]["message"] == "unknown field"
     assert "phone_e164" not in response.text

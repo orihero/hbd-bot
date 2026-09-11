@@ -39,10 +39,10 @@ export async function runTier3Tests(): Promise<TestCaseResult[]> {
 
         // Operator on login screen switches to Uzbek
         mod.useI18n().setLocale("uz");
-        assertEqual(env.storage.getItem("hbd.dashboard.locale"), "uz");
+        assertEqual(env.storage.getItem("bayram.dashboard.locale"), "uz");
 
         // Simulated navigation / fresh store instantiation
-        const storedLocale = env.storage.getItem("hbd.dashboard.locale");
+        const storedLocale = env.storage.getItem("bayram.dashboard.locale");
         assertEqual(storedLocale, "uz", "Navigating to new screen should observe stored locale 'uz'");
       } finally {
         restoreTestEnv();

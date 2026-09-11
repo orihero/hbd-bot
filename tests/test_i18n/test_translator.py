@@ -7,19 +7,19 @@ from collections.abc import Mapping
 
 import pytest
 
-from hbd.contracts import Language
-from hbd.errors import (
+from bayram.contracts import Language
+from bayram.errors import (
     GENERIC_USER_MESSAGE_KEY,
+    BayramError,
     DeliveryError,
-    HbdError,
     NameVerificationExhaustedError,
     PaymentError,
     ProviderRateLimitedError,
     ProviderTimeoutError,
     ValidationError,
 )
-from hbd.i18n.catalog import Catalog, load_catalogs
-from hbd.i18n.translator import (
+from bayram.i18n.catalog import Catalog, load_catalogs
+from bayram.i18n.translator import (
     STRICT_ENV_VAR,
     Translator,
     get_translator,
@@ -162,7 +162,7 @@ def test_missing_key_falls_back_to_the_key_name_and_logs(
     translator = _lenient()
 
     # Act
-    with caplog.at_level(logging.ERROR, logger="hbd.i18n.translator"):
+    with caplog.at_level(logging.ERROR, logger="bayram.i18n.translator"):
         rendered = translator.translate("no.such.key", Language.EN)
 
     # Assert
@@ -177,7 +177,7 @@ def test_missing_parameter_returns_the_raw_template_and_logs(
     translator = _lenient()
 
     # Act
-    with caplog.at_level(logging.ERROR, logger="hbd.i18n.translator"):
+    with caplog.at_level(logging.ERROR, logger="bayram.i18n.translator"):
         rendered = translator.translate("start.language_set", Language.EN)
 
     # Assert — a sentence with a visible placeholder beats no message at all.
@@ -192,7 +192,7 @@ def test_missing_count_returns_the_key_name_and_logs(
     translator = _lenient()
 
     # Act
-    with caplog.at_level(logging.ERROR, logger="hbd.i18n.translator"):
+    with caplog.at_level(logging.ERROR, logger="bayram.i18n.translator"):
         rendered = translator.translate("status.orders_found", Language.EN)
 
     # Assert
@@ -205,7 +205,7 @@ def test_unknown_language_degrades_to_the_key_name(caplog: pytest.LogCaptureFixt
     translator = Translator(catalogs={Language.EN: _catalogs()[Language.EN]}, is_strict=False)
 
     # Act
-    with caplog.at_level(logging.ERROR, logger="hbd.i18n.translator"):
+    with caplog.at_level(logging.ERROR, logger="bayram.i18n.translator"):
         rendered = translator.translate("common.yes", Language.RU)
 
     # Assert
@@ -221,7 +221,7 @@ def test_missing_plural_form_degrades_to_the_key_name(
     translator = Translator(catalogs={Language.RU: partial}, is_strict=False)
 
     # Act
-    with caplog.at_level(logging.ERROR, logger="hbd.i18n.translator"):
+    with caplog.at_level(logging.ERROR, logger="bayram.i18n.translator"):
         rendered = translator.translate("x", Language.RU, count=5)
 
     # Assert
@@ -237,7 +237,7 @@ def test_broken_template_returns_the_template_rather_than_raising(
     translator = Translator(catalogs={Language.EN: broken}, is_strict=False)
 
     # Act
-    with caplog.at_level(logging.ERROR, logger="hbd.i18n.translator"):
+    with caplog.at_level(logging.ERROR, logger="bayram.i18n.translator"):
         rendered = translator.translate("x", Language.EN, name="a")
 
     # Assert
@@ -260,7 +260,7 @@ def test_broken_template_returns_the_template_rather_than_raising(
     ],
 )
 @pytest.mark.parametrize("language", list(Language))
-def test_every_error_renders_a_friendly_sentence(error: HbdError, language: Language) -> None:
+def test_every_error_renders_a_friendly_sentence(error: BayramError, language: Language) -> None:
     # Act
     message = translate_error(error, language)
 

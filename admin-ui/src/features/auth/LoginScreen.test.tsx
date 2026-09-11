@@ -165,7 +165,7 @@ describe("LoginScreen", () => {
     await signIn();
 
     expect(await screen.findByTestId("auth-failure")).toHaveTextContent(
-      /HBD_ADMIN_PUBLIC_ORIGIN/,
+      /BAYRAM_ADMIN_PUBLIC_ORIGIN/,
     );
   });
 });

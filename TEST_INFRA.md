@@ -35,7 +35,7 @@ export const t: (key: string, params?: Record<string, string | number>) => strin
 ```
 
 Key behavioral invariants:
-1. **Locale Persistence**: Stored under `localStorage` key `hbd.dashboard.locale`. Falls back to browser language (`uz*` -> `uz`, `ru*` -> `ru`) or canonical default `'en'`.
+1. **Locale Persistence**: Stored under `localStorage` key `bayram.dashboard.locale`. Falls back to browser language (`uz*` -> `uz`, `ru*` -> `ru`) or canonical default `'en'`.
 2. **HTML Root Sync**: Updates `document.documentElement.lang = locale` upon initialization and subsequent updates.
 3. **Interpolation**: Replaces `{paramName}` tokens with parameter values. Unsupplied parameters or edge-case characters must not crash the application.
 4. **Key Parity**: 100% parity across all 3 catalogs (`en.ts`, `ru.ts`, `uz.ts`) with zero missing or empty keys across all 11 namespaces: `common`, `nav`, `auth`, `dashboard`, `chats`, `users`, `generations`, `audit`, `admins`, `reveal`, `errors`.
@@ -91,7 +91,7 @@ Key behavioral invariants:
 - `T1.1.6`: `t(key, { start: 1, end: 20, total: 100 })` interpolates multiple distinct parameters.
 
 ### 3.2 Feature F2: Locale Persistence, Fallback & HTML Sync
-- `T1.2.1`: Store persists selected locale to `localStorage` under `hbd.dashboard.locale`.
+- `T1.2.1`: Store persists selected locale to `localStorage` under `bayram.dashboard.locale`.
 - `T1.2.2`: Store reads initially saved locale from `localStorage` on bootstrap.
 - `T1.2.3`: Missing `localStorage` falls back to browser navigator language (`uz` -> `uz`, `ru` -> `ru`).
 - `T1.2.4`: Unsupported browser navigator language (e.g. `fr`, `de`, `ja`) falls back to default `'en'`.
@@ -179,17 +179,17 @@ Key behavioral invariants:
      - Remember me: "Foydalanuvchi nomini eslab qolish"
      - Forgot password hint: "Parolni tiklash uchun egasiga murojaat qiling."
      - Submit button: "Kirish"
-     - Console hero panel: "hbd tugʻilgan kun qoʻshiqlari boti operator konsoli"
+     - Console hero panel: "Bayram tugʻilgan kun qoʻshiqlari boti operator konsoli"
   4. Operator types username and password; form values remain intact during locale toggle.
   5. HTML document `lang` attribute is verified to be `"uz"`.
-  6. `localStorage` key `hbd.dashboard.locale` is verified to be `"uz"`.
+  6. `localStorage` key `bayram.dashboard.locale` is verified to be `"uz"`.
 
 ### Scenario 2: Russian Operator Navigating Dashboard & Analyzing Telemetry
 - **Workflow**:
   1. Operator is signed into console with locale set to Russian (`ru`).
   2. Left navigation rail displays Russian labels: "Дашборд", "Чаты", "Пользователи", "Генерации", "Аудит", "Администраторы".
   3. Dashboard screen displays Russian titles:
-     - Header: "Дашборд HBD"
+     - Header: "Дашборд Bayram"
      - Period buttons: "Сегодня", "Неделя", "Месяц", "Год"
      - Section group headers: "Аудитория", "Финансы", "Производительность", "Графики"
   4. Metric cards render Russian titles and subtitles:
@@ -204,7 +204,7 @@ Key behavioral invariants:
   1. Support specialist switches to Uzbek (`uz`).
   2. Opens `/chats`.
   3. Verifies toolbar title "Chatlar" and search placeholder "Foydalanuvchi nomi, ism, telefon yoki ID boʻyicha qidirish...".
-  4. Transcript displays localized badges: "🎵 Audio xabar", "🔘 Callback: ...", "Mijoz", "HBD Bot".
+  4. Transcript displays localized badges: "🎵 Audio xabar", "🔘 Callback: ...", "Mijoz", "Bayram".
   5. Specialist clicks "Foydalanuvchi profili" to deep link to customer detail drawer.
   6. Customer profile displays localized tabs and fields: "Profil", "Holati", "Faol", "Ilk murojaat", "Kreditlar", "Balans".
 

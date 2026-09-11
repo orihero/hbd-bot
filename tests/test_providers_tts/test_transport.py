@@ -10,8 +10,8 @@ import httpx
 import pytest
 from pydantic import BaseModel
 
-from hbd.contracts import is_err, is_ok
-from hbd.errors import (
+from bayram.contracts import is_err, is_ok
+from bayram.errors import (
     ErrorCode,
     ProviderInvalidResponseError,
     ProviderQuotaExhaustedError,
@@ -20,7 +20,7 @@ from hbd.errors import (
     ProviderTimeoutError,
     ProviderUnavailableError,
 )
-from hbd.providers.tts.transport import (
+from bayram.providers.tts.transport import (
     classify_http_failure,
     health_from_error,
     http_status_of,

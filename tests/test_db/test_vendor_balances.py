@@ -34,7 +34,7 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import (
+from bayram.contracts import (
     BalanceEstimateBasis,
     BalanceUnit,
     CostSource,
@@ -43,13 +43,13 @@ from hbd.contracts import (
     Vendor,
     VendorOperation,
 )
-from hbd.db.admin.balances import has_polled_vendor_balances, vendor_balances
-from hbd.db.models.order import OrderRow
-from hbd.db.models.user import UserRow
-from hbd.db.models.vendor_balance import VendorBalanceRow
-from hbd.db.models.vendor_usage import VendorUsageRow
-from hbd.db.vendor_balances import measure_per_song_rate, record_probe
-from hbd.runtime.vendor_balance_probes import (
+from bayram.db.admin.balances import has_polled_vendor_balances, vendor_balances
+from bayram.db.models.order import OrderRow
+from bayram.db.models.user import UserRow
+from bayram.db.models.vendor_balance import VendorBalanceRow
+from bayram.db.models.vendor_usage import VendorUsageRow
+from bayram.db.vendor_balances import measure_per_song_rate, record_probe
+from bayram.runtime.vendor_balance_probes import (
     OPENROUTER_PROBE_NAME,
     BalanceProbe,
     BalanceReading,
@@ -443,7 +443,7 @@ async def test_the_shipped_rate_card_produces_no_divisor_and_therefore_no_estima
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
     # Arrange — a delivered order with LLM calls that were never priced. This is not an edge
-    # case: all four ``HBD_LLM_*_USD_PER_MILLION_*`` ship at 0.0, so every OpenRouter
+    # case: all four ``BAYRAM_LLM_*_USD_PER_MILLION_*`` ship at 0.0, so every OpenRouter
     # ``cost_usd`` in production today is NULL.
     async with sessions.begin() as session:
         order = await _seed_delivered_order(session, created_at=_T0 - timedelta(days=1))

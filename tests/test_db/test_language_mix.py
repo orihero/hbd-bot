@@ -32,11 +32,11 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import Language
-from hbd.db.admin.overview import language_mix
-from hbd.db.admin.sql import TimeWindow
-from hbd.db.admin.views import LanguageMix
-from hbd.db.models.user import UserRow
+from bayram.contracts import Language
+from bayram.db.admin.overview import language_mix
+from bayram.db.admin.sql import TimeWindow
+from bayram.db.admin.views import LanguageMix
+from bayram.db.models.user import UserRow
 
 #: Mid-day, so nothing below passes by landing on a boundary it did not mean to.
 _NOW: Final[datetime] = datetime(2026, 9, 8, 12, 0, tzinfo=UTC)

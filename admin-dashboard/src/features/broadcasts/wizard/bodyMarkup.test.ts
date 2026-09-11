@@ -1,7 +1,7 @@
 /**
  * The body rules, measured against the server's own.
  *
- * Every expectation here is transcribed from `hbd/admin/schemas/broadcasts.py` — the escaping
+ * Every expectation here is transcribed from `bayram/admin/schemas/broadcasts.py` — the escaping
  * (`html.escape(quote=False)`), the two length ceilings applied to the raw AND the rendered
  * string, the tag allowlist, and the four refusals a stripper would have swallowed. If one of
  * these ever disagrees with the server, this file is where the disagreement shows up rather than

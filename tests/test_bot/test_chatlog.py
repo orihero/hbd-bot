@@ -12,13 +12,13 @@ from aiogram.methods import SendMessage
 from aiogram.methods.base import Response
 from aiogram.types import CallbackQuery, Chat, Message, User
 
-from hbd.bot.chatlog import (
+from bayram.bot.chatlog import (
     ChatLogInboundMiddleware,
     ChatLogOutboundMiddleware,
     ChatRecorder,
 )
-from hbd.db.admin.chats import ChatLineDraft
-from hbd.db.enums import ChatDirection, ChatMessageKind
+from bayram.db.admin.chats import ChatLineDraft
+from bayram.db.enums import ChatDirection, ChatMessageKind
 
 
 @pytest.fixture

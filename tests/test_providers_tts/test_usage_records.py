@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import httpx
 
-from hbd.contracts import CostSource, Language, Vendor, VendorOperation
-from hbd.errors import ErrorCode, ProviderRateLimitedError
-from hbd.providers.tts.elevenlabs import ElevenLabsTts
-from hbd.providers.tts.fakes import FakeSttProvider, FakeTtsProvider
-from hbd.providers.tts.metering import CharacterPricing
-from hbd.providers.tts.scribe import ElevenLabsScribe
-from hbd.usage import VendorUsage
+from bayram.contracts import CostSource, Language, Vendor, VendorOperation
+from bayram.errors import ErrorCode, ProviderRateLimitedError
+from bayram.providers.tts.elevenlabs import ElevenLabsTts
+from bayram.providers.tts.fakes import FakeSttProvider, FakeTtsProvider
+from bayram.providers.tts.metering import CharacterPricing
+from bayram.providers.tts.scribe import ElevenLabsScribe
+from bayram.usage import VendorUsage
 from tests.test_providers_tts.conftest import (
     MP3_BYTES,
     audio_response,

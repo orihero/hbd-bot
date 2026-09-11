@@ -30,7 +30,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Update
 
-from hbd.bot.callbacks import (
+from bayram.bot.callbacks import (
     GenreCB,
     LanguageCB,
     LanguageSlot,
@@ -39,13 +39,13 @@ from hbd.bot.callbacks import (
     OccasionCB,
     VocalGenderCB,
 )
-from hbd.bot.draft import LyricSource
-from hbd.bot.i18n import translate
-from hbd.bot.keyboards import OWN_LYRICS_LABEL_KEY, occasion_keyboard
-from hbd.bot.lyrics_entry import MAX_LYRIC_CHARS, MIN_LYRIC_CHARS
-from hbd.bot.states import OWN_LYRICS_ORDER, WIZARD_ORDER, Wizard, WizardStep
-from hbd.contracts import Genre, Language, Occasion, VoiceGender
-from hbd.watermark import WATERMARK_HANDLE
+from bayram.bot.draft import LyricSource
+from bayram.bot.i18n import translate
+from bayram.bot.keyboards import OWN_LYRICS_LABEL_KEY, occasion_keyboard
+from bayram.bot.lyrics_entry import MAX_LYRIC_CHARS, MIN_LYRIC_CHARS
+from bayram.bot.states import OWN_LYRICS_ORDER, WIZARD_ORDER, Wizard, WizardStep
+from bayram.contracts import Genre, Language, Occasion, VoiceGender
+from bayram.watermark import WATERMARK_HANDLE
 from tests.test_bot.conftest import (
     RecordingContentWriter,
     RecordingSession,
@@ -357,7 +357,7 @@ async def test_the_preview_calls_the_words_the_customers_own(
     Byte-for-byte, because the point is WHICH template was chosen and a substring check
     cannot make it. Since the paywall shipped the preview is also the product's only free
     half and therefore the thing customers forward, so ``watermark.invite`` is composed onto
-    the end of it in :func:`hbd.bot.screens._lyrics_screen` — outside the blockquote, where
+    the end of it in :func:`bayram.bot.screens._lyrics_screen` — outside the blockquote, where
     it can never reach the lyric that gets sung. That line is part of the expectation here
     rather than tolerated by a looser assertion: the old expectation was the template alone,
     the new one is the template, a blank line, and the invite.

@@ -42,10 +42,10 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.checkout import PaymentIntentState
-from hbd.contracts import BotBlockSource, BotMembershipEvent, Language, OrderState, is_err, is_ok
-from hbd.db.admin import segment as seg
-from hbd.db.admin.segment import (
+from bayram.checkout import PaymentIntentState
+from bayram.contracts import BotBlockSource, BotMembershipEvent, Language, OrderState, is_err, is_ok
+from bayram.db.admin import segment as seg
+from bayram.db.admin.segment import (
     FIELDS,
     SEGMENT_LIMITS,
     SEGMENT_REFUSALS,
@@ -60,16 +60,16 @@ from hbd.db.admin.segment import (
     compile_segment,
     sort_expression,
 )
-from hbd.db.enums import ChatDirection, ChatMessageKind, IntentProduct, PlanKind, TopupKind
-from hbd.db.models.bot_membership_event import BotMembershipEventRow
-from hbd.db.models.chat_message import ChatMessageRow
-from hbd.db.models.credit_account import CreditAccountRow
-from hbd.db.models.order import OrderRow
-from hbd.db.models.payment_intent import PaymentIntentRow
-from hbd.db.models.plan_purchase import PlanPurchaseRow
-from hbd.db.models.topup_purchase import TopupPurchaseRow
-from hbd.db.models.user import UserRow
-from hbd.db.models.user_profile import UserProfileRow
+from bayram.db.enums import ChatDirection, ChatMessageKind, IntentProduct, PlanKind, TopupKind
+from bayram.db.models.bot_membership_event import BotMembershipEventRow
+from bayram.db.models.chat_message import ChatMessageRow
+from bayram.db.models.credit_account import CreditAccountRow
+from bayram.db.models.order import OrderRow
+from bayram.db.models.payment_intent import PaymentIntentRow
+from bayram.db.models.plan_purchase import PlanPurchaseRow
+from bayram.db.models.topup_purchase import TopupPurchaseRow
+from bayram.db.models.user import UserRow
+from bayram.db.models.user_profile import UserProfileRow
 
 #: The instant every relative operator below is measured from. Threaded in, never read from a
 #: clock — the compiler takes ``now`` for exactly this reason.

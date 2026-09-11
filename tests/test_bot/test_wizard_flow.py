@@ -18,7 +18,7 @@ import pytest
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.context import FSMContext
 
-from hbd.bot.callbacks import (
+from bayram.bot.callbacks import (
     GenreCB,
     LanguageCB,
     LanguageSlot,
@@ -27,9 +27,9 @@ from hbd.bot.callbacks import (
     OccasionCB,
     VocalGenderCB,
 )
-from hbd.bot.i18n import translate
-from hbd.bot.states import Wizard
-from hbd.contracts import (
+from bayram.bot.i18n import translate
+from bayram.bot.states import Wizard
+from bayram.contracts import (
     MAX_RECIPIENT_NAME_CHARS,
     Genre,
     Language,

@@ -15,7 +15,7 @@ from typing import Any
 import httpx
 import pytest
 
-from hbd.contracts import Language, SpeechRequest
+from bayram.contracts import Language, SpeechRequest
 
 #: A stable instant so a health report is byte-comparable between runs.
 PROBE_NOW = datetime(2026, 3, 21, 9, 0, 0, tzinfo=UTC)

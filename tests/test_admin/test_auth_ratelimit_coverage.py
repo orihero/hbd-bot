@@ -44,11 +44,11 @@ import pytest
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from hbd.admin.app import create_app
-from hbd.admin.container import AdminContainer
-from hbd.admin.errors import AdminErrorCode
-from hbd.admin.routers import auth as auth_router
-from hbd.admin.security.ratelimit import (
+from bayram.admin.app import create_app
+from bayram.admin.container import AdminContainer
+from bayram.admin.errors import AdminErrorCode
+from bayram.admin.routers import auth as auth_router
+from bayram.admin.security.ratelimit import (
     LOGIN_MAX_PER_USER_IP,
     LOGIN_MAX_PER_USERNAME,
     REAUTH_MAX_PER_SESSION,
@@ -81,7 +81,7 @@ COOKIE_ORIGIN: Final[str] = ORIGIN.replace("http://", "https://", 1)
 _NEW_PASSWORD: Final[str] = "a-brand-new-passphrase"
 _WRONG: Final[str] = "not-the-password"
 _IP: Final[str] = "203.0.113.7"
-_SESSION_COOKIE: Final[str] = "__Host-hbd_session"
+_SESSION_COOKIE: Final[str] = "__Host-bayram_session"
 #: A stand-in for the session the limiter keys on, for the tests that call it directly.
 _SESSION_ID: Final[UUID] = UUID("11111111-2222-3333-4444-555555555555")
 
@@ -420,10 +420,10 @@ async def test_the_reauth_limiter_keeps_the_username_and_the_session_out_of_the_
     """Both identifiers are hashed: Redis keys end up in ``KEYS`` dumps and support tickets."""
     store = _MemoryStore()
 
-    await check_reauth_rate_limit(store, username="ceo.of.hbd", session_id=_SESSION_ID, now=NOW)
+    await check_reauth_rate_limit(store, username="ceo.of.bayram", session_id=_SESSION_ID, now=NOW)
 
     assert store.counts
-    assert all("ceo.of.hbd" not in key for key in store.counts)
+    assert all("ceo.of.bayram" not in key for key in store.counts)
     assert all(str(_SESSION_ID) not in key for key in store.counts)
 
 
@@ -441,7 +441,7 @@ async def test_the_reauth_ceiling_catches_one_account_ground_across_many_session
     limits = ReauthRateLimits(window_s=REAUTH_WINDOW_S, max_per_session=2, max_per_username=4)
 
     # Act
-    with caplog.at_level(logging.WARNING, logger="hbd.admin.security.ratelimit"):
+    with caplog.at_level(logging.WARNING, logger="bayram.admin.security.ratelimit"):
         decisions = [
             await check_reauth_rate_limit(
                 store,

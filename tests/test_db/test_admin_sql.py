@@ -1,4 +1,4 @@
-"""The shared query fragments in ``hbd.db.admin.sql``, on their own.
+"""The shared query fragments in ``bayram.db.admin.sql``, on their own.
 
 Separate from ``test_admin_queries.py`` on purpose. That file asserts numbers computed by hand
 from a seeded fixture and reads as documentation of the *metrics*; these are the pieces every
@@ -26,8 +26,8 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from hbd.contracts import OrderState, is_err, is_ok
-from hbd.db.admin.sql import (
+from bayram.contracts import OrderState, is_err, is_ok
+from bayram.db.admin.sql import (
     LIKE_ESCAPE_CHAR,
     MAX_SEARCH_CHARS,
     TimeWindow,
@@ -37,8 +37,8 @@ from hbd.db.admin.sql import (
     search_clause,
     time_window,
 )
-from hbd.db.models.order import OrderRow
-from hbd.db.models.user import UserRow
+from bayram.db.models.order import OrderRow
+from bayram.db.models.user import UserRow
 
 NOW: Final[datetime] = datetime(2026, 3, 21, 9, 0, tzinfo=UTC)
 EARLIER: Final[datetime] = NOW - timedelta(days=30)

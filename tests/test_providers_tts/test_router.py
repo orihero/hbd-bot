@@ -7,7 +7,7 @@ from typing import Final
 
 import pytest
 
-from hbd.contracts import (
+from bayram.contracts import (
     HealthState,
     Language,
     ProviderHealth,
@@ -18,11 +18,11 @@ from hbd.contracts import (
     is_err,
     is_ok,
 )
-from hbd.errors import ConfigError, ProviderUnavailableError
-from hbd.providers.tts.elevenlabs import PROVIDER_NAME as ELEVENLABS_NAME
-from hbd.providers.tts.elevenlabs import SUPPORTED_LANGUAGES as ELEVENLABS_LANGUAGES
-from hbd.providers.tts.fakes import FakeTtsProvider
-from hbd.providers.tts.router import (
+from bayram.errors import ConfigError, ProviderUnavailableError
+from bayram.providers.tts.elevenlabs import PROVIDER_NAME as ELEVENLABS_NAME
+from bayram.providers.tts.elevenlabs import SUPPORTED_LANGUAGES as ELEVENLABS_LANGUAGES
+from bayram.providers.tts.fakes import FakeTtsProvider
+from bayram.providers.tts.router import (
     DEFAULT_TTS_ROUTES,
     LanguageRoutingTts,
     build_router,
@@ -84,7 +84,7 @@ def test_the_default_table_routes_every_supported_language() -> None:
 
 def test_the_default_table_sends_every_language_to_elevenlabs() -> None:
     # Act / Assert — one vendor is one key, one bill and one failure mode. A second vendor
-    # is reachable through HBD_TTS_ROUTES the day that judgement is revisited.
+    # is reachable through BAYRAM_TTS_ROUTES the day that judgement is revisited.
     assert set(DEFAULT_TTS_ROUTES.values()) == {ELEVENLABS_NAME}
 
 

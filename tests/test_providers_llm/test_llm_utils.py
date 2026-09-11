@@ -6,11 +6,11 @@ from datetime import UTC
 
 import pytest
 
-from hbd.contracts import HealthState
-from hbd.errors import ProviderQuotaExhaustedError, ProviderTimeoutError
-from hbd.providers.llm.schemas import NameRespellingPayload
-from hbd.providers.llm.task_settings import LlmTaskSettings
-from hbd.providers.llm.utils import clip, health_state_for, utc_now
+from bayram.contracts import HealthState
+from bayram.errors import ProviderQuotaExhaustedError, ProviderTimeoutError
+from bayram.providers.llm.schemas import NameRespellingPayload
+from bayram.providers.llm.task_settings import LlmTaskSettings
+from bayram.providers.llm.utils import clip, health_state_for, utc_now
 
 
 def test_utc_now_is_timezone_aware() -> None:
@@ -54,7 +54,7 @@ def test_task_settings_are_frozen(settings_slice: LlmTaskSettings) -> None:
 
 
 def test_task_settings_copy_every_value_from_settings() -> None:
-    from hbd.config import Settings
+    from bayram.config import Settings
 
     full = Settings(
         _env_file=None,

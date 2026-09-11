@@ -35,20 +35,20 @@ import httpx
 import pytest
 import sqlalchemy as sa
 
-from hbd.config import ENV_PREFIX, Settings
-from hbd.contracts import BalanceUnit, Vendor, VendorOperation
-from hbd.db.models.vendor_balance import VendorBalanceRow
-from hbd.db.models.vendor_usage import VendorUsageRow
-from hbd.errors import PipelineError
-from hbd.runtime.container import AppContainer, build_container
-from hbd.runtime.jobs import build_kit_worker_settings
-from hbd.runtime.retention_job import RETENTION_CRON_MINUTE
-from hbd.runtime.vendor_balance_job import (
+from bayram.config import ENV_PREFIX, Settings
+from bayram.contracts import BalanceUnit, Vendor, VendorOperation
+from bayram.db.models.vendor_balance import VendorBalanceRow
+from bayram.db.models.vendor_usage import VendorUsageRow
+from bayram.errors import PipelineError
+from bayram.runtime.container import AppContainer, build_container
+from bayram.runtime.jobs import build_kit_worker_settings
+from bayram.runtime.retention_job import RETENTION_CRON_MINUTE
+from bayram.runtime.vendor_balance_job import (
     VENDOR_BALANCE_CRON_MINUTE,
     VENDOR_BALANCE_JOB_NAME,
     poll_vendor_balances,
 )
-from hbd.runtime.vendor_balance_probes import (
+from bayram.runtime.vendor_balance_probes import (
     ELEVENLABS_PROBE_NAME,
     OPENROUTER_PROBE_NAME,
     BalanceProbe,
@@ -63,7 +63,7 @@ _GEMINI_BASE: Final[str] = "https://generativelanguage.googleapis.com/v1beta"
 
 @pytest.fixture(autouse=True)
 def _isolated_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """A developer's own ``HBD_`` variables must not decide what this deployment polls."""
+    """A developer's own ``BAYRAM_`` variables must not decide what this deployment polls."""
     for name in tuple(os.environ):
         if name.startswith(ENV_PREFIX):
             monkeypatch.delenv(name, raising=False)
@@ -142,10 +142,10 @@ class _Probes:
 
 def _install(monkeypatch: pytest.MonkeyPatch, probes: _Probes) -> _Probes:
     monkeypatch.setattr(
-        "hbd.runtime.vendor_balance_job.probe_openrouter", probes.openrouter, raising=True
+        "bayram.runtime.vendor_balance_job.probe_openrouter", probes.openrouter, raising=True
     )
     monkeypatch.setattr(
-        "hbd.runtime.vendor_balance_job.probe_elevenlabs", probes.elevenlabs, raising=True
+        "bayram.runtime.vendor_balance_job.probe_elevenlabs", probes.elevenlabs, raising=True
     )
     return probes
 
@@ -293,7 +293,7 @@ async def test_a_second_openrouter_credential_is_its_own_billing_account(
 async def test_the_management_key_reaches_the_primary_account_and_no_other(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Arrange — two OpenRouter accounts and one management credential. ``HBD_OPENROUTER_
+    # Arrange — two OpenRouter accounts and one management credential. ``BAYRAM_OPENROUTER_
     # MANAGEMENT_KEY`` names ONE account's management key, and nothing in the setting says
     # which, so the primary is the only row it can honestly be spent on.
     probes = _install(monkeypatch, _Probes())
@@ -434,8 +434,8 @@ async def test_one_vendor_failing_does_not_stop_the_next_one_being_asked(
     async def _explode(*args: Any, **kwargs: Any) -> BalanceProbe:
         raise RuntimeError("the probe layer fell over")
 
-    monkeypatch.setattr("hbd.runtime.vendor_balance_job.probe_elevenlabs", _explode)
-    monkeypatch.setattr("hbd.runtime.vendor_balance_job.probe_openrouter", probes.openrouter)
+    monkeypatch.setattr("bayram.runtime.vendor_balance_job.probe_elevenlabs", _explode)
+    monkeypatch.setattr("bayram.runtime.vendor_balance_job.probe_openrouter", probes.openrouter)
     container = await _container(tmp_path)
     try:
         # Act / Assert — the exception is NOT caught by the job today, so this documents the

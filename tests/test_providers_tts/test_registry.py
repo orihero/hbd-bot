@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from hbd.contracts import Language, VoiceGender, is_err, is_ok
-from hbd.errors import ConfigError
-from hbd.providers.tts.registry import (
+from bayram.contracts import Language, VoiceGender, is_err, is_ok
+from bayram.errors import ConfigError
+from bayram.providers.tts.registry import (
     DEFAULT_VOICE_ENTRIES,
     VoiceEntry,
     VoiceRegistry,

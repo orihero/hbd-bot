@@ -12,7 +12,7 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.exc import IntegrityError, OperationalError
 
-from hbd.contracts import (
+from bayram.contracts import (
     AssetKind,
     Genre,
     Language,
@@ -24,8 +24,8 @@ from hbd.contracts import (
     is_err,
     is_ok,
 )
-from hbd.db.guard import NotFoundError, not_found, run_guarded
-from hbd.db.mapping import (
+from bayram.db.guard import NotFoundError, not_found, run_guarded
+from bayram.db.mapping import (
     approved_lyrics_from_json,
     asset_name_candidate_values,
     brief_identity_values,
@@ -38,9 +38,9 @@ from hbd.db.mapping import (
     to_generated_asset,
     to_recipient_name,
 )
-from hbd.db.models import AssetRow, BriefRow
-from hbd.db.retention import RetentionClass, RetentionPolicy
-from hbd.errors import ErrorCode, PipelineError, StorageError
+from bayram.db.models import AssetRow, BriefRow
+from bayram.db.retention import RetentionClass, RetentionPolicy
+from bayram.errors import ErrorCode, PipelineError, StorageError
 from tests.conftest import (
     FIXED_NOW,
     UZBEK_NAME_CANONICAL,

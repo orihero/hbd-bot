@@ -1,11 +1,11 @@
-"""``python -m hbd.tools.credits`` — the only way an operator can move a credit today.
+"""``python -m bayram.tools.credits`` — the only way an operator can move a credit today.
 
 Two things are worth testing about a sixty-line CLI and they are not the argument parsing.
 
 **It writes through the product's own functions.** Every assertion below reads the database
 back through the ordinary tables, so a refactor that made the tool issue its own ``UPDATE``
 would still have to produce the ledger row, the balance and the actor that
-:class:`~hbd.db.credits.SqlCreditLedger` produces. That is the property that keeps
+:class:`~bayram.db.credits.SqlCreditLedger` produces. That is the property that keeps
 ``verify_balances`` clean and keeps a comped credit explainable months later.
 
 **It refuses a typo instead of acting on it.** The id is the only thing in the command that
@@ -23,11 +23,11 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import Result, err
-from hbd.db.credits import SqlCreditLedger
-from hbd.entitlements import CreditBalance, EntitlementPolicy
-from hbd.errors import StorageError
-from hbd.tools.credits import (
+from bayram.contracts import Result, err
+from bayram.db.credits import SqlCreditLedger
+from bayram.entitlements import CreditBalance, EntitlementPolicy
+from bayram.errors import StorageError
+from bayram.tools.credits import (
     EXIT_REFUSED,
     Block,
     Grant,
@@ -55,7 +55,7 @@ def _grant(*, credits: int = 2, reference: str = "ops-1") -> Grant:
     )
 
 
-#: Raw SQL, not a mapped row, and that is Rule 15 rather than taste: ``hbd/db/__init__.py``
+#: Raw SQL, not a mapped row, and that is Rule 15 rather than taste: ``bayram/db/__init__.py``
 #: says nothing outside persistence should import a ``*Row``, because a mapped row is an
 #: implementation detail with a session attached. Nothing outside ``tests/test_db`` held one
 #: before this change and nothing does now — ``tests/test_pipeline/test_render_gate.py``

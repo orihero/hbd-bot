@@ -119,7 +119,7 @@ the argument ``vendor_usage`` (0016) makes for itself.
 **THE RETENTION SHAPES, AND WHY NO COLUMN USES THE ``*_expires_at`` SUFFIX.**
 ``tests/test_db/test_audit_retention.py::_clocks_in_the_schema`` collects every column in
 ``Base.metadata`` whose name ends in ``expires_at`` and demands
-``hbd.db.purge.rows_past_expiry_statements`` read it: that suffix is this codebase's word for
+``bayram.db.purge.rows_past_expiry_statements`` read it: that suffix is this codebase's word for
 a published legal RETENTION clock stamped per row by its writer. ``valid_until`` is a
 BUSINESS clock — how long a payment page stays payable — exactly like
 ``plan_purchases.plan_ends_at``, and naming it with that suffix would claim a schedule it

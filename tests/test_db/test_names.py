@@ -5,10 +5,10 @@ from __future__ import annotations
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import Language, Script, is_ok
-from hbd.db.enums import NameSource
-from hbd.db.models import NameRecordRow
-from hbd.db.names import NameRecordDraft, NameRecordRepository
+from bayram.contracts import Language, Script, is_ok
+from bayram.db.enums import NameSource
+from bayram.db.models import NameRecordRow
+from bayram.db.names import NameRecordDraft, NameRecordRepository
 from tests.conftest import UZBEK_NAME_CANONICAL
 from tests.test_db.conftest import MovableClock
 

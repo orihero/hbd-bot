@@ -24,7 +24,7 @@ WHY THESE FOUR FACES
   "guarantees U+02BB/U+02BC and Cyrillic coverage". It does not: JetBrains Mono has no
   U+02BB at all, and no Ғ/Қ/Ҳ (U+0492/U+049A/U+04B2) — three of the letters an Uzbek name
   is spelled with in Cyrillic. Noto Sans Mono has every one.
-* HBD Status Symbols carries §11.3's status glyphs. Neither Mulish nor Urbanist contains a
+* Bayram Status Symbols carries §11.3's status glyphs. Neither Mulish nor Urbanist contains a
   single one of them, and no one OFL face covers all twelve, so three are merged.
 
 WHY THIS SUBSET
@@ -46,7 +46,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "src" / "assets" / "fonts"
-WORK = Path(os.environ.get("HBD_FONT_WORK", "/tmp/hbd-fonts"))
+WORK = Path(os.environ.get("BAYRAM_FONT_WORK", "/tmp/bayram-fonts"))
 RAW = "https://raw.githubusercontent.com/google/fonts/main/ofl"
 
 #: Every codepoint the console may have to draw in a text face.
@@ -126,7 +126,7 @@ SYMBOL_SOURCES = [
     ("notosanssymbols", "NotoSansSymbols[wght].ttf", [0x2691]),  # ⚑ held
 ]
 
-SYMBOL_FAMILY = "HBD Status Symbols"
+SYMBOL_FAMILY = "Bayram Status Symbols"
 
 
 def fetch(directory: str, filename: str) -> Path:
@@ -322,18 +322,18 @@ def build_symbol_face() -> None:
         (3, f"{SYMBOL_FAMILY}:2026"),
         (4, f"{SYMBOL_FAMILY} Regular"),
         (5, "Version 1.000"),
-        (6, "HBDStatusSymbols-Regular"),
+        (6, "BayramStatusSymbols-Regular"),
         (13, "This Font Software is licensed under the SIL Open Font License, Version 1.1."),
         (14, "https://openfontlicense.org"),
     ):
         merged["name"].setName(text, name_id, 3, 1, 0x409)
 
-    staged = WORK / "hbd-status-symbols.ttf"
+    staged = WORK / "bayram-status-symbols.ttf"
     merged.save(staged)
-    size = subset(staged, ["*"], OUT / "hbd-status-symbols.woff2")
-    add_notdef_box(OUT / "hbd-status-symbols.woff2")
-    size = (OUT / "hbd-status-symbols.woff2").stat().st_size
-    print(f"{'hbd-status-symbols.woff2':<44} {size:>7,} bytes")
+    size = subset(staged, ["*"], OUT / "bayram-status-symbols.woff2")
+    add_notdef_box(OUT / "bayram-status-symbols.woff2")
+    size = (OUT / "bayram-status-symbols.woff2").stat().st_size
+    print(f"{'bayram-status-symbols.woff2':<44} {size:>7,} bytes")
 
 
 if __name__ == "__main__":

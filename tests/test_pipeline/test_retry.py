@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from hbd.contracts import Err, Result, err, ok
-from hbd.errors import (
-    HbdError,
+from bayram.contracts import Err, Result, err, ok
+from bayram.errors import (
+    BayramError,
     ModerationRejectedError,
     ProviderRateLimitedError,
     ProviderTimeoutError,
 )
-from hbd.pipeline.retry import MAX_BACKOFF_S, RetryPolicy, call_with_retry
+from bayram.pipeline.retry import MAX_BACKOFF_S, RetryPolicy, call_with_retry
 from tests.test_pipeline.conftest import no_sleep
 
 
@@ -117,9 +117,9 @@ async def test_converts_a_raised_exception_into_a_terminal_error() -> None:
 
 async def test_reports_each_retry_to_the_callback_with_the_error() -> None:
     # Arrange
-    seen: list[tuple[int, HbdError]] = []
+    seen: list[tuple[int, BayramError]] = []
 
-    async def on_retry(attempt: int, error: HbdError) -> None:
+    async def on_retry(attempt: int, error: BayramError) -> None:
         seen.append((attempt, error))
 
     async def operation() -> Result[str]:

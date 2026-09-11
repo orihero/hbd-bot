@@ -6,7 +6,7 @@ import string
 
 import pytest
 
-from hbd.bot.i18n import (
+from bayram.bot.i18n import (
     SUPPORTED_LANGUAGES,
     escape_html,
     genre_label,
@@ -16,15 +16,15 @@ from hbd.bot.i18n import (
     translate,
     vocal_gender_label,
 )
-from hbd.bot.keyboards import MENU_BUTTON_KEYS
-from hbd.bot.locales import CATALOGUES, REFERENCE_LANGUAGE
-from hbd.contracts import Genre, Language, Occasion, VoiceGender
-from hbd.errors import (
+from bayram.bot.keyboards import MENU_BUTTON_KEYS
+from bayram.bot.locales import CATALOGUES, REFERENCE_LANGUAGE
+from bayram.contracts import Genre, Language, Occasion, VoiceGender
+from bayram.errors import (
     GENERIC_USER_MESSAGE_KEY,
     AudioProcessingError,
+    BayramError,
     DeliveryError,
     EntitlementError,
-    HbdError,
     InsufficientCreditsError,
     ModerationRejectedError,
     PaymentError,
@@ -33,7 +33,7 @@ from hbd.errors import (
     TooManyOrdersInFlightError,
     ValidationError,
 )
-from hbd.pipeline.events import STAGE_MESSAGE_KEYS
+from bayram.pipeline.events import STAGE_MESSAGE_KEYS
 
 
 def placeholders(template: str) -> frozenset[str]:
@@ -88,10 +88,10 @@ def test_catalogue_uses_the_same_placeholders_as_the_reference(language: Languag
         EntitlementError("x"),
         InsufficientCreditsError("x"),
         TooManyOrdersInFlightError("x"),
-        HbdError("x"),
+        BayramError("x"),
     ],
 )
-def test_every_error_user_message_key_exists_in_every_catalogue(error: HbdError) -> None:
+def test_every_error_user_message_key_exists_in_every_catalogue(error: BayramError) -> None:
     # Arrange / Act / Assert
     for language in Language:
         assert error.user_message_key in CATALOGUES[language]
@@ -239,7 +239,7 @@ def test_the_menu_button_keys_are_all_defined() -> None:
 def test_the_error_family_carries_no_onboarding_key() -> None:
     """The contact prompt is ``onboarding.``-keyed, and it must never become ``error.``-keyed.
 
-    ``error.`` is owned by ``hbd.errors``: every key under it is reachable from
+    ``error.`` is owned by ``bayram.errors``: every key under it is reachable from
     ``runtime.jobs._tell_the_customer_why``, which renders whatever the failed order's error
     names with NO parameters and no idea what the message is about. Spelling the prompt
     ``error.contact_required`` — which is the obvious name, and is why this test exists —

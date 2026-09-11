@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import httpx
 
-from hbd.contracts import CostSource, HealthState, Language, is_err, is_ok
-from hbd.errors import ProviderRateLimitedError, ValidationError
-from hbd.providers.tts.elevenlabs import (
+from bayram.contracts import CostSource, HealthState, Language, is_err, is_ok
+from bayram.errors import ProviderRateLimitedError, ValidationError
+from bayram.providers.tts.elevenlabs import (
     DEFAULT_OUTPUT_FORMAT,
     SUPPORTED_LANGUAGES,
     ElevenLabsTts,
     mime_for_output_format,
 )
-from hbd.providers.tts.metering import CharacterPricing
+from bayram.providers.tts.metering import CharacterPricing
 from tests.conftest import UZBEK_NAME_CANONICAL
 from tests.test_providers_tts.conftest import (
     MP3_BYTES,

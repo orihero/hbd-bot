@@ -36,13 +36,13 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import sqlite
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from hbd.contracts import Language
-from hbd.db.activity import ACTIVE_WINDOW_DAYS, ActivityCounts, measure_activity, record_snapshot
-from hbd.db.admin.overview import activity_history, has_recorded_activity_history
-from hbd.db.admin.sql import SeriesGrain, TimeWindow
-from hbd.db.admin.views import ActivityPoint
-from hbd.db.credits import set_blocked, touch
-from hbd.db.models.user_activity_snapshot import UserActivitySnapshotRow
+from bayram.contracts import Language
+from bayram.db.activity import ACTIVE_WINDOW_DAYS, ActivityCounts, measure_activity, record_snapshot
+from bayram.db.admin.overview import activity_history, has_recorded_activity_history
+from bayram.db.admin.sql import SeriesGrain, TimeWindow
+from bayram.db.admin.views import ActivityPoint
+from bayram.db.credits import set_blocked, touch
+from bayram.db.models.user_activity_snapshot import UserActivitySnapshotRow
 
 pytestmark = pytest.mark.anyio
 

@@ -20,7 +20,7 @@ the identity clock, because the candidate ladder is tuned from it and a name is 
 The identity sweep still clears the transcript as well, so whichever clock fires first wins.
 
 Existing rows are backfilled from ``identity_expires_at`` rather than from a freshly
-computed horizon. ``hbd.db.retention`` states the rule this follows: a row keeps the horizon
+computed horizon. ``bayram.db.retention`` states the rule this follows: a row keeps the horizon
 it was stamped with, so a schedule change never retroactively destroys data a user was
 promised. New rows get the shorter clock from the moment this deploys.
 """

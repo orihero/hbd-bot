@@ -10,10 +10,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from hbd.audio.constants import MAX_CAPTURED_STDERR_CHARS
-from hbd.audio.runner import run_command, tail
-from hbd.contracts import is_err, is_ok
-from hbd.errors import ErrorCode
+from bayram.audio.constants import MAX_CAPTURED_STDERR_CHARS
+from bayram.audio.runner import run_command, tail
+from bayram.contracts import is_err, is_ok
+from bayram.errors import ErrorCode
 from tests.test_audio.conftest import ABSENT_BINARY
 
 TIMEOUT_S = 30.0

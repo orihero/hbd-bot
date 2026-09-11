@@ -31,18 +31,18 @@ import pytest
 import sqlalchemy as sa
 from aiogram import Bot
 
-from hbd.contracts import BroadcastRecipientState, BroadcastState
-from hbd.db.base import utc_now
-from hbd.db.broadcasts import cancel
-from hbd.db.models.broadcast import BroadcastRow
-from hbd.runtime import broadcast_job
-from hbd.runtime.broadcast_job import (
+from bayram.contracts import BroadcastRecipientState, BroadcastState
+from bayram.db.base import utc_now
+from bayram.db.broadcasts import cancel
+from bayram.db.models.broadcast import BroadcastRow
+from bayram.runtime import broadcast_job
+from bayram.runtime.broadcast_job import (
     EXPAND_JOB_NAME,
     SEND_JOB_NAME,
     expand_broadcast_audience,
     sweep_due_broadcasts,
 )
-from hbd.runtime.container import AppContainer
+from bayram.runtime.container import AppContainer
 from tests.test_runtime.conftest import (
     FIRST_ACCOUNT,
     FROZEN_AT,
@@ -359,7 +359,7 @@ def test_the_worker_decodes_a_stored_segment_without_importing_a_web_framework()
 
     A second decoder in this process was the alternative, and it would be a second vocabulary
     to keep in step with the field registry: the day the two drifted, the campaign that went
-    out would not be the one the operator previewed. Reusing ``hbd.admin.schemas.segment`` is
+    out would not be the one the operator previewed. Reusing ``bayram.admin.schemas.segment`` is
     therefore the cheaper mistake — but only while it costs no FastAPI, no Starlette and no
     request machinery in a process that must never serve HTTP. This runs in a subprocess
     because the assertion is about a FRESH interpreter: in this one, half the suite has
@@ -370,7 +370,7 @@ def test_the_worker_decodes_a_stored_segment_without_importing_a_web_framework()
         [
             sys.executable,
             "-c",
-            "import sys; import hbd.runtime.broadcast_job; "
+            "import sys; import bayram.runtime.broadcast_job; "
             "print(sorted(m for m in sys.modules if m in {'fastapi', 'starlette'}))",
         ],
         capture_output=True,

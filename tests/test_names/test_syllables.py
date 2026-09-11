@@ -5,8 +5,8 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.contracts import Language
-from hbd.names.syllables import hyphenate, stress_index, syllabify
+from bayram.contracts import Language
+from bayram.names.syllables import hyphenate, stress_index, syllabify
 
 UZBEK_LATIN_CASES = [
     ("Gulomjon", ("Gu", "lom", "jon")),

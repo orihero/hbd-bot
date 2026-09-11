@@ -10,9 +10,9 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel, Field
 
-from hbd.contracts import Err, Ok
-from hbd.errors import ErrorCode
-from hbd.providers.llm.parsing import (
+from bayram.contracts import Err, Ok
+from bayram.errors import ErrorCode
+from bayram.providers.llm.parsing import (
     MAX_LOGGED_PAYLOAD_CHARS,
     extract_first_json_object,
     parse_model_json,
@@ -247,7 +247,7 @@ def test_a_repairer_that_raises_is_a_failed_stage_not_a_crash(
     def explode(_text: str) -> str:
         raise RuntimeError("the repairer itself blew up")
 
-    monkeypatch.setattr("hbd.providers.llm.parsing.repair_json", explode)
+    monkeypatch.setattr("bayram.providers.llm.parsing.repair_json", explode)
 
     result = parse('{"name": "Alyona"')
 

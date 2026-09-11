@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from hbd.audio.constants import SCRATCH_DIR_PREFIX
-from hbd.audio.tempfiles import publish, scratch_dir
+from bayram.audio.constants import SCRATCH_DIR_PREFIX
+from bayram.audio.tempfiles import publish, scratch_dir
 
 
 def scratch_leftovers(directory: Path) -> list[Path]:

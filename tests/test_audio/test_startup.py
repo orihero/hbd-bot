@@ -18,8 +18,8 @@ from pathlib import Path
 
 import pytest
 
-from hbd.audio.startup import ensure_ffmpeg_available, missing_encoders
-from hbd.errors import ConfigError, ErrorCode
+from bayram.audio.startup import ensure_ffmpeg_available, missing_encoders
+from bayram.errors import ConfigError, ErrorCode
 from tests.test_audio.conftest import ABSENT_BINARY, FFMPEG_BINARY, FFPROBE_BINARY
 
 requires_posix = pytest.mark.skipif(
@@ -82,7 +82,7 @@ def test_the_message_names_the_environment_variable_an_operator_would_set() -> N
     with pytest.raises(ConfigError) as caught:
         ensure_ffmpeg_available(ffmpeg_binary=ABSENT_BINARY, ffprobe_binary=ABSENT_BINARY)
 
-    assert "HBD_FFMPEG_BINARY" in caught.value.operator_message
+    assert "BAYRAM_FFMPEG_BINARY" in caught.value.operator_message
 
 
 def test_a_missing_ffprobe_is_caught_too(tmp_path: Path) -> None:
@@ -93,7 +93,7 @@ def test_a_missing_ffprobe_is_caught_too(tmp_path: Path) -> None:
     with pytest.raises(ConfigError) as caught:
         ensure_ffmpeg_available(ffmpeg_binary=FFMPEG_BINARY, ffprobe_binary=ABSENT_BINARY)
 
-    assert "HBD_FFPROBE_BINARY" in caught.value.operator_message
+    assert "BAYRAM_FFPROBE_BINARY" in caught.value.operator_message
 
 
 def test_a_startup_failure_is_never_retryable() -> None:

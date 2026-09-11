@@ -19,7 +19,7 @@
  *   Mulish       body, tables, every piece of UI text. The reskin's body face.
  *   Urbanist     headings and numerals. The reskin's display face.
  *   Noto Sans Mono   ids, hashes, payloads — and names, which appear in mono columns too.
- *   HBD Status Symbols   §11.3's status glyphs. Nineteen codepoints, 2.2 kB.
+ *   Bayram Status Symbols   §11.3's status glyphs. Nineteen codepoints, 2.2 kB.
  *
  * Two of those are not what §12.1 T7 named, and both substitutions are corrections rather
  * than preferences. Every claim below was read out of the binaries' cmap tables, not out of
@@ -32,7 +32,7 @@
  *   Ғ U+0492, Қ U+049A and Ҳ U+04B2, three of the letters an Uzbek name is spelled with in
  *   Cyrillic. Noto Sans Mono has all of them.
  *
- *   Nothing → HBD Status Symbols. Neither Mulish nor Urbanist contains ONE of §11.3's
+ *   Nothing → Bayram Status Symbols. Neither Mulish nor Urbanist contains ONE of §11.3's
  *   status glyphs — not ○, not ◉, not ✓, not the 🔒 a purged record renders. Until now they
  *   were drawn by whatever symbol font the operator's OS happened to ship, which is fine on
  *   a Mac and is tofu on a bare container. A status pill whose glyph is a hollow box is a
@@ -96,7 +96,7 @@
 }
 
 /*
- * ── HBD Status Symbols · §11.3's glyphs ────────────────────────────────────────────────
+ * ── Bayram Status Symbols · §11.3's glyphs ────────────────────────────────────────────────
  * 2.2 kB, nineteen codepoints, merged from Noto Sans Symbols 2 (the circles, ✓, ✗, ■, 🔒),
  * Noto Sans Math (⊘, ↻) and Noto Sans Symbols (⚑) because no single OFL face has all
  * twelve. Renamed because it is a merge and is therefore none of the three; none of the
@@ -112,8 +112,8 @@
  * shows the host's glyph, or a box, and then ours.
  */
 @font-face {
-  font-family: "HBD Status Symbols";
-  src: url("../assets/fonts/hbd-status-symbols.woff2") format("woff2");
+  font-family: "Bayram Status Symbols";
+  src: url("../assets/fonts/bayram-status-symbols.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
@@ -126,7 +126,7 @@
  * THE STACKS.
  *
  * Read each one left to right as a sentence about who draws what. The self-hosted faces
- * come first so a name is drawn from this repository; "HBD Status Symbols" sits directly
+ * come first so a name is drawn from this repository; "Bayram Status Symbols" sits directly
  * behind them so a status glyph is too; the system families behind those exist only for a
  * codepoint none of the four covers, and are ordered so that the last resort before
  * `sans-serif` is a Noto face — the one family line that carries essentially everything.
@@ -138,7 +138,7 @@
  */
 :root {
   --font-sans:
-    "Mulish", "HBD Status Symbols", ui-sans-serif, system-ui, "Segoe UI", "Noto Sans",
+    "Mulish", "Bayram Status Symbols", ui-sans-serif, system-ui, "Segoe UI", "Noto Sans",
     sans-serif;
 
   /*
@@ -147,10 +147,10 @@
    * Дилноза. Do not remove it.
    */
   --font-heading:
-    "Urbanist", "Mulish", "HBD Status Symbols", ui-sans-serif, system-ui, "Segoe UI",
+    "Urbanist", "Mulish", "Bayram Status Symbols", ui-sans-serif, system-ui, "Segoe UI",
     "Noto Sans", sans-serif;
 
   --font-mono:
-    "Noto Sans Mono", "HBD Status Symbols", ui-monospace, "SF Mono", Menlo, Consolas,
+    "Noto Sans Mono", "Bayram Status Symbols", ui-monospace, "SF Mono", Menlo, Consolas,
     monospace;
 }

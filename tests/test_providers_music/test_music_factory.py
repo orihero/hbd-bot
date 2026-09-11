@@ -17,14 +17,14 @@ from typing import Any
 
 import pytest
 
-from hbd.config import Settings
-from hbd.contracts import CostSource
-from hbd.errors import ConfigError
-from hbd.providers.music.elevenlabs import (
+from bayram.config import Settings
+from bayram.contracts import CostSource
+from bayram.errors import ConfigError
+from bayram.providers.music.elevenlabs import (
     DEFAULT_MUSIC_MAX_CONCURRENCY,
     SCALE_TIER_MAX_CONCURRENCY,
 )
-from hbd.providers.music.factory import build_music_provider
+from bayram.providers.music.factory import build_music_provider
 from tests.test_providers_music.conftest import simple_plan
 
 
@@ -119,16 +119,16 @@ def test_load_settings_reports_a_bad_ceiling_as_a_config_error(
     settings_env: dict[str, str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Arrange
-    from hbd.config import load_settings
+    from bayram.config import load_settings
 
     for name, value in settings_env.items():
         monkeypatch.setenv(name, value)
-    monkeypatch.setenv("HBD_MUSIC_MAX_CONCURRENCY", "not-a-number")
+    monkeypatch.setenv("BAYRAM_MUSIC_MAX_CONCURRENCY", "not-a-number")
 
     # Act / Assert: operators see one named variable, not a pydantic traceback.
     with pytest.raises(ConfigError) as caught:
         load_settings()
-    assert "HBD_MUSIC_MAX_CONCURRENCY" in caught.value.operator_message
+    assert "BAYRAM_MUSIC_MAX_CONCURRENCY" in caught.value.operator_message
 
 
 async def test_a_shared_client_is_used_when_one_is_passed(settings: Settings) -> None:

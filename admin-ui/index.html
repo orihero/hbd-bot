@@ -5,13 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex, nofollow" />
     <meta name="referrer" content="no-referrer" />
-    <title>hbd admin</title>
+    <title>Bayram Admin — Tabriklar, Qoʻshiqlar</title>
     <!--
       The per-response style nonce, and the only dynamic thing in this file.
 
-      `content` is the literal token `hbd.admin.shell.CSP_NONCE_PLACEHOLDER`. The API
+      `content` is the literal token `bayram.admin.shell.CSP_NONCE_PLACEHOLDER`. The API
       substitutes this response's nonce for it as it serves the shell (`_serve_spa_index` in
-      src/hbd/admin/app.py); the shell is already `no-store`, and `/assets/*` stays
+      src/bayram/admin/app.py); the shell is already `no-store`, and `/assets/*` stays
       byte-identical and immutable. `src/lib/csp.ts` reads it once at boot and hands it to
       `get-nonce`, which is what `react-remove-scroll` — mounted by every Radix modal — asks
       before it injects its scroll-lock <style> element. Without it that element carries no
@@ -25,7 +25,7 @@
       It is a meta element and NOT an inline <script> assigning a global, because
       `script-src` is 'self' with no nonce of its own and must stay that way.
     -->
-    <meta name="csp-nonce" content="__HBD_CSP_NONCE__" />
+    <meta name="csp-nonce" content="__BAYRAM_CSP_NONCE__" />
     <!--
       No <link> to a font CDN, and no inline <style>.
 
@@ -57,7 +57,7 @@
   </head>
   <body>
     <div id="root"></div>
-    <noscript>The hbd admin console needs JavaScript.</noscript>
+    <noscript>The Bayram admin console needs JavaScript.</noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

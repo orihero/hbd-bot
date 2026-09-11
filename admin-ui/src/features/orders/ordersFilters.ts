@@ -9,7 +9,7 @@
  *
  * This used to be a refusal: `orders.py`'s `_window` 422'd on half a window ("from and to
  * are one window — give both bounds or neither"), so `completeWindow` existed to keep every
- * preset click off that error. `hbd/admin/window.py::resolve_window` no longer raises it —
+ * preset click off that error. `bayram/admin/window.py::resolve_window` no longer raises it —
  * a lone `from` is closed at the instant the request was served and a lone `to` leaves the
  * start genuinely absent — so half a window is now a question this API answers.
  *

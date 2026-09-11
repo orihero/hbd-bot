@@ -6,7 +6,7 @@ Create Date: 2026-08-30
 
 The retention design was complete and had never executed. This revision creates the table
 that makes the schedule auditable: one row per sweep, written by
-``hbd.runtime.retention_job.run_retention_sweep`` on the hourly cron.
+``bayram.runtime.retention_job.run_retention_sweep`` on the hourly cron.
 
 Three things here are correctness decisions rather than schema taste:
 
@@ -25,7 +25,7 @@ Three things here are correctness decisions rather than schema taste:
   They are still bounded, at 365 days, by ``_purge_purge_runs`` in the same job.
 
 The enum is spelled out as a non-native ``VARCHAR`` rather than imported from
-``hbd.db.enums``: migrations must not import application code (a test asserts it), and a
+``bayram.db.enums``: migrations must not import application code (a test asserts it), and a
 native Postgres enum would make every later member a lock-taking ``ALTER TYPE``.
 """
 
@@ -43,7 +43,7 @@ depends_on: Sequence[str] | None = None
 
 _PURGE_RUNS = "purge_runs"
 
-#: Mirrors ``hbd.db.enums.PurgeTrigger``, spelled literally because a migration must keep
+#: Mirrors ``bayram.db.enums.PurgeTrigger``, spelled literally because a migration must keep
 #: working after the enum it mirrors is refactored or deleted.
 _TRIGGER_VALUES = ("cron", "manual", "user_request")
 

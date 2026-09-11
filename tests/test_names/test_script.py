@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from hbd.contracts import Language, Script
-from hbd.names.script import (
+from bayram.contracts import Language, Script
+from bayram.names.script import (
     detect_script,
     infer_name_language,
     is_russian_cyrillic,

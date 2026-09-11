@@ -3,7 +3,7 @@
 **What this file answers.** "Will we pass certification?" — asked and answered before a
 certification account exists. Payme certifies a merchant by walking two published scripts
 against the endpoint and reading the replies; this suite walks the same table
-(:data:`hbd.payme.harness.SCENARIOS`, shared verbatim with the operator script that replays it
+(:data:`bayram.payme.harness.SCENARIOS`, shared verbatim with the operator script that replays it
 against the live VPS) through the real router, the real dispatcher and the real ledger, and
 then counts the rows.
 
@@ -24,7 +24,7 @@ zero after scenario one.
 
 **And why the checker itself is under test.** A conformance runner that always returned "no
 failures" would make this whole file green and worthless, which is a specific and easy way to
-ship a rehearsal that rehearses nothing. :func:`hbd.payme.harness.check_reply` therefore has
+ship a rehearsal that rehearses nothing. :func:`bayram.payme.harness.check_reply` therefore has
 its own tests below, each feeding it a reply that is wrong in one documented way — a 405, a
 ``null`` where an integer ``0`` is required, an account-range error missing its three-key
 message — and asserting it says so.
@@ -45,14 +45,14 @@ from typing import Any, Final
 import httpx
 import pytest
 
-from hbd.payme.app import PAYME_PATH, create_app
-from hbd.payme.container import (
+from bayram.payme.app import PAYME_PATH, create_app
+from bayram.payme.container import (
     PaymeContainer,
     SqlRpcJournal,
     build_payme_container,
     notify_job_id,
 )
-from hbd.payme.harness import (
+from bayram.payme.harness import (
     EXIT_CONFIG,
     REPLAYED_METHODS,
     Auth,
@@ -71,9 +71,9 @@ from hbd.payme.harness import (
     run_scenario,
     run_transcript,
 )
-from hbd.payme.protocol import PaymeErrorCode, PaymeMethod
-from hbd.payme.service import PaymeService
-from hbd.payme.settings import PAYME_ENV_FILE_VAR, PaymeSettings, build_payme_settings
+from bayram.payme.protocol import PaymeErrorCode, PaymeMethod
+from bayram.payme.service import PaymeService
+from bayram.payme.settings import PAYME_ENV_FILE_VAR, PaymeSettings, build_payme_settings
 from tests.test_payme.scenarios import (
     MONEY_OUTCOMES,
     PLACEHOLDER_CREDENTIALS,
@@ -260,7 +260,7 @@ async def test_the_whole_transcript_passes_in_one_sitting_and_settles_exactly_on
     assert counted.grants == 1
     # The customer is told by the WORKER — this process holds no Telegram token. The REPLAYED
     # perform enqueues a second time, which is correct and costs nothing: the job id is
-    # deterministic in ``public_ref`` (``hbd.payme.container.notify_job_id``), so ARQ refuses
+    # deterministic in ``public_ref`` (``bayram.payme.container.notify_job_id``), so ARQ refuses
     # the duplicate and one settlement produces one message however many times Payme retries.
     assert set(notifier.calls) == {opener.refs["scenario-two"]}
     assert len({notify_job_id(call) for call in notifier.calls}) == 1
@@ -708,12 +708,12 @@ def test_a_run_id_is_taken_verbatim_so_a_rehearsals_rows_can_be_found_again() ->
 
 
 def test_a_gateway_with_no_key_configured_is_refused_before_anything_is_opened() -> None:
-    """Naming the variable, in the register ``hbd.config._describe_failure`` uses."""
+    """Naming the variable, in the register ``bayram.config._describe_failure`` uses."""
     # Arrange — a settings object with the rail off, which is what ships by default.
     settings = build_payme_settings({"_env_file": None, "database_url": _MEMORY_URL})
 
     # Act / Assert
-    with pytest.raises(RefusedError, match="HBD_PAYME_MERCHANT_KEY"):
+    with pytest.raises(RefusedError, match="BAYRAM_PAYME_MERCHANT_KEY"):
         plan(_argv(), settings=settings)
 
 
@@ -726,8 +726,8 @@ def test_a_broken_dotenv_exits_two_rather_than_tracebacking(
     ``1`` the gateway answered and an answer was wrong, ``2`` we never asked. Only ``1`` is a
     finding about the merchant API, and conflating them costs a slot.
     """
-    # Arrange — no HBD_DATABASE_URL anywhere, so building settings fails at the boundary.
-    monkeypatch.delenv("HBD_DATABASE_URL", raising=False)
+    # Arrange — no BAYRAM_DATABASE_URL anywhere, so building settings fails at the boundary.
+    monkeypatch.delenv("BAYRAM_DATABASE_URL", raising=False)
 
     # Act
     code = main(_argv())

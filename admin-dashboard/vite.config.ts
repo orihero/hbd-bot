@@ -17,7 +17,7 @@ export default defineConfig({
     alias: { "@": srcDir },
   },
   build: {
-    outDir: "../src/hbd/admin/static",
+    outDir: "../src/bayram/admin/static",
     emptyOutDir: true,
     assetsDir: "assets",
     assetsInlineLimit: (filePath) => (filePath.endsWith(".woff2") ? false : undefined),
@@ -34,12 +34,12 @@ export default defineConfig({
         /*
          * `changeOrigin: false` is a SECURITY decision, not a default — the same one
          * admin-ui/vite.config.ts spells out at length. The admin API rejects any non-GET
-         * whose `Origin` is not exactly `HBD_ADMIN_PUBLIC_ORIGIN` (403 `ORIGIN_REJECTED`).
+         * whose `Origin` is not exactly `BAYRAM_ADMIN_PUBLIC_ORIGIN` (403 `ORIGIN_REJECTED`).
          * Rewriting `Origin` to the target would make every request sail through that
          * check, so the one control between a cross-site page and a state change would go
          * unexercised until production.
          *
-         * Consequence: developing here needs `HBD_ADMIN_PUBLIC_ORIGIN=http://localhost:5174`
+         * Consequence: developing here needs `BAYRAM_ADMIN_PUBLIC_ORIGIN=http://localhost:5174`
          * in `.env.admin`. A 403 `ORIGIN_REJECTED` on sign-in is that variable, not this flag.
          */
         { target: DEV_API_TARGET, changeOrigin: false, secure: false },

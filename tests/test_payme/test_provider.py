@@ -36,8 +36,8 @@ from typing import Final
 
 import pytest
 
-import hbd.payme.provider as provider_module
-from hbd.checkout import (
+import bayram.payme.provider as provider_module
+from bayram.checkout import (
     CheckoutProvider,
     PaymentIntent,
     PaymentIntentOpener,
@@ -45,10 +45,10 @@ from hbd.checkout import (
     Product,
     PurchaseRequest,
 )
-from hbd.contracts import Err, Language, Ok, Result, err, ok
-from hbd.errors import CheckoutPausedError, StorageError
-from hbd.payme.link import PROD_CHECKOUT_URL, SANDBOX_CHECKOUT_URL, encode_payload
-from hbd.payme.provider import PAYME_PROVIDER_NAME, PaymeCheckoutProvider
+from bayram.contracts import Err, Language, Ok, Result, err, ok
+from bayram.errors import CheckoutPausedError, StorageError
+from bayram.payme.link import PROD_CHECKOUT_URL, SANDBOX_CHECKOUT_URL, encode_payload
+from bayram.payme.provider import PAYME_PROVIDER_NAME, PaymeCheckoutProvider
 
 _MERCHANT_ID: Final[str] = "587f72c72cac0d162c722ae2"
 _ACCOUNT_FIELD: Final[str] = "order_id"
@@ -393,7 +393,7 @@ async def test_a_pause_switch_that_raises_is_not_a_pause(
     provider = _provider(opener, paused=_redis_is_down)
 
     # Act
-    with caplog.at_level(logging.WARNING, logger="hbd.payme.provider"):
+    with caplog.at_level(logging.WARNING, logger="bayram.payme.provider"):
         charged = await provider.charge(_request())
 
     # Assert

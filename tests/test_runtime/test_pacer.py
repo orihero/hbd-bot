@@ -36,9 +36,9 @@ from aiogram.exceptions import TelegramRetryAfter
 from aiogram.methods import SendMessage
 from redis.asyncio import Redis
 
-from hbd.config import ENV_PREFIX, Settings
-from hbd.errors import ConfigError
-from hbd.runtime.pacer import (
+from bayram.config import ENV_PREFIX, Settings
+from bayram.errors import ConfigError
+from bayram.runtime.pacer import (
     DEFAULT_SEND_RATE_PER_S,
     SEND_BUDGET_KEY,
     SEND_PARK_KEY,
@@ -52,12 +52,12 @@ from hbd.runtime.pacer import (
 #: A quarter past a whole second, so "sleep to the next window" is 0.75 and a test that got
 #: the boundary arithmetic backwards cannot pass by accident on a round number.
 _START: Final[float] = 1_757_000_000.25
-_LOGGER: Final[str] = "hbd.runtime.pacer"
+_LOGGER: Final[str] = "bayram.runtime.pacer"
 
 
 @pytest.fixture(autouse=True)
 def _isolated_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """A developer's own ``HBD_`` variables must not decide what this deployment sends at."""
+    """A developer's own ``BAYRAM_`` variables must not decide what this deployment sends at."""
     for name in tuple(os.environ):
         if name.startswith(ENV_PREFIX):
             monkeypatch.delenv(name, raising=False)

@@ -1,0 +1,96 @@
+# The Payme Merchant API endpoint. THE ONLY PROCESS IN THIS SYSTEM WITH ANYTHING INBOUND FROM
+# THE PUBLIC INTERNET, and the only one holding the Payme cashbox key.
+#
+#   sudo cp deploy/systemd/bayram-payme.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now bayram-payme
+#
+# WHAT THIS PROCESS HOLDS, AND WHAT IT DELIBERATELY DOES NOT.
+#
+# It holds ONE credential: BAYRAM_PAYME_MERCHANT_KEY. That key is an INBOUND VERIFICATION secret
+# — it is only ever compared against itself, to decide whether an inbound call really came from
+# Payme. Stealing it mints credits against our own database. It cannot message a customer as
+# the bot and it cannot spend a single dollar of vendor balance, because this process holds NO
+# Telegram token and NO vendor key. That is a third blast radius, distinct from the bot's four
+# outbound credentials and from the panel's operator sessions, and it is what earns a fourth
+# unit file.
+#
+# The consequence is visible in the design: telling a customer their payment landed is an ARQ
+# job that bayram-worker performs, because the process that took the money cannot send a message.
+#
+# THREE THINGS ENFORCE THAT SEPARATION, AND THEY ARE INDEPENDENT ON PURPOSE.
+#
+#   1. BAYRAM_PAYME_ENV_FILE points at /etc/bayram/payme.env, a DIFFERENT file from the bot's and
+#      from the panel's. PaymeSettings has no field that could hold a vendor credential, so a
+#      key sitting in this host's environment is not merely unread — there is no attribute it
+#      could be read through.
+#   2. The lifespan refuses to boot in prod if one of them is within reach, in the environment
+#      or in that file, and the message names the variable. That is a check this process
+#      performs on itself.
+#   3. InaccessiblePaths below. That one is the kernel's, and it survives a future edit that
+#      points BAYRAM_PAYME_ENV_FILE at the wrong file.
+#
+# SECRETS COME FROM BAYRAM_PAYME_ENV_FILE, NOT FROM EnvironmentFile=. Same reason bayram-bot.service
+# gives, and it matters more here: `EnvironmentFile=` loads every value into the process
+# environment, where it appears in `systemctl show bayram-payme` and in /proc/<pid>/environ. The
+# variable below names a 0640 root:bayram file that pydantic-settings reads directly, so the
+# cashbox key never enters the process environment at all.
+#
+# WHAT MUST BE IN FRONT OF IT. This binds 127.0.0.1 only. A TLS terminator on a DEDICATED
+# hostname — not the admin panel's, whose cookies are `__Host-` prefixed and require it to be
+# the only reachable name at its origin — proxies POST /payme here, passes HTTP 200 bodies
+# through unaltered, and enforces the 185.234.113.0/28 caller allowlist ITSELF. The allowlist
+# is not enforced in the application: with no proxy hops declared the app sees the terminator's
+# address on every request, and a filter matching the wrong address is worse than no filter.
+# Every request journals its peer IP regardless, so the real caller set is discoverable from
+# our own logs. See docs/deployment/08-payme.md.
+#
+# CONNECTIONS. The gateway asks Postgres for pool_size=3, max_overflow=2. With bot 30,
+# worker 30 and admin 10 that is 75 of a stock max_connections of 100, so installing this
+# needs no host change. A FIFTH process has to re-argue that arithmetic rather than inherit it,
+# and must not re-argue it off engine.py's "3 x 30 = 90" — that is the number the admin's
+# smaller pool exists to avoid. See docs/deployment/08-payme.md section 3.1.
+
+[Unit]
+Description=Bayram — Payme Merchant API endpoint
+Documentation=file:///srv/bayram/deploy/README.md
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bayram
+Group=bayram
+WorkingDirectory=/var/lib/bayram
+Environment=BAYRAM_PAYME_ENV_FILE=/etc/bayram/payme.env
+ExecStart=/opt/bayram/venv/bin/python -m uvicorn bayram.payme.app:app --host 127.0.0.1 --port 8091
+Restart=always
+RestartSec=5s
+
+# Journal only. The app logs JSON when BAYRAM_IS_DEBUG is false, which is what prod wants — and
+# DEBUG is refused outright in prod, because it is the level at which the ORM would echo bound
+# parameters (idempotency keys carrying a Telegram user id) into logs with no retention clock.
+StandardOutput=journal
+StandardError=journal
+
+# --- hardening ---------------------------------------------------------------
+# No ReadWritePaths at all. This process writes rows and nothing else: no workspace, no object
+# store, no rendered kit. Under ProtectSystem=strict the whole filesystem is read-only to it,
+# which is a property worth keeping rather than a limitation to work around.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+InaccessiblePaths=/etc/bayram/bayram.env /etc/bayram/bayram-admin.env
+
+[Install]
+WantedBy=multi-user.target

@@ -1,10 +1,10 @@
 """The certification transcript, as the suite sees it: one table, plus a way to count money.
 
 **Where the table actually lives, and why it is not here.** Payme's two published sandbox
-scripts are encoded as data in :mod:`hbd.payme.harness` — in ``src``, not in ``tests`` — and
+scripts are encoded as data in :mod:`bayram.payme.harness` — in ``src``, not in ``tests`` — and
 this module is the test-facing half of that one table rather than a second copy of it. The
-direction is forced and it is worth stating so nobody reverses it later: ``hbd.payme.harness``
-is a SHIPPED script (``python -m hbd.payme.harness``) that an operator runs on the VPS on
+direction is forced and it is worth stating so nobody reverses it later: ``bayram.payme.harness``
+is a SHIPPED script (``python -m bayram.payme.harness``) that an operator runs on the VPS on
 certification day, and ``src`` importing ``tests`` would make that command an ``ImportError``
 on any host where the wheel was installed without the test suite. The dependency therefore
 points the only way it can, and the property the plan actually asks for — that the suite and
@@ -24,7 +24,7 @@ a process that owns its own database can do:
   table and not as a chain of ``if scenario.name ==``.
 
 Nothing here mutates the shipped table. If a scenario is wrong, it is wrong in
-``hbd.payme.harness`` and it is wrong in the cabinet too, which is the point.
+``bayram.payme.harness`` and it is wrong in the cabinet too, which is the point.
 """
 
 from __future__ import annotations
@@ -34,15 +34,15 @@ from typing import Final
 
 import sqlalchemy as sa
 
-from hbd.checkout import PaymentIntentState
-from hbd.db.enums import CreditEntryKind
-from hbd.db.models import CreditLedgerRow
-from hbd.db.models.payme_transaction import PaymeTransactionRow
-from hbd.db.models.payment_intent import PaymentIntentRow
-from hbd.db.models.plan_purchase import PlanPurchaseRow
-from hbd.db.models.topup_purchase import TopupPurchaseRow
-from hbd.payme.container import PaymeContainer
-from hbd.payme.harness import REPLAYED_METHODS, SCENARIOS, Credentials, Scenario
+from bayram.checkout import PaymentIntentState
+from bayram.db.enums import CreditEntryKind
+from bayram.db.models import CreditLedgerRow
+from bayram.db.models.payme_transaction import PaymeTransactionRow
+from bayram.db.models.payment_intent import PaymentIntentRow
+from bayram.db.models.plan_purchase import PlanPurchaseRow
+from bayram.db.models.topup_purchase import TopupPurchaseRow
+from bayram.payme.container import PaymeContainer
+from bayram.payme.harness import REPLAYED_METHODS, SCENARIOS, Credentials, Scenario
 
 __all__ = [
     "TRANSCRIPT",
@@ -71,7 +71,7 @@ TRANSCRIPT: Final[tuple[Scenario, ...]] = SCENARIOS
 PLACEHOLDER_KEY: Final[str] = "d4f1a9c07b2e46d8ab53c1e90f7a2b6c5d3e"
 
 #: What both official templates hard-code and what the archived 2017 spec says. It is a SETTING
-#: (``HBD_PAYME_BASIC_LOGIN``) because the current documentation hedges and tells a merchant to
+#: (``BAYRAM_PAYME_BASIC_LOGIN``) because the current documentation hedges and tells a merchant to
 #: ask a technical specialist; the first real ``-32504`` log line closes the question.
 PLACEHOLDER_LOGIN: Final[str] = "Paycom"
 
@@ -150,7 +150,7 @@ async def money_after(container: PaymeContainer, *, public_ref: str) -> MoneyOut
     return MoneyOutcome(
         receipts=int(topups or 0) + int(plans or 0),
         grants=int(grants or 0),
-        # ``hbd.db.enums.PaymentIntentState`` and ``hbd.checkout.PaymentIntentState`` are two
+        # ``bayram.db.enums.PaymentIntentState`` and ``bayram.checkout.PaymentIntentState`` are two
         # enums mirroring each other value-for-value, on purpose: no application type may reach
         # a mapped column. The crossing is spelled out here rather than hidden behind an
         # ``isinstance``, because it is exactly the seam a reviewer should be able to see.
