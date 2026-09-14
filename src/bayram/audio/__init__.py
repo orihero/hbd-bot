@@ -11,10 +11,11 @@ exposes raises: every method returns a ``Result``.
 during boot. Without it a worker missing ffmpeg — or running an ffmpeg built without
 libopus — discovers the problem one paying customer at a time.
 
-**The cover art.** :func:`~bayram.audio.cover.render_cover` draws the 320x320 watermark
-thumbnail. It lives here rather than in the pipeline because this host's ffmpeg has no
-``drawtext`` filter, so drawing the picture is Pillow's job and belongs beside the other
-media work — and because the branding pass that muxes it into the mp3 is one file over.
+**The cover art.** :func:`~bayram.audio.cover.render_cover` produces the 320x320 thumbnail
+from ``brand/Logo-Bot.png``, shipped as package data. It lives here rather than in the
+pipeline because this host's ffmpeg is not trusted to composite it — the build has no
+libfreetype and nothing pins it — so the picture is Pillow's job and belongs beside the
+other media work, and because the branding pass that muxes it into the mp3 is one file over.
 
 **The lyric sheet.** :func:`~bayram.audio.lyric_sheet.write_lyric_sheet` typesets the one
 deliverable whose orthography we own end to end, from ``LyricDraft.name_display`` and never

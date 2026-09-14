@@ -41,20 +41,25 @@ dependencies = [
     "json-repair>=0.30,<1",
     "orjson>=3.10,<4",
     # The generated cover art (src/bayram/audio/cover.py). Not a convenience: this host's
-    # ffmpeg has NO drawtext filter — the build lacks libfreetype, so `ffmpeg -filters |
-    # grep drawtext` returns nothing — and there is no Dockerfile pinning the deployed
-    # build either, so "ffmpeg draws the text" is a bet on a capability we cannot check at
-    # boot and would discover one silent, textless cover at a time. The repo has no image
-    # library at all, so the alternative was a hand-rolled PNG encoder plus a bitmap font.
-    # The >=10.4 floor is what makes shipping a font file unnecessary:
-    # `ImageFont.load_default(size=...)` returns a SCALABLE face from 10.1 onward, so
-    # no TYPEFACE has to be vendored or licensed. One image is vendored, and deliberately:
-    # `src/bayram/audio/assets/logo.png` is an 18 kB copy of `brand/avatar-telegram.png`,
-    # composited onto every cover so a forwarded song is recognisable at the thumbnail size
-    # where the text is already unreadable. It is a copy rather than re-drawn geometry
-    # because `brand/` generates every asset from one set of constants and a Pillow port
-    # would be a fourth copy that no constant reaches; `tests/test_audio/test_cover.py`
-    # asserts the two files are byte-identical so the copy cannot rot unnoticed.
+    # ffmpeg is not trusted to composite the picture. The build lacks libfreetype, so
+    # `ffmpeg -filters | grep drawtext` returns nothing, and no Dockerfile pins the deployed
+    # build — "the encoder will make it" is a bet on a capability nothing checks at boot,
+    # discovered one silent, artwork-less cover at a time. The repo has no other image
+    # library, and the alternative was a hand-rolled PNG encoder.
+    #
+    # NO FONT IS INVOLVED. Since 2026-09-11 the cover draws no text at all: it is
+    # `src/bayram/audio/assets/cover.png` — a byte-for-byte copy of `brand/Logo-Bot.png` —
+    # centre-cropped, resized to 320x320 and JPEG-encoded as the thumbnail of every song.
+    # The artwork states the handle in its own typography, so Pillow is doing resampling and
+    # encoding here, nothing else. (The >=10.4 floor predates this and was about
+    # `ImageFont.load_default(size=...)` returning a scalable face; it is kept because
+    # nothing argues for lowering it, not because a font is still needed.)
+    #
+    # The image is vendored because the application ships as a wheel and `brand/` is not
+    # packaged. The full 1254x1254 source is shipped rather than a pre-scaled cut so that
+    # `tests/test_audio/test_cover.py` can assert BYTE-IDENTITY with the brand file — a
+    # resampled copy could not be compared that way across Pillow versions. That test is
+    # what stops the copy rotting the next time somebody redraws the artwork.
     "pillow>=10.4,<12",
     "typing-extensions>=4.12,<5",
 ]

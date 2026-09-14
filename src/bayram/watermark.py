@@ -32,7 +32,6 @@ __all__ = [
     "WATERMARK_SONG_TAG",
     "WATERMARK_INVITE_TAG",
     "SHEET_RULE",
-    "COVER_LINES",
     "audio_tags",
     "contains_watermark",
 ]
@@ -63,11 +62,13 @@ WATERMARK_INVITE_TAG: Final[str] = f"Generate yours at {WATERMARK_HANDLE}"
 #: only thing available to say "this line is not part of the song" is punctuation.
 SHEET_RULE: Final[str] = f"--- {WATERMARK_INVITE_TAG} ---"
 
-#: What the generated cover art prints, one element per line. Split here rather than wrapped
-#: at draw time because the image is 320x320 and the line breaks are a layout decision that
-#: has to be legible as a Telegram thumbnail — roughly nine characters wide — not whatever a
-#: greedy wrapper happens to produce.
-COVER_LINES: Final[tuple[str, ...]] = ("GENERATE", "YOURS AT", WATERMARK_HANDLE)
+# The cover art used to be the fourth text carrier, as ``COVER_LINES`` — three lines drawn
+# by Pillow, ending on the handle. Since 2026-09-11 the cover is ``brand/Logo-Bot.png``
+# shipped whole (:mod:`bayram.audio.cover`), which states the handle in its own typography,
+# so there is nothing here for the picture to be told. The constant was REMOVED rather than
+# left unused: a name that says "what the cover prints" is worse than absent once nothing
+# prints it. The cover remains a carrier — it is simply no longer a carrier of this
+# module's strings, and the three that are (tags, caption, sheet) are unchanged.
 
 #: The two characters an ``ffmpeg -metadata`` value may not contain. ``=`` because it is the
 #: separator itself, so a value carrying one silently truncates the tag; ``\n`` because a

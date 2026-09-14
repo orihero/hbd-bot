@@ -80,18 +80,23 @@ keep the level meter as the primary everywhere else.
 
 ## One asset is copied into the application
 
-`avatar-telegram.png` is duplicated at `src/bayram/audio/assets/logo.png`, where
-`bayram.audio.cover` composites it onto the cover art of every song. It is a copy rather
-than a reference because the application is installed as a wheel and `brand/` is not
-packaged; it is a copy rather than re-drawn geometry because a Pillow port of these paths
-would be a fourth construction that none of the constants above reach, and it would drift
-from the bot's real profile picture one redraw at a time.
+`Logo-Bot.png` is duplicated at `src/bayram/audio/assets/cover.png`, where
+`bayram.audio.cover` resizes it to 320×320 and encodes it as the cover art of **every**
+song — the whole picture, not a mark composited onto one. It is a copy rather than a
+reference because the application is installed as a wheel and `brand/` is not packaged.
+The full-size source is copied rather than a pre-scaled cut, so the test below can assert
+byte-identity instead of comparing a resampling result that shifts between Pillow versions.
 
-**So: after regenerating `avatar-telegram.png`, re-copy it.**
+**So: after redrawing `Logo-Bot.png`, re-copy it.**
 
 ```sh
-cp brand/avatar-telegram.png src/bayram/audio/assets/logo.png
+cp brand/Logo-Bot.png src/bayram/audio/assets/cover.png
 ```
+
+Note this makes `Logo-Bot.png` a **product surface**, not just a listing asset: it is what a
+recipient sees in their music player and what a stranger sees in a forwarded chat. It
+carries the `@bayram_uzbot` handle in its own typography, which is why the cover no longer
+draws any text of its own.
 
 Forgetting is a failing test, not a silent divergence — `tests/test_audio/test_cover.py`
 asserts the two files are byte-identical, and names this command in the failure message.

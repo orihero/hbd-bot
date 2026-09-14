@@ -1,32 +1,36 @@
-"""The generated cover art: the bot's mark over white text on black, 320x320, one JPEG per order.
+"""The generated cover art: the bot's artwork, 320x320, one JPEG per order.
 
-**Why this file draws the picture instead of ffmpeg.** ffmpeg can composite text with the
-``drawtext`` filter, and this host's ffmpeg cannot: the build has no libfreetype, so
-``ffmpeg -filters | grep drawtext`` returns nothing at all. There is no Dockerfile pinning
-the deployed build either, so "the encoder will draw it" is a bet on a capability nothing
-checks at boot — and the failure mode is not an error, it is a filter-graph rejection at
-render time on a paying customer's order. Pillow moves the question to install time, where
-a missing dependency is a build failure rather than a lost song.
+**Why this file makes the picture instead of ffmpeg.** ffmpeg can composite images and text,
+and this host's ffmpeg is not trusted to: the build has no libfreetype, so
+``ffmpeg -filters | grep drawtext`` returns nothing at all, and there is no Dockerfile
+pinning the deployed build. "The encoder will draw it" is a bet on a capability nothing
+checks at boot, whose failure mode is not an error but a filter-graph rejection at render
+time on a paying customer's order. Pillow moves the question to install time, where a
+missing dependency is a build failure rather than a lost song.
 
-**Why contrast still sets the budget, and what the mark is allowed to spend of it.** The
-picture exists to be legible as a forty-pixel square in a forwarded message on somebody
-else's phone, seen for about a second, at whatever brightness that phone happens to be at.
-Pure white on pure black is a 21:1 contrast ratio — the highest sRGB can express — and
-three short lines are the most that survives that size. The mark is the one thing that
-earns a place beside them: at forty pixels the text has already stopped being readable and
-the magenta disc has not, so what a stranger recognises in a forwarded chat is a shape and
-a colour, not a handle. That is the whole argument for it — recognition at the size where
-the words fail — and it is why the mark is placed and sized in that order of priority: the
-text keeps its own size and spacing, and the mark takes the room left over.
+**The cover is one image, shipped whole, and it is deliberately not composed here.** It
+already carries the handle, the product's name and its own typography, set by whoever draws
+``brand/Logo-Bot.png``. Drawing text over it in Pillow would put two typefaces on one
+picture and re-state a handle the artwork states better — and it would make the brand's own
+file a background rather than the deliverable. So this module resizes and encodes; it does
+not lay anything out. Changing the cover means replacing the PNG, with no code change and
+no release note about fonts.
 
-**Why it is the shipped avatar and not geometry re-drawn here.** ``brand/`` builds every
-asset from one set of constants — bar width, the 3:5:4 rhythm, the flame ratio — so the
-files stay consistent with each other by construction. A Pillow re-implementation of those
-paths would be a fourth copy that no constant reaches, drifting from the bot's actual
-profile picture one redraw at a time and showing a stranger two different logos for the
-same bot. :data:`_LOGO_RESOURCE` is a byte-for-byte copy of ``brand/avatar-telegram.png``
-instead, and ``test_cover.py`` asserts the two files are identical so a redraw that forgets
-this copy fails a test rather than a customer.
+**What was here before, and why it went.** Until 2026-09-11 this drew three white lines on
+black — ``GENERATE`` / ``YOURS AT`` / the handle — chosen for a 21:1 contrast ratio because
+a cover is read as a forty-pixel square in a forwarded chat. That reasoning still holds and
+the artwork answers it differently: at forty pixels the text was never legible either, and
+what survives the size is a shape and a colour, which is what the artwork is. The handle is
+still carried three other ways — the ID3 tags, the caption and the archived lyric sheet —
+so dropping it from the picture costs the watermark nothing (:mod:`bayram.watermark`).
+
+**Why it is a copy of the brand file rather than a reference to it.** The application ships
+as a wheel and ``brand/`` is not packaged, so the bytes have to live under
+:data:`_COVER_PACKAGE`. It is a byte-for-byte copy of ``brand/Logo-Bot.png``, and
+``test_cover.py`` asserts the two are identical — a redraw that forgets to re-copy fails a
+test rather than shipping a stranger last month's artwork. The full 1254x1254 source is
+shipped rather than a pre-scaled cut so that byte-identity is the test, instead of a
+resampling result that would differ between Pillow versions.
 
 **The three Telegram thumbnail constraints this is built to.** ``sendAudio``'s ``thumbnail``
 is accepted only as a JPEG, only under 200 kB, and only with both sides at most 320 px; and
@@ -36,27 +40,24 @@ is dropped and the send still returns 200 — so :data:`COVER_MAX_BYTES` is chec
 where a violation is an ``Err`` somebody can read, rather than discovered as an artwork-less
 message in production.
 
-Everything here is best-effort by construction: a watermark is worth less than the song, so
+Everything here is best-effort by construction: a cover is worth less than the song, so
 :func:`render_cover` returns ``Err`` and never raises, and its caller ships a kit with no
-cover rather than failing an order over a picture. The mark is one degree softer still — a
-cover with the text and no mark is worth much more than no cover at all, so a missing or
-unreadable logo resource is logged and drawn around rather than failed on.
+cover rather than failing an order over a picture. There is no degraded picture any more —
+the artwork is the whole cover, so an unreadable resource means no cover, not a plainer one.
 """
 
 from __future__ import annotations
 
 import importlib.resources as resources
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
 
 from bayram.audio.tempfiles import publish, scratch_dir
 from bayram.contracts import Result, err, ok
 from bayram.errors import StorageError
 from bayram.logging import get_logger
-from bayram.watermark import COVER_LINES
 
 __all__ = ["COVER_SIZE", "COVER_MIME", "COVER_SUFFIX", "COVER_MAX_BYTES", "render_cover"]
 
@@ -78,54 +79,22 @@ COVER_SUFFIX: Final[str] = ".jpg"
 #: error rather than a silently artwork-less message.
 COVER_MAX_BYTES: Final[int] = 200_000
 
-#: Pure black ground and pure white ink: 21:1, the highest contrast ratio sRGB can express.
-#: Written as tuples rather than ``"black"``/``"white"`` because the mode is RGB and a named
-#: colour is one more thing that has to be looked up to know what was meant.
-_GROUND: Final[tuple[int, int, int]] = (0, 0, 0)
-_INK: Final[tuple[int, int, int]] = (255, 255, 255)
-#: Glyph height as a fraction of the image side. A ninth gives a 35 px glyph at 320 px, which
-#: sets ``@bayram_uzbot`` — the longest of :data:`~bayram.watermark.COVER_LINES` at thirteen
-#: characters — 260 px wide, so it clears each edge by 30 px. Tuning it is a layout change,
-#: not a preference, and the hazard is *below* this number: the divisor divides, so a
-#: SMALLER one means a larger glyph, and at 8 the handle is 292 px and all but touching the
-#: edges. Pillow will happily draw the overflow off the canvas without complaining.
-#:
-#: The margin used to be 66 px, when the handle was ``@hbduzbot`` at nine characters. The
-#: 2026-09-10 rename spent more than half of that slack, so a longer handle than this one
-#: needs the divisor revisited rather than assumed.
-_FONT_DIVISOR: Final[int] = 9
-
-#: The bot's profile picture, as package data. A byte-for-byte copy of
-#: ``brand/avatar-telegram.png`` — see the module docstring for why it is copied rather than
-#: re-drawn, and ``test_cover.py`` for the test that keeps the two in step.
-_LOGO_PACKAGE: Final[str] = "bayram.audio.assets"
-_LOGO_RESOURCE: Final[str] = "logo.png"
-#: The mark's side as a fraction of the image side. At 0.34 the 320 px cover carries a
-#: 108 px disc, which is 13 px at Telegram's forty-pixel thumbnail — still a recognisable
-#: disc, and still small enough to leave the three text lines their own size. Raising it
-#: does not make the mark clearer at thumbnail size, it only takes width from the text.
-_LOGO_FRACTION: Final[float] = 0.34
-#: Gap between the mark's bottom edge and the top of the text block, as a fraction of the
-#: image side. Smaller and the disc crowds the first line; larger and the two read as two
-#: unrelated objects rather than one stacked block.
-_LOGO_GAP_FRACTION: Final[float] = 0.055
-#: Baseline-to-baseline spacing as a multiple of the glyph height. 1.4 leaves the block
-#: airy enough to read at thumbnail size without pushing three lines past the canvas.
-_LINE_SPACING: Final[float] = 1.4
-#: JPEG knobs. Quality 90 is far above what two-tone text needs and costs nothing at this
-#: size; ``optimize`` re-runs the Huffman tables, which is deterministic and shaves bytes.
+#: The cover artwork, as package data: a byte-for-byte copy of ``brand/Logo-Bot.png``. See
+#: the module docstring for why it is copied rather than referenced, and ``test_cover.py``
+#: for the test that keeps the two in step.
+_COVER_PACKAGE: Final[str] = "bayram.audio.assets"
+_COVER_RESOURCE: Final[str] = "cover.png"
+#: JPEG knobs. The artwork is a photographic gradient rather than flat colour, so quality is
+#: doing real work here in a way it was not when this drew two-tone text: below about 85 the
+#: blue ground bands visibly at 320 px. ``optimize`` re-runs the Huffman tables, which is
+#: deterministic and shaves bytes.
 _JPEG_QUALITY: Final[int] = 90
 
 _OPERATION: Final[str] = "cover.render"
 _STAGED_STEM: Final[str] = "cover"
 
 
-def render_cover(
-    destination: Path,
-    *,
-    lines: Sequence[str] = COVER_LINES,
-    size: int = COVER_SIZE,
-) -> Result[Path]:
+def render_cover(destination: Path, *, size: int = COVER_SIZE) -> Result[Path]:
     """Draw the cover at ``destination``. Returns ``Err`` on any failure and NEVER raises.
 
     Staged through :func:`bayram.audio.tempfiles.scratch_dir` and published with an atomic
@@ -147,7 +116,7 @@ def render_cover(
     try:
         with scratch_dir(destination) as scratch:
             staged = scratch / f"{_STAGED_STEM}{destination.suffix or COVER_SUFFIX}"
-            _draw(staged, lines=tuple(lines), size=size)
+            _draw(staged, size=size)
             written = staged.stat().st_size
             if written > COVER_MAX_BYTES:
                 return err(_oversized(destination, written=written, size=size))
@@ -171,82 +140,34 @@ def render_cover(
     return ok(destination)
 
 
-def _logo(side: int) -> Image.Image | None:
-    """The mark at ``side``x``side`` pixels, or ``None`` if it cannot be read.
+def _draw(staged: Path, *, size: int) -> None:
+    """Write the artwork to ``staged`` at ``size``x``size``. Raises; the caller owns the catch.
 
-    ``None`` rather than an exception because a cover carrying the text and no mark is
-    worth far more than no cover at all: the caller draws the text block centred in the
-    whole canvas instead, which is exactly the picture this module shipped before the mark
-    existed. The only ways to get here are a broken wheel or a corrupt resource, and both
-    deserve a log line rather than a customer's missing artwork.
+    Three deliberate choices, all of which the digest depends on.
 
-    ``LANCZOS`` is named rather than left to default because the result is hashed into
-    ``GeneratedAsset.sha256``: the filter has to be a decision this file records, not
-    whatever Pillow's default happens to be in the installed version.
+    ``LANCZOS`` is named rather than left to Pillow's default, because the result is hashed
+    into ``GeneratedAsset.sha256``: the resampling filter has to be a decision this file
+    records, not whatever the installed version happens to prefer.
+
+    The centre crop is not currently doing anything — ``brand/Logo-Bot.png`` is square, so
+    the crop box is the whole image — and it is here for the day somebody replaces that file
+    with a rectangle. Without it a non-square source would be *stretched* to fit, which
+    distorts a face and a wordmark and would ship looking like a bug rather than a swap.
+
+    ``convert("RGB")`` is unconditional because JPEG has no alpha channel: Pillow raises
+    ``OSError`` saving an RGBA image as JPEG, and the brand file gaining transparency one
+    day is exactly the sort of change nobody would think to mention.
     """
-    try:
-        source = resources.files(_LOGO_PACKAGE).joinpath(_LOGO_RESOURCE)
-        with resources.as_file(source) as path, Image.open(path) as opened:
-            # Converted and resized INSIDE the context: `Image.open` is lazy and the file
-            # object is closed on exit, so deferring either would read a closed handle.
-            # Annotated because Pillow's `resize` is typed as returning `Any`, and an
-            # unchecked `Any` flowing out of here is how a None-check silently stops
-            # meaning anything at the call site.
-            resized: Image.Image = opened.convert("RGBA").resize(
-                (side, side), Image.Resampling.LANCZOS
-            )
-            return resized
-    except Exception as exc:
-        _LOG.warning(
-            "audio.cover.logo_unavailable",
-            extra={"resource": f"{_LOGO_PACKAGE}/{_LOGO_RESOURCE}", "reason": str(exc)},
-        )
-        return None
-
-
-def _draw(staged: Path, *, lines: tuple[str, ...], size: int) -> None:
-    """Render the mark and the text block into ``staged``. Raises; the caller owns the catch.
-
-    The mark and the lines are laid out as ONE stacked block, centred as a whole rather
-    than each part being placed independently. Three lines centred one at a time drift
-    apart as the glyph heights differ, and a mark centred separately from the text it
-    belongs to reads as two objects that happen to share a canvas.
-
-    The text keeps the size and spacing it had before the mark existed, and the mark takes
-    the room left over. That order is the module docstring's contrast argument expressed as
-    code: the words are what the picture has to say, and the disc is what makes it
-    recognisable once the words are too small to read.
-    """
-    image = Image.new("RGB", (size, size), _GROUND)
-    canvas = ImageDraw.Draw(image)
-    glyph = size / _FONT_DIVISOR
-    font = ImageFont.load_default(size=int(glyph))
-    step = glyph * _LINE_SPACING
-    # The text block's height is the gaps BETWEEN the lines plus one line, not one step per
-    # line: counting a trailing gap pushes the whole block up by half a line spacing, which
-    # at 320 pixels is a visible, and entirely avoidable, lopsided margin.
-    text_height = step * (len(lines) - 1) + glyph
-
-    side = int(size * _LOGO_FRACTION)
-    gap = size * _LOGO_GAP_FRACTION
-    mark = _logo(side) if side > 0 else None
-    # Everything below measures from one total height, so the no-mark case is not a special
-    # layout — it is this same arithmetic with a zero-height mark and no gap, which is why
-    # losing the resource degrades to the old picture exactly rather than approximately.
-    stack = text_height if mark is None else side + gap + text_height
-    top = (size - stack) / 2
-
-    if mark is not None:
-        # `mark` is the mask as well as the source: the disc has transparent corners, and
-        # pasting without it would stamp a black square's worth of JPEG ringing around it.
-        image.paste(mark, (int((size - side) / 2), int(top)), mark)
-        top += side + gap
-
-    for index, line in enumerate(lines):
-        # ``mt`` anchors the middle of the top edge of the text, which is what makes the
-        # horizontal centring exact rather than an estimate from a measured bounding box.
-        canvas.text((size / 2, top + step * index), line, font=font, fill=_INK, anchor="mt")
-    image.save(staged, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
+    source = resources.files(_COVER_PACKAGE).joinpath(_COVER_RESOURCE)
+    with resources.as_file(source) as path, Image.open(path) as opened:
+        # Everything happens inside the context: `Image.open` is lazy and the file object is
+        # closed on exit, so deferring any of it would read from a closed handle.
+        side = min(opened.width, opened.height)
+        left = (opened.width - side) // 2
+        top = (opened.height - side) // 2
+        square = opened.crop((left, top, left + side, top + side))
+        cover = square.convert("RGB").resize((size, size), Image.Resampling.LANCZOS)
+        cover.save(staged, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
 
 
 def _oversized(destination: Path, *, written: int, size: int) -> StorageError:
