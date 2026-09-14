@@ -292,15 +292,49 @@ async def test_an_account_with_no_credits_is_offered_prices_instead_of_a_record_
     # Act
     await walk_to_confirm(dispatcher, bot)
 
+    # Assert — one price button and no Record it. SUBSCRIBE is absent because the shipped
+    # catalogue withdrew the plan on 2026-09-14 (`Settings.is_starter_plan_offered` is False);
+    # the test below re-enables it and asserts the button comes back, so this assertion is
+    # about the shipped product rather than about the button having been deleted.
+    offered = {data for _text, data in buttons(session.last_screen.reply_markup)}
+    assert PAY in offered
+    assert SUBSCRIBE not in offered
+    assert CONFIRM not in offered
+    assert submitter.submitted == []
+
+
+async def test_a_deployment_that_still_sells_the_plan_draws_its_button(
+    settings: Settings,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+    submitter: RecordingSubmitter,
+    clock: Callable[[], datetime],
+    purchases: FakePurchases,
+) -> None:
+    """The plan path is withdrawn, not deleted, and this is what keeps it exercised.
+
+    `is_plan_offered` is an AND of two things — the deployment sells the plan, and this
+    customer has none running. Without this test the first half could be hard-coded to False
+    and every remaining assertion would still pass.
+    """
+    # Arrange
+    selling_plans = settings.model_copy(update={"is_starter_plan_offered": True})
+    dispatcher = build_dispatcher(
+        selling(selling_plans, submitter, clock, purchases), storage=storage
+    )
+
+    # Act
+    await walk_to_confirm(dispatcher, bot)
+
     # Assert
     offered = {data for _text, data in buttons(session.last_screen.reply_markup)}
     assert PAY in offered
     assert SUBSCRIBE in offered
     assert CONFIRM not in offered
-    assert submitter.submitted == []
 
 
-async def test_the_paywall_says_the_words_are_free_and_names_both_prices(
+async def test_the_paywall_says_the_words_are_free_and_names_the_price(
     settings: Settings,
     bot: Bot,
     session: RecordingSession,
@@ -321,16 +355,16 @@ async def test_the_paywall_says_the_words_are_free_and_names_both_prices(
     # Act
     await walk_to_confirm(dispatcher, bot)
 
-    # Assert
+    # Assert — `paywall_single`, not `paywall_topup`. The distinction is the point: this
+    # customer has no plan because the deployment sells none, and the top-up wording would
+    # tell them *their* plan has no songs left on it, inventing a purchase they never made.
     expected = translate(
-        "checkout.paywall",
+        "checkout.paywall_single",
         Language.EN,
         single_amount=pricing.single_amount,
-        plan_amount=pricing.plan_amount,
-        plan_songs=pricing.plan_songs,
-        plan_days=pricing.plan_days,
     )
     assert session.last_screen.text == expected
+    assert pricing.plan_amount not in session.last_screen.text
 
 
 async def test_a_customer_who_can_afford_a_song_sees_the_confirm_screen_unchanged(

@@ -80,6 +80,13 @@ SAMPLE_PRICING: Pricing = Pricing(
     plan_songs=12,
     plan_days=30,
     currency="UZS",
+    # `True` although the shipped default is now False, and the two prices above are the
+    # pre-2026-09-14 ones for the same reason: these are KEYBOARD tests, and the row they
+    # exist to measure is the plan row. A fixture that mirrored the live catalogue would draw
+    # one button and quietly stop testing the two-row width rule the module docstring argues
+    # for. What the deployment sells is `Settings.is_starter_plan_offered`; what this file
+    # tests is what the builder draws when asked to draw it.
+    is_plan_sold=True,
 )
 
 

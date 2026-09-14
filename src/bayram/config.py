@@ -501,14 +501,33 @@ class Settings(BaseSettings):
     #: bug, and a pricing bug is invisible until somebody has been charged the wrong amount.
     #: ``bayram.bot.pricing.format_amount`` divides back down for display; nothing else does.
     single_song_price_minor: int = Field(
-        default=700_000,
+        default=1_500_000,
         ge=0,
-        description="One render, in minor units (UZS tiyin). 700_000 == 7 000 soʻm.",
+        description="One render, in minor units (UZS tiyin). 1_500_000 == 15 000 soʻm.",
     )
+    #: The plan's price is KEPT even though the plan is not offered — see
+    #: :attr:`is_starter_plan_offered`. Zeroing it to express "not for sale" would make a plan
+    #: FREE to anyone holding a checkout link minted before the switch, which is the one
+    #: failure a price field must not have; the offer is withdrawn by the boolean instead.
     starter_plan_price_minor: int = Field(
         default=4_900_000,
         ge=0,
         description="The starter plan, in minor units. 4_900_000 == 49 000 soʻm.",
+    )
+    #: Whether the twelve-song starter plan is part of the catalogue at all.
+    #:
+    #: **Ships False: the owner withdrew the plan on 2026-09-14, leaving the single song as
+    #: the only product.** This is a catalogue decision, not a rail one — the plan's code
+    #: path, its price, its fulfiller and its `plan_purchases` rows all remain, because
+    #: customers who already bought one still have a running plan that must keep minting and
+    #: a receipt that must keep reading back. What this turns off is the BUTTON.
+    #:
+    #: `False` therefore means "sell no new plans", never "forget the plans that exist".
+    #: :func:`bayram.bot.handlers.balance` ANDs it with "no plan is already running", so the
+    #: two reasons a plan is not offered stay distinguishable in the code that decides it.
+    is_starter_plan_offered: bool = Field(
+        default=False,
+        description="Draw the starter-plan button. False sells single songs only.",
     )
     #: The plan is "twelve songs within thirty days", and both halves are configuration
     #: because both are quoted on the button and in the paywall copy. They are bounded rather

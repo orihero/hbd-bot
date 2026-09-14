@@ -119,6 +119,14 @@ CATALOGUE: Final[dict[str, str]] = {
     # Oʻsha ekran, lekin reja allaqachon ishlayapti va unda qoʻshiq qolmagan. Birinchisi
     # ustiga ikkinchi rejani sotish — hech narsa uchun pul olish, shuning uchun faqat bitta
     # qoʻshiq taklif qilinadi va rejaning oʻzi tugab qolgani ochiq aytiladi.
+    # Reja umuman sotilmaydi (``Settings.is_starter_plan_offered`` 2026-09-14 dan False).
+    # Bitta mahsulot, bitta narx va reja haqida bir ogʻiz ham emas: ``paywall_topup``
+    # "rejangizda qoʻshiq qolmadi" deydi — bu mijozda hech qachon boʻlmagan reja haqidagi gap.
+    "checkout.paywall_single": (
+        "🔒 <b>Soʻzlar sizniki. Pul yozib olishga toʻlanadi.</b>\n\n"
+        "💳 Bitta qoʻshiq — <b>{single_amount} soʻm</b>\n\n"
+        "Siz tanlamaguningizcha hech narsa yozilmaydi."
+    ),
     "checkout.paywall_topup": (
         "🔒 <b>Soʻzlar sizniki. Pul yozib olishga toʻlanadi.</b>\n\n"
         "Rejangizda qoʻshiq qolmadi va u tugagunicha yangisi qoʻshilmaydi.\n\n"

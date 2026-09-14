@@ -116,6 +116,15 @@ CATALOGUE: Final[dict[str, str]] = {
     # Same screen, but a plan is already running and has no song left on it. Selling a
     # second plan on top would take money for nothing, so only the single song is offered
     # and the plan's own dead end is stated rather than left for the customer to infer.
+    # The plan is not part of the catalogue at all (``Settings.is_starter_plan_offered``
+    # ships False since 2026-09-14). One product, one price, and NOT a word about a plan:
+    # ``paywall_topup`` says "your plan has no songs left on it", which is a sentence about a
+    # plan this customer never had, and reusing it here would invent a purchase.
+    "checkout.paywall_single": (
+        "🔒 <b>The words are yours. The recording is what costs.</b>\n\n"
+        "💳 One song — <b>{single_amount} UZS</b>\n\n"
+        "Nothing is recorded until you choose."
+    ),
     "checkout.paywall_topup": (
         "🔒 <b>The words are yours. The recording is what costs.</b>\n\n"
         "Your plan has no songs left on it, and it brings no more until it ends.\n\n"

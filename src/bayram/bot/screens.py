@@ -601,11 +601,23 @@ def _paywall_screen(language: Language, offer: CheckoutOffer) -> Screen:
     half of the product delivered, the other half offered. The lyric is still one Back press
     away, unedited and un-taken.
 
-    Two bodies, chosen by ``is_plan_offered``. With a plan already running, ``checkout.paywall``
-    would advertise a product the fulfiller refuses to sell twice (see
-    ``PurchaseFulfiller.start_plan``), so the top-up wording offers the single song alone and
-    says the plan brings nothing more until it ends. The screen and the store therefore agree
-    about what can be bought, instead of the screen finding out from an error.
+    THREE bodies, and the third exists because "no plan button" has two different causes that
+    must not share a sentence.
+
+    * ``is_plan_offered`` — both products. The plan is sold and this customer has none.
+    * a plan is RUNNING (``plan_ends_on`` is set, spent or not) — ``checkout.paywall_topup``.
+      ``checkout.paywall`` would advertise a product the fulfiller refuses to sell twice (see
+      ``PurchaseFulfiller.start_plan``), so the top-up wording offers the single song alone and
+      says the plan brings nothing more until it ends. The screen and the store therefore agree
+      about what can be bought, instead of the screen finding out from an error.
+    * the plan is NOT SOLD AT ALL (``Settings.is_starter_plan_offered``, False since
+      2026-09-14) — ``checkout.paywall_single``. Falling through to the top-up wording here
+      would tell a customer who has never bought a plan that *their* plan has no songs left on
+      it, which invents a purchase; and the two-product body would quote a price with no button
+      under it. One product, one price, no sentence about plans.
+
+    ``plan_ends_on`` is what separates the last two, and it is the honest discriminator: it is
+    a property of the CUSTOMER, while ``is_plan_sold`` is a property of the DEPLOYMENT.
 
     Nothing is read here and nothing is formatted here: every number arrives finished on
     ``offer.pricing``. See :class:`~bayram.bot.pricing.CheckoutOffer`.
@@ -620,8 +632,10 @@ def _paywall_screen(language: Language, offer: CheckoutOffer) -> Screen:
             plan_songs=pricing.plan_songs,
             plan_days=pricing.plan_days,
         )
-    else:
+    elif offer.plan_ends_on is not None:
         text = translate("checkout.paywall_topup", language, single_amount=pricing.single_amount)
+    else:
+        text = translate("checkout.paywall_single", language, single_amount=pricing.single_amount)
     return Screen(text, checkout_keyboard(language, offer))
 
 

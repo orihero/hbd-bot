@@ -208,10 +208,14 @@ def build_offer(balance: Result[CreditBalance] | None, deps: BotDeps) -> Checkou
         credits=state.credits,
         plan_songs_left=state.plan_songs_left,
         plan_ends_on=None if ends_at is None else ends_at.date().isoformat(),
-        # A plan is offered only when none is running. ``plan_ends_at`` is set for a
+        # TWO reasons the button is not drawn, ANDed and kept apart on purpose.
+        # `is_plan_sold` is the deployment's catalogue — False since the plan was withdrawn
+        # on 2026-09-14 — and `ends_at is None` is this customer: `plan_ends_at` is set for a
         # SPENT-but-unexpired plan too, which is exactly the case the fulfiller refuses to
-        # sell a second plan for — so the button that would take that money is not drawn.
-        is_plan_offered=ends_at is None,
+        # sell a second plan for, so the button that would take that money is not drawn
+        # either way. A customer whose plan is still running keeps minting from it; nothing
+        # here revokes what was already bought.
+        is_plan_offered=pricing.is_plan_sold and ends_at is None,
         pricing=pricing,
     )
 

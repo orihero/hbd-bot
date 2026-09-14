@@ -92,6 +92,12 @@ class Pricing:
     plan_amount_minor: int
     plan_songs: int
     plan_days: int
+    #: Whether the plan is in the catalogue at all — ``Settings.is_starter_plan_offered``.
+    #: Distinct from ``CheckoutOffer.is_plan_offered``, which is this AND "no plan is already
+    #: running": one is a property of the deployment, the other of the customer in front of
+    #: you, and collapsing them would make a withdrawn plan indistinguishable from a plan the
+    #: customer already holds.
+    is_plan_sold: bool
     #: ISO-4217, three letters. Shared with ``kit_currency``: the render gate and the
     #: checkout quote the same currency, and a deployment that made them differ would be
     #: showing a customer one currency and sending a rail another.
@@ -99,7 +105,7 @@ class Pricing:
 
     @classmethod
     def from_settings(cls, settings: Settings) -> Pricing:
-        """Build the catalogue from configuration. The ONE place these five fields are read.
+        """Build the catalogue from configuration. The ONE place these six fields are read.
 
         Importing ``bayram.config`` is fine here and is not fine in ``bayram.checkout``: this module
         lives under ``bayram.bot``, which is already the layer that owns composition-shaped
@@ -111,6 +117,7 @@ class Pricing:
             plan_songs=settings.starter_plan_songs,
             plan_days=settings.starter_plan_days,
             currency=settings.kit_currency,
+            is_plan_sold=settings.is_starter_plan_offered,
         )
 
     @property

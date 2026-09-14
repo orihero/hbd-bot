@@ -98,20 +98,28 @@ def test_pricing_from_settings_reads_the_four_price_fields_and_the_currency() ->
     assert pricing.currency == settings.kit_currency
 
 
-def test_the_shipped_settings_price_a_song_at_seven_thousand_and_a_plan_at_forty_nine() -> None:
-    # Arrange — the decided product, pinned as a drift guard between the plan and the code:
-    # 7 000 for one recording, 49 000 for twelve songs across thirty days.
+def test_the_shipped_catalogue_is_one_song_at_fifteen_thousand_and_no_plan() -> None:
+    # Arrange — the decided product as of 2026-09-14, pinned as a drift guard between the
+    # decision and the code: 15 000 for one recording, and the twelve-song plan WITHDRAWN.
     settings = Settings(_env_file=None, database_url=_DATABASE_URL)
 
     # Act
     pricing = Pricing.from_settings(settings)
 
     # Assert
-    assert pricing.single_amount == "7 000"
-    assert pricing.plan_amount == "49 000"
+    assert pricing.single_amount == f"15{GROUPING_SPACE}000"
+    assert pricing.currency == "UZS"
+
+    # The plan is not sold. Its price and shape survive the withdrawal ON PURPOSE and are
+    # asserted here so nobody "tidies" them away: a customer who bought a plan before the
+    # switch still has one running, and both the fulfiller that mints from it and the receipt
+    # that reads it back need these numbers to stay what they were charged against. Zeroing
+    # the price to express "not for sale" would make the plan FREE to anyone holding a
+    # checkout link minted before the change.
+    assert pricing.is_plan_sold is False
+    assert pricing.plan_amount == f"49{GROUPING_SPACE}000"
     assert pricing.plan_songs == 12
     assert pricing.plan_days == 30
-    assert pricing.currency == "UZS"
 
 
 def test_an_operator_who_reprices_moves_the_button_label_with_them() -> None:
@@ -155,7 +163,7 @@ def test_a_checkout_offer_carries_only_finished_renderable_values() -> None:
     # Assert
     assert offer.is_paywalled
     assert offer.plan_ends_on is None
-    assert offer.pricing.single_amount == "7 000"
+    assert offer.pricing.single_amount == f"15{GROUPING_SPACE}000"
 
 
 def test_a_spent_plan_is_still_a_running_plan_and_is_offered_no_second_one() -> None:
