@@ -446,7 +446,8 @@ export function FigureCard({
   children,
 }: {
   readonly title: string;
-  readonly sub: string;
+  /** Optional, and on the dashboard's own figures now always absent — see `TranslationTree`. */
+  readonly sub?: string | undefined;
   readonly cov?: string | undefined;
   readonly ratio?: string | undefined;
   readonly isPlaceholder: boolean;

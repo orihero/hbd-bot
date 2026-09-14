@@ -205,11 +205,13 @@ export async function runTier3Tests(): Promise<TestCaseResult[]> {
         assertEqual(todayLabel, "Сегодня");
         assertEqual(weekLabel, "Неделя");
 
-        // Metric Card specs
+        // Metric Card specs. The card's `sub` — the caption printed under the figure — is
+        // gone from all eighteen cards; the hover `subtitle` is what still carries the
+        // definition, and is what this asserts on.
         const usersCardTitle = mod.t("dashboard.cards.totalUsers.label");
-        const usersCardSub = mod.t("dashboard.cards.totalUsers.sub");
+        const usersCardSubtitle = mod.t("dashboard.cards.totalUsers.subtitle");
         assertEqual(usersCardTitle, "Всего пользователей");
-        assertIncludes(usersCardSub, "бота");
+        assertIncludes(usersCardSubtitle, "бота");
       } finally {
         restoreTestEnv();
       }

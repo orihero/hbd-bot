@@ -1,7 +1,7 @@
 import type { JSX } from "react";
 
 import type { RatioView, Vendor, VendorUnitsPerSongView } from "@/api/dashboard";
-import { formatCount } from "@/features/dashboard/adapt";
+import { formatAudio, formatCount } from "@/features/dashboard/adapt";
 import { VENDOR_LABEL, rnd, usePalette } from "@/features/dashboard/svg";
 
 /* -------------------------------------------------------------------------- */
@@ -50,10 +50,22 @@ interface Family {
   readonly key: string;
   /** The family's own heading. Never the word "usage": there is no such quantity here. */
   readonly heading: string;
-  /** Printed on EVERY row, in both columns, so no number is ever loose from its unit. */
+  /** Printed on EVERY row, in both columns, so no number is ever loose from its unit. Empty
+   *  for audio, whose figures are `1:30` — a duration carries its unit in its own punctuation
+   *  and `1:30 ms` would be a unit contradicting the number beside it. */
   readonly unit: string;
   readonly total: (row: VendorUnitsPerSongView) => number | null;
   readonly perSong: (row: VendorUnitsPerSongView) => RatioView | null;
+  /**
+   * How this family's quantity reads. ONE function for both columns, deliberately: the window
+   * total and the per-song figure are the same unit, and a family that formatted them
+   * differently would print `4:07:30` of audio above `90 000` of the same thing.
+   *
+   * Counted families group digits; audio is a length, so it reads as one — including in the
+   * total column, where a busy window is hours of audio and a minutes-only rendering (`247:00`)
+   * reads as four minutes to anyone who does not stop and count.
+   */
+  readonly fmt: (value: number) => string;
 }
 
 /**
@@ -68,6 +80,7 @@ const FAMILIES: readonly Family[] = [
     unit: "tokens",
     total: (r) => r.totalTokens,
     perSong: (r) => r.tokensPerSong,
+    fmt: formatCount,
   },
   {
     key: "characters",
@@ -75,13 +88,15 @@ const FAMILIES: readonly Family[] = [
     unit: "chars",
     total: (r) => r.billedCharacters,
     perSong: (r) => r.charactersPerSong,
+    fmt: formatCount,
   },
   {
     key: "audio",
-    heading: "MILLISECONDS OF AUDIO",
-    unit: "ms",
+    heading: "AUDIO",
+    unit: "",
     total: (r) => r.audioMs,
     perSong: (r) => r.audioMsPerSong,
+    fmt: formatAudio,
   },
 ];
 
@@ -149,19 +164,31 @@ function fitRows(groups: readonly Group[]): readonly number[] {
 }
 
 /**
- * `1 204 tokens/song`, or the reason there is no such number.
+ * `1 204 tokens/song`, `1:30/song`, or a dash.
  *
- * The two absences are DIFFERENT FACTS and are printed differently. A null ratio means the
- * vendor measured nothing to divide; a present ratio whose `value` is null means nothing was
- * delivered in the window to divide BY. Neither is zero, and a zero here would say a song
- * consumed nothing.
+ * The three absences used to be three different sentences — `not measured`, `nothing delivered
+ * to divide by`, `not a reading`. They are one dash now. This is a dense table of whiskers at
+ * the 8px type floor and a prose clause in a numeric column is the reader's eye stopping on a
+ * row that has nothing to say; the family heading and the rows that DO carry a figure are what
+ * the table is for.
+ *
+ * The sub-1 floor stays, and only for counted families: `<1 token/song` is a real reading that
+ * `formatCount` would round to `0`. A duration under a second already renders as `0:00` through
+ * `formatAudio`, which is the honest reading of well under a second of audio.
  */
-function perSongText(ratio: RatioView | null, unit: string): { text: string; muted: boolean } {
-  if (ratio === null) return { text: "not measured", muted: true };
-  if (ratio.value === null) return { text: "nothing delivered to divide by", muted: true };
-  if (!Number.isFinite(ratio.value)) return { text: "not a reading", muted: true };
-  if (ratio.value > 0 && ratio.value < 1) return { text: `<1 ${unit}/song`, muted: false };
-  return { text: `${formatCount(ratio.value)} ${unit}/song`, muted: false };
+function perSongText(
+  ratio: RatioView | null,
+  unit: string,
+  fmt: (value: number) => string,
+): { text: string; muted: boolean } {
+  if (ratio === null || ratio.value === null || !Number.isFinite(ratio.value)) {
+    return { text: "—", muted: true };
+  }
+  const suffix = unit === "" ? "/song" : ` ${unit}/song`;
+  if (unit !== "" && ratio.value > 0 && ratio.value < 1) {
+    return { text: `<1${suffix}`, muted: false };
+  }
+  return { text: `${fmt(ratio.value)}${suffix}`, muted: false };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -177,19 +204,14 @@ export interface VendorUnitsProps {
    * with its zero printed.
    */
   readonly rows: readonly VendorUnitsPerSongView[];
-  /**
-   * `VendorResponse.deliveredOrders` — the BARE INT from the vendor route, the denominator
-   * every per-song ratio on these rows was computed against.
-   *
-   * NOT `PerformanceResponse.deliveredOrders`, which is a `TrendView` of the same name on a
-   * different route. Passing `.current` off that one would caption this figure with a number
-   * counted over a different window; there is deliberately no shared accessor for the two.
-   *
-   * Zero is a real state and gets said in words: with nothing delivered, every per-song figure
-   * is undefined rather than zero.
-   */
-  readonly deliveredOrders: number;
 }
+
+/*
+ * `deliveredOrders` was a prop here, and its only use was the caption's `2 DELIVERED SONGS ·`
+ * opening — the denominator sentence, printed a second time in capitals one card below the
+ * one it was deleted from. The rows still carry their own per-song ratios, computed by the
+ * server against that same integer, so nothing this figure DRAWS depended on it.
+ */
 
 /**
  * What one delivered song CONSUMES from each vendor, in that vendor's own units.
@@ -209,10 +231,10 @@ export interface VendorUnitsProps {
  * under a "remaining" heading is spend reported as headroom.
  *
  * The other thing it refuses to say: a per-song figure in a window with no deliveries is
- * undefined, not zero. "Nothing shipped" and "it was free" are not the same sentence and this
- * figure prints the first one in words rather than a tempting `0`.
+ * undefined, not zero. "Nothing shipped" and "it was free" are not the same sentence, and a
+ * row whose ratio the server left null prints a dash rather than a tempting `0`.
  */
-export function VendorUnits({ rows, deliveredOrders }: VendorUnitsProps): JSX.Element {
+export function VendorUnits({ rows }: VendorUnitsProps): JSX.Element {
   const PAL = usePalette();
   const groups = groupsOf(rows);
 
@@ -221,11 +243,11 @@ export function VendorUnits({ rows, deliveredOrders }: VendorUnitsProps): JSX.El
   }
 
   const shown = fitRows(groups);
-  const delivered = Number.isFinite(deliveredOrders) ? Math.max(0, Math.round(deliveredOrders)) : 0;
-  const caption =
-    delivered === 0
-      ? "NOTHING DELIVERED IN THIS WINDOW · PER-SONG FIGURES ARE UNDEFINED, NOT ZERO"
-      : `${formatCount(delivered)} DELIVERED SONGS · RANKED WITHIN EACH UNIT · THE UNITS SHARE NO AXIS`;
+  /* The caption used to open `2 DELIVERED SONGS · …` — the same denominator sentence that was
+     deleted from the cards above, in capitals. What survives is the one clause a reader cannot
+     get from the drawing: three tables stacked in one box look like one chart with one scale,
+     and they are three quantities that share no axis. */
+  const caption = "THE UNITS SHARE NO AXIS";
 
   let y = BODY_TOP;
 
@@ -237,7 +259,7 @@ export function VendorUnits({ rows, deliveredOrders }: VendorUnitsProps): JSX.El
       width="100%"
       height="100%"
       role="img"
-      aria-label="What one delivered song consumes from each vendor, one table per unit family — tokens, billed characters and milliseconds of audio — each on its own scale"
+      aria-label="What one delivered song consumes from each vendor, one table per unit family — tokens, billed characters and audio — each on its own scale"
     >
       <text x={PAD_X} y={CAPTION_Y} fontSize={8} fontWeight={700} fill={PAL.MUT} letterSpacing=".08em">
         {caption}
@@ -289,8 +311,11 @@ export function VendorUnits({ rows, deliveredOrders }: VendorUnitsProps): JSX.El
               const len = group.max > 0 ? (LANE * row.total) / group.max : 0;
               const cap = 3 + rnd(i + 1, gi + 2) * 1.6;
               const ink = hero ? PAL.D0 : PAL.D1;
-              const totalText = `${formatCount(row.total)} ${group.family.unit}`;
-              const per = perSongText(row.perSong, group.family.unit);
+              const totalText =
+                group.family.unit === ""
+                  ? group.family.fmt(row.total)
+                  : `${group.family.fmt(row.total)} ${group.family.unit}`;
+              const per = perSongText(row.perSong, group.family.unit, group.family.fmt);
 
               return (
                 <g key={`${group.family.key}-${row.vendor}`}>

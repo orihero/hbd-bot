@@ -8,9 +8,9 @@
  * believes. The numbers now come from `adapt.ts`, the card metadata from `cardSpecs.ts`, and
  * both of those are keyed off a real response or they render a hatched pill instead.
  *
- * The header's "08:04 · UTC+5 · 1 USD = 12 800 soʻm" was the last hardcoded measurement on
- * the page — a stale FX rate stated as fact. It is now `headerMeta`, a function of the clock
- * and of the finance response's own `fx` block, and it says "no FX rate" when there is none.
+ * The header's "1 USD = 12 800 soʻm" was the last hardcoded measurement on the page — a stale
+ * FX rate stated as fact. It is now `headerMeta`, a function of the finance response's own `fx`
+ * block alone, and it prints nothing at all when that block carries no rate.
  */
 
 import type { FxRateView, WindowView } from "@/api/dashboard";
@@ -103,16 +103,6 @@ function dayMonth(at: Date, locale: string): string {
   }
 }
 
-/** `UTC+5`, `UTC-3:30`, `UTC` — whatever the browser is actually set to. */
-function utcOffset(at: Date): string {
-  const minutes = -at.getTimezoneOffset();
-  if (minutes === 0) return "UTC";
-  const sign = minutes < 0 ? "-" : "+";
-  const hours = Math.floor(Math.abs(minutes) / 60);
-  const rest = Math.abs(minutes) % 60;
-  return `UTC${sign}${String(hours)}${rest === 0 ? "" : `:${rest < 10 ? "0" : ""}${String(rest)}`}`;
-}
-
 /** The finance read failed, so the rate is unknown rather than absent. */
 export const UNAVAILABLE = "unavailable";
 
@@ -123,25 +113,28 @@ export const UNAVAILABLE = "unavailable";
 export type FxState = FxRateView | null | typeof UNAVAILABLE;
 
 /**
- * `08:04 · UTC+5 · 1 USD = 12 800 soʻm (05 Sep)`.
+ * `1 USD = 12 800 soʻm (05 Sep)`, or nothing at all.
  *
- * The rate is the operator's own published figure and there is no feed behind it, so `asOf`
- * is the ONLY staleness signal that exists — it is printed beside the rate or the rate is a
- * number nobody can date. A null rate says so in words: every conversion downstream is
- * unavailable, not wrong.
+ * The line used to open `08:04 · UTC+5 ·`. Neither segment was a measurement this dashboard
+ * took: the operating system already prints the wall clock and the zone, one of them in the
+ * same screen corner, and a console whose first two segments restate the reader's own desk has
+ * spent the line before reaching anything it knows.
+ *
+ * **The two ABSENCE clauses went with them, and that is the one real loss here.** `FX rate
+ * unavailable` and `no FX rate published` drew a distinction that is genuine — a read that
+ * failed never heard either way, which is not the same as a deployment that publishes no rate —
+ * and the header is no longer where it is drawn. The distinction still exists in `FxState` and
+ * still governs every conversion downstream; what is gone is a sentence in the one place on the
+ * page sized for a title and a figure. A header with no rate in it is already the honest report
+ * that there is no rate to show.
+ *
+ * `asOf` STAYS. The rate is hand-published with no feed behind it, so the date is the only
+ * staleness signal it has, and it is a property OF the figure rather than a sentence about it.
  */
-export function headerMeta(now: Date, fx: FxState, t: Translate, locale: string): string {
-  const clock = `${now.getHours() < 10 ? "0" : ""}${String(now.getHours())}:${
-    now.getMinutes() < 10 ? "0" : ""
-  }${String(now.getMinutes())}`;
-  const head = `${clock} · ${utcOffset(now)}`;
-  // Three states, not two. "No FX rate published" is a claim about the DEPLOYMENT, and a read
-  // that failed (a 403 for a role that cannot see finance, an unreachable API) never heard
-  // one either way — asserting the first from the second is inventing a fact about the server.
-  if (fx === UNAVAILABLE) return `${head} · ${t("dashboard.fx.unavailable")}`;
-  if (fx === null || fx.uzsPerUsd === null) return `${head} · ${t("dashboard.fx.noRate")}`;
+export function headerMeta(fx: FxState, t: Translate, locale: string): string {
+  if (fx === UNAVAILABLE || fx === null || fx.uzsPerUsd === null) return "";
   const taken = fx.asOf === null ? "" : ` (${dayMonth(calendarDate(fx.asOf), locale)})`;
-  return `${head} · ${t("dashboard.fx.rate", { rate: formatCount(fx.uzsPerUsd) })}${taken}`;
+  return `${t("dashboard.fx.rate", { rate: formatCount(fx.uzsPerUsd) })}${taken}`;
 }
 
 /**

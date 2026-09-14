@@ -90,8 +90,6 @@ export function AudienceSection({
             />
             <FigureCard
               title={t("dashboard.figures.activeAccounts.title")}
-              sub={t("dashboard.figures.activeAccounts.sub")}
-              cov={t("dashboard.figures.activeAccounts.cov")}
               isPlaceholder={dim}
             >
               {audience === undefined ? (

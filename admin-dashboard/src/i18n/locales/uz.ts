@@ -268,35 +268,24 @@ export const uz: TranslationSchema = {
       identifiedCustomers: "Aniqlangan mijozlar",
       activeAccounts: {
         title: "Faol hisoblar",
-        sub: "har biriga bitta chiziq: kun ⊆ hafta ⊆ oy · hech qachon qoʻshilmaydi",
-        cov: "tungi surat",
       },
       planUtilisation: {
         title: "Rejalar qanchalik toʻliq ishlatilgan",
-        sub: "faqat tugagan rejalar · davom etayotgan rejaning ulushi yakuniy emas",
-        cov: "oyna yoʻq",
       },
       planLiability: {
         title: "Rejalar hali nima qarzdor",
-        sub: "qoʻshiqlar, pul emas · faol va tugagan rejalar hech qachon qoʻshilmaydi",
-        cov: "oyna yoʻq",
       },
       vendorBalances: {
         title: "Provayder balanslari",
-        sub: "har bir HISOB uchun bitta yoʻlak · < {bad} qoʻshiq tanqidiy, < {warn} kam",
       },
       pollerFreshness: {
         title: "Soʻrov yangiligi",
-        sub: "har bir hisob oxirgi marta qachon SOʻRALGAN va qachon JAVOB BERGAN",
       },
       songConsumption: {
         title: "Bitta qoʻshiq nima sarflaydi",
-        sub: "tokenlar, hisoblangan belgilar va audio millisekundlari · umumiy oʻq yoʻq",
       },
       costProvenance: {
         title: "Narx qanday belgilangan",
-        sub: "provayder CHAQIRUVLARINING boʻlinishi, dollarlarniki emas",
-        cov: "shu oyna",
       },
     },
     note: {
@@ -321,116 +310,96 @@ export const uz: TranslationSchema = {
         "Ushbu konfiguratsiyada hech qaysi provayder balans hisobotini bermaydi.",
     },
     fx: {
-      unavailable: "valyuta kursi mavjud emas",
-      noRate: "valyuta kursi eʼlon qilinmagan",
       rate: "1 USD = {rate} soʻm",
     },
     cards: {
       totalUsers: {
         label: "Jami foydalanuvchilar",
-        sub: "botga murojaat qilganlar",
         title: "Jami foydalanuvchilar",
         subtitle: "botga murojaat qilganlar",
       },
       newUsers: {
         label: "Yangi foydalanuvchilar",
-        sub: "davrdagi ilk murojaatlar",
         title: "Yangi foydalanuvchilar",
         subtitle: "davrdagi ilk murojaatlar",
       },
       activeUsers: {
         label: "Faol foydalanuvchilar",
-        sub: "suriluvchi oyna, kalendar emas",
         title: "Faol foydalanuvchilar",
         subtitle: "suriluvchi oyna, kalendar emas",
       },
       churn: {
         label: "Yoʻqotish (churn)",
-        sub: "davrda botni bloklaganlar",
         title: "Yoʻqotish (churn)",
         subtitle: "davrda botni bloklaganlar",
       },
       barred: {
         label: "Operator bloklaganlar",
-        sub: "admin bloklash belgisi",
         title: "Operator bloklaganlar",
         subtitle: "admin bloklash belgisi",
       },
       totalRevenue: {
         label: "Taxminiy tushum",
-        sub: "joriy valyuta kursida",
         title: "Taxminiy tushum",
         subtitle: "joriy valyuta kursida",
       },
       topups: {
         label: "Sotilgan toʻlovlar",
-        sub: "summa hisoblanmagan",
         title: "Sotilgan toʻlovlar",
         subtitle: "summa hisoblanmagan",
       },
       vendorSpend: {
         label: "Provayder xarajatlari",
-        sub: "hisoblangan provayder chaqiruvlari",
         title: "Provayder xarajatlari",
         subtitle: "hisoblangan provayder chaqiruvlari",
       },
       costPerSong: {
         label: "Bitta qoʻshiq tannarxi",
-        sub: "barcha provayderlar boʻyicha oʻrtacha",
         title: "Bitta qoʻshiq tannarxi",
         subtitle: "barcha provayderlar boʻyicha oʻrtacha",
       },
       mrr: {
         label: "MRR",
-        sub: "tushum − xarajat, davr",
         title: "MRR",
         subtitle: "tushum − xarajat, davr",
       },
       arr: {
         label: "ARR",
-        sub: "sof, yillik hisoblangan",
         title: "ARR",
         subtitle: "sof, yillik hisoblangan",
       },
       vendorBalance: {
         label: "Provayderlar balansi",
-        sub: "barcha API boʻyicha umumiy balans",
         title: "Provayderlar balansi",
         subtitle: "barcha API boʻyicha umumiy balans",
       },
       songsRemaining: {
         label: "Qolgan qoʻshiqlar",
-        sub: "balans qoldigʻidan hisob-kitob",
         title: "Qolgan qoʻshiqlar",
         subtitle: "balans qoldigʻidan hisob-kitob",
       },
       medianSongTime: {
         label: "Oʻrtacha ijro vaqti",
-        sub: "buyurtmadan yetkazishgacha",
         title: "Oʻrtacha ijro vaqti",
         subtitle: "buyurtmadan yetkazishgacha",
       },
       songsDelivered: {
         label: "Davrdagi qoʻshiqlar",
-        sub: "tayyor audio yozuvlar",
         title: "Davrdagi qoʻshiqlar",
         subtitle: "tayyor audio yozuvlar",
       },
       musicRenders: {
         label: "Musiqa generatsiyalari",
-        sub: "provayder chaqiruvlari, qayta urinishlar bilan",
         title: "Musiqa generatsiyalari",
         subtitle: "provayder chaqiruvlari, qayta urinishlar bilan",
       },
       musicRenderTime: {
         label: "Musiqa yaratish vaqti",
-        sub: "faqat kompozitsiya yaratish",
         title: "Musiqa yaratish vaqti",
         subtitle: "faqat kompozitsiya yaratish",
       },
       systemStatus: {
         label: "Tizim holati",
-        sub: "tekshirilgan komponentlar",
         title: "Tizim holati",
         subtitle: "tekshirilgan komponentlar",
       },
@@ -460,21 +429,18 @@ export const uz: TranslationSchema = {
       },
       cps: {
         title: "Qoʻshiq tannarxi",
-        sub: "xarajat ÷ yetkazilgan qoʻshiqlar · bitta boʻlim = 1 sent",
-        cov: "faqat narxlangan xarajatlar",
+        sub: "bitta boʻlim = 1 sent",
       },
       costsplit: {
         title: "Xarajat qayerga ketadi",
         sub: "bitta belgi = {amount}",
         subPending: "bitta belgi = qatʼiy dollar qadami",
-        cov: "ushbu davrda",
       },
       funnel: {
         title: "Buyurtmalar qayerda toʻxtaydi",
         sub: "bitta pogʻona = {count} ta buyurtma · uzuq chiziq — chiqib ketish",
         subOne: "bitta pogʻona = bitta buyurtma · uzuq chiziq — chiqib ketish",
         subPending: "bitta pogʻona = qatʼiy sondagi buyurtma · uzuq chiziq — chiqib ketish",
-        cov: "ushbu davrda",
       },
       grans: {
         hourly: "Soatlik",

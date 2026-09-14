@@ -1,5 +1,6 @@
 import type { JSX } from "react";
 
+import { formatCents } from "@/features/dashboard/adapt";
 import { CH, CW } from "@/features/dashboard/data";
 import { RUNG_CAP, rnd, rungIndices, usePalette } from "@/features/dashboard/svg";
 
@@ -21,7 +22,15 @@ export interface CostPerSongProps {
 
 interface Column {
   readonly usd: number;
-  /** Whole cents, floored at one: a sub-cent song is cheap, not absent. */
+  /**
+   * Whole cents, floored at one: a sub-cent song is cheap, not absent.
+   *
+   * The LADDER stays in cents even though the labels are finer, and the stubby columns that
+   * produces are the honest picture rather than a scaling bug: the ladder is sized off the
+   * price line on purpose, so a column one rung tall against a fifty-rung rule is a song
+   * costing a hundredth of what it sells for. Re-scaling to make the columns tall would be
+   * drawing the margin away.
+   */
   readonly rungs: number;
   readonly tick: string;
 }
@@ -67,7 +76,7 @@ export function CostPerSong({ values, ticks, priceLine }: CostPerSongProps): JSX
   const colW = (CW - 60) / N;
   const x0 = (i: number): number => 30 + colW * (i + 0.5);
   const py = priceRungs === null ? 0 : BASE - priceRungs * step;
-  const priceMoney = priceLine === null ? "" : "$" + priceLine.toFixed(2);
+  const priceMoney = priceLine === null ? "" : formatCents(priceLine);
 
   return (
     <svg
@@ -113,7 +122,10 @@ export function CostPerSong({ values, ticks, priceLine }: CostPerSongProps): JSX
         const cx = x0(i);
         const n = col.rungs;
         const hero = i === N - 1;
-        const money = "$" + col.usd.toFixed(2);
+        // Cents, like every other unit-economics figure on this tab. `toFixed(2)` on a
+        // DOLLAR rendered all three columns `$0.00` — a song costs a fraction of a cent, so
+        // two decimals of a dollar is no precision at all and the labels said nothing.
+        const money = formatCents(col.usd);
 
         return (
           <g key={i}>

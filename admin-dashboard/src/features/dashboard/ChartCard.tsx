@@ -5,7 +5,12 @@ import type { Gran } from "@/features/dashboard/data";
 
 interface ChartCardProps {
   readonly title: string;
-  readonly sub: string;
+  /**
+   * The caption under the title. OPTIONAL, and on the dashboard's figures now always absent:
+   * a card with nothing to caption prints no caption LINE, rather than an empty one holding
+   * 15px of space open under every title on the page.
+   */
+  readonly sub?: string | undefined;
   /** Small uppercase caveat riding on the title — "68% priced", "last 30d". */
   readonly cov?: string | undefined;
   /**
@@ -52,7 +57,9 @@ export function ChartCard({
               </span>
             )}
           </h3>
-          <p className="mb-0 mt-[2px] text-xs font-normal leading-[1.3] text-ink-400">{sub}</p>
+          {sub !== undefined && sub !== "" && (
+            <p className="mb-0 mt-[2px] text-xs font-normal leading-[1.3] text-ink-400">{sub}</p>
+          )}
         </div>
         {toggle && (
           <Segmented

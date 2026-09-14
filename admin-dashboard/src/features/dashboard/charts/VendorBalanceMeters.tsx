@@ -1,7 +1,13 @@
 import type { JSX } from "react";
 
-import type { BalanceUnit, VendorBalanceView } from "@/api/dashboard";
-import { formatCount, formatUsd } from "@/features/dashboard/adapt";
+import type { BalanceEstimateBasis, BalanceUnit, VendorBalanceView } from "@/api/dashboard";
+import {
+  BASIS_BOUND,
+  BOUND_SIGN,
+  formatCount,
+  formatUsd,
+  type Bound,
+} from "@/features/dashboard/adapt";
 import { CH, CW } from "@/features/dashboard/data";
 import {
   BALANCE_STALE_MS,
@@ -78,6 +84,16 @@ function xOf(songs: number): number {
   return X0 + ((X1 - X0) * clamped) / AXIS_SONGS;
 }
 
+/**
+ * How the divisor is described in the lane's HOVER TITLE, which is the one place on this page
+ * a full sentence still belongs: it costs no pixels until asked for.
+ */
+const BASIS_PHRASE: Record<BalanceEstimateBasis, string> = {
+  trailing_spend_usd: "estimated from trailing spend",
+  trailing_tts_characters: "upper bound, divided by trailing TTS characters",
+  quota_period_credit_burn: "lower bound, divided by credits burned this quota period",
+};
+
 /** One drawn lane: the verdict, the geometry it is drawn at, and the words beside it. */
 interface Lane {
   readonly key: string;
@@ -86,8 +102,8 @@ interface Lane {
   readonly state: ThresholdState;
   /** Songs of cover, or `null` — the lane is hatched and `reason` says why. */
   readonly songs: number | null;
-  /** The estimate divided by TTS characters, which undercounts: the figure is a CEILING. */
-  readonly isUpperBound: boolean;
+  /** Which way the basis is biased, so the headline can carry the inequality it earns. */
+  readonly bound: Bound;
   /** `$0.93` / `112.6k chars`, or `null` when the vendor reported no remaining figure. */
   readonly native: string | null;
   /** Empty for a measured lane; otherwise the reason there is no reading, in words. */
@@ -130,7 +146,7 @@ function buildLane(b: VendorBalanceView, asOfMs: number | null): Lane {
     ...identity,
     state: "unknown",
     songs: null,
-    isUpperBound: false,
+    bound: "none",
     native,
     reason,
     title: `${named}: ${why}${coded}${failing}`,
@@ -150,13 +166,8 @@ function buildLane(b: VendorBalanceView, asOfMs: number | null): Lane {
   }
   if (b.songsRemaining !== null) {
     const state = thresholdOf(b.songsRemaining);
-    const upper = b.estimateBasis === "trailing_tts_characters";
-    const basis =
-      b.estimateBasis === null
-        ? ""
-        : upper
-          ? " · upper bound, divided by trailing TTS characters"
-          : " · estimated from trailing spend";
+    const bound: Bound = b.estimateBasis === null ? "none" : BASIS_BOUND[b.estimateBasis];
+    const basis = b.estimateBasis === null ? "" : ` · ${BASIS_PHRASE[b.estimateBasis]}`;
     const held = native === null ? "" : ` · ${native} remaining`;
     const age = ageMs === null ? "" : ` · answered ${ageLabel(ageMs)} ago`;
     const ok = b.isLastPollOk ? "" : " · last poll failed";
@@ -164,7 +175,7 @@ function buildLane(b: VendorBalanceView, asOfMs: number | null): Lane {
       ...identity,
       state,
       songs: b.songsRemaining,
-      isUpperBound: upper,
+      bound,
       native,
       reason: "",
       title:
@@ -355,7 +366,7 @@ export function VendorBalanceMeters({
         const headline =
           songs === null
             ? thresholdLabel("unknown")
-            : `${lane.isUpperBound ? "≤ " : ""}${formatCount(songs)} songs`;
+            : `${BOUND_SIGN[lane.bound]}${formatCount(songs)} songs`;
         const sub = songs === null ? lane.reason : thresholdLabel(lane.state);
 
         return (

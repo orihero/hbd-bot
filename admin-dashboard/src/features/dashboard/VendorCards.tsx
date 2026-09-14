@@ -80,17 +80,13 @@ export interface VendorCardsProps {
    * most worth seeing; it is the balance FIGURE that goes unmeasured, not the whole card.
    */
   readonly cards: readonly VendorCard[];
-  /**
-   * `VendorResponse.deliveredOrders` — the bare int, and the denominator every per-song figure
-   * on every card was divided by. Printed ONCE, above the cards, and nowhere else: it is one
-   * number about the window, and a copy under each per-song figure both invited the reader to
-   * think the cards were divided by something of their own and spent a line of type per figure
-   * to say nothing new.
-   *
-   * NOT `PerformanceResponse.deliveredOrders`, which is a `TrendView` of the same name over a
-   * different window.
+  /*
+   * `deliveredOrders` used to live here, printed above the cards as
+   * `Per song ÷ 2 delivered songs.` — the denominator, stated once so it need not be repeated
+   * under each figure. The owner asked for it by name. It is a sentence about arithmetic, and
+   * the arithmetic is what the label `Per song` already says; the count itself is on the
+   * Performance tab, where it is a figure of its own rather than a footnote to five others.
    */
-  readonly deliveredOrders: number;
   /**
    * `capabilities.isVendorBalance`. `false` means this deployment polls no vendor at all,
    * which is a different sentence from "the poller has not run yet" and gets different words.
@@ -99,28 +95,17 @@ export interface VendorCardsProps {
 }
 
 /** The five figures per supplier, with the owner's light on the first and the last. */
-export function VendorCards({
-  cards,
-  deliveredOrders,
-  isVendorBalance,
-}: VendorCardsProps): JSX.Element {
+export function VendorCards({ cards, isVendorBalance }: VendorCardsProps): JSX.Element {
   if (cards.length === 0) {
     return (
       <p className="rounded-card bg-card p-4 text-[11px] leading-[1.45] text-ink-300">
-        {isVendorBalance
-          ? "No supplier answered — no balance, no spend, no usage."
-          : "No vendor is polled here, and none was called in this window."}
+        {isVendorBalance ? "No supplier answered." : "No vendor is polled here."}
       </p>
     );
   }
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-[11px] leading-[1.2] text-ink-300">
-        {deliveredOrders === 0
-          ? "Nothing delivered — per-song figures undefined."
-          : `Per song ÷ ${String(deliveredOrders)} delivered song${deliveredOrders === 1 ? "" : "s"}.`}
-      </p>
       {cards.map((card) => (
         <VendorCardBlock key={card.vendor} card={card} />
       ))}
@@ -184,10 +169,6 @@ function Figure({ figure }: { readonly figure: VendorFigure }): JSX.Element {
               </u>
             )}
           </dd>
-          {/* A figure with nothing left to say prints no line, rather than an empty one. */}
-          {figure.note !== "" && (
-            <dd className="mt-[3px] text-[11px] leading-[1.35] text-ink-300">{figure.note}</dd>
-          )}
         </>
       )}
     </div>
@@ -198,7 +179,9 @@ function Figure({ figure }: { readonly figure: VendorFigure }): JSX.Element {
 export function VendorCardsSkeleton(): JSX.Element {
   return (
     <div className="flex flex-col gap-3">
-      <Skeleton className="h-[13px] w-[280px]" />
+      {/* No 13px bar above the cards any more: it was the placeholder for the
+          `Per song ÷ N delivered songs.` line, and holding its height open would jump the
+          whole band up 25px the moment the vendor read answered. */}
       <Skeleton className="h-[164px] w-full rounded-card" />
       <Skeleton className="h-[164px] w-full rounded-card" />
     </div>

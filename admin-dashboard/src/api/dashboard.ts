@@ -137,12 +137,20 @@ export type BalanceUnit = z.infer<typeof balanceUnitSchema>;
 
 /**
  * `BalanceEstimateBasis` — how a "songs remaining" figure was divided out, and therefore how
- * far to trust it. `trailing_tts_characters` UNDERCOUNTS its divisor (music renders bill the
- * same pool without writing characters), so an estimate on that basis is an UPPER BOUND.
+ * far to trust it. Two of the three are BOUNDS rather than estimates and the meter prints
+ * them with the inequality they earn:
+ *
+ *  - `trailing_tts_characters` UNDERCOUNTS its divisor (music renders bill the same pool
+ *    without writing characters), so an estimate on that basis is an UPPER BOUND. No poll on
+ *    this deployment produces it any more — the backend measures ElevenLabs by credit burn —
+ *    but rows written under it are still readable, so it stays in the union.
+ *  - `quota_period_credit_burn` OVERCOUNTS its divisor (the vendor's burn includes credits
+ *    that bought no delivered song), so it is a LOWER BOUND — fewer songs than you have.
  */
 export const BALANCE_ESTIMATE_BASIS_VALUES = [
   "trailing_spend_usd",
   "trailing_tts_characters",
+  "quota_period_credit_burn",
 ] as const;
 export const balanceEstimateBasisSchema = z.enum(BALANCE_ESTIMATE_BASIS_VALUES);
 export type BalanceEstimateBasis = z.infer<typeof balanceEstimateBasisSchema>;

@@ -49,6 +49,12 @@ export interface ChartSpec {
    */
   readonly sub: (data: ChartData | null, t: Translate) => string;
   /** Small uppercase caveat riding on the title. */
+  /**
+   * The uppercase badge beside the title. No dashboard spec sets one any more — `priced spend
+   * only`, `this window` — but the prop stays: it is how a chart that genuinely cannot be read
+   * without a caveat would carry it, and the three that were removed were removed for being
+   * true of every chart on the page rather than for being wrong.
+   */
   readonly covKey?: TranslationPath;
   /** Granularities the toggle offers. Empty = this figure has no toggle in the mockup. */
   readonly grans: readonly Gran[];
@@ -157,7 +163,6 @@ export const CHART_SPECS: readonly ChartSpec[] = [
        real coverage is `costedCalls / calls` on the finance response, which no chart carries.
        Rather than reprint a demo's percentage against live columns, the badge now states the
        one thing this figure is always true about: unpriced vendor calls are left out of it. */
-    covKey: "dashboard.charts.cps.cov",
     grans: COARSE,
     render: (data) => (
       <CostPerSong
@@ -177,7 +182,6 @@ export const CHART_SPECS: readonly ChartSpec[] = [
         : t("dashboard.charts.costsplit.sub", { amount: formatUsd(data.costSplit.tickUsd) }),
     /* "last 30d" in the mock. Both this and the funnel are computed over the REQUEST window,
        so the span is whatever the period picker says and a fixed 30 days would misdate them. */
-    covKey: "dashboard.charts.costsplit.cov",
     grans: [],
     render: (data) => <CostSplit rows={data.costSplit.rows} tickUsd={data.costSplit.tickUsd} />,
   },
@@ -186,7 +190,6 @@ export const CHART_SPECS: readonly ChartSpec[] = [
     section: "performance",
     titleKey: "dashboard.charts.funnel.title",
     sub: funnelSub,
-    covKey: "dashboard.charts.funnel.cov",
     grans: [],
     render: (data) => <Funnel unit={data.funnel.unit} steps={data.funnel.steps} />,
   },

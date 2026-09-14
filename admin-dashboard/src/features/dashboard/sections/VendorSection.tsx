@@ -42,7 +42,6 @@ import {
   VendorUnits,
 } from "@/features/dashboard/charts";
 import { chartSpecsFor } from "@/features/dashboard/chartSpecs";
-import { THRESHOLD_BAD_BELOW, THRESHOLD_WARN_BELOW } from "@/features/dashboard/svg";
 import { useI18n } from "@/i18n";
 
 import {
@@ -61,12 +60,11 @@ import {
 /** Three unit families, one headed table each: the box grew, the 8px type did not shrink. */
 const UNITS_RATIO = "651 / 352";
 
-/**
- * The card's caption quotes the traffic light's own boundaries rather than spelling them.
- *
- * A literal `< 30 songs critical` here would be a fourth copy of the owner's decision, sitting
- * one line above a drawing that takes its gates from `thresholdOf` — and the day the boundary
- * moves, the caption is the copy nobody greps for.
+/*
+ * The balance card's caption used to interpolate `THRESHOLD_BAD_BELOW` / `THRESHOLD_WARN_BELOW`
+ * so the boundaries were never a second copy of the owner's decision. The caption is gone, and
+ * with it the interpolation and the two imports: the gates live in `thresholdOf`, the meter
+ * paints them, and each lane prints its own state word beside its own figure.
  */
 export interface VendorSectionProps
   extends Omit<SectionProps, "state" | "values" | "cardPeriods" | "onCardPeriodChange"> {
@@ -118,17 +116,12 @@ export function VendorSection({
         <FigureStack>
           <FigureCard
             title={t("dashboard.figures.vendorBalances.title")}
-            sub={t("dashboard.figures.vendorBalances.sub", {
-              bad: THRESHOLD_BAD_BELOW,
-              warn: THRESHOLD_WARN_BELOW,
-            })}
             isPlaceholder={dim}
           >
             {health === null ? <FigureSkeleton /> : <VendorBalanceMeters {...health} />}
           </FigureCard>
           <FigureCard
             title={t("dashboard.figures.pollerFreshness.title")}
-            sub={t("dashboard.figures.pollerFreshness.sub")}
             isPlaceholder={dim}
           >
             {/* The SAME object the meters were given — see `health` above. */}
@@ -136,7 +129,6 @@ export function VendorSection({
           </FigureCard>
           <FigureCard
             title={t("dashboard.figures.songConsumption.title")}
-            sub={t("dashboard.figures.songConsumption.sub")}
             ratio={UNITS_RATIO}
             isPlaceholder={dim}
           >
@@ -149,8 +141,6 @@ export function VendorSection({
         {!blocked && (
           <FigureCard
             title={t("dashboard.figures.costProvenance.title")}
-            sub={t("dashboard.figures.costProvenance.sub")}
-            cov={t("dashboard.figures.costProvenance.cov")}
             isPlaceholder={dim}
           >
             {data === undefined ? (

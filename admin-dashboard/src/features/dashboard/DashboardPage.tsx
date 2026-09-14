@@ -761,39 +761,31 @@ function listsNotice(
 /* Header chrome                                                               */
 /* -------------------------------------------------------------------------- */
 
-/** The clock in the meta line only shows minutes; checking twice a minute is enough. */
-const CLOCK_TICK_MS = 30_000;
-
-function useTick(intervalMs: number): number {
-  const [tick, setTick] = useState(() => Date.now());
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setTick(Date.now());
-    }, intervalMs);
-    return () => {
-      window.clearInterval(id);
-    };
-  }, [intervalMs]);
-  return tick;
-}
-
 /**
- * `08:04 · UTC+5 · 1 USD = 12 800 soʻm (05 Sep)`, or the same line saying there is no rate.
+ * `1 USD = 12 800 soʻm (05 Sep)`, or an empty line.
  *
- * Its own component so the per-minute clock re-renders one paragraph rather than a band of
- * cards and a page of SVGs. FOUR states, and the last two are not the same statement:
- * `undefined` is "finance has not answered yet", `UNAVAILABLE` is "the read failed, so this
- * page never heard", and `null` is the deployment saying it publishes no rate at all.
+ * Still its own component, and `headerMeta` still distinguishes four states — but only one of
+ * them now prints. A published rate gets its figure; `undefined` gets the skeleton, because the
+ * finance read is still in flight and a blank would claim it had answered; `UNAVAILABLE` and
+ * `null` get nothing, because there is no rate and saying so in a sentence is the copy this
+ * header was asked to lose.
+ *
+ * **The `<p>` keeps its fixed 14px even while empty.** That height is what holds `SectionTabs`
+ * level with the `<h1>` beside it in the header's flex row; a line that collapsed when no rate
+ * was published would move the whole tab strip under the operator's cursor the moment finance
+ * answered.
+ *
+ * The 30-second `useTick` that drove this went with the clock. A `setInterval` re-rendering a
+ * paragraph twice a minute is a live timer for a figure that changes once a day at most.
  */
 function MetaLine({ fx }: { readonly fx: FxState | undefined }): JSX.Element {
   const { t, locale } = useI18n();
-  const tick = useTick(CLOCK_TICK_MS);
   return (
     <p className="mb-0 mt-[2px] flex h-[14px] items-center text-xs font-normal leading-[1.2] text-ink-400">
       {fx === undefined ? (
-        <Skeleton className="h-[9px] w-[228px]" />
+        <Skeleton className="h-[9px] w-[148px]" />
       ) : (
-        headerMeta(new Date(tick), fx, t, locale)
+        headerMeta(fx, t, locale)
       )}
     </p>
   );

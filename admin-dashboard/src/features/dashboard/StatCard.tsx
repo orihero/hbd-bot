@@ -92,10 +92,10 @@ export function StatCard({
      does not exist, so the unit is dropped with the number. */
   const measured = value !== undefined && !("tag" in value) ? value : null;
 
-  /* The adapter overrides the spec whenever the response knows something truer: a currency the
-     spec did not assume, a caption carrying the real denominators. */
+  /* The adapter overrides the spec whenever the response knows something truer — today only
+     a currency the spec did not assume. It used to override the CAPTION too, with one carrying
+     the real denominators (`12 of 19 calls priced`); there is no caption to override now. */
   const unit = measured?.unit ?? spec.unit;
-  const sub = measured?.sub ?? t(`dashboard.cards.${spec.key}.sub`);
   const delta = measured?.delta ?? "";
   const dots = measured?.dots;
   const series = measured?.spark ?? [];
@@ -152,8 +152,13 @@ export function StatCard({
             </em>
           </div>
 
-          <div className="mt-[3px] overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-normal leading-[1.2] text-ink-300">
-            {dots !== undefined && (
+          {/* The caption that sat here — `ever contacted the bot`, `delivered × published
+              price`, `net, annualised` — is gone from all eighteen cards: a title and a
+              figure, and nothing between them and the next card. The row itself stays, and
+              keeps its height, ONLY while it has dots to carry: those are the System status
+              card's actual measurement rather than a sentence about one. */}
+          {dots !== undefined && (
+            <div className="mt-[3px] overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-normal leading-[1.2] text-ink-300">
               <span className="relative top-[-1px] mr-[7px] inline-flex gap-[3px] align-middle">
                 {dots.map(([id, name, state]) => (
                   <i
@@ -163,9 +168,8 @@ export function StatCard({
                   />
                 ))}
               </span>
-            )}
-            <span>{sub}</span>
-          </div>
+            </div>
+          )}
         </>
       )}
 

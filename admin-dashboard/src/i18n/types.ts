@@ -246,7 +246,14 @@ export interface AuthTranslations {
 
 export interface CardTranslation {
   readonly label: string;
-  readonly sub: string;
+  /*
+   * `sub` was here: the caption under the figure — `ever contacted the bot`, `delivered ×
+   * published price`, `net, annualised`. Eighteen cards across three tabs each spent a line on
+   * one, and the owner's instruction was a title and a value.
+   *
+   * `title` / `subtitle` are NOT that caption and stay: they are the card's hover text, which
+   * costs no space on the page until it is asked for.
+   */
   readonly title: string;
   readonly subtitle: string;
 }
@@ -323,19 +330,30 @@ export interface DashboardTranslations {
     readonly vendorDetail: string;
     readonly customerLists: string;
   };
-  /** One figure card's own words: the heading above it, its title, caption and coverage. */
+  /**
+   * One figure card's own words — its TITLE, and that is now the whole of it.
+   *
+   * Every card here used to carry a `sub` and most carried a `cov`: a caption explaining the
+   * figure's construction (`one lane per ACCOUNT · < 30 songs critical, < 100 low`, `a partition
+   * of vendor CALLS, not of dollars`) and a coverage badge dating it. Read once each, they are
+   * good sentences. Stacked eight deep down a scrolling page, they are what the operator reads
+   * INSTEAD of the figures — which is the complaint that removed them.
+   *
+   * The construction arguments are not lost; they are in the adapters and the chart components
+   * that implement them, which is where the next person to change one will look.
+   */
   readonly figures: {
     readonly heading: string;
     readonly planBook: string;
     readonly interfaceLanguage: string;
     readonly identifiedCustomers: string;
-    readonly activeAccounts: { readonly title: string; readonly sub: string; readonly cov: string };
-    readonly planUtilisation: { readonly title: string; readonly sub: string; readonly cov: string };
-    readonly planLiability: { readonly title: string; readonly sub: string; readonly cov: string };
-    readonly vendorBalances: { readonly title: string; readonly sub: string };
-    readonly pollerFreshness: { readonly title: string; readonly sub: string };
-    readonly songConsumption: { readonly title: string; readonly sub: string };
-    readonly costProvenance: { readonly title: string; readonly sub: string; readonly cov: string };
+    readonly activeAccounts: { readonly title: string };
+    readonly planUtilisation: { readonly title: string };
+    readonly planLiability: { readonly title: string };
+    readonly vendorBalances: { readonly title: string };
+    readonly pollerFreshness: { readonly title: string };
+    readonly songConsumption: { readonly title: string };
+    readonly costProvenance: { readonly title: string };
   };
   /** A failed read, as something an operator can act on. `{subject}` is one of the above. */
   readonly note: {
@@ -356,8 +374,8 @@ export interface DashboardTranslations {
     readonly notPolledTitle: string;
   };
   readonly fx: {
-    readonly unavailable: string;
-    readonly noRate: string;
+    /* `unavailable` and `noRate` were here: the header now prints no rate rather than a
+       sentence about not having one. The STATE they described still exists on `FxState`. */
     readonly rate: string;
   };
   readonly cards: {
@@ -406,14 +424,12 @@ export interface DashboardTranslations {
     readonly cps: {
       readonly title: string;
       readonly sub: string;
-      readonly cov: string;
     };
     readonly costsplit: {
       readonly title: string;
       readonly sub: string;
       /** Before the data lands, the caption names the unit it is waiting on. */
       readonly subPending: string;
-      readonly cov: string;
     };
     readonly funnel: {
       readonly title: string;
@@ -425,7 +441,6 @@ export interface DashboardTranslations {
       readonly sub: string;
       readonly subOne: string;
       readonly subPending: string;
-      readonly cov: string;
     };
     readonly grans: {
       readonly hourly: string;

@@ -265,35 +265,24 @@ export const en: TranslationSchema = {
       identifiedCustomers: "Identified customers",
       activeAccounts: {
         title: "Active accounts",
-        sub: "one line each: day ⊆ week ⊆ month · never summed",
-        cov: "nightly snapshot",
       },
       planUtilisation: {
         title: "How fully plans were used",
-        sub: "ended plans only · a running plan's ratio is not final",
-        cov: "no window",
       },
       planLiability: {
         title: "What the plans still owe",
-        sub: "songs, not money · live and ended plans never added",
-        cov: "no window",
       },
       vendorBalances: {
         title: "Vendor balances",
-        sub: "one lane per ACCOUNT · < {bad} songs critical, < {warn} low",
       },
       pollerFreshness: {
         title: "Poller freshness",
-        sub: "when each account was last ASKED, and when it last ANSWERED",
       },
       songConsumption: {
         title: "What a song consumes",
-        sub: "tokens, billed characters and audio milliseconds · no shared axis",
       },
       costProvenance: {
         title: "How the cost was priced",
-        sub: "a partition of vendor CALLS, not of dollars",
-        cov: "this window",
       },
     },
     note: {
@@ -318,116 +307,96 @@ export const en: TranslationSchema = {
         "No vendor in this deployment reports a balance, so nothing is polled.",
     },
     fx: {
-      unavailable: "FX rate unavailable",
-      noRate: "no FX rate published",
       rate: "1 USD = {rate} soʻm",
     },
     cards: {
       totalUsers: {
         label: "Total users",
-        sub: "ever contacted the bot",
         title: "Total users",
         subtitle: "ever contacted the bot",
       },
       newUsers: {
         label: "New users",
-        sub: "first contact in period",
         title: "New users",
         subtitle: "first contact in period",
       },
       activeUsers: {
         label: "Active users",
-        sub: "rolling window, not calendar",
         title: "Active users",
         subtitle: "rolling window, not calendar",
       },
       churn: {
         label: "Churn",
-        sub: "blocked the bot in period",
         title: "Churn",
         subtitle: "blocked the bot in period",
       },
       barred: {
         label: "Barred by operator",
-        sub: "admin block flag",
         title: "Barred by operator",
         subtitle: "admin block flag",
       },
       totalRevenue: {
         label: "Est. revenue",
-        sub: "delivered × published price",
         title: "Est. revenue",
         subtitle: "delivered × published price",
       },
       topups: {
         label: "Top-ups sold",
-        sub: "amount never recorded",
         title: "Top-ups sold",
         subtitle: "amount never recorded",
       },
       vendorSpend: {
         label: "Vendor spend",
-        sub: "measured vendor calls",
         title: "Vendor spend",
         subtitle: "measured vendor calls",
       },
       costPerSong: {
         label: "Cost per song",
-        sub: "all vendors, per song",
         title: "Cost per song",
         subtitle: "all vendors, per song",
       },
       mrr: {
         label: "MRR",
-        sub: "revenue − cost, trailing window",
         title: "MRR",
         subtitle: "revenue − cost, trailing window",
       },
       arr: {
         label: "ARR",
-        sub: "net, annualised",
         title: "ARR",
         subtitle: "net, annualised",
       },
       vendorBalance: {
         label: "Vendor balance",
-        sub: "last successful poll",
         title: "Vendor balance",
         subtitle: "last successful poll",
       },
       songsRemaining: {
         label: "Songs remaining",
-        sub: "estimate from balances",
         title: "Songs remaining",
         subtitle: "estimate from balances",
       },
       medianSongTime: {
         label: "Median song time",
-        sub: "brief to delivery",
         title: "Median song time",
         subtitle: "brief to delivery",
       },
       songsDelivered: {
         label: "Songs delivered",
-        sub: "delivered kits, one song each",
         title: "Songs delivered",
         subtitle: "delivered kits, one song each",
       },
       musicRenders: {
         label: "Music renders",
-        sub: "vendor calls, includes retries",
         title: "Music renders",
         subtitle: "vendor calls, includes retries",
       },
       musicRenderTime: {
         label: "Music render time",
-        sub: "compose call only",
         title: "Music render time",
         subtitle: "compose call only",
       },
       systemStatus: {
         label: "System status",
-        sub: "components probed",
         title: "System status",
         subtitle: "components probed",
       },
@@ -457,21 +426,18 @@ export const en: TranslationSchema = {
       },
       cps: {
         title: "Cost per song",
-        sub: "billed spend ÷ songs delivered · one rung = one cent",
-        cov: "priced spend only",
+        sub: "one rung = one cent",
       },
       costsplit: {
         title: "Where the cost goes",
         sub: "one tick = {amount}",
         subPending: "one tick = a fixed dollar step",
-        cov: "this window",
       },
       funnel: {
         title: "Where orders drop off",
         sub: "one rung = {count} orders · dashed drops",
         subOne: "one rung = one order · dashed drops",
         subPending: "one rung = a fixed number of orders · dashed drops",
-        cov: "this window",
       },
       grans: {
         hourly: "Hourly",

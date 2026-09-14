@@ -15,6 +15,7 @@
 import type {
   AbsenceReason,
   AudienceListsResponse,
+  BalanceEstimateBasis,
   AudienceResponse,
   ComponentState,
   CostSplitView,
@@ -39,7 +40,6 @@ import type {
   VendorOperation,
   VendorResponse,
   VendorUnitsPerSongView,
-  WindowView,
 } from "@/api/dashboard";
 import type { CardKey } from "@/features/dashboard/cardSpecs";
 import type { ChurnCardProps } from "@/features/dashboard/ChurnCard";
@@ -98,15 +98,18 @@ export type StatDot = readonly [id: string, label: string, state: ComponentState
  * A card that has a number, and a card that does not. The second arm carries only the pill
  * copy, because there is nothing else honest to put in the value slot.
  *
- * `sub`, `unit` and `dots` are OVERRIDES of the `CardSpec` defaults: an adapter sets `sub`
- * when the response knows a truer caption than the mock's generic one, `unit` when the wire
- * quotes a currency the spec did not assume, and `dots` for the one card that draws a strip.
+ * `unit` and `dots` are OVERRIDES of the `CardSpec` defaults: `unit` for a wire currency the
+ * spec did not assume, `dots` for the one card that draws a status strip.
+ *
+ * There was a third, `sub`, for when a response knew a truer caption than the mock's generic
+ * one — `12 of 19 calls priced`, `3 with amounts`, `delivered × 7 000 soʻm`. The cards print
+ * no caption at all now, so there is nothing to override and the adapters below hand back a
+ * title's worth of value and a delta.
  */
 export type CardValue =
   | {
       readonly value: string;
       readonly delta: string;
-      readonly sub?: string;
       readonly unit?: string;
       readonly dots?: readonly StatDot[];
       readonly spark?: readonly number[];
@@ -170,6 +173,67 @@ export function formatUsd(v: number): string {
   const dot = fixed.indexOf(".");
   const whole = groupString(fixed.slice(0, dot));
   return `${v < 0 ? "-" : ""}$${whole}.${fixed.slice(dot + 1)}`;
+}
+
+/**
+ * `0.42¢`, `22.5¢`, `120¢`. The unit-economics figure, in the smallest unit that exists.
+ *
+ * A song's share of a vendor bill is a fraction of one cent — the shipped OpenRouter model
+ * renders one for about four tenths of a cent — and `formatUsd` rounds every one of those to
+ * `$0.00`. Two decimal places is right for a dollar figure and is the whole precision budget
+ * three orders of magnitude below a dollar, so the cost-per-song card spent its entire life
+ * printing a zero. Cents, and the fallback is MORE precision rather than a wider unit.
+ *
+ * **It never switches back to dollars above a dollar**, which is the one temptation here. A
+ * card whose unit depends on the value renders `30¢` this window and `$1.20` the next, and the
+ * reader compares two numbers on different scales without being told the scale moved. `120¢`
+ * is a slightly odd figure to read exactly once; a silently changing unit is a wrong figure
+ * every time it changes.
+ */
+export function formatCents(usd: number): string {
+  const cents = usd * 100;
+  const magnitude = Math.abs(cents);
+  // Below a hundredth of a cent there is no digit worth printing and rounding would give the
+  // `0` this function exists to stop showing. It is not zero, and it says so.
+  // The comparison flips with the sign: a credit of a thousandth of a cent is GREATER than
+  // -0.01¢, and `-<0.01¢` would assert the opposite.
+  if (magnitude > 0 && magnitude < 0.01) return usd < 0 ? ">-0.01\u00a2" : "<0.01\u00a2";
+  // Three significant figures over the range this is for, degrading by adding digits rather
+  // than by widening the unit.
+  const decimals = magnitude < 1 ? 2 : magnitude < 100 ? 1 : 0;
+  // Trailing zeros are trimmed so a round figure reads `5¢` rather than `5.0¢` — the precision
+  // above is a ceiling on digits, not a promise to print them. Guarded on the decimal point
+  // being present, because the same trim over `120` renders it `12`.
+  const raw = magnitude.toFixed(decimals);
+  const fixed = raw.includes(".") ? raw.replace(/\.?0+$/, "") : raw;
+  const dot = fixed.indexOf(".");
+  // `formatCount` rounds to a whole number, so the fraction has to be grouped and rejoined by
+  // hand here — routing a sub-cent figure through it renders every one of them as `0`.
+  const whole = groupString(dot === -1 ? fixed : fixed.slice(0, dot));
+  const fraction = dot === -1 ? "" : `.${fixed.slice(dot + 1)}`;
+  return `${usd < 0 ? "-" : ""}${whole}${fraction}\u00a2`;
+}
+
+/**
+ * `1:30`, `3:00`, `4:07:30` — rendered audio read as a LENGTH, which is what it is.
+ *
+ * `audio_ms` is the only quantity on the vendor cards that is not a count. Tokens and billed
+ * characters are things you can have 90 000 of; 90 000 milliseconds is a minute and a half,
+ * and printing it as `90 000 audio ms` asked the operator to divide by a thousand and then by
+ * sixty before the figure meant anything.
+ *
+ * The hour arm is not decoration: `total` here is a whole window's audio, so a busy month is
+ * hours of it and `247:00` — which is what a minutes-only formatter renders — reads as four
+ * minutes to anyone who does not stop to count the digits. One formatter for both columns, so
+ * the per-song figure and the window total can never disagree about what a unit is.
+ */
+export function formatAudio(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  const seconds = total % 60;
+  const minutes = Math.floor(total / 60) % 60;
+  const hours = Math.floor(total / 3600);
+  if (hours === 0) return `${String(minutes)}:${pad2(seconds)}`;
+  return `${String(hours)}:${pad2(minutes)}:${pad2(seconds)}`;
 }
 
 /**
@@ -367,9 +431,6 @@ export function adaptAudience(r: AudienceResponse, period: Period = "today"): Ca
   out["activeUsers"] = {
     value: formatCount(r.activeAccounts[active.key]),
     delta: "",
-    sub: r.isActivityHistory
-      ? `active in the last ${active.label}`
-      : `last ${active.label} · no history kept`,
   };
 
   // Null churn is "never watched". `{blocked: 0}` would be "nobody left", which is a result.
@@ -379,7 +440,6 @@ export function adaptAudience(r: AudienceResponse, period: Period = "today"): Ca
       : {
           value: formatCount(r.churn.blocked.current),
           delta: formatDelta(r.churn.blocked.change),
-          sub: `${formatCount(r.botBlockedAccounts)} still blocking`,
         };
 
   out["barred"] = { value: formatCount(r.blockedAccounts), delta: "" };
@@ -391,20 +451,33 @@ export function adaptAudience(r: AudienceResponse, period: Period = "today"): Ca
 /* Finance                                                                     */
 /* -------------------------------------------------------------------------- */
 
-/** Days a window spans, for the run-rate captions. Null when it has no lower bound. */
-function windowDays(w: WindowView): number | null {
-  if (w.from === null) return null;
-  const from = Date.parse(w.from);
-  const to = Date.parse(w.to);
-  if (Number.isNaN(from) || Number.isNaN(to)) return null;
-  return Math.max(1, Math.round((to - from) / 86_400_000));
+
+/**
+ * Which direction a basis is wrong in — shared by the balance meter and the vendor card.
+ *
+ * `none` is not "exact": `trailing_spend_usd` is an estimate like the others, but its error has
+ * no known sign, and an inequality asserts one. A sign is printed only where the backend can
+ * argue for it.
+ */
+export type Bound = "none" | "upper" | "lower";
+
+/** The three bases, each with the direction its own backend docstring argues for. */
+export const BASIS_BOUND: Record<BalanceEstimateBasis, Bound> = {
+  trailing_spend_usd: "none",
+  /* Music bills the pool without writing characters, so the divisor is too small. */
+  trailing_tts_characters: "upper",
+  /* The vendor's burn includes credits that bought no delivered song, so it is too large. */
+  quota_period_credit_burn: "lower",
+};
+
+/** The inequality a figure earns. Never printed where the error has no known sign. */
+export const BOUND_SIGN: Record<Bound, string> = { none: "", upper: "\u2264 ", lower: "\u2265 " };
+
+/** The sign a basis earns, as one string — the two maps above read as one lookup. */
+export function boundSign(basis: BalanceEstimateBasis | null): string {
+  return basis === null ? "" : BOUND_SIGN[BASIS_BOUND[basis]];
 }
 
-/** What a balance estimate is worth, said in the caption — a TTS figure is an upper bound. */
-const BASIS_CAPTION = {
-  trailing_spend_usd: "est. from trailing spend",
-  trailing_tts_characters: "upper bound · TTS characters",
-} as const;
 
 /** The four money cards plus the run-rate pair and the two balance cards. */
 export function adaptFinance(r: FinanceResponse): CardValues {
@@ -418,12 +491,10 @@ export function adaptFinance(r: FinanceResponse): CardValues {
     out["totalRevenue"] = tag(derived.unavailableReason, "no price published");
   } else {
     const amount = money(derived.amountMinor, derived.currency);
-    const price = money(derived.unitPriceMinor, derived.currency);
     out["totalRevenue"] = {
       value: amount.value,
       unit: amount.unit,
       delta: "",
-      sub: `${formatCount(derived.deliveredSongs)} × ${price.value} ${price.unit}`,
     };
   }
 
@@ -431,31 +502,20 @@ export function adaptFinance(r: FinanceResponse): CardValues {
   out["topups"] = {
     value: formatCount(topups.priced + topups.unpriced),
     delta: "",
-    sub:
-      topups.unpriced === 0
-        ? `${formatCount(topups.priced)} with amounts`
-        : topups.priced === 0
-          ? "amount never recorded"
-          : `${formatCount(topups.unpriced)} without an amount`,
   };
 
   const spend = r.vendorSpend;
-  /* The fake-provider guard rides on the caption when it fires: every figure here excludes
-     those rows structurally, and the pair exists on the wire to make the exclusion visible —
-     a window dominated by fake runs otherwise reads as real traffic. */
-  const fake =
-    r.fakeCalls.fakeCalls > 0 ? ` · ${formatCount(r.fakeCalls.fakeCalls)} fake, excluded` : "";
+  /* `fakeCalls` used to ride on this card's caption — ` · 4 fake, excluded` — which was the
+     only place the exclusion was visible to a reader. Every figure here excludes those rows
+     structurally whether or not anything says so, but a window dominated by fake runs now
+     reads as real traffic with nothing on the card to say otherwise. The pair is still on the
+     wire. */
   out["vendorSpend"] =
     spend.amountUsd === null
       ? tag(spend.unavailableReason, "not tracked")
       : {
           value: formatUsd(spend.amountUsd),
           delta: "",
-          sub:
-            (spend.costedCalls === spend.calls
-              ? `${formatCount(spend.calls)} vendor calls, all priced`
-              : `${formatCount(spend.costedCalls)} of ${formatCount(spend.calls)} calls priced`) +
-            fake,
         };
 
   const cps = r.costPerSong;
@@ -466,29 +526,23 @@ export function adaptFinance(r: FinanceResponse): CardValues {
       : {
           value: formatUsd(perSong.value),
           delta: "",
-          sub:
-            cps.attributedOrders === cps.deliveredOrders
-              ? `${formatCount(cps.deliveredOrders)} delivered, all attributed`
-              : `${formatCount(cps.attributedOrders)} of ${formatCount(cps.deliveredOrders)} attributed`,
         };
 
   /* The run-rate pair is computed over its OWN fixed trailing window, echoed on the
      response. The caption says which, so the card cannot be read as belonging to the period
      picker above it, and ARR is the server's `net × 365 ÷ days` — not MRR × 12. */
   const net = r.netRunRate;
-  const days = windowDays(net.window);
-  const span = days === null ? "trailing window" : `${String(days)}d`;
   if (net.netMinor === null || net.currency === null) {
     out["mrr"] = tag(net.unavailableReason, "not priced");
   } else {
     const m = money(net.netMinor, net.currency);
-    out["mrr"] = { value: m.value, unit: m.unit, delta: "", sub: `revenue − cost, ${span}` };
+    out["mrr"] = { value: m.value, unit: m.unit, delta: "" };
   }
   if (net.annualisedMinor === null || net.currency === null) {
     out["arr"] = tag(net.unavailableReason, "not priced");
   } else {
     const m = money(net.annualisedMinor, net.currency);
-    out["arr"] = { value: m.value, unit: m.unit, delta: "", sub: `net × 365 ÷ ${span}` };
+    out["arr"] = { value: m.value, unit: m.unit, delta: "" };
   }
 
   /* The response's own upper bound is the only clock this module may read — it is the instant
@@ -670,14 +724,9 @@ function adaptVendorBalance(
   if (ageMs !== null && ageMs > BALANCE_STALE_MS) return { tag: `${ageLabel(ageMs)} stale` };
 
   const remaining = reported.remaining ?? 0;
-  const label = VENDOR_LABEL[reported.vendor].toLowerCase();
-  const source = reported.isFallback ? `${label} fallback` : label;
-  const failed = reported.isLastPollOk ? "" : " · last poll failed";
-  const age = ageMs === null ? "" : ` · ${ageLabel(ageMs)} old`;
-  const sub = `${source}${failed}${age}`;
   return reported.unit === "usd"
-    ? { value: formatUsd(remaining), delta: "", sub }
-    : { value: formatCount(remaining), unit: "chars", delta: "", sub };
+    ? { value: formatUsd(remaining), delta: "" }
+    : { value: formatCount(remaining), unit: "chars", delta: "" };
 }
 
 /**
@@ -692,11 +741,9 @@ function adaptSongsRemaining(balances: readonly VendorBalanceView[]): CardValue 
     if (best === null || b.songsRemaining < (best.songsRemaining ?? 0)) best = b;
   }
   if (best === null || best.songsRemaining === null) return { tag: "needs balances" };
-  const basis = best.estimateBasis === null ? "estimate" : BASIS_CAPTION[best.estimateBasis];
   return {
     value: formatCount(best.songsRemaining),
     delta: "",
-    sub: `${VENDOR_LABEL[best.vendor].toLowerCase()} · ${basis}`,
   };
 }
 
@@ -748,12 +795,9 @@ export function adaptPerformance(r: PerformanceResponse, pulse: PulseView | null
         ? { tag: "never delivered" }
         : { tag: "none this period" };
   } else {
-    const p95 =
-      latency.p95Seconds === null ? "" : `p95 ${formatDurationCoarse(latency.p95Seconds)} · `;
     out["medianSongTime"] = {
       value: formatDuration(latency.p50Seconds),
       delta: "",
-      sub: `${p95}${formatCount(latency.sampleCount)} songs`,
     };
   }
 
@@ -766,20 +810,14 @@ export function adaptPerformance(r: PerformanceResponse, pulse: PulseView | null
   out["musicRenders"] = {
     value: formatCount(music.calls),
     delta: "",
-    sub:
-      music.measuredCalls === music.calls
-        ? "vendor calls, includes retries"
-        : `${formatCount(music.calls - music.measuredCalls)} of ${formatCount(music.calls)} unmeasured`,
   };
 
   if (music.p50Ms === null) {
     out["musicRenderTime"] = { tag: "not measured" };
   } else {
-    const p95 = music.p95Ms === null ? "" : `p95 ${formatDurationCoarse(music.p95Ms / 1000)} · `;
     out["musicRenderTime"] = {
       value: formatDuration(music.p50Ms / 1000),
       delta: "",
-      sub: `${p95}${formatCount(music.sampleCount)} calls`,
     };
   }
 
@@ -796,11 +834,9 @@ function adaptSystemStatus(strip: readonly ComponentStatusView[]): CardValue {
   const parts: string[] = [];
   if (degraded > 0) parts.push(`${formatCount(degraded)} degraded`);
   if (unprobed > 0) parts.push(`${formatCount(unprobed)} not probed`);
-  const sub = parts.length === 0 ? "all components probed" : parts.join(" · ");
   return {
     value: `${formatCount(ok)} / ${formatCount(strip.length)}`,
     delta: "",
-    sub,
     // The index is part of the id and not decoration: `component` is the COARSE vendor, so a
     // deployment polling two adapters of one vendor emits the string twice.
     dots: strip.map(
@@ -1482,12 +1518,10 @@ export type VendorHealthProps = VendorBalanceMetersProps & PollerFreshnessProps;
 /**
  * Tokens, billed characters and audio milliseconds, per vendor.
  *
- * `deliveredOrders` is the vendor route's BARE INT — the denominator every per-song ratio on
- * these rows was already divided by. It is emphatically NOT `PerformanceResponse.
- * deliveredOrders`, which is a `TrendView` of the same name on another route counted over
- * another window; there is no shared accessor for the two anywhere in this codebase and none
- * may be written. Zero is a real state and the chart says so in words: with nothing delivered,
- * every per-song figure is undefined rather than zero.
+ * The rows arrive with their per-song ratios already divided out by the server, against the
+ * vendor route's own delivered count. That integer no longer travels with them: the figure
+ * stopped captioning itself with the denominator, which was the deleted `Per song ÷ N
+ * delivered songs.` sentence wearing capital letters.
  *
  * The rows go through unsorted and unmerged. A null quantity means THIS VENDOR MEASURES NO
  * SUCH UNIT and the row simply does not appear under that family; a `0` means it measured and
@@ -1496,7 +1530,7 @@ export type VendorHealthProps = VendorBalanceMetersProps & PollerFreshnessProps;
  * remaining balance.
  */
 export function adaptVendorUnits(r: VendorResponse): VendorUnitsProps {
-  return { rows: r.unitsPerSongByVendor, deliveredOrders: r.deliveredOrders };
+  return { rows: r.unitsPerSongByVendor };
 }
 
 /**
@@ -1531,24 +1565,32 @@ export type VendorFigureKey = "balance" | "consumed" | "perSong" | "costPerSong"
 export interface VendorFigure {
   readonly key: VendorFigureKey;
   readonly label: string;
-  /** `null` is UNMEASURED — the card draws a hatched pill and prints `note` in place of it. */
+  /** `null` is UNMEASURED and the card prints a dash. There is no longer a reason beside it. */
   readonly value: string | null;
   readonly unit: string;
-  /**
-   * The reason, when `value` is null. Empty where the figure has nothing to add that the
-   * verdict, the unit or the divisor line above the cards has not already said — the card then
-   * prints no line at all, rather than a line that repeats one of them.
-   */
-  readonly note: string;
   /** Only `balance` and `remaining` carry one — the two the owner asked to highlight. */
   readonly state?: ThresholdState;
 }
 
+/*
+ * **`note` is gone from this shape, and it was not carrying what it claimed to.**
+ *
+ * Every absence arm here used to build a sentence — `nothing delivered in this window`, `no
+ * rate is configured for this supplier`, the whole `COST_ABSENCE` table — and `VendorCards`
+ * rendered the note ONLY in its non-null arm. So the reasons attached to a missing value, the
+ * entire purpose of the field, never reached a screen: the card printed a bare dash and the
+ * prose sat in the adapter being tested. The lines that DID render were the ones beside a
+ * present figure, which is exactly the detail the owner asked to lose — `retries included`,
+ * `2 of 2 priced`, `same as the balance`.
+ *
+ * So the field is not relocated into the null arm; it is deleted. A figure is a title and a
+ * value. Where a value is genuinely unmeasured the dash says so, and the threshold word beside
+ * the supplier's name says how much that matters.
+ */
+
 export interface VendorCard {
   readonly vendor: Vendor;
   readonly label: string;
-  /** `tokens` / `characters` / `audio ms` — what THIS supplier bills, named in the caption. */
-  readonly unitName: string;
   /** The one number both lights read. `null` when nothing could measure a runway. */
   readonly songsOfCover: number | null;
   readonly state: ThresholdState;
@@ -1593,24 +1635,6 @@ function nativeBalance(b: VendorBalanceView): string | null {
   return b.unit === "usd" ? formatUsd(b.remaining) : `${formatCount(b.remaining)} chars`;
 }
 
-/**
- * Why a balance row has no runway, in the operator's terms.
- *
- * Four of these are not levels and must never be painted red: an uncapped key is UNKNOWN, and
- * so is one that has never answered. Collapsing them into a severity is how an account that
- * was never low gets topped up, or an empty one gets ignored.
- */
-function balanceReason(b: VendorBalanceView, asOf: number | null): string | null {
-  if (b.isUnbounded === true) return "uncapped key — the vendor publishes no cap";
-  if (b.fetchedAt === null) return "never answered — no successful poll yet";
-  if (b.remaining === null) return "answered without a balance";
-  const fetched = parseInstant(b.fetchedAt);
-  if (asOf !== null && fetched !== null && asOf - fetched > BALANCE_STALE_MS) {
-    return `stale — last answered ${ageLabel(asOf - fetched)} ago`;
-  }
-  if (b.songsRemaining === null) return "no per-song rate over trailing traffic";
-  return null;
-}
 
 /**
  * Five figures per supplier, and the honest absence wherever one of them is not a number.
@@ -1641,7 +1665,6 @@ export function adaptVendorCards(r: VendorResponse): VendorCardsProps {
 
   return {
     cards: ordered.map((vendor) => buildCard(vendor, r, asOf)),
-    deliveredOrders: r.deliveredOrders,
     isVendorBalance: r.capabilities.isVendorBalance,
   };
 }
@@ -1650,13 +1673,12 @@ function buildCard(vendor: Vendor, r: VendorResponse, asOf: number | null): Vend
   const balances = r.vendorBalances.filter((b) => b.vendor === vendor);
   const cost = r.costPerSongByVendor.find((c) => c.vendor === vendor);
   const consumed = consumptionOf(r.unitsPerSongByVendor.find((u) => u.vendor === vendor));
-  const unitName = consumed === null ? "consumption" : consumed.unit;
 
   /* The figures quote the PRIMARY account, so the light must read the primary too or the card
      contradicts itself: a spare key at eight songs would paint a red light beside a funded
      primary's balance and its runway, and there would be no number on the card the colour was
-     about. A worse SPARE is still worth knowing, so `verdictOf` names it in words instead —
-     which is the one place it can be said without attaching it to somebody else's figure. */
+     about. A worse SPARE is no longer called out in the verdict — that was a sentence — and is
+     read off its own row in `accounts`, which carries every account's balance and poll age. */
   const lead = balances.find((b) => !b.isFallback) ?? balances[0];
   const songsOfCover = lead?.songsRemaining ?? null;
   const state = thresholdOf(songsOfCover);
@@ -1664,6 +1686,10 @@ function buildCard(vendor: Vendor, r: VendorResponse, asOf: number | null): Vend
   /* `primary` / `fallback` is only worth a word when there are two accounts to tell apart. On
      the single-account supplier the role is the whole supplier, and printing it made every card
      open with a label that distinguished nothing. */
+  /* One row per billing account, and it is the only place a SECOND key's reading appears — the
+     verdict and every figure quote the primary. `primary` / `fallback` is printed only where
+     there are two to tell apart; on a single-account supplier the role was a label that
+     distinguished nothing. */
   const named = balances.length > 1;
   const accounts = balances.map((b) => {
     const native = nativeBalance(b);
@@ -1681,240 +1707,142 @@ function buildCard(vendor: Vendor, r: VendorResponse, asOf: number | null): Vend
   return {
     vendor,
     label: VENDOR_LABEL[vendor],
-    unitName,
     songsOfCover,
     state,
-    verdict: verdictOf(state, songsOfCover, lead, balances, asOf),
+    verdict: verdictOf(state),
     accounts,
     figures: [
-      balanceFigure(lead, songsOfCover, state, asOf),
+      balanceFigure(lead, state),
       consumedFigure(consumed),
-      perSongFigure(consumed, r.deliveredOrders),
-      costFigure(cost, r.deliveredOrders),
-      remainingFigure(lead, consumed, cost, state),
+      perSongFigure(consumed),
+      costFigure(cost),
+      remainingFigure(songsOfCover, lead, state),
     ],
   };
 }
 
-function songsPhrase(songs: number): string {
-  return `${formatCount(songs)} song${songs === 1 ? "" : "s"} of cover`;
+
+/**
+ * The state word beside the supplier's name. One word, and it is mandatory.
+ *
+ * A threshold carried by colour alone is unreadable to half its readers, so the word stays
+ * whatever else goes. What went is the rest of the sentence: it used to read
+ * `critical · 8 songs of cover · spare key low at 12 songs of cover`, of which the figure is
+ * now the `Remaining songs` card two lines below and the spare-key clause was a second
+ * account's number attached to the first account's colour.
+ *
+ * The spare account is not dropped from the card, only from this line — `accounts` prints one
+ * row per billing account, which is where a second key's own reading belongs.
+ */
+function verdictOf(state: ThresholdState): string {
+  return thresholdLabel(state);
+}
+
+function balanceFigure(lead: VendorBalanceView | undefined, state: ThresholdState): VendorFigure {
+  const base = { key: "balance" as const, label: "Balance", state };
+  const native = lead === undefined ? null : nativeBalance(lead);
+  return { ...base, value: native, unit: "" };
 }
 
 /**
- * The word is mandatory: a threshold carried by colour alone is unreadable to half its readers.
+ * What the window consumed, in the supplier's own unit — and for audio, as a LENGTH.
  *
- * A spare account in a worse state than the primary is appended rather than allowed to set the
- * light — see `buildCard`. It reads as a sentence about a named account, so nobody has to
- * guess which of the two the colour was about.
+ * The label names the unit so the value does not have to carry a suffix, which is what lets
+ * the audio row read `3:00` rather than `3:00 audio ms`.
  */
-function verdictOf(
-  state: ThresholdState,
-  songs: number | null,
-  lead: VendorBalanceView | undefined,
-  balances: readonly VendorBalanceView[],
-  asOf: number | null,
-): string {
-  const spare = balances
-    .filter((b) => b !== lead && b.songsRemaining !== null)
-    .reduce<VendorBalanceView | null>(
-      (worst, b) => (worst === null || (b.songsRemaining ?? 0) < (worst.songsRemaining ?? 0) ? b : worst),
-      null,
-    );
-  const spareNote =
-    spare === null || spare.songsRemaining === null || (songs !== null && spare.songsRemaining >= songs)
-      ? ""
-      : ` · spare key ${thresholdLabel(thresholdOf(spare.songsRemaining))} at ${songsPhrase(spare.songsRemaining)}`;
-
-  if (songs !== null) return `${thresholdLabel(state)} · ${songsPhrase(songs)}${spareNote}`;
-  if (lead === undefined) return "unknown · this account has never been polled";
-  return `unknown · ${balanceReason(lead, asOf) ?? "no runway could be measured"}${spareNote}`;
-}
-
-function balanceFigure(
-  lead: VendorBalanceView | undefined,
-  songs: number | null,
-  state: ThresholdState,
-  asOf: number | null,
-): VendorFigure {
-  const base = { key: "balance" as const, label: "Balance", state };
-  if (lead === undefined) {
-    return {
-      ...base,
-      value: null,
-      unit: "",
-      note: "not polled — no balance row for this account",
-    };
+function consumedFigure(consumed: ReturnType<typeof consumptionOf>): VendorFigure {
+  const base = { key: "consumed" as const };
+  if (consumed === null) return { ...base, label: "Consumed", value: null, unit: "" };
+  if (consumed.unit === "audio ms") {
+    return { ...base, label: "Audio", value: formatAudio(consumed.total), unit: "" };
   }
-  const native = nativeBalance(lead);
-  if (native === null) {
-    return { ...base, value: null, unit: "", note: balanceReason(lead, asOf) ?? "not reported" };
-  }
-  /* No note when the runway IS measured: the verdict beside the supplier's name already prints
-     `ok · 1 049 songs of cover`, and this line used to repeat it and then append
-     `estimateBasis` — a wire column name (`trailing_spend_usd`), which is not a sentence and
-     was never meant for an operator. The note is kept for the ABSENCES, which the verdict
-     states in one word and this can state in the account's own terms. */
   return {
     ...base,
-    value: native,
+    label: UNIT_LABEL[consumed.unit],
+    value: formatCount(consumed.total),
     unit: "",
-    note: songs === null ? (balanceReason(lead, asOf) ?? "runway not measured") : "",
   };
 }
 
-function consumedFigure(
-  consumed: ReturnType<typeof consumptionOf>,
-): VendorFigure {
-  if (consumed === null) {
-    return {
-      key: "consumed",
-      label: "Consumed",
-      value: null,
-      unit: "",
-      note: "no token or character count recorded",
-    };
+/**
+ * The same quantity over one delivered song. `1:30` for audio, a count for the other two.
+ *
+ * The label names the quantity for the same reason `consumedFigure`'s does, and it has to:
+ * `Per song / 1 204` sitting above `Cost per song / 0.42¢` is a number attached to nothing,
+ * two lines below a differently-dimensioned one. One word is not a caption.
+ */
+function perSongFigure(consumed: ReturnType<typeof consumptionOf>): VendorFigure {
+  const base = { key: "perSong" as const };
+  if (consumed === null || consumed.perSong === null) {
+    return { ...base, label: "Per song", value: null, unit: "" };
+  }
+  if (consumed.unit === "audio ms") {
+    return { ...base, label: "Audio per song", value: formatAudio(consumed.perSong), unit: "" };
   }
   return {
-    key: "consumed",
-    label: `${COUNT_LABEL[consumed.unit]} count`,
-    value: formatCount(consumed.total),
-    unit: consumed.unit,
-    note: "retries included",
+    ...base,
+    label: `${UNIT_LABEL[consumed.unit]} per song`,
+    value: formatCount(consumed.perSong),
+    unit: "",
   };
 }
 
-function perSongFigure(
-  consumed: ReturnType<typeof consumptionOf>,
-  delivered: number,
-): VendorFigure {
-  const label = consumed === null ? "Per song" : `${COUNT_LABEL[consumed.unit]}s per song`;
-  if (consumed === null || consumed.perSong === null) {
-    return {
-      key: "perSong",
-      label,
-      value: null,
-      unit: "",
-      note:
-        delivered === 0
-          ? "nothing delivered in this window"
-          : "this supplier measures no such unit",
-    };
-  }
-  /* The denominator is printed ONCE, above the cards — see `VendorCardsProps.deliveredOrders`.
-     Repeating it under each per-song figure was the same clause four times a card. */
-  return { key: "perSong", label, value: formatCount(consumed.perSong), unit: consumed.unit, note: "" };
-}
-
-/** `not_priced` is the shipped state for most legs, and it is not `$0.00`. */
-const COST_ABSENCE: Record<AbsenceReason, string> = {
-  no_fx_rate: "no FX rate published",
-  no_price_published: "no price published",
-  mixed_currencies: "mixed currencies — no honest single figure",
-  not_priced: "no rate is configured for this supplier",
-  no_denominator: "nothing delivered in this window",
-  not_instrumented: "this supplier is not instrumented",
-};
-
-function costFigure(
-  cost: VendorCostPerSongView | undefined,
-  delivered: number,
-): VendorFigure {
+/**
+ * Cost per delivered song, in CENTS — see `formatCents` for why not dollars.
+ *
+ * The coverage pair (`2 of 2 priced`) that used to ride under this figure is gone with every
+ * other note, and nothing replaces it PER VENDOR. That is a real loss and it is named here
+ * rather than buried: an average over the priced subset improves as instrumentation degrades,
+ * and this card no longer shows that happening. The cost-provenance figure below answers a
+ * neighbouring question — how the window's money was priced, over all vendors at once — and
+ * is not the same measurement; `VendorCostPerSongView.attributedOrders` is still on the wire
+ * for whoever wants the per-vendor figure back.
+ */
+function costFigure(cost: VendorCostPerSongView | undefined): VendorFigure {
   const base = { key: "costPerSong" as const, label: "Cost per song" };
   const value = cost?.costPerSong?.value ?? null;
-  if (cost === undefined || value === null) {
-    return {
-      ...base,
-      value: null,
-      unit: "",
-      note:
-        cost?.unavailableReason == null
-          ? delivered === 0
-            ? "nothing delivered in this window"
-            : "no priced call reached a delivered song here"
-          : COST_ABSENCE[cost.unavailableReason],
-    };
-  }
-  return {
-    ...base,
-    value: formatUsd(value),
-    unit: "",
-    /* The coverage gap is printed with the figure, never after it: an average over the
-       attributed subset improves as instrumentation degrades, and a reader who cannot see the
-       denominator cannot see that happening. The PAIR is the whole message, so it is a pair and
-       not a sentence about one. */
-    note: `${formatCount(cost.attributedOrders)} of ${formatCount(delivered)} priced`,
-  };
-}
-
-/* No `songs` parameter: the runway this figure carries the light for is the card's one
-   `songsOfCover`, and the verdict beside the supplier's name is where it is spelled. */
-function remainingFigure(
-  lead: VendorBalanceView | undefined,
-  consumed: ReturnType<typeof consumptionOf>,
-  cost: VendorCostPerSongView | undefined,
-  state: ThresholdState,
-): VendorFigure {
-  const unitName = consumed === null ? "consumption" : consumed.unit;
-  const base = { key: "remaining" as const, label: `Remaining ${unitName}`, state };
-
-  if (lead === undefined || lead.remaining === null) {
-    return { ...base, value: null, unit: "", note: "no balance to convert" };
-  }
-
-  /* MEASURED. ElevenLabs bills characters and its balance IS a character count, so this is
-     the same reading the balance figure printed — said once more in the unit the consumption
-     rows are quoted in, and labelled as the same number rather than implied to be a second. */
-  if (lead.unit === "characters") {
-    return {
-      ...base,
-      value: formatCount(lead.remaining),
-      unit: "characters",
-      /* Four words, and every one of them load-bearing: the unit is already the suffix and the
-         runway is already the verdict, so all this can add is that the figure is the balance
-         over again rather than a second reading of it. */
-      note: "same as the balance",
-    };
-  }
-
-  /* DERIVED, and only where the division is defined — see the function docstring above. */
-  if (consumed === null || consumed.total <= 0) {
-    return { ...base, value: null, unit: "", note: `no ${unitName} consumption measured in this window` };
-  }
-  if (cost?.costUsd == null) {
-    return {
-      ...base,
-      value: null,
-      unit: "",
-      note: "no rate configured — the balance cannot be converted",
-    };
-  }
-  if (cost.costUsd <= 0) {
-    return {
-      ...base,
-      value: null,
-      unit: "",
-      note: "vendor reports these calls free — no price to divide by",
-    };
-  }
-  const usdPerUnit = cost.costUsd / consumed.total;
-  return {
-    ...base,
-    value: formatCount(lead.remaining / usdPerUnit),
-    unit: unitName,
-    note: `derived · ${formatUsd(lead.remaining)} ÷ ${formatUsd(usdPerUnit * 1e6)}/M`,
-  };
+  if (value === null) return { ...base, value: null, unit: "" };
+  return { ...base, value: formatCents(value), unit: "" };
 }
 
 /**
- * The SINGULAR noun each unit is counted in, for the two labels that name it.
+ * How many more songs the balance buys — the same figure for every supplier, in songs.
  *
- * Spelled out rather than derived by trimming an `s`, because `audio ms` has no singular worth
- * printing and a generic de-pluraliser would render it `audio m`.
+ * It used to be the balance restated in the supplier's billing unit: `92 163 characters` for
+ * ElevenLabs, a token count for OpenRouter, each needing its own conversion and none of them
+ * answering the question an operator actually has, which is how long until this stops working.
+ * `songsRemaining` already is that answer — the balance poller divides the account's own
+ * balance by a measured per-song rate — so both suppliers now print it and neither converts
+ * anything here.
+ *
+ * **The bound sign is part of the value, not a caption.** `songsRemaining` is a bound rather
+ * than a point estimate and every other surface says so: the balance meter prints `≥ 8 songs`
+ * and the finance card captions the basis. A bare `8` on this card would be the same number
+ * rendered a third way, and the only one of the three that quietly overstates the cover. The
+ * sign costs one character and keeps the card honest without a sentence under it.
  */
-const COUNT_LABEL: Record<ConsumptionUnit, string> = {
-  tokens: "Token",
-  characters: "Character",
-  "audio ms": "Audio millisecond",
+function remainingFigure(
+  songs: number | null,
+  lead: VendorBalanceView | undefined,
+  state: ThresholdState,
+): VendorFigure {
+  const base = { key: "remaining" as const, label: "Remaining songs", state };
+  if (songs === null) return { ...base, value: null, unit: "" };
+  const sign = boundSign(lead?.estimateBasis ?? null);
+  return { ...base, value: `${sign}${formatCount(songs)}`, unit: "" };
+}
+
+/**
+ * The title a COUNTED unit gets, so the value beneath it needs no suffix.
+ *
+ * `audio ms` is absent, and its absence is the point: audio is not counted, it is measured,
+ * and `consumedFigure` titles it `Audio` and renders `formatAudio` under it. A third entry
+ * here reading `Audio milliseconds` is exactly the label the owner asked to be rid of, and
+ * `Exclude` makes adding one back a compile error rather than a judgement call.
+ */
+const UNIT_LABEL: Record<Exclude<ConsumptionUnit, "audio ms">, string> = {
+  tokens: "Tokens",
+  characters: "Characters",
 };
 
 /* ---- The plan book: one response, two figures, no window ------------------ */

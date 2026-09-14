@@ -105,8 +105,6 @@ export function FinancesSection({
         <FigureGrid>
           <FigureCard
             title={t("dashboard.figures.planUtilisation.title")}
-            sub={t("dashboard.figures.planUtilisation.sub")}
-            cov={t("dashboard.figures.planUtilisation.cov")}
             ratio={PLAN_RATIO}
             isPlaceholder={plans.isPlaceholderData}
           >
@@ -118,8 +116,6 @@ export function FinancesSection({
           </FigureCard>
           <FigureCard
             title={t("dashboard.figures.planLiability.title")}
-            sub={t("dashboard.figures.planLiability.sub")}
-            cov={t("dashboard.figures.planLiability.cov")}
             ratio={PLAN_RATIO}
             isPlaceholder={plans.isPlaceholderData}
           >
