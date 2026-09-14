@@ -603,11 +603,27 @@ async def _send_closing(
     gaps: Sequence[PipelineGap],
     out: _Outbox,
 ) -> tuple[str, ...]:
-    """The last message: what they got, what they did not, and what to do next.
+    """The last message: what they got, and what to do next.
 
-    A run with holes leads with ``delivery.done_degraded`` rather than burying the
-    admission under a celebration — the product did not do what it promised, and the
-    sentence that says so goes first.
+    **It no longer says what they did NOT get, and that reverses a decision this docstring
+    used to argue for.** The old text read: *"A run with holes leads with
+    ``delivery.done_degraded`` rather than burying the admission under a celebration — the
+    product did not do what it promised, and the sentence that says so goes first."* The owner
+    withdrew it on 2026-09-14: *"I should not be getting this kind of messages! It is enough we
+    track them in the admin panel, user should not see the internal problems of our platform."*
+
+    So every delivered run now closes on ``delivery.done``. ``delivery.done_degraded`` and the
+    ``gap.*`` sentences stay in all four locale files — they are a decision away from being
+    wanted again, and deleting the copy would make the reversal a translation job rather than
+    a one-line one.
+
+    **What this costs, stated rather than discovered.** A customer whose name came out
+    approximated is no longer told, so they cannot know the difference between "this is how the
+    model heard it" and "this song is wrong". The support path is also gone from the degraded
+    case: the closing message still prints the order reference, but the *invitation* to send
+    ``/support`` with it did not survive, because it lived only in the degraded lead. The gap
+    itself is unaffected — it is recorded exactly as before (below) — so the loss is the
+    customer's visibility, not ours.
 
     The keyboard is ``post_delivery_keyboard``, which now also carries 🏠 Back to menu — this
     is one of the places a flow ends, and until that row existed the only exits were a next
@@ -624,15 +640,24 @@ async def _send_closing(
     if out.is_sent(key):
         return ()
     name = kit.lyrics.name_display
-    lead = "delivery.done_degraded" if gaps else "delivery.done"
-    if name is None:
-        lead = f"{lead}_noname"
+    # One lead, whatever happened. `gaps` is still taken, still logged below, and still the
+    # thing the admin panel's attempt ledger and name verdicts are built from — it simply no
+    # longer reaches the customer. See the docstring for whose decision that was.
+    lead = "delivery.done" if name is not None else "delivery.done_noname"
     reference = order_reference(kit.order_id)
+    if gaps:
+        _LOG.info(
+            "a run delivered with gaps the customer was not told about",
+            extra={
+                "order_id": str(kit.order_id),
+                "gaps": [gap.stage.value for gap in gaps],
+                "error_codes": [gap.error_code.value for gap in gaps],
+            },
+        )
     lines = [
         translate(lead, language, order_ref=reference)
         if name is None
         else translate(lead, language, name=name, order_ref=reference),
-        *_gap_lines(gaps, language),
     ]
     try:
         await bot.send_message(

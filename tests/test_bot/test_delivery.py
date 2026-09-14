@@ -220,16 +220,29 @@ async def test_a_lyric_sheet_that_fits_one_message_is_not_numbered(
     assert sheet == f"{invite}\n\n{body}\n\n{invite}"
 
 
-async def test_closing_message_apologises_for_every_gap(
+async def test_a_degraded_run_closes_exactly_like_a_clean_one(
     bot: Bot, session: RecordingSession, kit: Kit
 ) -> None:
+    """The customer is not told about the platform's internal holes — owner, 2026-09-14.
+
+    This replaces three tests that asserted the opposite (`..._apologises_for_every_gap`,
+    `..._leads_with_the_apology_not_the_celebration`, `..._the_same_gap_twice_is_disclosed_once`)
+    and it deliberately asserts on the SAME inputs they used, so the reversal is pinned rather
+    than merely untested: a re-introduced disclosure fails here.
+    """
     # Arrange / Act
     await deliver(bot, kit, gaps=(name_gap(), greeting_gap(2)))
 
-    # Assert
-    closing = closing_of(session).text
-    assert translate("gap.name_best_effort", Language.EN) in closing
-    assert translate("gap.greeting_missing", Language.EN) in closing
+    # Assert — byte-identical to the clean-run message, gaps and all.
+    assert closing_of(session).text == translate(
+        "delivery.done",
+        Language.EN,
+        name=kit.lyrics.name_display,
+        order_ref=order_reference(kit.order_id),
+    )
+    assert translate("gap.name_best_effort", Language.EN) not in closing_of(session).text
+    assert translate("gap.greeting_missing", Language.EN) not in closing_of(session).text
+    assert "⚠️" not in closing_of(session).text
 
 
 async def test_a_gap_notice_never_asks_the_customer_to_try_a_delivered_song_again(
@@ -263,32 +276,6 @@ async def test_a_clean_run_closes_on_the_undegraded_message(
         name=kit.lyrics.name_display,
         order_ref=order_reference(kit.order_id),
     )
-
-
-async def test_a_run_with_gaps_leads_with_the_apology_not_the_celebration(
-    bot: Bot, session: RecordingSession, kit: Kit
-) -> None:
-    """The run did not do what it promised, so the message says so before anything else."""
-    # Arrange / Act
-    await deliver(bot, kit, gaps=(name_gap(),))
-
-    # Assert — the degraded lead is the FIRST paragraph, the gap sentence comes after it
-    closing = closing_of(session).text
-    lead, _, rest = closing.partition("\n\n")
-    assert "⚠️" in lead
-    assert translate("gap.name_best_effort", Language.EN) in rest
-
-
-async def test_the_same_gap_twice_is_disclosed_once(
-    bot: Bot, session: RecordingSession, kit: Kit
-) -> None:
-    """Three greetings lost to three different vendor reasons is one hole to the customer."""
-    # Arrange / Act
-    await deliver(bot, kit, gaps=(greeting_gap(1), greeting_gap(2), greeting_gap(3)))
-
-    # Assert
-    closing = closing_of(session).text
-    assert closing.count(translate("gap.greeting_missing", Language.EN)) == 1
 
 
 async def test_the_closing_message_carries_a_way_onward(
@@ -360,10 +347,16 @@ async def test_a_retry_sends_only_what_did_not_land_the_first_time(
     assert session.named("SendMessage")
 
 
-async def test_a_redelivered_closing_message_still_carries_the_disclosure(
+async def test_a_redelivered_closing_message_is_whole(
     bot: Bot, session: RecordingSession, kit: Kit
 ) -> None:
-    """The bug this pins: the second closing message used to drop the gap notice entirely."""
+    """The bug this pins: the second closing message used to come out different from the first.
+
+    It pinned the gap notice until 2026-09-14, when the disclosure was withdrawn. The
+    regression underneath is unchanged and is what this still guards — a retried closing
+    message must be the WHOLE message — so the assertion moved to the copy that survives
+    rather than the test being deleted with the sentence it happened to name.
+    """
     # Arrange
     ledger = DeliveryLedger()
     session.failures["SendMessage"] = TelegramBadRequest(
@@ -379,7 +372,12 @@ async def test_a_redelivered_closing_message_still_carries_the_disclosure(
     )
 
     # Assert
-    assert translate("gap.name_best_effort", Language.EN) in closing_of(session).text
+    assert closing_of(session).text == translate(
+        "delivery.done",
+        Language.EN,
+        name=kit.lyrics.name_display,
+        order_ref=order_reference(kit.order_id),
+    )
 
 
 async def test_a_retry_of_a_delivery_that_fully_landed_sends_nothing(
