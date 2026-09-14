@@ -462,6 +462,26 @@ The cost of the other choice is what makes this a decision rather than a prefere
 
 **Reversibility.** CHEAP IN CODE, EXPENSIVE IN ATTENTION. One line of the `Makefile` and one rebuild swaps which SPA is served. What does not reverse cheaply is the split itself: two consoles sharing an API contract and an output directory is a standing hazard, and this decision narrows it by declaring one of them closed rather than resolving it. Deleting `admin-ui` is the resolution and is a separate change.
 
+### D16 — ElevenLabs "songs of cover" is divided by the vendor's own credit burn, not by our character counts
+
+**Decision.** `measure_per_song_rate` measures ElevenLabs as **`balance_used` for the current quota period ÷ delivered songs in that period that drew on the pool**, under a new basis `quota_period_credit_burn`. The previous divisor — trailing `billed_characters` per delivered song, basis `trailing_tts_characters` — is no longer produced by any poll. The member stays in `BalanceEstimateBasis` because rows written under it are still readable.
+
+**Reasoning.** The old divisor never once produced a number on this deployment, and could not have. `billed_characters` has exactly one writer, `providers/tts/elevenlabs.py` on the `speech_synthesis` leg, and the pipeline's ElevenLabs traffic is `music_compose` and `transcription` — `select distinct operation from vendor_usage` returns `health`, `transcription`, `music_compose`, `chat_completion` and no speech. So `SUM(billed_characters)` was `NULL` on every poll, the divisor was `None`, all three estimate columns stayed null together under `ck_vendor_balances_estimate_carries_its_basis`, and the balance meter read `unmeasured · no per-song rate` permanently while the account held 98 538 credits. A basis that cannot be measured on the traffic the system actually sends is not a conservative estimate; it is an empty tile with a rationale.
+
+The replacement needs no rate card, which is what makes it a measurement rather than a second `usd_per_minute`. `balance_used` is the subscription's own count of credits consumed since the last reset, so it already covers every leg drawing on the pool — the music render that writes only `audio_ms`, transcription, and TTS if it is ever added — and nothing here converts a duration into a credit. The denominator is deliberately narrower than "delivered songs": it counts delivered orders created in the period with at least one non-fake ElevenLabs call attributed to them, because a song ElevenLabs never rendered in a divisor against ElevenLabs' own burn would shrink the rate and inflate the cover.
+
+Both halves take the vendor's window and not the operator's, which is why `vendor_balance_estimate_window_days` does not reach this path: `balance_used` covers the quota period, and pairing it with a denominator over a shorter window would divide a full period's burn by part of a period's songs. The period start is the reported reset walked back 30 days, since the subscription reports when the next reset lands and never when this one opened.
+
+Against the live local row — 24 188 credits burned, 98 538 remaining, two delivered songs — this yields 12 094 credits/song and **8 songs of cover, critical**, where the meter previously showed nothing at all.
+
+**Fallback and switch trigger.** A configured credits-per-minute rate card multiplied by `audio_ms` per delivered song, on a `trailing_audio_credits` basis. It isolates the music leg and is deterministic, at the cost of a constant somebody must look up and keep current and of blindness to transcription's draw on the same pool. **Trigger:** ElevenLabs stops reporting `character_count` on the subscription endpoint, or the burn figure is found to include enough non-song credit (console experiments, failed renders billed anyway) that the lower bound reads as alarmist rather than safe.
+
+**Cost.** None in schema. Migration 0019 stored `estimate_basis` as `VARCHAR(32)` with `create_constraint` off precisely so a later member costs no migration, and the check constraint enumerates no values — it only binds the three estimate columns to move together. The SPA gained a third member in `BALANCE_ESTIMATE_BASIS_VALUES`, a caption, and a bound direction: the meter now prints `≥` on this basis, `≤` on `trailing_tts_characters`, and no inequality on `trailing_spend_usd`, whose error has no known sign.
+
+**Confidence.** HIGH on the defect — the absent `speech_synthesis` traffic is a query against the live table, not an inference. MEDIUM on the divisor's accuracy, and the direction of the doubt is stated in the enum member's own docstring: burn that bought no delivered song inflates the divisor, so the figure under-promises cover. That is the safe direction for a number whose only job is to say when to top up.
+
+**Reversibility.** CHEAP. One branch in `measure_per_song_rate`; the old basis member, its column values and the SPA's handling of them were all left in place.
+
 ---
 
 ## 5. Fastest path to a paying bot

@@ -371,10 +371,22 @@ class BalanceEstimateBasis(StrEnum):
     BOUND. A tile that renders the number without the basis is rendering a guess as a fact,
     which is why ``ck_vendor_balances_estimate_carries_its_basis`` makes the two inseparable
     in the database rather than in a convention.
+
+    ``QUOTA_PERIOD_CREDIT_BURN`` is the one that actually measures ElevenLabs, and it does
+    it from the vendor's own accounting rather than from ours: the credits the subscription
+    says we have burned this quota period, divided by the songs we delivered in it. That
+    numerator covers every leg drawing on the pool — music renders that write only
+    ``audio_ms``, TTS, transcription — which is exactly what ``TRAILING_TTS_CHARACTERS``
+    cannot see, and it needs no rate card to convert a duration into a credit. Its bias runs
+    the OTHER way and is the safe direction: the burn also includes credits spent on
+    anything that was not a delivered song (a failed render, a console experiment), so the
+    divisor is too large and the estimate is a LOWER BOUND — it under-promises cover rather
+    than sending an operator into a render the account cannot pay for.
     """
 
     TRAILING_SPEND_USD = "trailing_spend_usd"
     TRAILING_TTS_CHARACTERS = "trailing_tts_characters"
+    QUOTA_PERIOD_CREDIT_BURN = "quota_period_credit_burn"
 
 
 class BotMembershipEvent(StrEnum):

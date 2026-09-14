@@ -249,6 +249,8 @@ async def measure_per_song_rate(
     is_fallback: bool,
     window_days: int,
     now: datetime,
+    used_units: float | None = None,
+    quota_resets_at: datetime | None = None,
 ) -> PerSongRate | None:
     """What one delivered song has cost at this vendor lately, or ``None``.
 
@@ -259,37 +261,58 @@ async def measure_per_song_rate(
     charts beside it would reconcile with none of them.
 
     ``OPENROUTER`` divides measured USD spend by the delivered orders it is attributed to.
-    ``ELEVENLABS`` divides billed TTS characters the same way — and the basis it returns says
-    ``trailing_tts_characters`` out loud, because the music leg draws on the SAME ElevenLabs
-    credit pool while recording ``audio_ms`` rather than ``billed_characters``. That divisor
-    therefore undercounts, and the songs-remaining figure built on it is an UPPER BOUND: it
-    promises more songs than the account can pay for, which is the one direction of error
-    this metric must never make silently. The enum member is how the schema carries the
-    warning; a tile that renders the number without it is rendering a guess as a fact.
+
+    ``ELEVENLABS`` takes a different route entirely — see :func:`_credit_burn_rate` — and
+    ``used_units`` and ``quota_resets_at`` are that route's two inputs, read off the probe's
+    own reading by the caller. They are keyword-optional because no other vendor has them and
+    a probe that answered without them is a real state, not a programming error.
+
+    **Why ElevenLabs is no longer divided by ``billed_characters``.** That is what this
+    function used to do, on the ``trailing_tts_characters`` basis, and on this deployment it
+    never once produced a number: ``billed_characters`` is written by the TTS leg alone
+    (``providers/tts/elevenlabs.py``) and the pipeline's ElevenLabs traffic is
+    ``music_compose`` and ``transcription``, neither of which records a character. So the
+    divisor was ``NULL`` on every poll, all three estimate columns stayed null together, and
+    the meter read "unmeasured · no per-song rate" permanently. A basis that cannot be
+    measured on the traffic the system actually sends is not a conservative estimate; it is
+    an empty tile with a rationale. The member stays in
+    :class:`~bayram.contracts.BalanceEstimateBasis` because rows written under it may still
+    exist and must still be readable.
 
     Every vendor other than those two returns ``None``: there is no measured quantity to
     divide, and inventing one would be worse than an empty tile.
     """
+    if vendor is Vendor.ELEVENLABS:
+        return await _credit_burn_rate(
+            session, used_units=used_units, quota_resets_at=quota_resets_at, now=now
+        )
+    if vendor is not Vendor.OPENROUTER:
+        return None
+
     cohort = sa.select(OrderRow.id).where(
         OrderRow.state == OrderState.DELIVERED,
         OrderRow.created_at >= now - timedelta(days=window_days),
     )
-    if vendor is Vendor.OPENROUTER:
-        quantity: InstrumentedAttribute[Any] = VendorUsageRow.cost_usd
-        basis = BalanceEstimateBasis.TRAILING_SPEND_USD
-        scope: tuple[sa.ColumnElement[bool], ...] = (VendorUsageRow.is_fallback.is_(is_fallback),)
-    elif vendor is Vendor.ELEVENLABS:
-        quantity = VendorUsageRow.billed_characters
-        basis = BalanceEstimateBasis.TRAILING_TTS_CHARACTERS
-        scope = ()
-    else:
-        return None
+    quantity: InstrumentedAttribute[Any] = VendorUsageRow.cost_usd
+    basis = BalanceEstimateBasis.TRAILING_SPEND_USD
+    scope: tuple[sa.ColumnElement[bool], ...] = (VendorUsageRow.is_fallback.is_(is_fallback),)
 
     row = (
         await session.execute(
             sa.select(
                 sa.func.sum(quantity),
-                sa.func.count(sa.distinct(VendorUsageRow.order_id)),
+                # **Counted over the PRICED rows alone, matching the numerator exactly.**
+                # ``SUM`` skips a ``NULL`` cost; a plain ``COUNT(DISTINCT order_id)`` does not
+                # skip the order it belonged to. An order whose every OpenRouter call ran on a
+                # ``:free`` model — normal here, since the shipped rate card leaves every
+                # ``cost_usd`` ``NULL`` — then contributed nothing to the total and a whole
+                # song to the divisor, halving the rate and DOUBLING the songs-remaining
+                # figure built on it. That is the one direction this estimate must never fail
+                # in, and it failed in it silently: the tile reported more cover than the
+                # balance can buy, on an account an operator tops up by reading that tile.
+                sa.func.count(sa.distinct(VendorUsageRow.order_id)).filter(
+                    quantity.is_not(None)
+                ),
             ).where(
                 VendorUsageRow.vendor == vendor,
                 # A fake run measures nothing real, and a demo must not move a divisor that
@@ -308,3 +331,84 @@ async def measure_per_song_rate(
         return None
     rate = float(total) / float(orders)
     return (rate, basis) if rate > 0.0 else None
+
+
+#: How long one ElevenLabs quota period runs. The subscription reports when the next reset
+#: lands and never when this period opened, so the start is the reset walked back by one
+#: period. 30 days and not a calendar month because the reset is an instant on a rolling
+#: monthly clock, not the 1st of anything, and a calendar month would move the boundary by up
+#: to three days against a reset that does not move at all.
+_QUOTA_PERIOD: Final[timedelta] = timedelta(days=30)
+
+
+async def _credit_burn_rate(
+    session: AsyncSession,
+    *,
+    used_units: float | None,
+    quota_resets_at: datetime | None,
+    now: datetime,
+) -> PerSongRate | None:
+    """ElevenLabs credits burned this quota period ÷ songs delivered in it, or ``None``.
+
+    **The numerator is the vendor's number, not ours.** ``balance_used`` is what the
+    subscription itself says it has consumed since the last reset, so it counts every leg
+    drawing on the credit pool — the music render that writes only ``audio_ms``, the
+    transcription that writes nothing priced, a TTS call if one is ever added — without this
+    module needing a rate card to convert a duration into a credit. That is the whole reason
+    this basis exists: no arithmetic here turns one unit into another, so there is no
+    constant to keep current and nothing to be silently wrong about.
+
+    **The denominator is the songs that actually drew on that pool**, not every delivered
+    song: delivered orders created in the period that have at least one non-fake ElevenLabs
+    call attributed to them. Counting delivered orders outright would put songs ElevenLabs
+    never rendered into a divisor against ElevenLabs' own burn, which understates the rate
+    and overstates the cover — the direction this metric must never fail in. ``is_fake``
+    rows are excluded for the reason they are excluded everywhere: a demo run burns no
+    credits and must not move a figure that decides whether an operator tops up.
+
+    **The two halves are windowed to the same period on purpose**, and that is why
+    ``window_days`` does not reach this function. ``balance_used`` covers the quota period
+    and nothing else; pairing it with a denominator over a shorter operator-chosen window
+    would divide a full period's burn by part of a period's songs. The vendor owns this
+    window, so the vendor's boundary is the one both halves take.
+
+    **The estimate it yields is a LOWER bound**, stated here and carried to the meter by
+    :attr:`~bayram.contracts.BalanceEstimateBasis.QUOTA_PERIOD_CREDIT_BURN`: burn that bought
+    no delivered song — a render that failed after billing, a manual experiment in the
+    vendor's console — inflates the divisor and shrinks the cover. Erring toward "fewer songs
+    than you have" is the safe direction for a number whose only job is to say when to top up.
+
+    ``None`` whenever the division is not defined, which is four separate real states and not
+    one error: the account reported no usage figure, it reported no reset instant to walk
+    back from, the period start is not yet behind us, or nothing ElevenLabs rendered was
+    delivered inside it. Each leaves all three estimate columns null together and the meter
+    reading "unmeasured", which is what those states honestly are.
+
+    INDEX: ``ix_orders_state_created_at`` for the cohort, then a nested loop into
+    ``ix_vendor_usage_order_id``.
+    """
+    if used_units is None or used_units <= 0.0 or quota_resets_at is None:
+        return None
+    period_start = quota_resets_at - _QUOTA_PERIOD
+    # A reset more than a period away puts the start in the future, which no cohort can be
+    # taken over. It means the vendor moved the plan or the clock is wrong; either way the
+    # honest answer is that nothing was measured.
+    if period_start >= now:
+        return None
+
+    songs = (
+        await session.execute(
+            sa.select(sa.func.count(sa.distinct(OrderRow.id)))
+            .join(VendorUsageRow, VendorUsageRow.order_id == OrderRow.id)
+            .where(
+                OrderRow.state == OrderState.DELIVERED,
+                OrderRow.created_at >= period_start,
+                VendorUsageRow.vendor == Vendor.ELEVENLABS,
+                VendorUsageRow.is_fake.is_(False),
+            )
+        )
+    ).scalar_one()
+    if not songs:
+        return None
+    rate = float(used_units) / float(songs)
+    return (rate, BalanceEstimateBasis.QUOTA_PERIOD_CREDIT_BURN) if rate > 0.0 else None

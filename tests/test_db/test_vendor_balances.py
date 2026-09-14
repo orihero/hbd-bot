@@ -513,23 +513,214 @@ async def test_a_fake_run_never_moves_the_divisor_an_operator_tops_up_on(
     assert measured[0] == pytest.approx(1.0)
 
 
-async def test_the_elevenlabs_divisor_counts_characters_and_names_that_in_its_basis(
+async def test_an_unpriced_order_leaves_the_openrouter_divisor_alone(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
-    # Arrange — a TTS leg that billed characters, and a MUSIC leg on the same order that
-    # drew on the same credit pool while recording ``audio_ms`` instead. The second is
-    # invisible to this divisor, which is precisely why the basis says "tts" out loud.
+    # Arrange — two delivered orders, one priced and one entirely on a free model. With the
+    # shipped rate card every ``cost_usd`` is ``NULL``, so this is the normal shape here, not
+    # an edge case.
     async with sessions.begin() as session:
-        order = await _seed_delivered_order(session, created_at=_T0 - timedelta(days=1))
+        priced = await _seed_delivered_order(session, created_at=_T0 - timedelta(days=2))
+        free = await _seed_delivered_order(session, created_at=_T0 - timedelta(days=3), who=95_002)
+        session.add(
+            _usage_row(order_id=priced.id, cost_usd=2.0, cost_source=CostSource.VENDOR_REPORTED)
+        )
+        session.add(_usage_row(order_id=free.id, cost_usd=None))
+
+    # Act
+    async with sessions() as session:
+        measured = await measure_per_song_rate(
+            session, vendor=Vendor.OPENROUTER, is_fallback=False, window_days=_WINDOW_DAYS, now=_T0
+        )
+
+    # Assert — $2.00 over the ONE song it was measured on. Counting the free order in the
+    # divisor gives $1.00/song, which reports twice the cover the balance can buy: ``SUM``
+    # skips an unpriced row and a plain ``COUNT(DISTINCT order_id)`` does not skip the order
+    # it belonged to.
+    assert measured is not None
+    assert measured[0] == pytest.approx(2.0)
+
+
+async def test_the_elevenlabs_divisor_is_the_vendors_own_burn_over_the_songs_that_drew_on_it(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    # Arrange — two delivered songs in the quota period, each rendered by the MUSIC leg,
+    # which records ``audio_ms`` and never a character. This is the whole traffic shape the
+    # old ``billed_characters`` divisor could not see, and the reason it measured nothing on
+    # this deployment for as long as it shipped.
+    async with sessions.begin() as session:
+        first = await _seed_delivered_order(session, created_at=_T0 - timedelta(days=2))
+        second = await _seed_delivered_order(
+            session, created_at=_T0 - timedelta(days=3), who=95_002
+        )
+        for order in (first, second):
+            session.add(
+                _usage_row(
+                    vendor=Vendor.ELEVENLABS,
+                    operation=VendorOperation.MUSIC_COMPOSE,
+                    provider="elevenlabs_music",
+                    order_id=order.id,
+                    audio_ms=90_000,
+                )
+            )
+
+    # Act — the numerator is the subscription's own figure, handed in off the probe reading.
+    async with sessions() as session:
+        measured = await measure_per_song_rate(
+            session,
+            vendor=Vendor.ELEVENLABS,
+            is_fallback=False,
+            window_days=_WINDOW_DAYS,
+            now=_T0,
+            used_units=24_000.0,
+            quota_resets_at=_T0 + timedelta(days=8),
+        )
+
+    # Assert — 24 000 credits burned across the two songs that drew on the pool. No rate card
+    # converted anything: the vendor counted the credits and we counted the songs.
+    assert measured is not None
+    divisor, basis = measured
+    assert divisor == pytest.approx(12_000.0)
+    assert basis is BalanceEstimateBasis.QUOTA_PERIOD_CREDIT_BURN
+
+
+async def test_the_elevenlabs_divisor_ignores_songs_that_never_touched_elevenlabs(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    # Arrange — two delivered songs in the period, but only one of them was rendered by
+    # ElevenLabs. The other burned none of this pool's credits.
+    async with sessions.begin() as session:
+        rendered = await _seed_delivered_order(session, created_at=_T0 - timedelta(days=2))
+        await _seed_delivered_order(session, created_at=_T0 - timedelta(days=3), who=95_002)
         session.add(
             _usage_row(
                 vendor=Vendor.ELEVENLABS,
-                operation=VendorOperation.SPEECH_SYNTHESIS,
-                provider="elevenlabs_tts",
-                order_id=order.id,
-                billed_characters=1_200,
+                operation=VendorOperation.MUSIC_COMPOSE,
+                provider="elevenlabs_music",
+                order_id=rendered.id,
+                audio_ms=90_000,
             )
         )
+
+    # Act
+    async with sessions() as session:
+        measured = await measure_per_song_rate(
+            session,
+            vendor=Vendor.ELEVENLABS,
+            is_fallback=False,
+            window_days=_WINDOW_DAYS,
+            now=_T0,
+            used_units=12_000.0,
+            quota_resets_at=_T0 + timedelta(days=8),
+        )
+
+    # Assert — divided by ONE, not two. Counting the song ElevenLabs never rendered would
+    # halve the divisor and double the promised cover, which is the direction this figure is
+    # never allowed to be wrong in.
+    assert measured is not None
+    assert measured[0] == pytest.approx(12_000.0)
+
+
+async def test_a_fake_elevenlabs_render_does_not_move_the_divisor(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    # Arrange — one real render and one demo run. A demo burns no credits.
+    async with sessions.begin() as session:
+        real = await _seed_delivered_order(session, created_at=_T0 - timedelta(days=2))
+        fake = await _seed_delivered_order(session, created_at=_T0 - timedelta(days=3), who=95_002)
+        session.add(
+            _usage_row(
+                vendor=Vendor.ELEVENLABS,
+                operation=VendorOperation.MUSIC_COMPOSE,
+                provider="elevenlabs_music",
+                order_id=real.id,
+                audio_ms=90_000,
+            )
+        )
+        session.add(
+            _usage_row(
+                vendor=Vendor.ELEVENLABS,
+                operation=VendorOperation.MUSIC_COMPOSE,
+                provider="elevenlabs_music",
+                order_id=fake.id,
+                audio_ms=90_000,
+                is_fake=True,
+            )
+        )
+
+    # Act
+    async with sessions() as session:
+        measured = await measure_per_song_rate(
+            session,
+            vendor=Vendor.ELEVENLABS,
+            is_fallback=False,
+            window_days=_WINDOW_DAYS,
+            now=_T0,
+            used_units=12_000.0,
+            quota_resets_at=_T0 + timedelta(days=8),
+        )
+
+    # Assert — one song in the denominator, not two.
+    assert measured is not None
+    assert measured[0] == pytest.approx(12_000.0)
+
+
+async def test_the_elevenlabs_divisor_counts_only_the_current_quota_period(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    # Arrange — one song inside the period that ends in eight days, one from well before it
+    # opened. ``balance_used`` resets with the period and cannot pay for the older song.
+    async with sessions.begin() as session:
+        inside = await _seed_delivered_order(session, created_at=_T0 - timedelta(days=2))
+        before = await _seed_delivered_order(
+            session, created_at=_T0 - timedelta(days=40), who=95_002
+        )
+        for order in (inside, before):
+            session.add(
+                _usage_row(
+                    vendor=Vendor.ELEVENLABS,
+                    operation=VendorOperation.MUSIC_COMPOSE,
+                    provider="elevenlabs_music",
+                    order_id=order.id,
+                    audio_ms=90_000,
+                )
+            )
+
+    # Act — the period opened 30 days before the reset, which is 22 days before ``_T0``.
+    async with sessions() as session:
+        measured = await measure_per_song_rate(
+            session,
+            vendor=Vendor.ELEVENLABS,
+            is_fallback=False,
+            window_days=_WINDOW_DAYS,
+            now=_T0,
+            used_units=12_000.0,
+            quota_resets_at=_T0 + timedelta(days=8),
+        )
+
+    # Assert — the song from before the reset is not in the denominator.
+    assert measured is not None
+    assert measured[0] == pytest.approx(12_000.0)
+
+
+@pytest.mark.parametrize(
+    ("used_units", "quota_resets_at", "why"),
+    [
+        (None, _T0 + timedelta(days=8), "the account reported no usage figure"),
+        (0.0, _T0 + timedelta(days=8), "the account has burned nothing yet"),
+        (12_000.0, None, "the account reported no reset instant to walk back from"),
+        (12_000.0, _T0 + timedelta(days=40), "the period start is not yet behind us"),
+    ],
+)
+async def test_the_elevenlabs_divisor_is_none_when_the_division_is_not_defined(
+    sessions: async_sessionmaker[AsyncSession],
+    used_units: float | None,
+    quota_resets_at: datetime | None,
+    why: str,
+) -> None:
+    # Arrange — a song that DID draw on the pool, so only the probe's own inputs are at issue.
+    async with sessions.begin() as session:
+        order = await _seed_delivered_order(session, created_at=_T0 - timedelta(days=2))
         session.add(
             _usage_row(
                 vendor=Vendor.ELEVENLABS,
@@ -540,20 +731,40 @@ async def test_the_elevenlabs_divisor_counts_characters_and_names_that_in_its_ba
             )
         )
 
-    # Act
+    # Act / Assert — every one of these is a real state, and all three estimate columns stay
+    # null together rather than the meter inventing a number: %s.
     async with sessions() as session:
-        measured = await measure_per_song_rate(
-            session, vendor=Vendor.ELEVENLABS, is_fallback=False, window_days=_WINDOW_DAYS, now=_T0
-        )
+        assert (
+            await measure_per_song_rate(
+                session,
+                vendor=Vendor.ELEVENLABS,
+                is_fallback=False,
+                window_days=_WINDOW_DAYS,
+                now=_T0,
+                used_units=used_units,
+                quota_resets_at=quota_resets_at,
+            )
+            is None
+        ), why
 
-    # Assert — the divisor UNDERCOUNTS, so the songs-remaining figure built on it is an UPPER
-    # BOUND: it promises more songs than the account can pay for, which is the one direction
-    # of error this metric must never make silently. The enum member is how the schema
-    # carries that warning to a reader.
-    assert measured is not None
-    divisor, basis = measured
-    assert divisor == pytest.approx(1_200.0)
-    assert basis is BalanceEstimateBasis.TRAILING_TTS_CHARACTERS
+
+async def test_the_elevenlabs_divisor_is_none_when_the_period_delivered_nothing(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    # Credits burned with no delivered song to divide by is division by nothing, not a rate.
+    async with sessions() as session:
+        assert (
+            await measure_per_song_rate(
+                session,
+                vendor=Vendor.ELEVENLABS,
+                is_fallback=False,
+                window_days=_WINDOW_DAYS,
+                now=_T0,
+                used_units=12_000.0,
+                quota_resets_at=_T0 + timedelta(days=8),
+            )
+            is None
+        )
 
 
 async def test_a_vendor_with_no_measured_quantity_gets_no_divisor_at_all(

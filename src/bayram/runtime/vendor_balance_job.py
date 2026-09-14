@@ -297,7 +297,16 @@ async def _divisor(
     A failure to measure the divisor must not lose the BALANCE, which is the number the tile
     is actually for. So it is caught here and the probe is written with all three estimate
     columns null — the same state the shipped rate card produces anyway.
+
+    ``used_units`` and ``quota_resets_at`` come off THIS probe's reading rather than off the
+    row it is about to replace, and that is the only ordering under which the credit-burn
+    basis is a measurement: the stored row still holds the previous poll's numbers, so
+    dividing by a denominator taken now would pair a burn figure with songs delivered after
+    it was read. A failed probe carries no reading and passes neither, which lands on
+    :func:`~bayram.db.vendor_balances.measure_per_song_rate`'s "nothing was measured" path —
+    correctly, since a poll that did not answer measured nothing.
     """
+    reading = probe.reading
     try:
         async with container.require_session_factory()() as session:
             return await measure_per_song_rate(
@@ -306,6 +315,8 @@ async def _divisor(
                 is_fallback=probe.is_fallback,
                 window_days=container.settings.vendor_balance_estimate_window_days,
                 now=now,
+                used_units=None if reading is None else reading.balance_used,
+                quota_resets_at=None if reading is None else reading.quota_resets_at,
             )
     except Exception as exc:
         _LOG.warning(
