@@ -35,7 +35,11 @@ set -uo pipefail
 #   2026-09-11  build: sha256 ef4cb2668d9ee9d9c98007d2f5cee0477084dd5d119c35d123c3280c58d0f73d
 #   2026-09-11b build: sha256 b29d7924149087752b4bfa3434e500ee71bdb118b6dfead649ac7cfe0d62da21
 #     (b is the artwork cover: brand/Logo-Bot.png whole, replacing the drawn text block)
-WHEEL=${WHEEL:-/opt/hbd/release/bayram_bot-0.1.0-20260911b-py3-none-any.whl}
+#   2026-09-14  build: sha256 b5682d1f63455470a2f71489820c675264ea106844e81a20b45bcd1d26c15bcf
+#     (the dashboard copy diet and the measured ElevenLabs runway. It CONTAINS 20260911b's
+#      artwork cover, so it supersedes rather than competes with it — the two differ by the
+#      SPA bundle and three Python modules, and 20260911b must not be the one that lands.)
+WHEEL=${WHEEL:-/opt/hbd/release/bayram_bot-0.1.0-20260914-py3-none-any.whl}
 OLD_ROOT=/opt/hbd
 NEW_ROOT=/opt/bayram
 OLD_ETC=/etc/hbd
