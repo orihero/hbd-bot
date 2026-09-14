@@ -27,7 +27,15 @@
 # note that revision 0025 only ADDS an index, so the old code tolerates the new schema.
 set -uo pipefail
 
-WHEEL=${WHEEL:-/opt/hbd/release/bayram_bot-0.1.0-py3-none-any.whl}
+# The build tag (PEP 427: it must start with a digit) is not decoration. An untagged
+# `bayram_bot-0.1.0-py3-none-any.whl` from 2026-09-10 14:03 is ALSO staged in
+# /opt/hbd/release, it predates the billing rail, and it has the basename this default used to
+# carry — so the two were one `scp` away from being indistinguishable. Override with
+# `WHEEL=<path>` when staging a newer one, and check the hash rather than the name.
+#   2026-09-11  build: sha256 ef4cb2668d9ee9d9c98007d2f5cee0477084dd5d119c35d123c3280c58d0f73d
+#   2026-09-11b build: sha256 b29d7924149087752b4bfa3434e500ee71bdb118b6dfead649ac7cfe0d62da21
+#     (b is the artwork cover: brand/Logo-Bot.png whole, replacing the drawn text block)
+WHEEL=${WHEEL:-/opt/hbd/release/bayram_bot-0.1.0-20260911b-py3-none-any.whl}
 OLD_ROOT=/opt/hbd
 NEW_ROOT=/opt/bayram
 OLD_ETC=/etc/hbd
@@ -47,6 +55,7 @@ n=zipfile.ZipFile('$WHEEL').namelist()
 assert any(x.startswith('bayram/') for x in n), 'wheel does not contain the bayram package'
 assert any('admin/routers/billing.py' in x for x in n), 'wheel has no billing router'
 assert sum(1 for x in n if '/admin/static/' in x) > 0, 'wheel carries no SPA bundle'
+assert any('audio/assets/cover.png' in x for x in n), 'wheel predates the artwork cover'
 " || die "wheel contents are wrong"
 test -f "$OLD_ROOT/migrations/versions/"*0025*.py || die "migration 0025 is not on this host"
 for u in "${UNITS[@]}"; do
@@ -96,6 +105,13 @@ python3 -m venv "$NEW_ROOT/venv" || die "venv creation failed"
   || die "the installed package does not import"
 
 echo "=== 5/9  migrations into $NEW_ROOT ==="
+# `rm -rf` first, and it is not defensive noise: `cp -a src dst` copies INTO dst when dst
+# already exists, so a SECOND run of this script would silently produce
+# $NEW_ROOT/migrations/migrations and leave a stale revision tree beside the real one. This
+# script has now been run twice on this host, so re-runnability is a property it has to have
+# rather than one it may have. Everything else here is already idempotent: step 3 overwrites
+# its outputs and step 4 removes the venv before rebuilding it.
+rm -rf "$NEW_ROOT/migrations"
 cp -a "$OLD_ROOT/migrations" "$NEW_ROOT/migrations"
 rm -rf "$NEW_ROOT/migrations/__pycache__" "$NEW_ROOT/migrations/versions/__pycache__"
 set -a; . "$NEW_ETC/bayram.env"; set +a
@@ -104,16 +120,32 @@ set -a; . "$NEW_ETC/bayram.env"; set +a
 "$NEW_ROOT/venv/bin/python" -m alembic -c "$NEW_ROOT/migrations/alembic.ini" current
 
 echo "=== 6/9  write the four bayram units ==="
+# Parity with the four `hbd-*` units as they run TODAY (10-rename-cutover.md §3.2), which is
+# the whole bar: a rename may not quietly relax a sandbox. Two things this block deliberately
+# does NOT carry, because they are not shared:
+#
+#   * `ReadWritePaths` — the bot and the worker have it, the admin API and the gateway have
+#     NONE and must keep none. The panel's read-only object store is not a `:ro` mount, it is
+#     `ProtectSystem=strict` plus an empty `ReadWritePaths` (01-architecture.md, Decision 1).
+#     Handing the panel write access to the media archive it only streams, and the
+#     money-handling gateway write access to both, is the single worst line in this script's
+#     first draft. `ReadWritePaths` is a LIST directive, so the two units that need it append
+#     their own after this block.
+#   * `Restart` — three units are `on-failure`; the gateway is `always` and stays `always`.
+#     Passed as $1 rather than overridden afterwards: systemd's last-wins rule for scalar
+#     directives would work, but a unit file that sets `Restart` twice is a file the next
+#     person has to reason about instead of read.
 common() { cat <<UNIT
 [Service]
 Type=simple
 User=$SVC_USER
 Group=$SVC_USER
 WorkingDirectory=/var/lib/hbd
-Restart=on-failure
+Restart=${1:-on-failure}
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectSystem=strict
 ProtectHome=true
 ProtectKernelTunables=true
@@ -122,18 +154,20 @@ ProtectControlGroups=true
 RestrictSUIDSGID=true
 RestrictRealtime=true
 LockPersonality=true
-ReadWritePaths=/var/lib/hbd /var/log/hbd
+StandardOutput=journal
 UNIT
 }
 { echo "[Unit]"; echo "Description=Bayram bot (Telegram, long polling)"
   echo "After=network-online.target postgresql.service redis-server.service"; echo "Wants=network-online.target"
-  common; echo "EnvironmentFile=$NEW_ETC/bayram.env"
+  common; echo "ReadWritePaths=/var/lib/hbd /var/log/hbd"
+  echo "EnvironmentFile=$NEW_ETC/bayram.env"
   echo "ExecStart=$NEW_ROOT/venv/bin/python -m bayram.main"; echo "TimeoutStopSec=20"
   echo; echo "[Install]"; echo "WantedBy=multi-user.target"; } > /etc/systemd/system/bayram-bot.service
 
 { echo "[Unit]"; echo "Description=Bayram ARQ worker (song generation pipeline)"
   echo "After=network-online.target postgresql.service redis-server.service"; echo "Wants=network-online.target"
-  common; echo "EnvironmentFile=$NEW_ETC/bayram.env"
+  common; echo "ReadWritePaths=/var/lib/hbd /var/log/hbd"
+  echo "EnvironmentFile=$NEW_ETC/bayram.env"
   echo "ExecStart=$NEW_ROOT/venv/bin/python -m arq bayram.worker.WorkerSettings"; echo "TimeoutStopSec=60"
   echo; echo "[Install]"; echo "WantedBy=multi-user.target"; } > /etc/systemd/system/bayram-worker.service
 
@@ -145,11 +179,23 @@ UNIT
 
 # The gateway reads its secret through a POINTER, not EnvironmentFile, so the cashbox key never
 # enters the process environment and never appears in `systemctl show`.
+#
+# Four directives below exist ONLY on this unit, because this is the only process holding the
+# cashbox key, and all four are parity with `hbd-payme` as it runs today (§3.2):
+#   * `Restart=always` — not `on-failure`. A gateway that stays down after a clean exit is a
+#     gateway answering Payme with connection refused, which they retry and then escalate.
+#   * `TimeoutStopSec=90` — systemd's own default, written out explicitly. The current unit
+#     gets 90 s by not setting it; saying it here keeps the behaviour identical while making
+#     it a decision somebody can see, instead of the 20 s this script used to impose.
+#   * `MemoryDenyWriteExecute`, `RestrictNamespaces`, `RestrictAddressFamilies`.
+# NO `ReadWritePaths`: the gateway writes nothing to disk and must keep no write access.
 { echo "[Unit]"; echo "Description=Bayram — Payme Merchant API endpoint"
   echo "After=network-online.target postgresql.service redis-server.service"; echo "Wants=network-online.target"
-  common; echo "Environment=BAYRAM_PAYME_ENV_FILE=$NEW_ETC/payme.env"
+  common always; echo "Environment=BAYRAM_PAYME_ENV_FILE=$NEW_ETC/payme.env"
   echo "ExecStart=$NEW_ROOT/venv/bin/python -m uvicorn bayram.payme.app:app --host 127.0.0.1 --port 8091"
-  echo "TimeoutStopSec=20"; echo "InaccessiblePaths=$NEW_ETC/bayram.env $NEW_ETC/bayram-admin.env"
+  echo "TimeoutStopSec=90"; echo "InaccessiblePaths=$NEW_ETC/bayram.env $NEW_ETC/bayram-admin.env"
+  echo "MemoryDenyWriteExecute=yes"; echo "RestrictNamespaces=yes"
+  echo "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX"
   echo; echo "[Install]"; echo "WantedBy=multi-user.target"; } > /etc/systemd/system/bayram-payme.service
 
 chmod 0644 /etc/systemd/system/bayram-*.service
