@@ -813,9 +813,26 @@ assertion is a boot failure on go-live day.
 HBD_CHECKOUT_PROVIDER=payme
 HBD_CREDITS_ENFORCED=true
 HBD_PAYME_MERCHANT_ID=<the real кассы id>       # public; the BOT builds the checkout link
+HBD_PAYME_IS_SANDBOX=false                      # ← SECOND copy. See the warning below.
 HBD_KIT_PRICE_AMOUNT_MINOR=0                    # UNCHANGED — this is the render gate's quote,
                                                 # not the checkout's
 ```
+
+> **`PAYME_IS_SANDBOX` IS IN BOTH FILES, WITH OPPOSITE DEFAULTS, AND THIS LINE WAS MISSING
+> UNTIL 2026-09-14.** `bayram.config.Settings.payme_is_sandbox` defaults **True** and is read by
+> the BOT, which builds the link the customer taps. `bayram.payme.settings.payme_is_sandbox`
+> defaults **False** and is read by the GATEWAY, which verifies the callback. Each default is
+> right on its own — the safe failure for a link is "charges nobody", the safe failure for a
+> verifier is "rejects" — and together they make exactly one mistake easy: set it in §8.1's file
+> alone and **the gateway goes live while every Pay button still opens
+> `https://test.paycom.uz`.** That is what happened on 2026-09-14, following this page as it
+> then stood. `bayram.payme.settings` says so in its own docstring — *"the BOT builds the links
+> customers actually tap, from its own copy of the same value"* — and this page did not.
+>
+> `bayram.main.refuse_an_unsafe_checkout_rail` now refuses to boot on
+> `checkout_provider=payme` + `payme_is_sandbox=true` + `environment=prod`, so the trap is a
+> boot failure naming the variable rather than a silent one. Non-prod is left alone: a staging
+> box driving the real rail at the test host is how Gate C was proven.
 
 **`HBD_PAYME_MERCHANT_KEY` must not appear in this file.** In prod the bot refuses to boot with
 it in reach, and so does the admin panel — the panel via `FORBIDDEN_ENV_VARS`

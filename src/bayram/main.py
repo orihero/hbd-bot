@@ -160,6 +160,34 @@ def refuse_an_unsafe_checkout_rail(settings: Settings) -> None:
             },
         )
 
+    # **4. A live rail building SANDBOX links.** `payme_is_sandbox` exists TWICE under one
+    # name — here on `bayram.config.Settings`, read by the bot that builds the link a customer
+    # taps, and again on `bayram.payme.settings`, read by the gateway that verifies the
+    # callback — and the two ship with OPPOSITE defaults: True here, False there. Each default
+    # is right on its own (the safe failure for a link is "charges nobody", the safe failure
+    # for a verifier is "rejects"), and together they make one specific mistake very easy:
+    # set it to false in the gateway's dotenv alone, and the gateway goes live while every
+    # button still points at https://test.paycom.uz. 09-payme-go-live.md §8.2 did not list
+    # this variable among the bot's, so following that page exactly produced precisely that.
+    #
+    # Refused only in production, because sandbox in prod is the whole defect and a dev or
+    # staging box legitimately runs a live-ish rail against the test host.
+    if is_live_rail and settings.payme_is_sandbox and settings.is_production:
+        raise ConfigError(
+            f"BAYRAM_CHECKOUT_PROVIDER is '{settings.checkout_provider}' in production but "
+            "BAYRAM_PAYME_IS_SANDBOX is true: every checkout link this bot builds would point "
+            "at the Payme TEST host, so no customer could pay while the gateway happily "
+            "verified production callbacks that never arrive. This variable exists on BOTH the "
+            "bot's dotenv and the gateway's, with opposite defaults — setting it in the "
+            "gateway's file alone does nothing to the link. Set BAYRAM_PAYME_IS_SANDBOX=false "
+            "in the BOT's dotenv too.",
+            context={
+                "checkout_provider": settings.checkout_provider,
+                "payme_is_sandbox": settings.payme_is_sandbox,
+                "environment": settings.environment,
+            },
+        )
+
     reachable = _reachable_foreign_secrets()
     if reachable:
         listed = ", ".join(reachable)

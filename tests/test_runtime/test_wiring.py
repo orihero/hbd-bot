@@ -899,6 +899,57 @@ def test_payme_with_a_dark_credit_meter_refuses_to_boot(settings: Settings) -> N
 
 
 @pytest.mark.usefixtures("isolated_dotenv")
+def test_a_live_rail_building_sandbox_links_refuses_to_boot_in_production(
+    settings: Settings,
+) -> None:
+    """The gateway is live, every button points at the Payme TEST host, nobody can pay.
+
+    ``payme_is_sandbox`` exists TWICE under one name — on ``Settings`` for the bot that builds
+    the link a customer taps, and on ``bayram.payme.settings`` for the gateway that verifies the
+    callback — and the two ship with OPPOSITE defaults, True here and False there. Each is right
+    alone; together they make one mistake easy, and it is the mistake that was actually made on
+    2026-09-14: the operator set it false in the GATEWAY's dotenv, which does nothing to the
+    link, and the Pay button went on opening ``https://test.paycom.uz``.
+    """
+    # Arrange
+    live_rail_sandbox_links = settings.model_copy(
+        update={
+            "checkout_provider": "payme",
+            "payme_merchant_id": _MERCHANT_ID,
+            "credits_enforced": True,
+            "payme_is_sandbox": True,
+            "environment": "prod",
+        }
+    )
+
+    # Act / Assert
+    with pytest.raises(ConfigError, match="BAYRAM_PAYME_IS_SANDBOX"):
+        refuse_an_unsafe_checkout_rail(live_rail_sandbox_links)
+
+
+@pytest.mark.usefixtures("isolated_dotenv")
+def test_a_live_rail_on_the_sandbox_still_boots_outside_production(settings: Settings) -> None:
+    """The refusal above is about PRODUCTION, not about the two flags disagreeing.
+
+    A staging box driving the real rail against Payme's test host is the rehearsal this whole
+    gate was proven with, and refusing it would make the rehearsal impossible.
+    """
+    # Arrange
+    rehearsal = settings.model_copy(
+        update={
+            "checkout_provider": "payme",
+            "payme_merchant_id": _MERCHANT_ID,
+            "credits_enforced": True,
+            "payme_is_sandbox": True,
+            "environment": "staging",
+        }
+    )
+
+    # Act / Assert — no raise.
+    refuse_an_unsafe_checkout_rail(rehearsal)
+
+
+@pytest.mark.usefixtures("isolated_dotenv")
 def test_the_stub_over_a_dark_credit_meter_still_boots(settings: Settings) -> None:
     """The refusal above is about MONEY, not about two flags disagreeing.
 
