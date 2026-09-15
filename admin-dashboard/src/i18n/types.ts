@@ -477,6 +477,8 @@ export interface ChatsTranslations {
   readonly sectionProfile: string;
   readonly openUserDetails: string;
   readonly viewProfile: string;
+  /** Leaves the transcript for the thread list; only reachable below `lg`, where the two are not on screen together. */
+  readonly backToList: string;
   readonly senderCustomer: string;
   readonly senderBot: string;
   readonly customer: string;

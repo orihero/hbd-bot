@@ -476,6 +476,7 @@ export const ru: TranslationSchema = {
     sectionProfile: "Профиль клиента",
     openUserDetails: "Открыть карточку пользователя",
     viewProfile: "Профиль пользователя",
+    backToList: "Назад к диалогам",
     senderCustomer: "Клиент",
     senderBot: "Бот Bayram",
     customer: "Клиент",

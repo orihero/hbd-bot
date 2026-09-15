@@ -473,6 +473,7 @@ export const en: TranslationSchema = {
     sectionProfile: "Customer Profile",
     openUserDetails: "Open user details",
     viewProfile: "View Profile",
+    backToList: "Back to conversations",
     senderCustomer: "Customer",
     senderBot: "Bayram",
     customer: "Customer",

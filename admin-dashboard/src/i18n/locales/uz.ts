@@ -478,6 +478,7 @@ export const uz: TranslationSchema = {
     sectionProfile: "Mijoz profili",
     openUserDetails: "Foydalanuvchi tafsilotlarini ochish",
     viewProfile: "Foydalanuvchi profili",
+    backToList: "Suhbatlarga qaytish",
     senderCustomer: "Mijoz",
     senderBot: "Bayram",
     customer: "Mijoz",

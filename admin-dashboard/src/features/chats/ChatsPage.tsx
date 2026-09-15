@@ -2,10 +2,11 @@
  * Chats replication and history console (/chats and /chats/:telegramUserId).
  */
 
-import { useEffect, useMemo, useRef, useState, type JSX } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowDownLeft,
+  ArrowLeft,
   ArrowUpRight,
   Bot,
   ExternalLink,
@@ -100,21 +101,80 @@ export function ChatsPage(): JSX.Element {
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (messages.length > 0 && messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
     }
   }, [selectedUserId, messages.length]);
 
+  /**
+   * This is the one screen in the console that does NOT scroll the document: two panes scroll
+   * independently inside it, and that needs a definite height to subtract from.
+   *
+   * The height is measured rather than written as `100vh` minus a constant, because the gap
+   * above this element is not a constant. `TopBar` is `min-h-[56px]` plus `mt-3` and it WRAPS:
+   * every vendor balance that finishes loading can add a row to it. A subtraction that guesses
+   * low pushes both panes past the bottom of the window, and since the shell's document scroll
+   * is what would normally reach them, and this screen suppresses that, their last rows become
+   * unreachable — which is exactly the bug this replaced.
+   */
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const [shellHeight, setShellHeight] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const el = shellRef.current;
+    if (el === null) return;
+
+    const measure = (): void => {
+      // Scroll-independent: a rect is viewport-relative, `scrollY` puts it back in the document.
+      const top = el.getBoundingClientRect().top + window.scrollY;
+      const next = Math.max(360, Math.round(window.innerHeight - top));
+      setShellHeight((prev) => (prev === next ? prev : next));
+    };
+
+    measure();
+    // `body`, not this element: what moves is everything ABOVE it, and its own height is the
+    // thing being written. The equality guard above is what keeps that from feeding back.
+    const observer = new ResizeObserver(measure);
+    observer.observe(document.body);
+    window.addEventListener("resize", measure);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, []);
+
+  // Below `lg` the two columns have nowhere to sit side by side, so the screen shows one at a
+  // time — the list until a thread is picked, the transcript after, with a back arrow in its
+  // header. Stacking them instead is what the grid used to do, and it gave each pane half of a
+  // phone screen with no way to scroll either.
+  const showList = selectedUserId === null;
+
   return (
-    <div className="mx-auto flex h-[calc(100vh-4rem)] w-full max-w-[1600px] flex-col gap-3 p-3 sm:p-4 lg:p-6">
+    <div
+      ref={shellRef}
+      style={shellHeight === null ? undefined : { height: `${String(shellHeight)}px` }}
+      className="mx-auto flex h-[calc(100dvh-5rem)] w-full max-w-[1600px] flex-col gap-3 p-3 sm:p-4 lg:p-6"
+    >
       <Toolbar
         title={t("chats.title")}
         subtitle={t("chats.subtitle")}
       />
 
       {/* Master-Detail Two-Column Container */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden rounded-2xl border border-stroke bg-card shadow-xs lg:grid-cols-[380px_1fr]">
+      {/* `grid-rows-[minmax(0,1fr)]` is the whole reason either pane scrolls. A grid row left
+          implicit is `auto`, and an `auto` row is sized by its content: both columns grew to the
+          full height of the list they held, the `overflow-y-auto` inside them was never shorter
+          than what it contained, and so it never scrolled — the outer `overflow-hidden` just
+          clipped the remainder out of reach. `minmax(0,1fr)` pins the row to the container
+          instead, and `min-h-0` on the two items stops their automatic minimum size from
+          undoing it. */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1fr)] overflow-hidden rounded-2xl border border-stroke bg-card shadow-xs lg:grid-cols-[380px_1fr]">
         {/* Left Column: Conversation List */}
-        <aside className="flex flex-col border-r border-stroke bg-surface/40">
+        <aside
+          className={cn(
+            "min-h-0 flex-col overflow-hidden border-r border-stroke bg-surface/40 lg:flex",
+            showList ? "flex" : "hidden",
+          )}
+        >
           {/* Search Header */}
           <div className="border-b border-stroke p-3">
             <div className="relative flex items-center">
@@ -140,7 +200,7 @@ export function ChatsPage(): JSX.Element {
           </div>
 
           {/* Conversations Scroll Area */}
-          <div className="flex-1 overflow-y-auto divide-y divide-stroke/50">
+          <div className="min-h-0 flex-1 overflow-y-auto divide-y divide-stroke/50">
             {conversationsQuery.isLoading ? (
               <div className="flex flex-col gap-3 p-4">
                 <Skeleton className="h-14 w-full rounded-xl" />
@@ -235,7 +295,12 @@ export function ChatsPage(): JSX.Element {
         </aside>
 
         {/* Right Column: Transcript View */}
-        <main className="flex flex-col bg-card overflow-hidden">
+        <main
+          className={cn(
+            "min-h-0 flex-col overflow-hidden bg-card lg:flex",
+            showList ? "hidden" : "flex",
+          )}
+        >
           {selectedUserId === null ? (
             <div className="flex h-full flex-col items-center justify-center p-8">
               <EmptyState
@@ -249,6 +314,17 @@ export function ChatsPage(): JSX.Element {
               {/* Selected Conversation Header */}
               <header className="flex flex-wrap items-center justify-between gap-3 border-b border-stroke bg-surface/30 px-5 py-3.5">
                 <div className="flex items-center gap-3 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigate(PATH.chats);
+                    }}
+                    className="-ml-1 shrink-0 rounded-lg p-1.5 text-ink-500 hover:bg-surface hover:text-ink-900 lg:hidden"
+                    aria-label={t("chats.backToList")}
+                    title={t("chats.backToList")}
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
                   <Avatar
                     initials={
                       selectedConversation
@@ -316,7 +392,7 @@ export function ChatsPage(): JSX.Element {
               </header>
 
               {/* Message Transcript Timeline */}
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-bg/30">
+              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6 space-y-4 bg-bg/30">
                 {transcriptQuery.isLoading ? (
                   <div className="flex flex-col gap-4">
                     <Skeleton className="h-16 w-3/4 self-start rounded-2xl" />
