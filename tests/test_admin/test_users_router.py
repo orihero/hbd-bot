@@ -61,6 +61,8 @@ import pytest
 import sqlalchemy as sa
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.redis import RedisStorage
+from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from redis.asyncio import Redis
 
 from bayram.admin.container import AdminContainer
@@ -70,15 +72,23 @@ from bayram.admin.routers.users import (
     USER_AVATAR_PATH,
     USER_ORDERS_PATH,
     USER_PATH,
+    USER_STATS_PATH,
     USERS_PATH,
     WIZARD_STATE_PATH,
     build_users_router,
     build_wizard_state_router,
 )
 from bayram.admin.schemas import users as user_schemas
+from bayram.admin.schemas.segment import (
+    SEGMENT_SCHEMA_VERSION,
+    RuleModel,
+    SegmentModel,
+    encode_segment,
+)
 from bayram.admin.security.permissions import RBAC_MATRIX, Permission
 from bayram.admin.serializers.redaction import mask_name, mask_phone, mask_username
 from bayram.contracts import Err, Language, OrderState, Result
+from bayram.db.admin.segment import MatchMode, SegmentOp
 from bayram.db.admin.sql import MAX_SEARCH_CHARS
 from bayram.db.base import utc_now
 from bayram.db.enums import AdminRole, CreditEntryKind, CreditReason
@@ -109,6 +119,11 @@ OTHER_USER_ID: Final[int] = 123_456_789
 #: A third seeded account, for the assertions that need all THREE credit shapes at once —
 #: metered with credits, metered to zero, and no ``credit_accounts`` row at all.
 NEVER_METERED_USER_ID: Final[int] = 111_222_333
+#: A fourth account, barred by US and blocking the bot at the same time. It exists for the
+#: stat strip alone: ``blocked`` and ``botBlocked`` are opposite facts about opposite subjects
+#: and an account can carry both, so without this row the two counts would look like a
+#: partition and "``matched`` is not the sum" would be prose nothing checks.
+BOTH_BARRED_USER_ID: Final[int] = 444_555_666
 #: An id no seeded row uses, for the 404 paths.
 UNKNOWN_USER_ID: Final[int] = 555_000_222
 
@@ -167,14 +182,23 @@ async def seed_user(
     telegram_user_id: int = TELEGRAM_USER_ID,
     ui_language: Language = Language.UZ_LATN,
     is_blocked: bool = False,
+    blocked_bot_at: datetime | None = None,
     created_at: datetime | None = None,
 ) -> UserRow:
-    """One ``users`` row through the real model — the row ``_ensure_user`` would write."""
+    """One ``users`` row through the real model — the row ``_ensure_user`` would write.
+
+    ``is_blocked`` and ``blocked_bot_at`` are two arguments and never one, because they are
+    two facts with opposite subjects: the first is OUR bar on the account and the second is
+    the customer blocking the bot. One account can carry both, and the stat-strip assertions
+    below exist precisely to pin that the two counts overlap rather than partition — see
+    :func:`test_the_strip_counts_an_account_barred_both_ways_in_both_figures`.
+    """
     async with container.session_factory.begin() as db:
         row = UserRow(
             telegram_user_id=telegram_user_id,
             ui_language=ui_language,
             is_blocked=is_blocked,
+            blocked_bot_at=blocked_bot_at,
             last_seen_at=created_at or NOW,
             created_at=created_at or NOW,
             updated_at=created_at or NOW,
@@ -328,7 +352,9 @@ async def test_every_role_in_the_matrix_row_may_read_the_user_record(
     assert response.status_code == 200
 
 
-@pytest.mark.parametrize("path", [USERS_PATH, USER_URL, USER_ORDERS_URL, WIZARD_STATE_URL], ids=str)
+@pytest.mark.parametrize(
+    "path", [USERS_PATH, USER_STATS_PATH, USER_URL, USER_ORDERS_URL, WIZARD_STATE_URL], ids=str
+)
 async def test_an_unauthenticated_caller_gets_401_from_every_route(
     client: httpx.AsyncClient, path: str
 ) -> None:
@@ -898,6 +924,285 @@ async def test_a_full_page_hands_back_a_cursor_that_fetches_the_rest(
     # Assert
     assert first["meta"]["nextCursor"] is not None
     assert second["items"][0]["telegramUserId"] != first["items"][0]["telegramUserId"]
+
+
+# ---------------------------------------------------------------------------
+# The stat strip
+# ---------------------------------------------------------------------------
+def segment_token(*rules: RuleModel) -> str:
+    """One ``?segment=`` value, built with the codec the SPA uses rather than by hand.
+
+    Spelled out here rather than imported from ``test_segments_router``: that module's helper
+    also takes a ``sort``, which this route deliberately does not accept, and a shared helper
+    whose extra argument is meaningless on one of its two callers is how the next reader comes
+    to believe ``/users/stats`` can be ordered.
+    """
+    return encode_segment(SegmentModel(v=SEGMENT_SCHEMA_VERSION, match=MatchMode.ALL, rules=rules))
+
+
+async def seed_the_four_shapes(container: AdminContainer) -> None:
+    """One account of each reachability shape — and the fourth is the whole point.
+
+    Reachable, barred by us, blocking us, and **both at once**. The fourth account is what
+    makes ``blocked`` and ``botBlocked`` provably overlapping counts rather than a partition
+    somebody may later "simplify" into three numbers that add up. Ages descend by a day each
+    so the window assertions below have something to cut.
+    """
+    await seed_user(container, created_at=NOW - timedelta(days=3))
+    await seed_user(
+        container,
+        telegram_user_id=OTHER_USER_ID,
+        ui_language=Language.RU,
+        is_blocked=True,
+        created_at=NOW - timedelta(days=2),
+    )
+    await seed_user(
+        container,
+        telegram_user_id=NEVER_METERED_USER_ID,
+        blocked_bot_at=NOW,
+        created_at=NOW - timedelta(days=1),
+    )
+    await seed_user(
+        container,
+        telegram_user_id=BOTH_BARRED_USER_ID,
+        ui_language=Language.RU,
+        is_blocked=True,
+        blocked_bot_at=NOW,
+        created_at=NOW,
+    )
+
+
+async def test_the_strip_reports_the_four_counts_and_nothing_else(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    # Arrange
+    await seed_the_four_shapes(container)
+    await signed_in(container, client)
+
+    # Act
+    response = await client.get(USER_STATS_PATH)
+
+    # Assert — the whole body, so a fifth field cannot arrive unnoticed. §6.1: an aggregate
+    # surface carries counts and nothing else, and this route's four counts are exactly the
+    # four ``SegmentBreakdown`` holds minus the language split ``/segments/preview`` publishes.
+    assert response.status_code == 200
+    assert response.json() == {"matched": 4, "reachable": 1, "blocked": 2, "botBlocked": 2}
+
+
+async def test_the_strip_counts_an_account_barred_both_ways_in_both_figures(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """``matched`` is not the sum, and this is the account that proves it.
+
+    ``blocked`` is our bar and ``botBlocked`` is the customer's; the fourth seeded account has
+    both, so the two counts overlap by one and only ``reachable`` is a complement. A client —
+    or a future refactor — that added the three refusal figures to ``reachable`` would get five
+    for a population of four, which is the arithmetic ``UserStatsView`` warns about in prose and
+    this test pins in code.
+    """
+    # Arrange
+    await seed_the_four_shapes(container)
+    await signed_in(container, client)
+
+    # Act
+    body = (await client.get(USER_STATS_PATH)).json()
+
+    # Assert
+    assert body["matched"] == 4
+    assert body["reachable"] + body["blocked"] + body["botBlocked"] == 5
+    assert body["reachable"] == body["matched"] - 3
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {},
+        {"isBlocked": "true"},
+        {"uiLanguage": ["ru"]},
+        {"telegramUserId": OTHER_USER_ID},
+        {"from": (NOW - timedelta(days=1, hours=12)).isoformat()},
+        {"to": (NOW - timedelta(days=1, hours=12)).isoformat()},
+        {"q": str(OTHER_USER_ID)[:4]},
+        {"uiLanguage": ["ru"], "isBlocked": "true"},
+    ],
+    ids=[
+        "unfiltered",
+        "one-chip",
+        "one-language",
+        "by-id",
+        "window-open-above",
+        "window-open-below",
+        "search",
+        "two-chips-are-and",
+    ],
+)
+async def test_the_strip_and_the_list_are_one_population_under_every_chip(
+    container: AdminContainer, client: httpx.AsyncClient, params: dict[str, Any]
+) -> None:
+    """The strip is a caption for the rows, so the two must never describe different sets.
+
+    Asserted against the LIST rather than against a hand-counted expectation, because the claim
+    being made is an agreement between two endpoints and a literal on the right-hand side would
+    let both drift together. ``matched`` is checked against the page's own length **and** against
+    its ``meta.total``: the length is what an operator can see, and the total is the other
+    aggregate over the same ``_filtered()``, so all three moving as one is the property
+    :func:`~bayram.db.admin.users.segment_breakdown` exists to give.
+    """
+    # Arrange
+    await seed_the_four_shapes(container)
+    await signed_in(container, client)
+
+    # Act — the same query string to both, the list's limit high enough that no row is paged out.
+    stats = (await client.get(USER_STATS_PATH, params=params)).json()
+    listing = (
+        await client.get(USERS_PATH, params={**params, "limit": 50, "withTotal": "true"})
+    ).json()
+
+    # Assert
+    assert listing["meta"]["isTotalExact"] is True
+    assert stats["matched"] == listing["meta"]["total"] == len(listing["items"])
+
+
+async def test_the_strip_honours_the_segment_document_the_list_pages(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    """``?segment=`` narrows the strip too, and it is the narrowing an operator cannot see.
+
+    The six chips are on the screen; the segment document is a base64url token on the URL. So
+    it is the one filter whose absence from an aggregate would look entirely correct — the
+    strip would simply report a bigger population than the rows under it, with nothing on the
+    page to explain the difference. ``build_filters`` does not resolve the token (``build_query``
+    does, because the sort that rides on it also chooses the cursor), which is why the handler
+    takes ``?segment=`` itself and folds it into the same ``UserFilters``.
+    """
+    # Arrange — the two Russian-speaking accounts, one of which is also barred both ways.
+    await seed_the_four_shapes(container)
+    await signed_in(container, client)
+    token = segment_token(RuleModel(field="ui_language", op=SegmentOp.EQ, value=Language.RU.value))
+
+    # Act
+    stats = (await client.get(USER_STATS_PATH, params={"segment": token})).json()
+    listing = (await client.get(USERS_PATH, params={"segment": token, "withTotal": "true"})).json()
+
+    # Assert — and the unfiltered strip is bigger, so the token is what did the narrowing
+    # rather than an empty database flattering the comparison.
+    assert stats == {"matched": 2, "reachable": 0, "blocked": 2, "botBlocked": 1}
+    assert stats["matched"] == listing["meta"]["total"] == len(listing["items"])
+    assert (await client.get(USER_STATS_PATH)).json()["matched"] == 4
+
+
+async def test_a_segment_token_this_route_cannot_read_is_refused_the_way_the_list_refuses_it(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    # Arrange — the strip shares the codec and the compiler with the list, so it must share
+    # their refusal: a token that decodes to nothing meaningful is a 422 naming the parameter,
+    # never a strip quietly describing everybody.
+    await signed_in(container, client)
+
+    # Act
+    response = await client.get(USER_STATS_PATH, params={"segment": "not-a-segment"})
+
+    # Assert
+    assert response.status_code == 422
+
+
+def test_the_strip_declares_no_parameter_it_cannot_honour() -> None:
+    """The OpenAPI document is the assertion, because it is the thing that would be lying.
+
+    FastAPI ignores an undeclared query parameter, so a handler that took ``limit`` and
+    discarded it could never be caught by sending one — the damage is done in the schema every
+    generated client and every operator reads. ``?limit=``, ``?cursor=``, ``?sort=`` and
+    ``?sortDir=`` are therefore asserted ABSENT from this route and present on the list, and
+    the eight the two share are asserted equal, so a chip added to ``build_filters`` reaches
+    both or fails here.
+    """
+    # Arrange — the router alone; no container, no database, no session.
+    application = FastAPI()
+    application.include_router(build_users_router())
+
+    # Act
+    document = application.openapi()
+
+    def query_names(path: str) -> set[str]:
+        return {item["name"] for item in document["paths"][path]["get"].get("parameters", [])}
+
+    # Assert
+    paging = {"limit", "cursor", "sort", "sortDir"}
+    assert query_names(USER_STATS_PATH) & paging == set()
+    assert paging <= query_names(USERS_PATH)
+    # ``withTotal`` is the list's alone: ``matched`` IS this route's total, and it is exact.
+    assert query_names(USERS_PATH) - query_names(USER_STATS_PATH) == paging | {"withTotal"}
+    assert query_names(USER_STATS_PATH) - query_names(USERS_PATH) == set()
+
+
+def test_the_literal_stats_route_is_registered_before_the_route_that_takes_an_int() -> None:
+    """Route matching is registration order, so this ordering is the route's existence.
+
+    ``USER_PATH`` takes an ``int`` and ``stats`` is not one, so a ``/users/stats`` that reached
+    it first would answer 422 about a ``telegramUserId`` the caller never sent. The same note
+    sits beside ``ORDER_STATE_COUNTS_PATH``. Asserted here on the router rather than only
+    behaviourally below, because the behavioural half passes for the wrong reason the day
+    somebody makes the path parameter a ``str``.
+    """
+    # Arrange / Act
+    paths = [route.path for route in build_users_router().routes if isinstance(route, APIRoute)]
+
+    # Assert
+    assert paths.index(USER_STATS_PATH) < paths.index(USER_PATH)
+
+
+async def test_users_stats_does_not_resolve_to_the_by_id_route(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    # Arrange — the behavioural half of the assertion above: what an operator's browser does.
+    await seed_the_four_shapes(container)
+    await signed_in(container, client)
+
+    # Act
+    response = await client.get(USER_STATS_PATH)
+
+    # Assert — the counts, and not a 422 about an unparseable ``telegramUserId``.
+    assert response.status_code == 200
+    assert "matched" in response.json()
+    assert "telegramUserId" not in response.json()
+
+
+@pytest.mark.parametrize("role", EVERY_ROLE)
+async def test_every_role_in_the_matrix_row_may_read_the_strip(
+    container: AdminContainer, client: httpx.AsyncClient, role: AdminRole
+) -> None:
+    # Arrange — the strip is mounted on ``build_users_router`` and inherits its RECORDS_READ
+    # guard, which §12.2 gives as M to all four roles: an operator who may page these rows may
+    # certainly be told how many there are.
+    await seed_the_four_shapes(container)
+    await signed_in(container, client, role=role)
+
+    # Act
+    response = await client.get(USER_STATS_PATH)
+
+    # Assert
+    assert response.status_code == 200
+
+
+def test_the_strip_carries_the_routers_own_guard_and_not_a_handler_one() -> None:
+    # Arrange — §12.1 T3: the guard is declared on the router so a route added next quarter
+    # inherits it. ``/users/stats`` is that route, and this is the assertion that it inherited
+    # rather than declared one of its own.
+    router = build_users_router()
+    stats = [
+        route
+        for route in router.routes
+        if isinstance(route, APIRoute) and route.path == USER_STATS_PATH
+    ]
+
+    # Assert
+    assert _router_permissions(router) == [Permission.RECORDS_READ]
+    assert len(stats) == 1
+    # ``APIRoute.dependencies`` is the router's list COPIED and then extended with the
+    # decorator's own, so a guard declared on the handler reads back through it as an extra
+    # entry. Equality with the router's single guard is therefore the assertion that this route
+    # inherited one and declared none — which is the substitution §12.1 T3 forbids.
+    assert _router_permissions(stats[0]) == [Permission.RECORDS_READ]
 
 
 # ---------------------------------------------------------------------------

@@ -61,6 +61,7 @@ from bayram.admin.routers.broadcasts import (
     BROADCAST_RESUME_PATH,
     BROADCAST_REVISE_PATH,
     BROADCAST_SEND_PATH,
+    BROADCAST_STATS_PATH,
     BROADCAST_SUBJECT_TYPE,
     BROADCAST_TEST_SEND_PATH,
     BROADCASTS_PATH,
@@ -920,3 +921,133 @@ async def test_the_detail_reports_the_ledger_s_count_beside_the_row_s_rollup(
     assert body["broadcast"]["progress"]["recipientCount"] == 3
     assert body["countedProgress"]["recipientCount"] == 1
     assert body["countedProgress"]["sentCount"] == 1
+
+
+# ---------------------------------------------------------------------------
+# The strip — an aggregate over the same filter set, on the same cell
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("role", EVERY_ROLE)
+async def test_every_role_that_may_read_the_list_may_read_the_strip(
+    panel: Panel, role: AdminRole
+) -> None:
+    """Same cell as the list, and strictly less on the wire than the list carries.
+
+    BROADCAST_READ is ``M`` at all four roles, and the guard is the router's — there is no
+    handler-level check to get wrong. The bytes are asserted as well as the status because an
+    aggregate surface in this panel carries counts, closed enum members and UTC instants and
+    nothing else (§12.3): the campaign TITLE is on the list beside it and must not be here,
+    and neither must any recipient's id.
+    """
+    # Arrange
+    await seed_campaign(panel, state=BroadcastState.COMPLETED, started_at=NOW, sent_count=3)
+    await seed_recipient(panel)
+    await signed_in(panel, role=role)
+
+    # Act
+    response = await panel.http.get(BROADCAST_STATS_PATH)
+
+    # Assert
+    assert response.status_code == 200
+    assert "September outage notice" not in response.text
+    assert str(RECIPIENT_ID) not in response.text
+    body = response.json()
+    assert body["total"] == 1
+    assert body["lastSendAt"] is not None
+
+
+async def test_the_strip_does_not_resolve_to_the_campaign_by_id_route(panel: Panel) -> None:
+    """``/broadcasts/stats`` is a literal segment where ``{broadcast_id}`` also matches.
+
+    Registration order is what keeps them apart: FastAPI matches in declaration order, so a
+    ``BROADCAST_STATS_PATH`` registered after ``BROADCAST_PATH`` would be swallowed by the
+    parameterised route and answered with a 422 about a malformed UUID — an operator's strip
+    replaced by a validation error about a path they never typed. Asserted on the SHAPE of
+    the response as well as its status, because a 200 from the wrong route is the failure
+    this route order exists to prevent.
+    """
+    # Arrange
+    await seed_campaign(panel)
+    await signed_in(panel)
+
+    # Act
+    response = await panel.http.get(BROADCAST_STATS_PATH)
+
+    # Assert — the strip, and not the detail view the by-id route returns.
+    assert response.status_code == 200
+    body = response.json()
+    assert "counts" in body
+    assert "broadcast" not in body
+    assert "bodies" not in body
+
+
+async def test_an_empty_deployment_is_zeroes_and_a_null_last_send_rather_than_an_error(
+    panel: Panel,
+) -> None:
+    """No campaigns at all is a state, not a 404 — and the last send is ABSENT, never an epoch.
+
+    The counts zero-fill over the closed ``BroadcastState`` vocabulary, so the strip has the
+    same tiles on a fresh deployment as on a busy one. ``lastSendAt`` is the one figure here
+    that can be unmeasured, and it crosses as ``null``: a substituted instant would render as
+    a send nobody made, and ``audienceTotal == 0`` is what tells the panel to draw a dash for
+    the reach rather than "0%" — a rate with no denominator is not a number.
+    """
+    # Arrange — a signed-in operator and an entirely empty database.
+    await signed_in(panel)
+
+    # Act
+    response = await panel.http.get(BROADCAST_STATS_PATH)
+
+    # Assert
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["state"] for item in body["counts"]] == [state.value for state in BroadcastState]
+    assert {item["count"] for item in body["counts"]} == {0}
+    assert (body["total"], body["reachedRecipients"], body["audienceTotal"]) == (0, 0, 0)
+    assert body["lastSendAt"] is None
+
+
+async def test_the_strip_answers_for_the_query_string_the_list_was_given(panel: Panel) -> None:
+    """Filtering to one state makes every other tile ``0``, which is the honest answer.
+
+    The strip takes the list's filter dependency verbatim, so the two can never describe two
+    populations. A server that dropped a filter to produce a fuller-looking strip would be
+    describing a set the operator is not looking at.
+    """
+    # Arrange — one finished campaign that reached forty people, one draft that reached none.
+    await seed_campaign(
+        panel,
+        state=BroadcastState.COMPLETED,
+        started_at=NOW,
+        audience_size=40,
+        recipient_count=40,
+        sent_count=38,
+        failed_count=2,
+    )
+    await seed_campaign(
+        panel,
+        id=OTHER_CAMPAIGN_ID,
+        title="Unsent draft",
+        state=BroadcastState.DRAFT,
+        audience_size=7,
+        recipient_count=0,
+    )
+    await signed_in(panel)
+
+    # Act
+    everything = await panel.http.get(BROADCAST_STATS_PATH)
+    drafts = await panel.http.get(f"{BROADCAST_STATS_PATH}?state={BroadcastState.DRAFT.value}")
+
+    # Assert — unfiltered, both campaigns and both audiences.
+    whole = everything.json()
+    assert whole["total"] == 2
+    assert (whole["reachedRecipients"], whole["audienceTotal"]) == (40, 47)
+
+    # Narrowed to drafts: one campaign, nothing reached, and NO send — the draft has never
+    # started, so the instant is absent rather than inherited from the campaign beside it.
+    narrowed = drafts.json()
+    assert narrowed["total"] == 1
+    assert (narrowed["reachedRecipients"], narrowed["audienceTotal"]) == (0, 7)
+    assert narrowed["lastSendAt"] is None
+    counted = {item["state"]: item["count"] for item in narrowed["counts"]}
+    assert counted[BroadcastState.DRAFT.value] == 1
+    assert counted[BroadcastState.COMPLETED.value] == 0

@@ -75,9 +75,11 @@ from bayram.admin.schemas.broadcasts import (
     BroadcastReviseRequest,
     BroadcastSendRequest,
     BroadcastsPage,
+    BroadcastStatsView,
     BroadcastTestSendRequest,
     BroadcastTestSendResultView,
     to_broadcast_detail_view,
+    to_broadcast_stats_view,
     to_broadcast_view,
     to_recipient_view,
 )
@@ -92,6 +94,7 @@ from bayram.db.admin.audit import AuditEntry
 from bayram.db.admin.broadcasts import (
     BroadcastFilters,
     RecipientFilters,
+    broadcast_stats,
     count_broadcasts,
     count_recipients,
     get_broadcast,
@@ -120,6 +123,7 @@ from bayram.errors import ErrorCode, StorageError
 
 __all__ = [
     "BROADCASTS_PATH",
+    "BROADCAST_STATS_PATH",
     "BROADCAST_RECIPIENTS_PATH",
     "BROADCAST_REVISE_PATH",
     "BROADCAST_SEND_PATH",
@@ -136,6 +140,15 @@ __all__ = [
 ]
 
 BROADCASTS_PATH: Final[str] = f"{API_PREFIX}/broadcasts"
+#: The campaign strip's aggregate, and **it must be declared before** ``BROADCAST_PATH`` below
+#: or Starlette will never reach it. This is the one path in this namespace where registration
+#: order is genuinely load-bearing, unlike the verb paths noted under ``BROADCAST_PATH``:
+#: ``stats`` is a SINGLE segment under ``/broadcasts``, exactly like ``{broadcast_id}``, so a
+#: parameterised route registered first would match it and the operator would be handed a 422
+#: about a malformed UUID instead of their strip. ``ORDER_STATE_COUNTS_PATH`` and
+#: ``SUPPORT_BOARD_PATH`` carry this same warning, and it is written out here rather than
+#: cross-referenced because the next reader is editing THIS file.
+BROADCAST_STATS_PATH: Final[str] = f"{BROADCASTS_PATH}/stats"
 #: One identifier name for the whole namespace, typed ``UUID`` on every route below, so a
 #: malformed id is FastAPI's 422 rather than a query that runs. The five verb paths and the
 #: recipient collection are declared **before** it out of habit rather than necessity: they
@@ -270,6 +283,40 @@ def build_broadcasts_router() -> APIRouter:
         return BroadcastsPage(
             items=[to_broadcast_view(item) for item in page.items], meta=page_meta(page, total)
         )
+
+    # Declared HERE — before ``BROADCAST_PATH`` — and the position is load-bearing rather than
+    # tidy: ``/broadcasts/stats`` and ``/broadcasts/{broadcast_id}`` are both one segment under
+    # ``/broadcasts``, Starlette matches in registration order, and the parameterised route
+    # would swallow ``stats`` and answer a 422 about a malformed UUID. See
+    # :data:`BROADCAST_STATS_PATH`, and ``routers/segments.py`` for the same note made from the
+    # other side (nothing under ``/segments`` is parameterised, so nothing there can collide).
+    @router.get(BROADCAST_STATS_PATH)
+    async def broadcast_strip(db: Db, filters: Filters) -> BroadcastStatsView:
+        """The Campaigns strip: campaigns per state, what they reached, and the last send.
+
+        **A sibling route rather than ``meta`` on the list, for ``/orders/state-counts``'
+        reason**, and it is worth restating because the cost argument is weaker here and the
+        SHAPE argument is not. The aggregate answers for the whole filter set, so on ``meta``
+        it would run again on every ``?cursor=`` an operator turns — paying for the same
+        numbers once per page of a list whose strip did not change. As its own URL it is
+        fetched when the filter set changes and at no other moment, and the strip and the page
+        under it can paint independently without either blocking the other.
+
+        **It takes the list's identical filter dependency**, so it describes exactly the
+        campaigns ``GET /api/broadcasts`` with the same query string would return — window,
+        ``kind``, ``q`` and ``state`` included. Filtering to one state makes every other
+        segment ``0``, which is the honest answer to what was asked rather than a strip quietly
+        widened to look fuller.
+
+        **Counts, closed enum members and one UTC instant.** No title, no body, no recipient,
+        no Telegram id: this is an aggregate surface, and §12.3's rule for one is that nothing
+        on it is about a person. That is also why it sits on this router and inherits
+        ``BROADCAST_READ`` — the guard is declared once, on the router (§12.1 T3), and a
+        handler-level check here would be a second place for the cell to be wrong.
+
+        No ``?withTotal=``: ``total`` is the sum of the segments and is already exact.
+        """
+        return to_broadcast_stats_view(await broadcast_stats(db, filters=filters))
 
     @router.get(BROADCAST_RECIPIENTS_PATH)
     async def list_broadcast_recipients(

@@ -5,7 +5,7 @@ import { type JSX } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { UsersFilters, UsersPage } from "@/api/users";
+import type { UserStatsView, UsersFilters, UsersPage, UserView } from "@/api/users";
 import { SEGMENT_FIELDS_FIXTURE } from "@/components/SegmentBuilder/fixtures";
 import { UsersScreen } from "@/features/users/UsersScreen";
 import { encodeSegment, type Segment } from "@/lib/segmentCodec";
@@ -33,8 +33,9 @@ import { useAuthStore } from "@/state/auth";
  * 422 an operator has to read.
  */
 
-const { listUsers, getSegmentFields, previewSegment } = vi.hoisted(() => ({
+const { listUsers, getUsersStats, getSegmentFields, previewSegment } = vi.hoisted(() => ({
   listUsers: vi.fn(),
+  getUsersStats: vi.fn(),
   getSegmentFields: vi.fn(),
   previewSegment: vi.fn(),
 }));
@@ -46,7 +47,7 @@ const { listUsers, getSegmentFields, previewSegment } = vi.hoisted(() => ({
  */
 vi.mock("@/api/users", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, listUsers };
+  return { ...actual, listUsers, getUsersStats };
 });
 
 vi.mock("@/api/segments", async (importOriginal) => {
@@ -58,6 +59,74 @@ const EMPTY_PAGE: UsersPage = {
   items: [],
   meta: { nextCursor: null, total: 0, isTotalExact: true },
 };
+
+/**
+ * One row, for the tests that have to prove the TABLE is still standing. Everything personal on
+ * it is the masked twin, which is all `/api/users` ever sends.
+ */
+const ONE_ACCOUNT: UserView = {
+  id: "00000000-0000-4000-8000-0000000000aa",
+  telegramUserId: 7_001,
+  telegramUserIdMasked: "7•••01",
+  uiLanguage: "uz_latn",
+  isBlocked: false,
+  accountCreatedAt: "2026-09-01T09:00:00Z",
+  firstOrderAt: null,
+  lastOrderAt: null,
+  orderCount: 0,
+  paidOrderCount: 0,
+  isProfilePresent: true,
+  telegramUsernameMasked: "@G•••",
+  firstNameMasked: "M•••",
+  lastNameMasked: null,
+  phoneMasked: null,
+  phoneSharedAt: null,
+  avatarFetchedAt: null,
+  hasAvatar: false,
+  avatarUrl: null,
+  creditBalance: null,
+  lifetimeCreditsGranted: null,
+  allowancePeriod: null,
+};
+
+const ONE_ROW_PAGE: UsersPage = {
+  items: [ONE_ACCOUNT],
+  meta: { nextCursor: null, total: null, isTotalExact: null },
+};
+
+/**
+ * The four counts of `GET /api/users/stats`. They OVERLAP: 9 accounts we have barred and 31 who
+ * have blocked the bot are not 40 unreachable people, and `matched` is not their sum plus
+ * `reachable`. Nothing in these tests may add any two of them together, and neither may the
+ * screen.
+ */
+const USER_STATS: UserStatsView = {
+  matched: 1_204,
+  reachable: 1_190,
+  blocked: 9,
+  botBlocked: 31,
+};
+
+/** The screen prints counts through `Intl.NumberFormat`, so the expectation is built the same. */
+function formatted(count: number): string {
+  return new Intl.NumberFormat().format(count);
+}
+
+/**
+ * One tile of the strip, read the way `PageStats` wires it together: the value carries
+ * `aria-labelledby` pointing at its label, which is what makes a screen reader say "Reachable,
+ * 1,190" as one thing instead of two loose strings.
+ *
+ * Queried by the tile's stable `key` rather than by its label text on purpose — the labels are
+ * `users.stats.*` and belong to the translation catalogues, and a test that hard-codes English
+ * copy fails the day somebody improves a word rather than the day something breaks.
+ */
+function statTile(key: string): { readonly label: string; readonly value: string } {
+  const label = document.getElementById(`page-stat-${key}-label`);
+  const value = document.querySelector(`[aria-labelledby="page-stat-${key}-label"]`);
+  if (label === null || value === null) throw new Error(`No stat tile "${key}" on screen.`);
+  return { label: label.textContent ?? "", value: value.textContent ?? "" };
+}
 
 /** "Songs delivered is at least 3" — one leaf rule, and the audience the four-name list opens on. */
 const DELIVERED_AT_LEAST_3: Segment = {
@@ -105,6 +174,7 @@ async function lastRequest(): Promise<UsersFilters> {
 
 beforeEach(() => {
   listUsers.mockResolvedValue({ ok: true, data: EMPTY_PAGE });
+  getUsersStats.mockResolvedValue({ ok: true, data: USER_STATS });
   getSegmentFields.mockResolvedValue({ ok: true, data: SEGMENT_FIELDS_FIXTURE });
   previewSegment.mockResolvedValue({
     ok: true,
@@ -285,12 +355,15 @@ describe("UsersScreen — the hand-off to the campaign wizard", () => {
 });
 
 describe("UsersScreen — sorting is the server's, and only where the server allows it", () => {
-  it("sends the registry's sort key and drops the total beside an aggregate sort", async () => {
+  it("sends the registry's sort key, and asks the list for no count at either end", async () => {
     const user = userEvent.setup();
     renderScreen("/users");
 
     const first = await lastRequest();
-    expect(first.withTotal).toBe(true);
+    // `withTotal` is not asked for AT ALL any more: the bounded count it returns and the strip's
+    // exact `matched` are two answers to one question, and the exact one won. Never asking also
+    // retires the 422 that `withTotal` and a sort on a computed column used to be together.
+    expect(first.withTotal).toBeUndefined();
     expect(first.sort).toBeNull();
 
     await user.click(await screen.findByRole("button", { name: /^Sort by Orders/u }));
@@ -299,9 +372,7 @@ describe("UsersScreen — sorting is the server's, and only where the server all
       const filters = listUsers.mock.calls[listUsers.mock.calls.length - 1]?.[0] as UsersFilters;
       expect(filters.sort).toBe("order_count");
       expect(filters.sortDir).toBe("desc");
-      // `withTotal` and a sort on a computed column are a 422 together, and the sort is what
-      // the operator just pressed — so the count is what goes.
-      expect(filters.withTotal).toBe(false);
+      expect(filters.withTotal).toBeUndefined();
     });
 
     const header = screen.getByRole("columnheader", { name: /Orders/u });
@@ -374,5 +445,113 @@ describe("UsersScreen — the audience count", () => {
     await lastRequest();
 
     expect(previewSegment).not.toHaveBeenCalled();
+  });
+});
+
+describe("UsersScreen — the stat strip over the table", () => {
+  /*
+   * The strip answers "what is this filtered population made of?" and the table answers "who is
+   * in it?". These four tests are the seams where those two could quietly stop being the same
+   * population: one request or two, one ordering-insensitive answer or a refetch per column
+   * press, and one failure taking the other's surface down with it.
+   */
+
+  it("states the four counts, and is handed the list's own filter set to state them about", async () => {
+    renderScreen("/users");
+    await lastRequest();
+
+    await waitFor(() => {
+      expect(statTile("accounts").value).toBe(formatted(USER_STATS.matched));
+    });
+    expect(statTile("reachable").value).toBe(formatted(USER_STATS.reachable));
+    expect(statTile("blocked").value).toBe(formatted(USER_STATS.blocked));
+    expect(statTile("botBlocked").value).toBe(formatted(USER_STATS.botBlocked));
+
+    // Every tile carries a label, and the value is bound to it — a bare 1,190 announces itself
+    // as a number with no noun attached.
+    expect(statTile("reachable").label).not.toBe("");
+
+    // THE SAME filter set object the table was asked for, not a second one assembled beside it.
+    // `getUsersStats` is what drops the parameters a count cannot honour, and it is the only
+    // place that decides; a screen that pre-narrowed here would be a third opinion about what
+    // narrows a population, and the first to go stale when a seventh filter is added.
+    expect(getUsersStats.mock.calls[0]?.[0]).toBe(listUsers.mock.calls[0]?.[0]);
+  });
+
+  it("is not asked again when only the ordering changes", async () => {
+    const user = userEvent.setup();
+    renderScreen("/users");
+    await lastRequest();
+    await waitFor(() => {
+      expect(getUsersStats).toHaveBeenCalledTimes(1);
+    });
+
+    await user.click(await screen.findByRole("button", { name: /^Sort by Orders/u }));
+
+    // The list refetches — its rows are ordered and its cursor is minted under one `ORDER BY`.
+    await waitFor(() => {
+      const filters = listUsers.mock.calls[listUsers.mock.calls.length - 1]?.[0] as UsersFilters;
+      expect(filters.sort).toBe("order_count");
+    });
+    // The counts do not. How many accounts match is one answer however the rows are arranged,
+    // and re-asking would flicker a figure an operator may be mid-sentence about, for nothing.
+    expect(getUsersStats).toHaveBeenCalledTimes(1);
+    expect(statTile("accounts").value).toBe(formatted(USER_STATS.matched));
+  });
+
+  it("is asked again when the narrowing itself changes", async () => {
+    const user = userEvent.setup();
+    renderScreen("/users?isBlocked=true");
+    await lastRequest();
+    await waitFor(() => {
+      expect(getUsersStats).toHaveBeenCalledTimes(1);
+    });
+    expect((getUsersStats.mock.calls[0]?.[0] as UsersFilters).isBlocked).toBe(true);
+
+    // A chip IS the narrowing, written out — so dropping one is the press that must re-ask, or
+    // the numbers sitting under the chip row go on describing a population the rows below them
+    // no longer belong to, with the chip that explained them already gone.
+    await user.click(screen.getByRole("button", { name: /^Remove filter/u }));
+
+    await waitFor(() => {
+      expect(getUsersStats).toHaveBeenCalledTimes(2);
+    });
+    expect((getUsersStats.mock.calls[1]?.[0] as UsersFilters).isBlocked).toBeNull();
+  });
+
+  it("draws dashes and its own note when the counts cannot be taken, and keeps the table", async () => {
+    listUsers.mockResolvedValue({ ok: true, data: ONE_ROW_PAGE });
+    getUsersStats.mockResolvedValue({
+      ok: false,
+      code: "NOT_FOUND",
+      // A 404 is the honest shape of this failure: an API build that predates /users/stats. It
+      // is also not retried, unlike a 5xx, so the assertion is about the screen and not a clock.
+      message: "GET /api/users/stats is not available on this API build.",
+      status: 404,
+      endpoint: "GET /api/users/stats",
+      correlationId: "c-404",
+      issues: null,
+      details: null,
+      retryAfterS: null,
+    });
+    renderScreen("/users");
+    await lastRequest();
+
+    // The strip says it in its own space, with the endpoint and the correlation id an operator
+    // would quote — not as a caption, and not by borrowing the table's note.
+    expect(
+      await screen.findByText("GET /api/users/stats is not available on this API build."),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/GET \/api\/users\/stats · c-404/u)).toBeInTheDocument();
+
+    // An em dash, never a 0. "0 accounts match" is a sentence an operator would act on, and it
+    // would be a fabrication: nothing was counted.
+    expect(statTile("accounts").value).toBe("—");
+    expect(statTile("reachable").value).toBe("—");
+
+    // And the records are still on screen. A caption that could not be computed says nothing
+    // about whether the rows beneath it are true, and they are what the operator came for.
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getAllByRole("row").length).toBeGreaterThan(1);
   });
 });

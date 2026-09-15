@@ -4,16 +4,39 @@
 #
 # TWO THINGS ENFORCE THE VENDOR-KEY SEPARATION, AND THEY ARE INDEPENDENT ON PURPOSE.
 #
-#   1. BAYRAM_ADMIN_ENV_FILE points at /etc/bayram/admin.env, a DIFFERENT file from the bot's.
-#      AdminSettings has no field that could hold a vendor credential, and the lifespan
-#      refuses to boot in prod if one is within reach — in the environment or in that file.
-#   2. InaccessiblePaths=/etc/bayram/bot.env. The application-level refusal is a check this
-#      process performs on itself; this one is the kernel's, and it survives a future edit
-#      that points BAYRAM_ADMIN_ENV_FILE at the wrong file. Belt and braces, because the whole
+#   1. EnvironmentFile= points at /etc/bayram/bayram-admin.env, a DIFFERENT file from the
+#      bot's. AdminSettings has no field that could hold a vendor credential, and the
+#      lifespan refuses to boot in prod if one is within reach — in the environment or in
+#      that file.
+#   2. InaccessiblePaths= on the bot's env file. The application-level refusal is a check
+#      this process performs on itself; this one is the kernel's, and it survives a future
+#      edit that points the unit at the wrong file. Belt and braces, because the whole
 #      reason this is a third process is to keep the blast radius of a panel compromise
 #      away from four credentials.
 #
 # Every operational action that needs a credential is an ARQ job bayram-worker performs.
+#
+# RECONCILED WITH THE INSTALLED UNIT, 2026-09-15. This file was a proposal and the machine
+# had moved past it; two lines were wrong in a way that matters and are now what
+# `systemctl cat bayram-admin.service` prints on the host.
+#
+#   * The environment reaches this process through systemd's EnvironmentFile=, NOT through
+#     the BAYRAM_ADMIN_ENV_FILE selector this repository's documentation is built around.
+#     That distinction is not cosmetic: the selector is what the boot log's `env_file` field
+#     reports, so on this host that field names a file which is not the configuration
+#     source and may not exist. Anyone debugging "the variable I set is not being read"
+#     must edit /etc/bayram/bayram-admin.env and ignore the log line. See
+#     docs/deployment/02-configuration.md, §"Precedence, and the one failure the error
+#     message cannot describe".
+#   * The interpreter is /opt/bayram/venv/bin/python, not a .venv under a /srv tree. The
+#     /srv/bayram shape below is this repository's proposal and does not exist on the host.
+#
+# STILL UNRECONCILED, AND DELIBERATELY NOT GUESSED AT: WorkingDirectory= and the
+# Documentation= URL below still carry the /srv/bayram proposal. WorkingDirectory is
+# load-bearing — BAYRAM_ADMIN_DATA_ROOT defaults to the RELATIVE path `var`, so the panel
+# and the worker agree about where archived media lives only if they share a working
+# directory. Read it off the host with `systemctl show -p WorkingDirectory bayram-admin`
+# before deploying this file anywhere; do not assume the line below.
 
 [Unit]
 Description=Bayram — admin API
@@ -26,8 +49,8 @@ Type=simple
 User=bayram
 Group=bayram
 WorkingDirectory=/srv/bayram
-Environment=BAYRAM_ADMIN_ENV_FILE=/etc/bayram/admin.env
-ExecStart=/srv/bayram/.venv/bin/python -m uvicorn bayram.admin.app:app --host 127.0.0.1 --port 8080
+EnvironmentFile=/etc/bayram/bayram-admin.env
+ExecStart=/opt/bayram/venv/bin/python -m uvicorn bayram.admin.app:app --host 127.0.0.1 --port 8080
 Restart=always
 RestartSec=5s
 StandardOutput=journal
@@ -47,7 +70,11 @@ RestrictNamespaces=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
-InaccessiblePaths=/etc/bayram/bot.env
+# Both spellings, because the guard is worthless if it names a file that no longer exists
+# and systemd tolerates a listed path that is absent. The admin env file is verifiably
+# `bayram-admin.env` on the host, so the bot's is almost certainly `bayram-bot.env` under
+# the same convention — but "almost certainly" is not a basis for dropping the old name.
+InaccessiblePaths=/etc/bayram/bayram-bot.env /etc/bayram/bot.env
 
 [Install]
 WantedBy=multi-user.target

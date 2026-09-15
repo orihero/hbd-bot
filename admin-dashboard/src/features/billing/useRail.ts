@@ -1,5 +1,5 @@
 /**
- * The rail section's five reads and three writes, as hooks.
+ * The rail section's seven reads and three writes, as hooks.
  *
  * `api/billing.ts` fetches and `lib/adminQuery.ts` holds the shared error, retry policy and
  * option bundles; this is the layer between them, and it makes four decisions the screens
@@ -24,12 +24,21 @@
  * left exactly as they were, because a pause changed none of them and re-rendering them as
  * "unknown" for one frame would be a lie in the other direction.
  *
- * **The notify invalidates the dossier and nothing else.** It enqueues a job; `notified_at` is
- * stamped by the WORKER, seconds later, inside `mark_intent_notified`'s `WHERE notified_at IS
- * NULL`. So the row does not change synchronously and there is nothing to seed — invalidating
- * is a round trip that asks again in a moment, which is honest, where a `setQueryData` would
- * assert a stamp that has not been written. The payments LIST is invalidated too, because
- * `notifiedAt` is a column on it and `?attention=paid_unnotified` is a filter over it.
+ * **The notify invalidates the dossier, the lists AND the attention counters.** It enqueues a
+ * job; `notified_at` is stamped by the WORKER, seconds later, inside `mark_intent_notified`'s
+ * `WHERE notified_at IS NULL`. So the row does not change synchronously and there is nothing to
+ * seed — invalidating is a round trip that asks again in a moment, which is honest, where a
+ * `setQueryData` would assert a stamp that has not been written. The payments LIST is
+ * invalidated too, because `notifiedAt` is a column on it and `?attention=paid_unnotified` is a
+ * filter over it — and the attention counters for exactly the same reason, since
+ * `paidNeverAnnounced` counts that same population from the same predicate.
+ *
+ * **The two aggregates are windowed differently, because the server windows them differently.**
+ * The funnel takes the screen's date range, so the strip above the table answers the question
+ * the table is answering. The attention counters take NO window ever — a payment stuck last
+ * Tuesday is still stuck today, and scoping those counts to a date picker would hide exactly
+ * the rows they exist to find. That asymmetry is on the wire (`getAttention` has no `from`), and
+ * it is mirrored here rather than smoothed over: one key carries the window, the other cannot.
  */
 
 import {
@@ -41,14 +50,18 @@ import {
 } from "@tanstack/react-query";
 
 import {
+  getAttention,
   getIntentDossier,
   getIntentLookup,
+  getRailFunnel,
   getRailStatus,
   listCalls,
   listIntents,
   postIntentNotify,
   postRailPause,
   postRailResume,
+  type Attention,
+  type BillingWindowQuery,
   type CallFilters,
   type CallPage,
   type IntentDossier,
@@ -58,6 +71,7 @@ import {
   type LookupQuery,
   type NotifyEnqueued,
   type NotifyRequest,
+  type RailFunnel,
   type RailStatus,
   type RailSwitch,
   type RailSwitchRequest,
@@ -102,6 +116,19 @@ export function intentsFilterKey(filters: IntentFilters): FilterKey {
   });
 }
 
+/**
+ * The canonical projection of a windowed aggregate's range.
+ *
+ * `filterKey` drops a null or empty bound, which is what makes "the whole record" ONE cache
+ * entry however the screen spelled it — and it matters more here than on a list, because an
+ * unwindowed funnel is a genuinely different answer from a windowed one (`window` comes back
+ * `null` rather than as a pair of instants) and two keys for it would leave one of them stale
+ * and nobody looking at it.
+ */
+export function railWindowKey(window: BillingWindowQuery): FilterKey {
+  return filterKey({ from: window.from, to: window.to });
+}
+
 /** The same projection for the inbound journal. */
 export function callsFilterKey(filters: CallFilters): FilterKey {
   return filterKey({
@@ -131,6 +158,16 @@ export const railKeys = {
   callLists: () => [RAIL_ROOT, "calls"] as const,
   calls: (filters: CallFilters, page: CountedPageRequest) =>
     [RAIL_ROOT, "calls", callsFilterKey(filters), countedPageKey(page)] as const,
+  /** Every window of the funnel. What a write that moves a COUNT would invalidate. */
+  funnels: () => [RAIL_ROOT, "funnel"] as const,
+  funnel: (window: BillingWindowQuery) =>
+    [RAIL_ROOT, "funnel", railWindowKey(window)] as const,
+  /**
+   * The three populations an operator can act on. No window in the key, because there is none
+   * on the wire — see the module header. One entry, which is why a write can invalidate it by
+   * name rather than by prefix.
+   */
+  attention: () => [RAIL_ROOT, "attention"] as const,
   /** Everything held about one payment. */
   payment: (intentId: string | null) => [RAIL_ROOT, "payment", intentId] as const,
   dossier: (intentId: string | null) => [RAIL_ROOT, "payment", intentId, "dossier"] as const,
@@ -263,6 +300,58 @@ export function useIntentLookup(
 }
 
 /* -------------------------------------------------------------------------- */
+/* The aggregates                                                              */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Where a window's payments got to, on both sides of the rail, plus the RPC volume.
+ *
+ * `dashboard.read`, which `permissions.py` gives to every role including VIEWER — so unlike the
+ * pause switch there is nothing to hide here and no `rbac.ts` cell to mirror. A caller that
+ * gated this on a role would be stricter than the server for no gain.
+ *
+ * `LIST_READ`, so a window change SWAPS the figures instead of blanking them; the caller reads
+ * `isPlaceholderData` and must not present the previous window's counts as this one's. There is
+ * no timer, for the same reason the list has none: the figures above a ledger somebody is
+ * reading should not move while they read it, and the freshness signal is the tab regaining
+ * focus.
+ *
+ * Both count fields are SPARSE `{state, count}` lists — a state with no rows is absent, never
+ * zero — so a caller sums or selects a state; it must not index a fixed set of bars.
+ */
+export function useRailFunnel(
+  window: BillingWindowQuery,
+): UseQueryResult<RailFunnel, AdminQueryError> {
+  return useQuery<RailFunnel, AdminQueryError>({
+    queryKey: railKeys.funnel(window),
+    queryFn: ({ signal }) => unwrap(getRailFunnel(window, signal)),
+    ...LIST_READ,
+  });
+}
+
+/**
+ * The three populations an operator can act on, as of one instant.
+ *
+ * The cutoff is deliberately NOT passed: the server's default is the one every unqualified
+ * reader sees, and threading the list's `staleAfterHours` in here would make the strip's total
+ * move when somebody edited a filter chip — a count of what is stuck would then depend on what
+ * the operator happened to be looking at. The chip that carries a cutoff into `?attention=` is
+ * a different question, asked of the LIST, and it keeps its own answer.
+ *
+ * No timer here either, and the reason is the invalidation below rather than indifference: the
+ * one write in this console that moves `paidNeverAnnounced` is the notify, and it invalidates
+ * this key by name. A poll would be asking the server to tell us what our own mutation already
+ * knows.
+ */
+export function useAttention(): UseQueryResult<Attention, AdminQueryError> {
+  return useQuery<Attention, AdminQueryError>({
+    queryKey: railKeys.attention(),
+    queryFn: ({ signal }) => unwrap(getAttention(undefined, signal)),
+    ...LIST_READ,
+  });
+}
+
+/* -------------------------------------------------------------------------- */
 /* The writes                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -307,10 +396,11 @@ export function useRailSwitch(): UseMutationResult<
 /**
  * Re-send one payment's confirmation.
  *
- * Invalidates the dossier and the payments lists and seeds nothing: the worker stamps
- * `notified_at`, not this response, so a `setQueryData` here would assert a fact that has not
- * been written yet. A 409 carrying `details.refusalCode` is the server re-checking the three
- * refusals the dossier already published — read it with `notifyRefusalOf`, never by casting.
+ * Invalidates the dossier, the payments lists and the attention counters, and seeds nothing:
+ * the worker stamps `notified_at`, not this response, so a `setQueryData` here would assert a
+ * fact that has not been written yet. A 409 carrying `details.refusalCode` is the server
+ * re-checking the three refusals the dossier already published — read it with
+ * `notifyRefusalOf`, never by casting.
  */
 export function useNotifyPayment(): UseMutationResult<
   NotifyEnqueued,
@@ -327,6 +417,22 @@ export function useNotifyPayment(): UseMutationResult<
     onSuccess: (_result, variables) => {
       void queryClient.invalidateQueries({ queryKey: railKeys.payment(variables.intentId) });
       void queryClient.invalidateQueries({ queryKey: railKeys.intentLists() });
+      /*
+       * And the attention counters, because `paidNeverAnnounced` is the one figure in this
+       * console that THIS mutation moves. It counts the same population as
+       * `?attention=paid_unnotified` — paid, and never announced — from the same predicate, so
+       * a notify that refreshed the rows and left the counts alone would leave a strip reading
+       * "3 need attention" directly above a table that has just dropped to two. Of the two
+       * surfaces the stale one is the one an operator trusts, because it is the one they can
+       * read without scrolling.
+       *
+       * The funnel is deliberately NOT invalidated. It counts intents and rail-side
+       * transactions by STATE and the RPC volume; a re-sent confirmation changes none of them —
+       * `notified_at` appears in no term of it — so invalidating it would be a round trip that
+       * can only return the same numbers, on a route that runs four grouped counts and three
+       * probes against the payments table.
+       */
+      void queryClient.invalidateQueries({ queryKey: railKeys.attention() });
     },
     ...PRIVILEGED_WRITE,
   });

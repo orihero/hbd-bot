@@ -95,8 +95,8 @@ import type { VendorUnitsProps } from "@/features/dashboard/charts/VendorUnits";
 export type StatDot = readonly [id: string, label: string, state: ComponentState];
 
 /**
- * A card that has a number, and a card that does not. The second arm carries only the pill
- * copy, because there is nothing else honest to put in the value slot.
+ * A card that has a number, and a card that does not. The second arm carries the pill copy
+ * and — when the response said so — the wire's own name for WHY there is no number.
  *
  * `unit` and `dots` are OVERRIDES of the `CardSpec` defaults: `unit` for a wire currency the
  * spec did not assume, `dots` for the one card that draws a status strip.
@@ -114,7 +114,30 @@ export type CardValue =
       readonly dots?: readonly StatDot[];
       readonly spark?: readonly number[];
     }
-  | { readonly tag: string };
+  | {
+      /**
+       * English pill copy, from `REASON_TAG` below or from an adapter that inferred the
+       * absence itself (`not polled`, `4h stale`, `never delivered`). It is prose and it is
+       * not translated, which is exactly why it is not what the card renders.
+       */
+      readonly tag: string;
+      /**
+       * The MACHINE reason, verbatim from the response, for the absences the server names.
+       *
+       * It rides beside `tag` rather than replacing it because the two are different kinds of
+       * thing: `tag` is a sentence somebody wrote, `reason` is a closed vocabulary the backend
+       * promises to keep closed (`AbsenceReason`, six members, each one a state an operator
+       * can act on — see the enum's own docstring). Only a member of that vocabulary can be
+       * translated, so only a member of it can reach a card in the reader's own language;
+       * `unavailableKey` below is the one sanctioned way to turn it into copy.
+       *
+       * ABSENT rather than null for an absence nobody named: an adapter that reached "there is
+       * no figure here" on its own (an empty balance list, a percentile with no samples) has
+       * no wire reason to quote, and inventing the nearest-looking member would be this module
+       * telling an operator to go and configure something the server never complained about.
+       */
+      readonly reason?: AbsenceReason;
+    };
 
 /** A section's contribution. The page spreads the four together into one lookup. */
 export type CardValues = Readonly<Partial<Record<CardKey, CardValue>>>;
@@ -384,8 +407,78 @@ const REASON_TAG: Record<AbsenceReason, string> = {
   not_instrumented: "not tracked",
 };
 
-function tag(reason: AbsenceReason | null, fallback: string): CardValue {
-  return { tag: reason === null ? fallback : REASON_TAG[reason] };
+/**
+ * The translation key each reason is captioned with, and the reason this module knows about
+ * i18n keys at all.
+ *
+ * A key is not copy. The four sentences an operator actually reads live in the locale files
+ * with every other string on the console; what lives here is which of them belongs to which
+ * wire member, and that is a question about the response's vocabulary — the one thing this
+ * module is for. The alternative was a `switch` in `StatCard`, where a missing arm is a card
+ * that quietly renders nothing.
+ *
+ * `Record<AbsenceReason, …>` is the point of the shape. When the backend adds a seventh member
+ * to its enum — and it is meant to, the docstring invites it — the SPA's `ABSENCE_REASON_VALUES`
+ * gains it, this table stops compiling, and somebody has to decide what an operator should be
+ * told. A lookup table typed `Record<string, …>` would instead ship a blank card with no
+ * caption, which is precisely the failure being fixed here.
+ */
+export type UnavailableKey =
+  | "common.stats.unavailable.noFxRate"
+  | "common.stats.unavailable.noPricePublished"
+  | "common.stats.unavailable.mixedCurrencies"
+  | "common.stats.unavailable.notPriced"
+  | "common.stats.unavailable.noDenominator"
+  | "common.stats.unavailable.notInstrumented";
+
+const REASON_KEY: Record<AbsenceReason, UnavailableKey> = {
+  no_fx_rate: "common.stats.unavailable.noFxRate",
+  no_price_published: "common.stats.unavailable.noPricePublished",
+  mixed_currencies: "common.stats.unavailable.mixedCurrencies",
+  not_priced: "common.stats.unavailable.notPriced",
+  no_denominator: "common.stats.unavailable.noDenominator",
+  not_instrumented: "common.stats.unavailable.notInstrumented",
+};
+
+/**
+ * The caption key for a card that has no number, or `null` when there is nothing to say.
+ *
+ * Three ways to get `null`, and they are not the same silence: a MEASURED card has no absence
+ * to explain, a card still in flight has not been told yet, and a card whose absence nobody
+ * named — `not polled`, `never answered`, `4h stale` — has only this module's own prose, which
+ * is not translated and so cannot be printed to a reader whose console is in Russian.
+ *
+ * The lookup is guarded even though `reason` is typed, because the type is a promise about the
+ * wire and this is the browser. A response that got past the parser with a member this build
+ * has never heard of — a bucket name in the reason slot, a seventh enum member from a newer
+ * server — resolves to `null` and the card prints its dash alone. What it must never do is
+ * fall back to printing the raw member: `no_fx_rate` is transport, and an operator shown a
+ * snake_case identifier has been handed a bug report to file instead of a thing to do.
+ */
+export function unavailableKey(value: CardValue | undefined): UnavailableKey | null {
+  if (value === undefined || !("tag" in value) || value.reason === undefined) return null;
+  /* The same table, read the way the WIRE can address it: any string, and nearly all of them
+     absent. Indexed as `Record<AbsenceReason, …>` the compiler proves the lookup total and the
+     `?? null` below becomes dead code it is right to flag — which is only true of a response
+     that really did carry one of the six. This alias is what keeps the guard alive. */
+  const lookup: Readonly<Record<string, UnavailableKey | undefined>> = REASON_KEY;
+  return lookup[value.reason] ?? null;
+}
+
+/**
+ * The absent arm, from the reason the response gave and the one this module falls back to.
+ *
+ * `fallback` is an `AbsenceReason` and not a phrase, which is what lets every finance card
+ * caption itself. Each of the five call sites below already passed the exact prose of one
+ * member — `tag(net.unavailableReason, "not priced")` is `REASON_TAG.not_priced` spelled out —
+ * so naming the member instead changes not one character of the pill copy and gives the card
+ * something it can translate when the server leaves `unavailableReason` null. A null there is
+ * common: several of these figures are absent because a nullable amount came back null, and
+ * only some of those paths on the server bother to say which kind of absence it was.
+ */
+function tag(reason: AbsenceReason | null, fallback: AbsenceReason): CardValue {
+  const named = reason ?? fallback;
+  return { tag: REASON_TAG[named], reason: named };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -488,7 +581,7 @@ export function adaptFinance(r: FinanceResponse): CardValues {
      are never added to it. No trend on this wire, so no delta rather than a fabricated one. */
   const derived = r.derivedRevenue;
   if (derived.amountMinor === null || derived.currency === null || derived.unitPriceMinor === null) {
-    out["totalRevenue"] = tag(derived.unavailableReason, "no price published");
+    out["totalRevenue"] = tag(derived.unavailableReason, "no_price_published");
   } else {
     const amount = money(derived.amountMinor, derived.currency);
     out["totalRevenue"] = {
@@ -512,7 +605,7 @@ export function adaptFinance(r: FinanceResponse): CardValues {
      wire. */
   out["vendorSpend"] =
     spend.amountUsd === null
-      ? tag(spend.unavailableReason, "not tracked")
+      ? tag(spend.unavailableReason, "not_instrumented")
       : {
           value: formatUsd(spend.amountUsd),
           delta: "",
@@ -522,7 +615,7 @@ export function adaptFinance(r: FinanceResponse): CardValues {
   const perSong = cps.perSongUsd;
   out["costPerSong"] =
     perSong === null || perSong.value === null
-      ? tag(cps.cost.unavailableReason ?? (cps.deliveredOrders === 0 ? "no_denominator" : null), "not tracked")
+      ? tag(cps.cost.unavailableReason ?? (cps.deliveredOrders === 0 ? "no_denominator" : null), "not_instrumented")
       : {
           value: formatUsd(perSong.value),
           delta: "",
@@ -533,13 +626,13 @@ export function adaptFinance(r: FinanceResponse): CardValues {
      picker above it, and ARR is the server's `net × 365 ÷ days` — not MRR × 12. */
   const net = r.netRunRate;
   if (net.netMinor === null || net.currency === null) {
-    out["mrr"] = tag(net.unavailableReason, "not priced");
+    out["mrr"] = tag(net.unavailableReason, "not_priced");
   } else {
     const m = money(net.netMinor, net.currency);
     out["mrr"] = { value: m.value, unit: m.unit, delta: "" };
   }
   if (net.annualisedMinor === null || net.currency === null) {
-    out["arr"] = tag(net.unavailableReason, "not priced");
+    out["arr"] = tag(net.unavailableReason, "not_priced");
   } else {
     const m = money(net.annualisedMinor, net.currency);
     out["arr"] = { value: m.value, unit: m.unit, delta: "" };

@@ -790,15 +790,17 @@ warning nobody is watching.
 > `environment` are closed `Literal`s, so a *typo* cannot produce this; only a file saying `dev`
 > can, and one does. Where the value is readable without privilege: all four boot lines print it.
 
-Three further values are *mirrored* from the worker into `AdminSettings` because the panel
+**Four** further values are *mirrored* from the worker into `AdminSettings` because the panel
 deliberately cannot read the bot's file — that separation is the vendor-key boundary
-(`src/bayram/admin/settings.py:258-262`):
+(`src/bayram/admin/settings.py:258-262`). The fourth, the song price, is the subject of its own
+section below because it does not merely drift: unset, it takes a card off the Finances tab.
 
 | Worker variable | Admin mirror | If they drift |
 | --- | --- | --- |
 | `BAYRAM_NAME_MATCH_MIN_SIMILARITY` | `BAYRAM_ADMIN_NAME_MATCH_MIN_SIMILARITY` | The threshold marker lands in the wrong place on the similarity histogram. Blank means "not published" and draws no marker, which is honest. |
 | `BAYRAM_SETTLEMENT_GRACE_S` (or its derivation) | `BAYRAM_ADMIN_SETTLEMENT_GRACE_S` | `inFlightRenderCount` — the number that explains a refusal to a customer on the phone — diverges from the gate that produced the refusal. `AdminSettings` holds no queue fields, so it cannot re-derive; this must be set by hand whenever the queue ladder moves. |
 | `BAYRAM_FREE_ALLOWANCE_CREDITS` | `BAYRAM_ADMIN_FREE_ALLOWANCE_CREDITS` | A wrong `creditsProjected`. This mirror exists *because* the defect shipped: defaulting the allowance added 3 credits to every account in the fleet, forever (`src/bayram/admin/settings.py:302-312`). |
+| `BAYRAM_SINGLE_SONG_PRICE_MINOR` | `BAYRAM_ADMIN_SINGLE_SONG_PRICE_MINOR` + `BAYRAM_ADMIN_KIT_CURRENCY` | "Est. revenue" prices its hypothetical at a figure this deployment does not charge. Blank is honest and is the shipped state — the card renders an em dash reading `no_price_published`. See §"The four finance variables" below; note this mirror is a **pair**, and half a pair is a boot refusal rather than a drift. |
 
 > **`extra="ignore"` makes every one of these drifts silent.** Writing
 > `BAYRAM_ADMIN_FREE_ALLOWANCE_CREDITS` into `.env` discards it; writing
@@ -811,38 +813,163 @@ deliberately cannot read the bot's file — that separation is the vendor-key bo
 
 ---
 
+## The four finance variables — what an em dash on the Finances tab actually means
+
+`BAYRAM_ADMIN_SINGLE_SONG_PRICE_MINOR`, `BAYRAM_ADMIN_KIT_CURRENCY`, `BAYRAM_ADMIN_UZS_PER_USD`
+and `BAYRAM_ADMIN_UZS_PER_USD_AS_OF`. **Two pairs, mirrored into the admin process by hand,
+unset on this host, and the whole reason three cards on the Finances tab read as blank.** This
+section exists because that blankness was read as an outage and investigated as one.
+
+### What the panel is actually doing
+
+`GET /api/metrics/dashboard/finance` returns **200** on the live host and the body is full of
+real money: **25 recorded sales — 11 through Payme and 14 through the stub rail — every one in
+UZS, totalling 24 700 000 minor** (247 000 soʻm) `[HOST 2026-09-15]`. Nothing is broken. Three
+derived figures decline to render, each naming its own reason, and each reason is a variable
+nobody has set:
+
+| Card | Renders | Reason carried | Because |
+| --- | --- | --- | --- |
+| **Est. revenue** | em dash | `no_price_published` | `BAYRAM_ADMIN_SINGLE_SONG_PRICE_MINOR` and `BAYRAM_ADMIN_KIT_CURRENCY` are unset. The card prices a *hypothetical* — songs delivered × the shipped price — and there is no shipped price in this process to multiply by. |
+| **MRR** | em dash | `no_fx_rate` | `BAYRAM_ADMIN_UZS_PER_USD` and `BAYRAM_ADMIN_UZS_PER_USD_AS_OF` are unset. Revenue is recorded in UZS tiyin and vendor cost in USD, and nothing in this system holds a rate between them. |
+| **ARR** | em dash | `no_fx_rate` | The same gate, on the same figure. |
+
+`_to_net_run_rate` (`src/bayram/admin/schemas/overview.py:1372`) has **four** gates and refuses on
+the first that fires: `NO_FX_RATE`, then `MIXED_CURRENCIES`, then `NOT_PRICED`
+(`:1416`, `:1418`, `:1420`). **On live data the other three are already satisfied** — the same
+response carries `netRunRate.cost.amountUsd` of `6.3133629`, so `NOT_PRICED` cannot fire, and
+every revenue row is UZS, so `MIXED_CURRENCIES` cannot either `[HOST 2026-09-15]`. **Setting the
+FX pair alone is therefore enough to make both cards render.** The price pair is a separate,
+independent fix for a separate card.
+
+**An em dash is a measurement that was declined, never a zero.** That is this product's rule
+everywhere — a number that could not be measured is absent and names its own reason — and it is
+what makes these three cards diagnosable from the screen alone. Do not "fix" them by inventing a
+rate; fix them by supplying one and owning it.
+
+### What each variable is
+
+- **`BAYRAM_ADMIN_SINGLE_SONG_PRICE_MINOR`** — the price of one song in minor units (UZS tiyin),
+  **mirrored by hand** from the worker's `BAYRAM_SINGLE_SONG_PRICE_MINOR`. The panel reads no
+  `.env` of the worker's — that separation *is* the vendor-key boundary — so it cannot discover
+  the running value, and publishing the bot model's default would put a price on a Finance card
+  that a deployment may not be charging. **The right value today is `1500000` (15 000 soʻm)**:
+  the owner's catalogue decision of 2026-09-14, shipped in commit `604bb3f`, and the amount every
+  settled row on the live Payments screen reads `[HOST 2026-09-15]`.
+- **`BAYRAM_ADMIN_KIT_CURRENCY`** — ISO-4217, exactly three letters. `UZS`. The currency travels
+  with the price for the same reason a vendor cost carries its source: an amount with no currency
+  cannot be summed or compared, and it is checked against `plan_purchases.currency` before any
+  total is formed.
+- **`BAYRAM_ADMIN_UZS_PER_USD`** — soʻm per USD. **Owned by the panel and mirrored from nothing**:
+  every vendor rate card in the product is already quoted in USD, so the bot and the worker have
+  no use for a rate and it is absent from `.env` entirely. There is **no feed** behind it. A
+  person types it.
+- **`BAYRAM_ADMIN_UZS_PER_USD_AS_OF`** — `YYYY-MM-DD`, the date that rate was taken. Mandatory
+  whenever the rate is set. It is the *only* staleness signal the panel has, and the panel renders
+  it beside the rate precisely so that a rate nobody is refreshing is visible rather than silent.
+
+The server never converts: every payload carries the amount in its own currency, the cost in USD,
+and the rate beside them, so a card is reproducible from its own response and editing the rate
+never silently revalues a figure that was already reported.
+
+### BOTH OR NEITHER — the one way to take the panel off the air from this file
+
+**Setting three of these four crash-loops the admin service.** Two model validators bind each
+pair and raise at boot when exactly one half is present:
+
+- `_the_fx_rate_carries_its_date` (`src/bayram/admin/settings.py:553`) — `BAYRAM_ADMIN_UZS_PER_USD`
+  and `BAYRAM_ADMIN_UZS_PER_USD_AS_OF`.
+- `_the_mirrored_price_carries_its_currency` (`src/bayram/admin/settings.py:578`) —
+  `BAYRAM_ADMIN_SINGLE_SONG_PRICE_MINOR` and `BAYRAM_ADMIN_KIT_CURRENCY`.
+
+Neither is a warning and neither degrades to a card without a unit. The process exits, systemd
+restarts it after `RestartSec`, and it exits again — so the symptom is not a wrong number on a
+dashboard, it is **no panel at all**. The two pairs are independent: an FX pair with no price pair
+is a perfectly good deployment, and so is the reverse. **Recovery is to blank *both* lines of the
+offending pair and restart** — never to guess at the missing half.
+
+### Applying them on the host
+
+The admin process reads its configuration **once, at boot**. There is no reload, and the config
+screen in the panel cannot write these.
+
+1. **Edit the file systemd actually feeds the process** —
+   `/etc/bayram/bayram-admin.env`. This is `EnvironmentFile=` on the installed unit
+   (`systemctl cat bayram-admin.service`), **not** the `BAYRAM_ADMIN_ENV_FILE` selector this page
+   is otherwise built around, so the boot log's `env_file` field names a different file and must
+   be ignored here. See §"Precedence, and the one failure the error message cannot describe". It
+   is root-owned and `0640`; the edit needs `sudo`.
+
+   ```
+   BAYRAM_ADMIN_SINGLE_SONG_PRICE_MINOR=1500000
+   BAYRAM_ADMIN_KIT_CURRENCY=UZS
+   BAYRAM_ADMIN_UZS_PER_USD=13000
+   BAYRAM_ADMIN_UZS_PER_USD_AS_OF=2026-09-15
+   ```
+
+   Write all four, or write one complete pair. Never three.
+
+2. **Restart the unit and watch it come back.** `systemd` does not re-read `EnvironmentFile=` on
+   a `reload`, only on a restart:
+
+   ```bash
+   sudo systemctl restart bayram-admin
+   systemctl is-active bayram-admin
+   journalctl -u bayram-admin -n 40 --no-pager
+   ```
+
+   A half-pair shows here as a `ConfigError` naming **both** variables of the pair, repeated once
+   per restart. `is-active` reporting `activating` or `failed` after a few seconds is the crash
+   loop, not a slow boot.
+
+3. **Reload the Finances tab.** The three cards render figures instead of dashes. The FX rate
+   appears beside the converted numbers with its as-of date; if that date is old, the number is
+   old, and that is the mechanism working rather than a display bug.
+
+**Whoever sets the rate owns refreshing it.** The date is the only thing standing between a
+mirrored rate and a number that quietly stops being true, which is why the fallback — leaving both
+blank and letting the panel say `no_fx_rate` — is a legitimate end state and not a half-finished
+one. That trade is recorded as `DECISIONS.md` **D19**.
+
+---
+
 ## Two defects in `.env.admin.example` to fix before copying it
 
 Both were verified against this working tree, not inferred.
 
-**1. Seven variables parse as their own trailing comment.** python-dotenv strips an inline
+**1. Variables that parse as their own trailing comment.** python-dotenv strips an inline
 `#` comment only when the value before it is non-empty; every one of these lines is blank
 before the `#`, so the comment *becomes* the value:
 
 ```
-BAYRAM_ADMIN_TRUSTED_PROXY_CIDRS        .env.admin.example:114
-BAYRAM_ADMIN_NAME_MATCH_MIN_SIMILARITY  :155
-BAYRAM_ADMIN_SETTLEMENT_GRACE_S         :171
-BAYRAM_ADMIN_UZS_PER_USD                :216
-BAYRAM_ADMIN_UZS_PER_USD_AS_OF          :217
-BAYRAM_ADMIN_SINGLE_SONG_PRICE_MINOR    :235
-BAYRAM_ADMIN_KIT_CURRENCY               :236
+BAYRAM_ADMIN_TRUSTED_PROXY_CIDRS        .env.admin.example:123
+BAYRAM_ADMIN_NAME_MATCH_MIN_SIMILARITY  :164
+BAYRAM_ADMIN_SETTLEMENT_GRACE_S         :180
 ```
+
+> **This list was seven long until 2026-09-15 and is now three.** The four finance variables —
+> `BAYRAM_ADMIN_UZS_PER_USD`, `BAYRAM_ADMIN_UZS_PER_USD_AS_OF`,
+> `BAYRAM_ADMIN_SINGLE_SONG_PRICE_MINOR` and `BAYRAM_ADMIN_KIT_CURRENCY` — have had their
+> explanations moved onto their own lines *above* the assignment, which is the fix this
+> section prescribes; they are at `:250`, `:254`, `:293` and `:297` and now parse as genuinely
+> blank. The three above are untouched and are the remaining work. Re-run the check rather
+> than trusting these line numbers, which move whenever a comment above them grows.
 
 Every one is a variable whose own comment says to leave it blank. The
 `_blank_mirror_means_unpublished` validator (`src/bayram/admin/settings.py:433-465`) exists
 solely to make that work and states at `:449` that "the example file ships the variables
-blank, so this is the path an untouched deployment actually takes" — it is not that path,
-because the values are never blank as parsed, so the validator never fires.
+blank, so this is the path an untouched deployment actually takes" — for these three it is
+still not that path, because the values are never blank as parsed, so the validator never
+fires on them.
 
 **2. `BAYRAM_ADMIN_COOKIE_SECURE=` is genuinely blank and is a separate failure.** The field is
 `bool | None` (`src/bayram/admin/settings.py:197`) and pydantic cannot read an empty string as
-either; it is on neither blank-tolerating validator's list. The example file's own line 91
-instructs "Leave empty".
+either; it is on neither blank-tolerating validator's list. The example file's own line 100
+instructs "Leave empty", and the assignment is at `:101`.
 
-Copying the file verbatim therefore produces nine validation errors, before anything
-host-specific is even reached. To see them the way an operator would — as the tidy message
-rather than as a traceback — catch the `ConfigError`:
+Copying the file verbatim therefore produces **five** validation errors — nine before
+2026-09-15 — before anything host-specific is even reached. To see them the way an operator
+would — as the tidy message rather than as a traceback — catch the `ConfigError`:
 
 ```bash
 BAYRAM_ADMIN_ENV_FILE=.env.admin.example python -c "
@@ -864,20 +991,20 @@ The admin panel's configuration is invalid or incomplete. Fix these environment 
   BAYRAM_ADMIN_AUDIT_HMAC_KEY: Value should have at least 32 items after validation, not 0
   BAYRAM_ADMIN_NAME_MATCH_MIN_SIMILARITY: Input should be a valid number, unable to parse string as a number
   BAYRAM_ADMIN_SETTLEMENT_GRACE_S: Input should be a valid integer, unable to parse string as an integer
-  BAYRAM_ADMIN_UZS_PER_USD: Input should be a valid number, unable to parse string as a number
-  BAYRAM_ADMIN_UZS_PER_USD_AS_OF: Input should be a valid date or datetime, invalid character in year
-  BAYRAM_ADMIN_SINGLE_SONG_PRICE_MINOR: Input should be a valid integer, unable to parse string as an integer
-  BAYRAM_ADMIN_KIT_CURRENCY: String should have at most 3 characters
 ```
 
-Without the `try`/`except`, the same call is a 54-line traceback whose *first* exception is a
-raw `pydantic_core._pydantic_core.ValidationError: 9 validation errors for AdminSettings`; the
+That output is the command's, run against this tree on 2026-09-15 `[TREE 2026-09-15]`. The four
+finance lines that used to close the list are gone from it, which is what "moving the comment
+above the variable" buys and is the evidence that the prescribed fix works.
+
+Without the `try`/`except`, the same call is a traceback whose *first* exception is a
+raw `pydantic_core._pydantic_core.ValidationError: 5 validation errors for AdminSettings`; the
 message above is only the last line of it. That is what a bare one-liner shows, and it is why
 the boot paths catch (`src/bayram/admin/settings.py:666-680`).
 
-Only `BAYRAM_ADMIN_AUDIT_HMAC_KEY` is a real "you have not filled this in yet". The other eight
+Only `BAYRAM_ADMIN_AUDIT_HMAC_KEY` is a real "you have not filled this in yet". The other four
 are the file's own formatting. The fix in the file is to move each inline comment onto its
-own line above the variable; the fix in a copy you have already made is to delete the eight
+own line above the variable; the fix in a copy you have already made is to delete the four
 offending lines' values (and delete the `BAYRAM_ADMIN_COOKIE_SECURE` line entirely — `None` is
 the default and it derives to `True`, `src/bayram/admin/settings.py:602-618`).
 

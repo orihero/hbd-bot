@@ -2,12 +2,12 @@
  * The `/api/broadcasts/**` contract, transcribed from `bayram/admin/routers/broadcasts.py` over
  * `bayram/admin/schemas/broadcasts.py`.
  *
- * Eleven routes across two routers: three reads on `broadcast.read` (**M** for all four roles,
+ * Twelve routes across two routers: four reads on `broadcast.read` (**M** for all four roles,
  * because a campaign record holds operator copy, closed enums and counters and no customer data
  * at all), and eight writes on `broadcast.write` (ADMIN and OWNER), two of which enforce
  * `broadcast.send`'s step-up INSIDE the handler on the campaign id.
  *
- * ## Five rules this module encodes, all of them the backend's
+ * ## Six rules this module encodes, all of them the backend's
  *
  * **The audience is frozen by `POST /api/broadcasts` and by nothing else.** The recipient rows
  * are materialised from the segment at creation, so `expectedAudienceSize` — the wizard's
@@ -41,6 +41,16 @@
  * empty, so the route answers `403 FORBIDDEN` until a deployment names the operators' own ids.
  * The step-up runs first, before the 404 and before the allowlist, so a refusal discloses
  * neither which campaigns nor which ids exist.
+ *
+ * **The strip is a SIBLING route, and it publishes integers where a percentage would fit.**
+ * `GET /api/broadcasts/stats` takes the list's identical filter dependency and answers for the
+ * whole filter set rather than for a page, which is why it is its own URL and not `meta` on the
+ * list: on `meta` it would be recomputed on every `?cursor=` an operator turns, for numbers that
+ * did not change. {@link BroadcastStatsView.reachedRecipients} and `audienceTotal` cross as the
+ * two counts they were formed from — a reader can see what was divided and check it against the
+ * rows — and `lastSendAt` is `null` for a deployment that has never sent anything, which is a
+ * fact and not an instant. Its `total` is EXACT, unlike the list's capped `meta.total`; the two
+ * disagree above the cap and a screen that draws both is drawing one number twice.
  *
  * ## Two counts of the same funnel, and the panel shows both
  *
@@ -300,6 +310,50 @@ export const broadcastsPageSchema = z.object({
   meta: pageMetaSchema,
 });
 export type BroadcastsPage = z.infer<typeof broadcastsPageSchema>;
+
+/** One segment of the strip: a state, and how many campaigns in the filter set are in it. */
+export const broadcastStateTotalViewSchema = z.object({
+  state: broadcastStateSchema,
+  count: z.number().int(),
+});
+export type BroadcastStateTotalView = z.infer<typeof broadcastStateTotalViewSchema>;
+
+/**
+ * The aggregate above the campaign list, for its WHOLE filter set rather than for a page.
+ *
+ * **`counts` carries every `BroadcastState`, in enum order, and a zero is a real answer here.**
+ * The vocabulary is closed, so a state with no campaigns is a question the response answers
+ * rather than one it leaves out — the opposite of a time series, where a day nobody measured has
+ * to stay missing. A consumer must still look a member UP rather than trusting its position: a
+ * member this build does not find is a figure that was not published, and it renders as absent,
+ * never as `0`.
+ *
+ * **`reachedRecipients` and `audienceTotal` are two integers and never a percentage.** The pair
+ * is what a screen draws "1 240 of 1 500" from, and what lets a reader check the quotient against
+ * the rows. `audienceTotal === 0` is a rate with no denominator, which is not a number: render a
+ * dash and say why, not "0%".
+ *
+ * **`lastSendAt` is `null` when no campaign in this filter set has ever STARTED.** It is
+ * `MAX(broadcasts.started_at)`, a column that stays NULL until the first message of a run leaves.
+ * The null crosses as a null and must be rendered as an absence — an epoch, a creation date or
+ * the word "never" spelled as a zero would each read as a send nobody made.
+ *
+ * `total` is the sum of the segments and is EXACT, unlike `BroadcastsPage`'s `meta.total`, which
+ * saturates at the server's count cap. The two therefore disagree above that cap and should.
+ */
+export const broadcastStatsViewSchema = z.object({
+  counts: z.array(broadcastStateTotalViewSchema),
+  total: z.number().int(),
+  /** Recipient rows these campaigns are FINISHED with — sent, failed, skipped, undeliverable and
+      unknown alike. The numerator, and not a count of deliveries. */
+  reachedRecipients: z.number().int(),
+  /** What those campaigns froze into their audiences at creation. The denominator, and the number
+      a human authorised — never shrunk to a half-written expansion to flatter the ratio. */
+  audienceTotal: z.number().int(),
+  /** The most recent instant a run STARTED, UTC, or `null`. See the schema comment. */
+  lastSendAt: timestampSchema.nullable(),
+});
+export type BroadcastStatsView = z.infer<typeof broadcastStatsViewSchema>;
 
 /**
  * One language's message, as composed and as it will be sent.
@@ -683,6 +737,29 @@ function broadcastsQuery(filters: BroadcastsFilters, page: PageRequest): string 
 }
 
 /**
+ * The strip's filters: the list's, minus the two things a strip has no use for.
+ *
+ * **No page**, because the aggregate is over the whole filter set and a cursor would narrow it to
+ * the twenty campaigns somebody happens to be looking at — a strip that changed as an operator
+ * paged would be describing the page and calling it the total.
+ *
+ * **No `withTotal`**, because `total` here is the sum of the segments and is already exact. There
+ * is no second query to opt into and no cap to disclose, so the parameter would be a flag the
+ * server does not read and a second spelling of one request in the cache.
+ */
+export type BroadcastsStatsFilters = Omit<BroadcastsFilters, "withTotal">;
+
+function statsQuery(filters: BroadcastsStatsFilters): string {
+  const params = new URLSearchParams();
+  appendEach(params, "state", filters.state);
+  appendEach(params, "kind", filters.kind);
+  appendParam(params, "from", filters.from);
+  appendParam(params, "to", filters.to);
+  appendParam(params, "q", filters.q);
+  return queryOf(params);
+}
+
+/**
  * One campaign's ledger filters. **There is no window and no cross-campaign read.**
  *
  * Every row of one campaign was written by one expansion within minutes of itself, so a date range
@@ -726,6 +803,7 @@ function recipientsQuery(filters: BroadcastRecipientsFilters, page: PageRequest)
  */
 export const BROADCASTS_ENDPOINT = {
   list: "GET /api/broadcasts",
+  stats: "GET /api/broadcasts/stats",
   detail: "GET /api/broadcasts/{broadcastId}",
   recipients: "GET /api/broadcasts/{broadcastId}/recipients",
   create: "POST /api/broadcasts",
@@ -758,6 +836,29 @@ export function listBroadcasts(
     endpoint: BROADCASTS_ENDPOINT.list,
     path: `${BROADCASTS_PREFIX}${broadcastsQuery(filters, page)}`,
     schema: broadcastsPageSchema,
+    ...(signal === undefined ? {} : { signal }),
+  });
+}
+
+/**
+ * The strip: campaigns per state, what they reached, and the last send — for the whole filter set.
+ *
+ * `/stats` is a fixed segment and the server registers it BEFORE `/{broadcastId}`, so it is not
+ * swallowed by the parameterised route and answered as a 422 about a malformed UUID. Nothing here
+ * addresses a campaign, so the path is built from the prefix and never through `broadcastPath`.
+ *
+ * Counts, closed enum members and one UTC instant. There is no title, no body, no recipient and
+ * no Telegram id on this response — it is an aggregate surface, and nothing on one is about a
+ * person.
+ */
+export function getBroadcastStats(
+  filters: BroadcastsStatsFilters,
+  signal?: AbortSignal,
+): Promise<ApiResult<BroadcastStatsView>> {
+  return request({
+    endpoint: BROADCASTS_ENDPOINT.stats,
+    path: `${BROADCASTS_PREFIX}/stats${statsQuery(filters)}`,
+    schema: broadcastStatsViewSchema,
     ...(signal === undefined ? {} : { signal }),
   });
 }

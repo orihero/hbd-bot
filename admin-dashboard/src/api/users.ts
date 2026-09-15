@@ -221,6 +221,48 @@ export const usersPageSchema = z.object({
 });
 export type UsersPage = z.infer<typeof usersPageSchema>;
 
+/* -------------------------------------------------------------------------- */
+/* GET /api/users/stats                                                        */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * What the population the operator has filtered to is made of — four counts and nothing else.
+ *
+ * **`matched` is EXACT, and that is the point of the route.** It is not the list's
+ * `meta.total`: that one stops at `TOTAL_COUNT_CAP` and says so through `isTotalExact`, and a
+ * strip drawn from a capped count is wrong with nothing on the screen to reveal it. The two
+ * therefore disagree above ten thousand rows by design, which is why this SPA must not print
+ * both about one population — see the comment on the Users toolbar subtitle for which one this
+ * screen decided to keep.
+ *
+ * **The three refusal counts OVERLAP and must never be added up.** `blocked` is our bar and
+ * `botBlocked` is the customer's — opposite facts about opposite subjects — and an account
+ * where both are true is counted in both. So `matched` is not `reachable + blocked +
+ * botBlocked`, and only `reachable` is a complement: neither barred by us nor blocking us.
+ * `UserStatsView` in `schemas/users.py` argues the identical arithmetic beside the fields, and
+ * the two must not drift.
+ *
+ * **Never fold this into any other total.** Every figure is a statement about ONE narrowing
+ * that ONE operator chose a moment ago; two calls with two filter sets count overlapping
+ * people, so summing them produces a number with no population behind it.
+ *
+ * Counts only — no id, no handle, no name, not even the `byLanguage` split
+ * `/api/segments/preview` carries. The breakdown is computed with that split and the server's
+ * projection drops it, because a language breakdown answers no question this strip is asked and
+ * adding it would be a widening of an aggregate surface rather than a formatting choice.
+ */
+export const userStatsViewSchema = z.object({
+  /** Everything the filter set selects. Exact, deliberately unlike the list's bounded total. */
+  matched: z.number().int(),
+  /** `is_blocked IS false AND blocked_bot_at IS NULL` — the only complement of the four. */
+  reachable: z.number().int(),
+  /** Barred by us. Counted whether or not the customer also blocked the bot. */
+  blocked: z.number().int(),
+  /** They blocked the bot. Counted whether or not we also barred them. */
+  botBlocked: z.number().int(),
+});
+export type UserStatsView = z.infer<typeof userStatsViewSchema>;
+
 /** One state with at least one order. States with none are ABSENT, never zero-filled. */
 export const orderStateCountSchema = z.object({
   state: orderStateSchema,
@@ -538,7 +580,19 @@ export interface UsersFilters {
   readonly sortDir?: SortDirection | null;
 }
 
-function usersQuery(filters: UsersFilters, page: PageRequest): string {
+/**
+ * The narrowing, serialised. **One function, so the strip and the table ask one question.**
+ *
+ * `page` is optional and that is the whole seam: `GET /api/users/stats` is the same filter set
+ * as `GET /api/users` with the paging taken off, so it is served by this serialiser MINUS
+ * `appendPage` rather than by a second one that looks like it. A purpose-written query builder
+ * for the aggregate is how the strip above the table ends up describing a larger population
+ * than the rows beneath it while looking exactly correct — the server refuses to let that
+ * happen on its side (`segment_breakdown` shares `_filtered()` with `list_users`), and this is
+ * the same guarantee on ours: a filter added to `UsersFilters` reaches both callers in the
+ * change that adds it, or neither.
+ */
+function usersQuery(filters: UsersFilters, page?: PageRequest): string {
   const params = new URLSearchParams();
   // `withTotal` is sent only when asked: the server's default is false, and `withTotal=false`
   // would be a second spelling of the same request — two react-query keys, two log lines.
@@ -558,7 +612,10 @@ function usersQuery(filters: UsersFilters, page: PageRequest): string {
     appendParam(params, "sort", filters.sort);
     appendParam(params, "sortDir", filters.sortDir);
   }
-  appendPage(params, page);
+  // The aggregate cannot honour a limit or a cursor — it counts every row the filters match —
+  // and the route declares neither, so an omitted `page` sends neither rather than sending a
+  // parameter the handler would silently discard.
+  if (page !== undefined) appendPage(params, page);
   return queryOf(params);
 }
 
@@ -569,6 +626,7 @@ function usersQuery(filters: UsersFilters, page: PageRequest): string {
 /** The route templates, as a failure names them. */
 export const USERS_ENDPOINT = {
   list: "GET /api/users",
+  stats: "GET /api/users/stats",
   detail: "GET /api/users/{telegramUserId}",
   orders: "GET /api/users/{telegramUserId}/orders",
   credits: "GET /api/users/{telegramUserId}/credits",
@@ -593,6 +651,54 @@ export function listUsers(
     endpoint: USERS_ENDPOINT.list,
     path: `${USERS_PREFIX}${usersQuery(filters, page)}`,
     schema: usersPageSchema,
+    ...(signal === undefined ? {} : { signal }),
+  });
+}
+
+/**
+ * The three parameters that are no part of a POPULATION question, set to their neutral values.
+ *
+ * - `withTotal` asks the LIST for its bounded count. `matched` is this route's exact one, so
+ *   carrying the request over would be asking one question twice and being told two answers.
+ * - `sort`/`sortDir` name an ordering, and an ordering over four scalars is not a thing. The
+ *   route does not declare either (`routers/users.py` argues it at length), so sending them
+ *   would put parameters on the wire that the handler discards.
+ *
+ * Neutralised by SPREADING OVER a whole filter set rather than by listing the fields that
+ * survive: a filter added to `UsersFilters` must reach the count in the same change that gives
+ * it to the list, and a hand-written allowlist here is exactly the copy that ends up one filter
+ * behind — the shape where the strip describes a wider population than the rows beneath it and
+ * looks perfectly correct doing it.
+ *
+ * Neutral values rather than absent keys because `usersQuery` already treats the two as one:
+ * `withTotal` is written only when it is `true`, and `sortDir` only ever rides on a `sort`. So
+ * these serialise to nothing at all, which is what the route wants to receive.
+ *
+ * Exported because `useUsers.ts` keys the strip's cache entry on the same three omissions, and
+ * "what is not part of a population question" must have one answer, not two that agree today.
+ */
+export const POPULATION_NEUTRAL: Pick<UsersFilters, "withTotal" | "sort" | "sortDir"> = {
+  withTotal: false,
+  sort: null,
+  sortDir: null,
+};
+
+/**
+ * The four counts behind the Users screen's stat strip, over the CURRENT filter set.
+ *
+ * **The same `usersQuery` the list uses, with no page**, which is what makes "the strip and the
+ * rows are one population" a property of the serialiser rather than of two call sites that
+ * happen to agree with each other today. See the note on `usersQuery`, and
+ * {@link POPULATION_NEUTRAL} for the three parameters that do not travel.
+ */
+export function getUsersStats(
+  filters: UsersFilters,
+  signal?: AbortSignal,
+): Promise<ApiResult<UserStatsView>> {
+  return request({
+    endpoint: USERS_ENDPOINT.stats,
+    path: `${USERS_PREFIX}/stats${usersQuery({ ...filters, ...POPULATION_NEUTRAL })}`,
+    schema: userStatsViewSchema,
     ...(signal === undefined ? {} : { signal }),
   });
 }

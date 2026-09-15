@@ -964,6 +964,128 @@ export const planLiabilityResponseSchema = z.object({
 export type PlanLiabilityResponse = z.infer<typeof planLiabilityResponseSchema>;
 
 /* -------------------------------------------------------------------------- */
+/* GET /api/metrics/name-analytics — the verification question, in one read     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `NameStrategy` — which orthography of a recipient's name a candidate was spelled in.
+ *
+ * Declared here rather than imported from `generations.ts`, which publishes the identical
+ * enum, and for `Language`'s reason one screen up: `generations.ts` imports `languageSchema`
+ * from `users.ts`, `users.ts` imports `orderStateSchema` from THIS module, and an edge from
+ * here to `generations.ts` would close that three-module ring. These schemas are built at
+ * module scope, so the cycle is not a lint complaint — it is a `ReferenceError` at boot in
+ * whichever of the three loads second, on a page that has not drawn a pixel yet.
+ */
+export const NAME_STRATEGY_VALUES = [
+  "canonical",
+  "stripped",
+  "ascii",
+  "cyrillic",
+  "hyphenated",
+  "phonetic",
+] as const;
+export const nameStrategySchema = z.enum(NAME_STRATEGY_VALUES);
+export type NameStrategy = z.infer<typeof nameStrategySchema>;
+
+/**
+ * One bar of the match-confidence histogram.
+ *
+ * `from` is a Python keyword server-side, so the field is declared `from_` there with an
+ * explicit alias TOWARDS this client — the same override `PlanUtilisationBucketView` carries,
+ * and the wire name really is `from`.
+ */
+export const similarityBucketViewSchema = z.object({
+  from: z.number(),
+  to: z.number(),
+  count: z.number().int(),
+});
+export type SimilarityBucketView = z.infer<typeof similarityBucketViewSchema>;
+
+/**
+ * One orthography's row: how it fared, how its scores are distributed, and how many of them
+ * sit within a hair of the threshold that decided them.
+ *
+ * `attempts` counts ONLY the rows where acoustic verification actually ran, so a deployment
+ * with the verifier switched off reads as no data rather than as every strategy failing.
+ * `scored` is its own, smaller number and is reported separately rather than assumed equal: a
+ * verdict can be recorded with no similarity score at all, so the histogram's denominator is
+ * not the bake-off's.
+ *
+ * `verificationRate` is NOT nullable here (unlike the top-level one): the server's own
+ * `StrategyOutcome.verification_rate` answers `0.0` for an empty strategy — though a strategy
+ * with no attempts in the window is absent from the list entirely, which is the gap the chart
+ * renders as "no attempts" rather than as a bar of height zero.
+ */
+export const strategyAnalysisViewSchema = z.object({
+  strategy: nameStrategySchema,
+  attempts: z.number().int(),
+  verified: z.number().int(),
+  verificationRate: z.number(),
+  /** Rows carrying a similarity score. Never `attempts` — see above. */
+  scored: z.number().int(),
+  /** Null when this deployment publishes no threshold — never `0`, which would read as
+   * "nothing sits near the cliff" on a deployment that never drew a cliff. */
+  nearThreshold: z.number().int().nullable(),
+  buckets: z.array(similarityBucketViewSchema),
+});
+export type StrategyAnalysisView = z.infer<typeof strategyAnalysisViewSchema>;
+
+/**
+ * `GET /api/metrics/name-analytics` — "is name verification working", in one windowed read.
+ *
+ * `DASHBOARD_READ`, like every other aggregate here, and that matters to a caller mounted on a
+ * `RECORDS_READ` screen: the two permissions are granted separately, so an operator who can
+ * read the render ledger row by row may be refused this read, and the refusal must land in the
+ * one strip that asked for it rather than blanking the ledger beside it.
+ *
+ * **`hasRecordedAttempts` is what makes `attempts: 0` readable, and it is measured with the
+ * window deliberately ignored.** True means "nothing in the range you chose" — the ledger holds
+ * verdicts and the window excludes them, and the remedy is to widen it. False means acoustic
+ * verification has never run on this deployment at all, and there is no remedy on this screen.
+ * A zero cannot say which, and a consumer that prints one is telling the second story to an
+ * operator living in the first.
+ *
+ * **`verificationRate` is a convenience, not the figure to render.** It is `verified /
+ * attempts` as an IEEE double, and a caller that prints it prints the server's rounding.
+ * `verified` and `attempts` are both on this payload precisely so the SPA can form the quotient
+ * itself and decide how it is spelled — and so the denominator can be shown beside it, which is
+ * the same rule `LatencyView.sampleCount` obeys one file-section up.
+ *
+ * **Nothing here is personal data**: strategies, counts, bucket edges and the verifier's own
+ * scores. No name, no candidate text, no transcript, at any role.
+ */
+export const nameAnalyticsViewSchema = z.object({
+  /** Echoed from the REQUEST, so an empty state can name the range it found nothing in.
+   * Null = the whole record, exactly as on the four windowed sections. */
+  window: windowViewSchema.nullable(),
+  /** `name_match_min_similarity` as this deployment published it to the panel, or null. The
+   * worker owns the real value; an invented `0.85` would draw a marker on the one chart whose
+   * whole job is to argue about where that marker belongs. */
+  threshold: z.number().nullable(),
+  /** How near "near" is, on the wire so the SPA labels the marker from the server's number. */
+  thresholdBand: z.number(),
+  bucketCount: z.number().int(),
+  /** Attempts on which verification actually RAN — the denominator of the rate below. */
+  attempts: z.number().int(),
+  verified: z.number().int(),
+  /** Null when `attempts` is zero: an empty window has no rate, not a bad one. */
+  verificationRate: z.number().nullable(),
+  scored: z.number().int(),
+  /** Null together with `threshold`. */
+  nearThreshold: z.number().int().nullable(),
+  /** The window IGNORED. See the note above — this is the field that tells the two empties
+   * apart, and the only one that can. */
+  hasRecordedAttempts: z.boolean(),
+  /** Best first, by rate then volume. A strategy with no attempts in the window is ABSENT
+   * rather than present at zero. */
+  strategies: z.array(strategyAnalysisViewSchema),
+  /** The distribution summed over every strategy. Always `bucketCount` entries. */
+  buckets: z.array(similarityBucketViewSchema),
+});
+export type NameAnalyticsView = z.infer<typeof nameAnalyticsViewSchema>;
+
+/* -------------------------------------------------------------------------- */
 /* GET /api/metrics/dashboard/audience-lists — RECORDS_READ, audited, UNMASKED */
 /* -------------------------------------------------------------------------- */
 
@@ -1160,6 +1282,8 @@ export const DASHBOARD_ENDPOINT = {
   vendor: "GET /api/metrics/dashboard/vendor",
   /** A state, not a section: no `?from=&to=` exists for it. `DASHBOARD_READ` like its siblings. */
   plans: "GET /api/metrics/plans",
+  /** `DASHBOARD_READ`, and read from a `RECORDS_READ` screen — see `nameAnalyticsViewSchema`. */
+  nameAnalytics: "GET /api/metrics/name-analytics",
   /** The one route here on `RECORDS_READ`, and the one that writes an audit row per call. */
   audienceLists: "GET /api/metrics/dashboard/audience-lists",
   pulse: "GET /api/ops/pulse",
@@ -1289,6 +1413,55 @@ export function plans(signal?: AbortSignal): Promise<ApiResult<PlanLiabilityResp
     endpoint: DASHBOARD_ENDPOINT.plans,
     path: `${METRICS_PREFIX}/plans`,
     schema: planLiabilityResponseSchema,
+    ...(signal === undefined ? {} : { signal }),
+  });
+}
+
+/**
+ * A window with either end open — which is NOT `DashboardWindow`, and the difference is the
+ * caller rather than the route.
+ *
+ * `DashboardWindow` requires both ends because the dashboard has a period picker and therefore
+ * always knows both, and sending both is what earns the `previous`/`change` arm on every
+ * `TrendView`. The render ledger has no picker: `?from=` and `?to=` are two independent
+ * filters an operator sets one at a time, and half of one is the normal state of that screen.
+ * `resolve_window` accepts either end alone — an open lower bound comes back as `window.from:
+ * null`, "since the first row there is" — so the honest signature here is two nullables.
+ *
+ * An absent bound writes NO parameter. `?from=` is not "all time": FastAPI parses the empty
+ * string as a `datetime` and refuses the whole request with a 422, which would blank a figure
+ * over a filter the operator had just CLEARED.
+ */
+export interface LedgerWindow {
+  readonly from: string | null;
+  readonly to: string | null;
+}
+
+/**
+ * Is name verification working, over one window.
+ *
+ * **This route takes the window and NOTHING ELSE.** The render ledger's other six filters —
+ * kind, provider, outcome, error code, strategy, orphaned — do not exist on it, and there is no
+ * parameter that would narrow these counts to a filtered page. A caller mixing this figure with
+ * a filtered one on the same strip is showing two populations side by side and owes the reader
+ * the denominator (`attempts`) that makes the difference visible.
+ *
+ * `DASHBOARD_READ`, unlike `/api/generations` — so give it its OWN query. A 403 here is an
+ * operator whose role reaches the rows but not the aggregate, and it must render where it was
+ * asked for rather than taking the ledger down with it.
+ */
+export function nameAnalytics(
+  window: LedgerWindow,
+  signal?: AbortSignal,
+): Promise<ApiResult<NameAnalyticsView>> {
+  const query = new URLSearchParams();
+  if (window.from !== null) query.set("from", window.from);
+  if (window.to !== null) query.set("to", window.to);
+  const search = query.toString();
+  return request({
+    endpoint: DASHBOARD_ENDPOINT.nameAnalytics,
+    path: `${METRICS_PREFIX}/name-analytics${search === "" ? "" : `?${search}`}`,
+    schema: nameAnalyticsViewSchema,
     ...(signal === undefined ? {} : { signal }),
   });
 }

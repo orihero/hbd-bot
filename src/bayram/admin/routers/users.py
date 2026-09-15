@@ -7,7 +7,7 @@ somebody to remember a decorator (§12.1 T3). One router carrying three permissi
 that — it would have to put the other two on handlers, which is exactly the shape the
 convention forbids, or guard the wizard state with RECORDS_READ, which grants the
 reveal-adjacent screen to everyone holding the ordinary one. So :func:`build_users_router`
-owns the four database reads, :func:`build_wizard_state_router` owns the Redis one and
+owns the five database reads, :func:`build_wizard_state_router` owns the Redis one and
 :func:`build_user_block_router` owns the two writes — and **the application must include all
 three**: mounting only the first silently drops ``/users/{id}/wizard-state`` and both
 operational actions from the surface with no error anywhere.
@@ -120,8 +120,10 @@ from bayram.admin.schemas.segment import MAX_SEGMENT_KEY_CHARS
 from bayram.admin.schemas.users import (
     UserDetailView,
     UsersPage,
+    UserStatsView,
     WizardStateView,
     to_user_detail_view,
+    to_user_stats_view,
     to_user_view,
     to_wizard_state_view,
 )
@@ -157,6 +159,7 @@ from bayram.db.admin.users import (
     list_users,
     load_avatar,
     page_sort,
+    segment_breakdown,
 )
 from bayram.db.admin.views import UserListItem
 from bayram.db.base import utc_now
@@ -169,6 +172,7 @@ from bayram.user_profiles import AVATAR_MIME, avatar_key
 
 __all__ = [
     "USERS_PATH",
+    "USER_STATS_PATH",
     "USER_PATH",
     "USER_ORDERS_PATH",
     "USER_AVATAR_PATH",
@@ -184,6 +188,17 @@ __all__ = [
 ]
 
 USERS_PATH: Final[str] = f"{API_PREFIX}/users"
+#: The stat strip's aggregate, over the caller's whole filter set. A LITERAL segment under
+#: ``/users``, and it must be declared — and registered — **before** ``USER_PATH`` below, or
+#: Starlette will never reach it: routes match in registration order, ``USER_PATH`` takes an
+#: ``int`` path parameter, and ``stats`` is not an ``int``, so the caller would be handed a 422
+#: about a malformed ``telegramUserId`` instead of their counts.
+#: ``routers/orders.py``'s ``ORDER_STATE_COUNTS_PATH`` carries the identical warning for the
+#: identical reason; ``routers/segments.py`` states the converse, that ``/segments`` has no
+#: parameterised route and therefore no ordering to get wrong. The ordering is load-bearing in
+#: two places at once — here, and at the ``@router.get`` calls in :func:`build_users_router` —
+#: which is why the comment lives beside the constant rather than only beside the handler.
+USER_STATS_PATH: Final[str] = f"{USERS_PATH}/stats"
 #: One identifier name for the whole namespace. Every ``/users/**`` route keys on the
 #: Telegram id — the value an operator has in front of them in a support ticket — and never
 #: on ``users.id``, so no route in this file can be reached with the wrong kind of id.
@@ -495,7 +510,13 @@ def _entitlement_policy(settings: AdminSettings) -> EntitlementPolicy:
 
 
 def build_users_router() -> APIRouter:
-    """The four database routes. One permission, declared once, on the router."""
+    """The five database routes. One permission, declared once, on the router.
+
+    ``/users/stats`` is the fifth and it is registered between the list and
+    ``USER_PATH`` deliberately: it is a literal segment in a namespace whose detail route takes
+    an ``int``, so a registration below that route would never be matched. See the comment
+    beside :data:`USER_STATS_PATH`.
+    """
     router = APIRouter(
         tags=["users"],
         dependencies=[Depends(require_permission(Permission.RECORDS_READ))],
@@ -524,6 +545,59 @@ def build_users_router() -> APIRouter:
             items=[to_user_view(item, avatar_url=_avatar_url(item)) for item in page.items],
             meta=page_meta(page, total),
         )
+
+    # REGISTERED BEFORE ``USER_PATH``, and the order is load-bearing rather than tidy: routes
+    # match in registration order, ``stats`` is not an ``int``, and a ``/users/stats`` that
+    # reached ``USER_PATH`` first would be a 422 about a path parameter the caller never sent.
+    # The same note sits beside :data:`USER_STATS_PATH` and beside ``ORDER_STATE_COUNTS_PATH``
+    # in ``routers/orders.py``; moving this decorator below the next one is the whole failure.
+    @router.get(USER_STATS_PATH)
+    async def user_stats(db: Db, filters: Filters, segment: SegmentToken = None) -> UserStatsView:
+        """The four counts behind the Users page's stat strip, over the CURRENT filter set.
+
+        **A sibling route rather than a field on the list's ``meta``, for the cost reason
+        ``routers.orders.order_state_counts`` gives at length.** The breakdown is one grouped
+        statement over every row the filters match, which cannot be keyset-bounded the way a
+        page is; hung on ``meta`` it would run again on every ``?cursor=`` an operator turns
+        to, and behind a ``?withStats=true`` flag it would be no better in practice, because a
+        client sets a flag once and then sends it forever — which is exactly how ``withTotal``
+        already behaves in this SPA. As its own URL the aggregate is fetched when the filter
+        set changes and at no other moment, and the strip can paint before or after the page it
+        labels without either request blocking the other.
+
+        **It takes :data:`Filters` and not :data:`Listing`, and that is a statement about the
+        OpenAPI document as much as about the query.** ``Listing`` carries ``limit`` and
+        ``cursor``; an aggregate cannot honour either, so declaring them would publish two
+        parameters this handler silently discards — a schema that lies to every generated
+        client and to every operator reading it. ``?sort=`` and ``?sortDir=`` go the same way
+        for the same reason: an ordering over four scalars is not a thing, and refusing to
+        accept the parameter is the only honest way to say so.
+
+        **``?segment=`` IS accepted, and it is not paging.** :func:`build_filters` does not
+        resolve the token — :func:`build_query` does, because it is also where the sort that
+        rides on it decides which cursor a page is walked with — so this handler runs the same
+        :func:`~bayram.admin.routers.segments.compiled_segment` pipeline the list and
+        ``/segments/preview`` run and folds the result into the same
+        :class:`~bayram.db.admin.users.UserFilters`. Without that, the one narrowing an operator
+        cannot see in the chip row — the segment document — would be missing from the strip
+        alone, and the numbers above the table would describe a larger population than the rows
+        beneath it while looking exactly correct. The token is bounded by
+        :data:`~bayram.admin.schemas.segment.MAX_SEGMENT_CHARS` and refused by the codec in the
+        identical way, so a malformed one is the same 422 here as on the list.
+
+        **:func:`~bayram.db.admin.users.segment_breakdown` is called unchanged**, which is what
+        makes "the strip and the rows are one population" a property of the statement rather
+        than of two queries agreeing: it shares ``_filtered()`` with
+        :func:`~bayram.db.admin.users.list_users`, so a filter added to one is in the other
+        before anybody remembers to add it. A second, purpose-written count here would have
+        been the drift.
+
+        No ``?withTotal=``: :attr:`~bayram.admin.schemas.users.UserStatsView.matched` IS the
+        total and it is exact, not the list's bounded one — the two therefore disagree above
+        :data:`~bayram.db.admin.page.TOTAL_COUNT_CAP` rows, and the schema says which is which.
+        """
+        narrowed = replace(filters, segment=compiled_segment(segment, now=utc_now()))
+        return to_user_stats_view(await segment_breakdown(db, filters=narrowed))
 
     @router.get(USER_PATH)
     async def get_user_record(db: Db, settings: Settings, telegram_user_id: int) -> UserDetailView:

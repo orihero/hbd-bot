@@ -4,7 +4,7 @@ import type { ComponentState } from "@/api/dashboard";
 import { Segmented, type SegmentedOption } from "@/components/Segmented";
 import { Skeleton } from "@/components/Skeleton";
 import { Sparkline } from "@/components/Sparkline";
-import type { CardValue } from "@/features/dashboard/adapt";
+import { unavailableKey, type CardValue } from "@/features/dashboard/adapt";
 import type { CardSpec } from "@/features/dashboard/cardSpecs";
 import { MINI_KEY, PERIODS, type Period } from "@/features/dashboard/data";
 import { dirOf } from "@/features/dashboard/svg";
@@ -35,9 +35,10 @@ const DELTA_CLASS: Record<"" | "up" | "down", string> = {
 };
 
 /**
- * What the mockup puts in the value slot of a card that has no value. It is not a number and
- * it is never alone: the hatched pill under it names which kind of absence this is, which is
- * the whole reason the dash is allowed here at all.
+ * What the mockup puts in the value slot of a card that has no value. It is not a number, and
+ * wherever the wire named an absence it is not alone either: the caption under it names which
+ * kind of absence this is, which is the whole reason the dash is allowed here at all. The
+ * mockup drew that as a hatched pill; it is a line of small text here, and it is translated.
  */
 const NO_VALUE = "—";
 
@@ -92,6 +93,22 @@ export function StatCard({
      does not exist, so the unit is dropped with the number. */
   const measured = value !== undefined && !("tag" in value) ? value : null;
 
+  /* WHY THE DASH IS ALLOWED TO SPEAK.
+     The rule this page is built on is that a number which could not be measured is absent and
+     names its own reason — `adapt.ts` says it in its first paragraph, and the server says it
+     twice over: `AbsenceReason` is a closed vocabulary whose entry test is that every member
+     is something an operator can go and DO (publish a price, set an FX rate, start the poller).
+     All of that machinery ended here, at the last inch, in a card that resolved the two arms
+     and dropped the reason on the floor. What the deployment showed for Est. revenue, MRR and
+     ARR was three bare em dashes over a server returning 200 and saying `no_price_published`
+     and `no_fx_rate` — a blank that reads as "the panel is broken" rather than as one
+     environment variable. A dash with nothing under it is not honesty about a missing figure;
+     it is the same silence the null-is-not-zero rule exists to prevent, wearing a nicer glyph.
+     `unavailableKey` returns null for a measured card and for an absence nobody named, so the
+     caption appears exactly where the wire had something actionable to say. */
+  const reasonKey = unavailableKey(value);
+  const reason = reasonKey === null ? null : t(reasonKey);
+
   /* The adapter overrides the spec whenever the response knows something truer — today only
      a currency the spec did not assume. It used to override the CAPTION too, with one carrying
      the real denominators (`12 of 19 calls priced`); there is no caption to override now. */
@@ -134,6 +151,19 @@ export function StatCard({
             className={cn(
               "mt-1 flex items-baseline gap-[6px] whitespace-nowrap text-[32px] font-bold leading-none tracking-[-1.92px]",
               measured === null ? "text-ink-300" : "text-ink-800",
+              /* The card is 96px tall with 16px of padding, and the rows inside it already
+                 spend all 64px: 20 of header, 4 of gap, 32 of value, and the 3 + 13 of the
+                 caption row below. A reason caption therefore cannot be added, only afforded,
+                 and the 8px it is short comes out of the LINE BOX of the dash rather than out
+                 of the dash. `leading-[24px]` on 32px type would clip an ascender or a
+                 descender; the absent arm has neither, because its whole contents is one em
+                 dash — a horizontal bar on the centre line, with no unit beside it (dropped
+                 with the number) and no delta (the absent arm carries none). So the dash
+                 renders at exactly the size and weight it always has, the header above it and
+                 the card around it do not move, and the caption fits in the space the tighter
+                 line gives back. A card with no reason to print keeps `leading-none` and is
+                 pixel-for-pixel what it was. */
+              reason === null ? "" : "leading-[24px]",
             )}
           >
             <span>{measured === null ? NO_VALUE : measured.value}</span>
@@ -151,6 +181,24 @@ export function StatCard({
               {delta}
             </em>
           </div>
+
+          {/* The reason the figure above is a dash, in the reader's own language and in the
+              row the dots would otherwise have used — the two can never collide, because dots
+              are part of a MEASURED value and a reason only exists on the absent arm.
+              `title` carries the full sentence: the Est. revenue card reserves 60px of its
+              width for a sparkline well, which leaves a Russian caption enough room to be
+              truncated, and an operator who cannot read the whole remedy can hover for it. */}
+          {reason !== null && (
+            <div
+              title={reason}
+              className={cn(
+                "mt-[3px] overflow-hidden text-ellipsis whitespace-nowrap text-[11px] font-normal leading-[13px] text-ink-300",
+                spec.spark === true && "pr-[66px]",
+              )}
+            >
+              {reason}
+            </div>
+          )}
 
           {/* The caption that sat here — `ever contacted the bot`, `delivered × published
               price`, `net, annualised` — is gone from all eighteen cards: a title and a

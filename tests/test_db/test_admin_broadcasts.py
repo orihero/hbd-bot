@@ -359,6 +359,208 @@ async def test_the_campaign_walk_visits_every_row_once_newest_first(
 
 
 # ---------------------------------------------------------------------------
+# The strip: one count per state, the reach, and the last send
+# ---------------------------------------------------------------------------
+async def test_the_strip_zero_fills_every_campaign_state_and_never_omits_one(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """A state with no campaigns is ``0``, in enum order, always.
+
+    ``BroadcastState`` is a closed vocabulary, so the strip's tiles are decided by the enum
+    and never by the data: a tile that appeared from nowhere as the first campaign reached a
+    state would re-lay-out the page under the operator's cursor. Comparing the keys against
+    ``list(BroadcastState)`` is also what makes adding a member to the enum fail HERE rather
+    than silently dropping a state out of the strip in production.
+    """
+    # Arrange — two of the eight states are occupied; six are not.
+    async with sessions.begin() as session:
+        await seed_broadcast(session, created_at=_DAY_ONE, state=BroadcastState.DRAFT)
+        await seed_broadcast(session, created_at=_DAY_TWO, state=BroadcastState.COMPLETED)
+        await seed_broadcast(session, created_at=_DAY_THREE, state=BroadcastState.COMPLETED)
+
+    # Act
+    async with sessions.begin() as session:
+        stats = await broadcasts.broadcast_stats(session, filters=broadcasts.BroadcastFilters())
+
+    # Assert — every member, in declaration order, and the empty ones are zeroes not absences.
+    assert [item.state for item in stats.by_state] == list(BroadcastState)
+    counted = {item.state: item.count for item in stats.by_state}
+    assert counted[BroadcastState.DRAFT] == 1
+    assert counted[BroadcastState.COMPLETED] == 2
+    assert counted[BroadcastState.SENDING] == 0
+    assert counted[BroadcastState.FAILED] == 0
+    # ``total`` is the sum of the segments and is exact — no ``bounded_total`` cap.
+    assert stats.total == 3
+
+
+async def test_the_strip_reports_the_reach_as_two_integers_and_never_as_a_rate(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """Settled recipients over frozen audience, summed from the campaign rows' own rollup.
+
+    The two campaigns below disagree with each other on purpose: one finished everybody, one
+    is halfway and holds rows still ``pending``. Only the five TERMINAL counters are reach —
+    a row still moving has not arrived anywhere — and the denominator is ``audience_size``,
+    the number a human authorised, rather than ``recipient_count``, which a half-written
+    expansion would shrink until the strip flattered itself.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        await seed_broadcast(
+            session,
+            created_at=_DAY_ONE,
+            state=BroadcastState.COMPLETED,
+            audience_size=100,
+            recipient_count=100,
+            sent_count=90,
+            failed_count=5,
+            skipped_count=3,
+            undeliverable_count=1,
+            unknown_count=1,
+        )
+        await seed_broadcast(
+            session,
+            created_at=_DAY_TWO,
+            state=BroadcastState.SENDING,
+            audience_size=40,
+            recipient_count=40,
+            sent_count=10,
+            failed_count=0,
+            skipped_count=0,
+            undeliverable_count=0,
+            unknown_count=0,
+        )
+
+    # Act
+    async with sessions.begin() as session:
+        stats = await broadcasts.broadcast_stats(session, filters=broadcasts.BroadcastFilters())
+
+    # Assert — 100 settled on the finished campaign, 10 on the running one; 140 authorised.
+    assert stats.settled_recipients == 110
+    assert stats.audience_total == 140
+
+
+async def test_the_strip_narrows_through_the_same_filters_the_list_does(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The strip and the page beneath it must never describe two different populations.
+
+    Both go through ``_filtered``, so a window, a kind and a search narrow them identically —
+    asserted against the list's own row count rather than against a literal, because the
+    claim is that the two agree and not that either is three.
+    """
+    # Arrange — three campaigns differing in kind and in when they were composed.
+    async with sessions.begin() as session:
+        await seed_broadcast(
+            session,
+            created_at=_DAY_ONE,
+            kind=BroadcastKind.MARKETING,
+            state=BroadcastState.COMPLETED,
+            title="Autumn sale",
+            audience_size=10,
+            sent_count=10,
+        )
+        await seed_broadcast(
+            session,
+            created_at=_DAY_TWO,
+            kind=BroadcastKind.SERVICE,
+            state=BroadcastState.COMPLETED,
+            title="Outage notice",
+            audience_size=20,
+            sent_count=20,
+        )
+        await seed_broadcast(
+            session,
+            created_at=_DAY_THREE,
+            kind=BroadcastKind.MARKETING,
+            state=BroadcastState.DRAFT,
+            title="Winter sale",
+            audience_size=30,
+            sent_count=0,
+        )
+
+    marketing = broadcasts.BroadcastFilters(kinds=(BroadcastKind.MARKETING,))
+    windowed = broadcasts.BroadcastFilters(
+        window=TimeWindow(start=_DAY_TWO, end=_DAY_THREE + timedelta(days=1))
+    )
+    searched = broadcasts.BroadcastFilters(search="sale")
+
+    # Act
+    async with sessions.begin() as session:
+        by_kind = await broadcasts.broadcast_stats(session, filters=marketing)
+        by_window = await broadcasts.broadcast_stats(session, filters=windowed)
+        by_search = await broadcasts.broadcast_stats(session, filters=searched)
+        listed = await broadcasts.list_broadcasts(
+            session, filters=marketing, request=PageRequest(limit=10)
+        )
+
+    # Assert — the kind filter selects the two sales, and the strip sums only those two.
+    assert by_kind.total == len(listed.items) == 2
+    assert (by_kind.settled_recipients, by_kind.audience_total) == (10, 40)
+    # The window is half-open from day two, so day one's campaign is outside it.
+    assert by_window.total == 2
+    assert by_window.audience_total == 50
+    # ``?q=`` matches the title, and narrows the strip with it.
+    assert by_search.total == 2
+    assert by_search.audience_total == 40
+    # A filtered-to-one-state strip reports zeroes for the rest; that is the honest answer to
+    # what was asked, not a strip quietly widened to look fuller.
+    drafts = {item.state: item.count for item in by_search.by_state}
+    assert (drafts[BroadcastState.DRAFT], drafts[BroadcastState.COMPLETED]) == (1, 1)
+
+
+async def test_the_strip_reports_no_last_send_rather_than_an_epoch(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """``started_at`` is NULL until a run's first message leaves, and the null crosses whole.
+
+    Three cases in one test because they are one claim: a deployment with no campaigns at
+    all, a deployment whose campaigns have never started, and one where exactly one has. A
+    zero-filled strip with an invented instant would render as a send nobody made — which is
+    precisely the reading an epoch or a fallback to ``created_at`` would produce.
+    """
+    # Act — nothing seeded at all.
+    async with sessions.begin() as session:
+        empty = await broadcasts.broadcast_stats(session, filters=broadcasts.BroadcastFilters())
+
+    # Assert — zeroes over the closed enum, and an ABSENT instant rather than a zero one.
+    assert empty.total == 0
+    assert [item.count for item in empty.by_state] == [0] * len(list(BroadcastState))
+    assert (empty.settled_recipients, empty.audience_total) == (0, 0)
+    assert empty.last_send_at is None
+
+    # Arrange — two drafts that have never started, then one campaign that has.
+    async with sessions.begin() as session:
+        await seed_broadcast(session, created_at=_DAY_ONE, state=BroadcastState.DRAFT)
+        await seed_broadcast(session, created_at=_DAY_TWO, state=BroadcastState.READY)
+
+    async with sessions.begin() as session:
+        unstarted = await broadcasts.broadcast_stats(session, filters=broadcasts.BroadcastFilters())
+
+    assert unstarted.total == 2
+    assert unstarted.last_send_at is None
+
+    # Arrange — two runs, started a day apart, and the LATER one is the answer. They are in
+    # different states on purpose: the MAX is folded across the groups, not within one.
+    async with sessions.begin() as session:
+        await seed_broadcast(
+            session,
+            created_at=_DAY_TWO,
+            state=BroadcastState.COMPLETED,
+            started_at=_DAY_TWO,
+            finished_at=_DAY_TWO + timedelta(hours=1),
+        )
+        await seed_broadcast(
+            session, created_at=_DAY_THREE, state=BroadcastState.SENDING, started_at=_DAY_THREE
+        )
+
+    async with sessions.begin() as session:
+        started = await broadcasts.broadcast_stats(session, filters=broadcasts.BroadcastFilters())
+
+    assert started.last_send_at == _DAY_THREE
+
+
+# ---------------------------------------------------------------------------
 # The detail: bodies, the frozen segment, and progress counted from the rows
 # ---------------------------------------------------------------------------
 async def test_the_detail_recounts_progress_from_the_rows_and_keeps_the_stale_rollup_beside_it(

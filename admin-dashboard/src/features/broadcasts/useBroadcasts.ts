@@ -1,5 +1,5 @@
 /**
- * The Broadcasts screens' three reads and seven writes, as hooks.
+ * The Broadcasts screens' four reads and seven writes, as hooks.
  *
  * `api/broadcasts.ts` fetches and `lib/adminQuery.ts` holds the shared error, retry policy and
  * option bundles; this is the layer between them, and it makes five decisions the screens depend
@@ -19,6 +19,16 @@
  * kept running over a table of completed campaigns would be a request every five seconds, for
  * ever, for a number that cannot change; a timer a screen had to remember to stop is one somebody
  * forgets. `refetchIntervalInBackground` stays false — a hidden tab is not being read.
+ *
+ * **The strip polls on the LIST's liveness, not on its own.** `useBroadcastStats` is an aggregate
+ * over the whole filter set and carries no campaign state it could read a verdict out of: a total
+ * and a last-send instant look identical whether a worker is delivering or the deployment has been
+ * asleep for a week. So the caller derives {@link hasBroadcastInFlight} from the list query it has
+ * already paid for and hands it in — the same clock, one decision, taken where the evidence is.
+ * The gate is the point rather than the interval: an IDLE DEPLOYMENT MUST MAKE NO REQUESTS AT ALL,
+ * and a strip that polled unconditionally would be a request every five seconds, for ever, on
+ * every tab left open on this screen, for four numbers that cannot move until somebody composes a
+ * campaign — and composing one invalidates the key anyway.
  *
  * **Every mutation answers with the campaign, so the detail cache is SET rather than re-fetched.**
  * The server re-reads the row from the transaction it just wrote in; that view is more current
@@ -51,6 +61,7 @@ import {
   cancelBroadcast,
   createBroadcast,
   getBroadcast,
+  getBroadcastStats,
   listBroadcastRecipients,
   listBroadcasts,
   pauseBroadcast,
@@ -65,11 +76,13 @@ import {
   type BroadcastReviseRequest,
   type BroadcastSendRequest,
   type BroadcastState,
+  type BroadcastStatsView,
   type BroadcastTestSendRequest,
   type BroadcastTestSendResultView,
   type BroadcastView,
   type BroadcastsFilters,
   type BroadcastsPage,
+  type BroadcastsStatsFilters,
 } from "@/api/broadcasts";
 import type { ApiResult } from "@/api/client";
 import { FIRST_PAGE, type PageRequest } from "@/api/pagination";
@@ -112,6 +125,24 @@ export function broadcastsFilterKey(filters: BroadcastsFilters): FilterKey {
   });
 }
 
+/**
+ * The same projection for the strip, and `withTotal` is deliberately not in it.
+ *
+ * The strip's request does not carry the flag — its `total` is the exact sum of the segments —
+ * so a key that carried it would be two cache entries in front of one URL, and the second would
+ * sit there going stale behind a screen that had asked for a bounded count it never receives.
+ * Every other field is the list's, because the two describe the same set of campaigns.
+ */
+export function broadcastsStatsFilterKey(filters: BroadcastsStatsFilters): FilterKey {
+  return filterKey({
+    state: filters.state,
+    kind: filters.kind,
+    from: filters.from,
+    to: filters.to,
+    q: filters.q,
+  });
+}
+
 /** The same projection for one campaign's ledger. There is no window here and no `q`. */
 export function broadcastRecipientsFilterKey(filters: BroadcastRecipientsFilters): FilterKey {
   return filterKey({
@@ -135,6 +166,18 @@ export const broadcastsKeys = {
   lists: () => [BROADCASTS_ROOT, "list"] as const,
   list: (filters: BroadcastsFilters, page: PageRequest) =>
     [BROADCASTS_ROOT, "list", broadcastsFilterKey(filters), pageKey(page)] as const,
+  /**
+   * Every filter set's strip — the SIBLING of `lists()`, never a child of it.
+   *
+   * A sibling because the aggregate is not part of any page: it survives a cursor turn untouched,
+   * and hanging it under a list key would make paging invalidate four numbers that did not move,
+   * while `lists()` — invalidated by every write — would drag the strip along with it whether or
+   * not the write could have changed a segment. Two prefixes, invalidated together on purpose by
+   * `seedCampaign` and independently by nothing.
+   */
+  stats: () => [BROADCASTS_ROOT, "stats"] as const,
+  statsOf: (filters: BroadcastsStatsFilters) =>
+    [BROADCASTS_ROOT, "stats", broadcastsStatsFilterKey(filters)] as const,
   /** Everything held about one campaign. */
   campaign: (broadcastId: string | null) => [BROADCASTS_ROOT, "campaign", broadcastId] as const,
   detail: (broadcastId: string | null) =>
@@ -205,8 +248,19 @@ export function isBroadcastInFlight(broadcast: BroadcastView): boolean {
   return !broadcast.isTerminal && IN_FLIGHT_BROADCAST_STATES.includes(broadcast.state);
 }
 
-/** Whether any campaign on this page is moving. `undefined` — nothing loaded yet — is not. */
-function hasBroadcastInFlight(page: BroadcastsPage | undefined): boolean {
+/**
+ * Whether any campaign on this page is moving. `undefined` — nothing loaded yet — is not.
+ *
+ * Exported because the STRIP is gated on it too, and that gate has to be derived from the list:
+ * an aggregate of totals carries no state to read a verdict out of. A screen that holds both
+ * queries computes this once and hands the boolean to {@link useBroadcastStats}, so the two
+ * cannot end up polling on different verdicts about the same campaigns.
+ *
+ * Not loaded is deliberately NOT in flight: a page that has never arrived is no evidence that
+ * anything is moving, and starting a timer on a guess is how a screen that should be silent ends
+ * up asking for ever.
+ */
+export function hasBroadcastInFlight(page: BroadcastsPage | undefined): boolean {
   return page !== undefined && page.items.some(isBroadcastInFlight);
 }
 
@@ -233,6 +287,44 @@ export function useBroadcasts(
     // After the spread, deliberately: `LIST_READ` writes `refetchInterval: false` as a decision
     // for the record screens, and this is the one namespace that overrides it.
     refetchInterval: (query) => (hasBroadcastInFlight(query.state.data) ? BROADCAST_POLL_MS : false),
+  });
+}
+
+/**
+ * The strip above the campaign list: campaigns per state, what they reached, and the last send.
+ *
+ * One read for the WHOLE filter set, which is why it takes no page. Its `total` is exact where the
+ * list's `meta.total` saturates at the server's cap, so a screen that draws both is drawing one
+ * number twice and disagreeing with itself above ten thousand campaigns — draw this one.
+ *
+ * `isAnyInFlight` comes from the list, through {@link hasBroadcastInFlight}, and is the whole of
+ * what decides whether this polls. Passed in rather than derived here for the reason in the module
+ * header: this response cannot tell a busy deployment from a sleeping one, and an idle deployment
+ * must make no requests at all.
+ *
+ * A failure belongs to the STRIP and to nothing else on the screen. The list beside it is a
+ * separate query with its own error, and four missing figures must not blank a table that arrived:
+ * render the tiles as absent with a reason, leave the rows where they are.
+ */
+export function useBroadcastStats(
+  filters: BroadcastsStatsFilters,
+  isAnyInFlight = false,
+): UseQueryResult<BroadcastStatsView, AdminQueryError> {
+  return useQuery<BroadcastStatsView, AdminQueryError>({
+    queryKey: broadcastsKeys.statsOf(filters),
+    queryFn: ({ signal }) => unwrap(getBroadcastStats(filters, signal)),
+    ...LIST_READ,
+    // After the spread, both of them deliberately.
+    //
+    // `keepPreviousData` is right for a TABLE and wrong for four big numbers. A dimmed row is
+    // honest because the screen can dim it; a total has no such affordance, so the previous
+    // filter's figures would sit under the new chips at full contrast and be read as this
+    // filter's. Blanking to a skeleton says "not yet" in the one channel that cannot be misread.
+    placeholderData: (): undefined => undefined,
+    // The list's clock, on the list's verdict. `false` is not an optimisation here — it is the
+    // difference between a screen left open costing nothing and costing a request every five
+    // seconds until the tab is closed.
+    refetchInterval: isAnyInFlight ? BROADCAST_POLL_MS : false,
   });
 }
 
@@ -470,6 +562,14 @@ function useCampaignWrite<TBody>(
  * off the page it was read from and onto another; and every list page carries a rollup this write
  * may have changed.
  *
+ * **The strip goes with them, as its own set.** Every write that reaches here moved a campaign
+ * between states or created one, and both are exactly what the strip counts: a campaign composed
+ * is one more in `total` and one more `expanding`, a send is a new `lastSendAt`, a pause moves a
+ * campaign into the tile an operator is being asked to act on. Invalidating the list and not the
+ * strip would leave a table that had just refreshed sitting under four numbers describing the
+ * world as it was before the button was pressed — and on an idle deployment, where the poll is
+ * off by design, those numbers would stay wrong until somebody reloaded the tab.
+ *
  * The recipient ledger is deliberately untouched — see this module's header. Nothing here rewrites
  * those rows synchronously.
  *
@@ -478,4 +578,5 @@ function useCampaignWrite<TBody>(
 function seedCampaign(queryClient: QueryClient, detail: BroadcastDetailView): void {
   queryClient.setQueryData(broadcastsKeys.detail(detail.broadcast.id), detail);
   void queryClient.invalidateQueries({ queryKey: broadcastsKeys.lists() });
+  void queryClient.invalidateQueries({ queryKey: broadcastsKeys.stats() });
 }

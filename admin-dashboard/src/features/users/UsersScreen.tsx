@@ -77,9 +77,21 @@
  *
  * Only the registry's `sortable` keys get a heading control. `last_activity_at` is filterable
  * and deliberately not sortable, and no free-text column is either — a sort publishes a total
- * order over identified accounts, which is a different disclosure from a predicate. And
- * `withTotal` is dropped beside a sort on a computed column, because the server refuses that
- * pair by name: the count is what goes, since the sort is what the operator just pressed.
+ * order over identified accounts, which is a different disclosure from a predicate.
+ *
+ * ## One count, above the table
+ *
+ * How big is the filtered population? `GET /api/users/stats` answers it exactly, in four
+ * counts — matched, reachable, barred by us, blocking us — over the SAME filter set the rows
+ * come from, and the strip sits directly under the chips that produced it. The list's own
+ * `withTotal` is therefore not asked for: it is capped at `TOTAL_COUNT_CAP`, so shipping both
+ * put "at least 10,000 accounts" in the toolbar above an exact "12,431" in the strip, two
+ * answers to one question with nothing on screen to say which was the ceiling. The toolbar now
+ * describes the PAGE and the strip describes the POPULATION. Adding the strip's three refusal
+ * counts together is always wrong: they overlap, and only `reachable` is a complement.
+ *
+ * The strip's read is its own, and so is its failure: a count that could not be taken is drawn
+ * as em dashes with a note of its own, and the table below it stays exactly where it was.
  */
 
 import { Megaphone } from "lucide-react";
@@ -109,6 +121,7 @@ import {
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorNote, type NoteTone } from "@/components/ErrorNote";
 import { FilterChips, type FilterChip } from "@/components/FilterChips";
+import { PageStats, type PageStat } from "@/components/PageStats";
 import {
   SegmentBuilder,
   buildSegmentChips,
@@ -124,7 +137,7 @@ import {
   SearchField,
   TriStateSelect,
 } from "@/features/users/filterControls";
-import { useUsers } from "@/features/users/useUsers";
+import { useUsers, useUsersStats } from "@/features/users/useUsers";
 import { useI18n } from "@/i18n";
 import type { TranslationPath } from "@/i18n/types";
 import type { AdminQueryError } from "@/lib/adminQuery";
@@ -352,17 +365,15 @@ function formatCount(value: number): string {
   return NUMBER_FORMAT.format(value);
 }
 
-/**
- * A bounded count, said honestly.
+/*
+ * There is no `formatTotal` here any more, and its absence is deliberate.
  *
- * `isTotalExact` is `false` when the count stopped at `TOTAL_COUNT_CAP`, and `null` when the
- * server did not say — which is not a promise of exactness either. Both read as "at least".
+ * It printed the list's `meta.total` — `TOTAL_COUNT_CAP`-bounded, hence "at least 10,000" —
+ * and this screen no longer asks for that count at all: `GET /api/users/stats` answers the same
+ * question exactly, once, in the strip above the table. The reasoning is beside `filters` in
+ * `UsersScreen`. If a bounded total is ever wanted again, it needs a place on the screen where
+ * it cannot be read as a second answer to the strip's first tile.
  */
-function formatTotal(total: number, isTotalExact: boolean | null, t: Translate): string {
-  return isTotalExact === true
-    ? formatCount(total)
-    : t("users.atLeast", { count: formatCount(total) });
-}
 
 const MINUTE_S = 60;
 const HOUR_S = 60 * MINUTE_S;
@@ -633,22 +644,35 @@ export function UsersScreen(): JSX.Element {
     [patch],
   );
 
-  /*
-   * `withTotal` and a sort on a computed column cannot be asked for together: the count would
-   * have to materialise every correlated aggregate over the whole filtered set before it could
-   * order anything, and the server refuses the pair by name (422, `withTotal`). So the count is
-   * dropped rather than the sort — the sort is what the operator just pressed — and the
-   * subtitle says which of the two went. A sort whose field the registry has not answered for
-   * is treated as aggregate: all but one sortable key is, and a wrong guess here is a 422 that
-   * empties the table.
-   */
-  const isTotalAvailable = url.sort === null || fieldIndex.get(url.sort)?.isAggregate === false;
-
   const filters = useMemo<UsersFilters>(
     () => ({
-      // Asked for deliberately: the toolbar states a count, and a count nobody asked for is a
-      // count that must not be invented. It is bounded (`TOTAL_COUNT_CAP`) and says so.
-      withTotal: isTotalAvailable,
+      /*
+       * **`withTotal` IS NOT ASKED FOR, and the stat strip is why.** How many accounts this
+       * filter set selects is one question, and until this change the screen answered it twice:
+       * the list's `meta.total`, which `bounded_total` stops at `TOTAL_COUNT_CAP` and which then
+       * reads "at least 10,000", and `GET /api/users/stats`'s `matched`, which is exact. Two
+       * numbers for one question that disagree above ten thousand rows is not a redundancy an
+       * operator can resolve from the screen — both look like counts, neither says it is the
+       * other's ceiling — so one of them had to go, and it is the capped one:
+       *
+       *  - The exact one is the honest answer, and it is the number the operator is actually
+       *    after when they narrow a list before sizing a broadcast from it.
+       *  - The strip states the same narrowing's `reachable`, `blocked` and `botBlocked` beside
+       *    it, from ONE grouped statement over the same `_filtered()` the rows come from; the
+       *    bounded total can say nothing about those and could not be made to agree with them.
+       *  - It is also the cheaper pair. `withTotal` ran a second COUNT on every page of the
+       *    walk; the strip's request is keyed on the filter set alone, so it runs when the
+       *    filters change and not when a cursor turns.
+       *  - And it takes a 422 off the table: `withTotal` beside a sort on a computed column is
+       *    refused by name, which is the whole reason this screen used to reason about whether a
+       *    sort key was aggregate before deciding what the toolbar was allowed to claim. Not
+       *    asking removes the pair, the guess and the branch.
+       *
+       * So `meta.total` is `null` on every response now. The toolbar subtitle and the pager's
+       * range both already have a `total === null` reading — the page count, and a range with no
+       * "of N" clause — and those are what they say from here on: the toolbar describes the
+       * PAGE, the strip describes the POPULATION, and neither restates the other.
+       */
       q: url.q,
       isBlocked: url.isBlocked,
       hasBalance: url.hasBalance,
@@ -661,7 +685,7 @@ export function UsersScreen(): JSX.Element {
       sort: url.sort,
       sortDir: url.sortDir,
     }),
-    [isTotalAvailable, url],
+    [url],
   );
 
   const page = useMemo<PageRequest>(
@@ -676,10 +700,33 @@ export function UsersScreen(): JSX.Element {
    */
   const failure =
     users.error !== null && users.error.code !== CLIENT_ERROR_CODES.aborted ? users.error : null;
-  useSessionGuard([failure]);
 
+  /*
+   * The same filter set, counted rather than paged.
+   *
+   * `filters` is handed over WHOLE — the hook's key is what narrows it (it drops the ordering,
+   * because how many accounts match is one answer however the rows are sorted), and
+   * `getUsersStats` is what strips the parameters the route does not take. Narrowing it here
+   * instead would make this screen the third place that knows which parameters are part of a
+   * population question, and the first to be wrong when a seventh filter is added.
+   *
+   * Its failure is kept apart from `failure` on purpose: an aggregate that could not be counted
+   * says nothing about whether the rows beneath it are true, and blanking a table an operator is
+   * reading because a caption failed would be the panel losing the more valuable half of the
+   * screen over the less valuable one.
+   */
+  const stats = useUsersStats(filters);
+  const statsFailure =
+    stats.error !== null && stats.error.code !== CLIENT_ERROR_CODES.aborted ? stats.error : null;
+
+  /* Both reads, because an expired session is a property of the SESSION and either request can
+     be the one that discovers it — the strip's is the earlier of the two as often as not. */
+  useSessionGuard([failure, statsFailure]);
+
+  /* The rows, and only the rows. `meta` is read for its cursor by `nextCursorOf` below and for
+     nothing else: its `total`/`isTotalExact` pair is not requested any more, because the strip
+     above the table states the population exactly — see `filters`. */
   const items = users.data?.items ?? [];
-  const meta = users.data?.meta ?? null;
 
   /* The trail describes ONE cursor. A pasted link or a Back button lands on a cursor this
      walk knows nothing about, and then there is no Previous to offer and no offset to claim. */
@@ -961,29 +1008,76 @@ export function UsersScreen(): JSX.Element {
   );
 
   /* ---------------------------------------------------------------------- */
-  /* What the toolbar and the pager are allowed to claim                     */
+  /* What the strip, the toolbar and the pager are each allowed to claim     */
   /* ---------------------------------------------------------------------- */
 
-  const total = meta?.total ?? null;
-  const isTotalExact = meta?.isTotalExact ?? null;
+  /**
+   * The four counts, already translated and already formatted — `PageStats` prints strings and
+   * knows nothing about users, filters or this API.
+   *
+   * `value` is `null` for every tile until the read lands, and it stays `null` if it fails: an
+   * absent count is absent, and "0 accounts match" is a sentence an operator would act on. The
+   * component prints an em dash for it, which is the whole reason it takes `string | null`
+   * rather than a number. No `reason` caption is passed, because the reason a count is missing
+   * here is a request that failed, and the note below the strip is where this feature says that
+   * — with the endpoint, the correlation id and a retry, which a one-line caption cannot carry.
+   *
+   * Tone stays neutral on all four, `blocked` included. `warn` is for a count an operator must
+   * ACT on; the people we have barred are a fact about the population, not a queue.
+   */
+  const statTiles = useMemo<readonly PageStat[]>(() => {
+    const counted = stats.data ?? null;
+    return [
+      {
+        key: "accounts",
+        label: t("users.stats.accounts"),
+        value: counted === null ? null : formatCount(counted.matched),
+      },
+      {
+        key: "reachable",
+        label: t("users.stats.reachable"),
+        value: counted === null ? null : formatCount(counted.reachable),
+      },
+      /*
+       * Blocked by us and blocked-the-bot, adjacent and never summed. They OVERLAP — an account
+       * can be both — and `matched` is not their sum plus `reachable`; only `reachable` is a
+       * complement. Four tiles side by side is an invitation to add them, so the wire comment on
+       * `userStatsViewSchema` and the server's `UserStatsView` both say it, and this is the
+       * third place: whatever else changes here, no arithmetic may be done between these tiles.
+       */
+      {
+        key: "blocked",
+        label: t("users.stats.blocked"),
+        value: counted === null ? null : formatCount(counted.blocked),
+      },
+      {
+        key: "botBlocked",
+        label: t("users.stats.botBlocked"),
+        value: counted === null ? null : formatCount(counted.botBlocked),
+      },
+    ];
+  }, [stats.data, t]);
+
+  /* The strip's own failure, phrased by this feature's one note builder — the same sentences the
+     list's failure gets, because a 401, a 429 and a schema drift read the same whichever read
+     met them first. `stats.data !== undefined` is the stale arm: counts already on screen that
+     could not be refreshed are still true of the moment they were counted. */
+  const statsNote = statsFailure === null ? null : noteFor(statsFailure, stats.data !== undefined, t);
 
   let subtitle: string;
   if (users.data === undefined) {
     subtitle =
       failure === null ? t("users.subtitles.reading") : t("users.subtitles.failed");
-  } else if (total === null) {
-    /* Either `withTotal` was asked for and the server still declined to count, or it was never
-       asked for because the chosen sort is a computed column and the pair is a 422. Both say
-       what is on screen; only the second can also say why the count went. */
-    subtitle = isTotalAvailable
-      ? t("users.subtitles.onThisPage", { count: formatCount(items.length) })
-      : t("users.subtitles.onThisPageSorted", { count: formatCount(items.length) });
   } else {
-    const shown = formatTotal(total, isTotalExact, t);
-    subtitle =
-      filterCount === 0
-        ? t("users.subtitles.accounts", { total: shown })
-        : t("users.subtitles.accountsFiltered", { total: shown });
+    /*
+     * THE PAGE, never the population. The strip immediately below states how many accounts the
+     * filter set selects, exactly; this said the same thing from `meta.total`, which is capped
+     * at `TOTAL_COUNT_CAP` — so on a big directory the two sat one above the other reading
+     * "at least 10,000 accounts" and "12,431", with nothing on screen to say which was the
+     * ceiling. One question gets one number, and the count is no longer asked for at all (see
+     * `filters`), so `meta.total` is `null` and this is the only branch left.
+     */
+    subtitle = t("users.subtitles.onThisPage", { count: formatCount(items.length) });
   }
 
   let rangeLabel: string;
@@ -996,10 +1090,14 @@ export function UsersScreen(): JSX.Element {
   } else if (items.length === 0) {
     rangeLabel = filterCount === 0 ? t("users.range.none") : t("users.range.noneMatching");
   } else {
-    const totalClause =
-      total === null
-        ? ""
-        : t("users.range.ofTotal", { total: formatTotal(total, isTotalExact, t) });
+    /*
+     * No "of N" clause, for the reason `filters` gives at length: `withTotal` is not asked for,
+     * so `meta.total` is `null` on every response and the pager numbers the rows it can see —
+     * "1–50" — while the strip above states the population once and exactly. Spelled out as an
+     * empty clause rather than computed from a total that can no longer arrive, so that a second
+     * bounded count cannot quietly reappear here later.
+     */
+    const totalClause = "";
     rangeLabel =
       offset === null
         ? // Joined mid-walk: the row numbers are unknowable, and guessing them would put a
@@ -1181,6 +1279,42 @@ export function UsersScreen(): JSX.Element {
         </div>
 
         <FilterChips chips={chips} onClearAll={chips.length === 0 ? undefined : clearAll} />
+
+        {/*
+          * Directly under the chips, and the order is the sentence.
+          *
+          * The strip is a statement ABOUT a population — "1,204 accounts matched, 1,190 of them
+          * reachable" — and it is meaningless without the narrowing that produced it. The chips
+          * are that narrowing, written out one filter at a time, and they are the only place the
+          * segment document is legible at all. Above the chips the numbers would be read as the
+          * whole directory's; below the table they would be a footnote to rows the operator has
+          * already scrolled past. Between them, each chip removed visibly moves the counts, which
+          * is what teaches an operator that the two are one thing.
+          *
+          * `isPending`, not `isFetching`: a refetch keeps the previous counts on screen (dimmed
+          * by nothing — they were true when they were counted), while skeletons are for the state
+          * where there has never been a number. A tile showing `0` while it waits is the one
+          * failure that looks like an answer.
+          */}
+        <PageStats stats={statTiles} isLoading={stats.isPending} />
+
+        {/* The strip's failure, in the strip's own space and nowhere else. It is deliberately NOT
+            merged into the list's note below and deliberately does not suppress the table: an
+            aggregate that could not be counted says nothing about whether the rows are true, and
+            a caption's failure must not cost an operator the records they came for. */}
+        {statsNote === null || statsFailure === null ? null : (
+          <ErrorNote
+            tone={statsNote.tone}
+            title={statsNote.title}
+            message={statsNote.message}
+            hint={`${statsFailure.endpoint} · ${statsFailure.correlationId ?? t("errors.query.noCorrelationId")}`}
+            onRetry={() => {
+              void stats.refetch();
+            }}
+            isRetrying={stats.isFetching}
+            retryable={statsNote.canRetry}
+          />
+        )}
 
         {note === null || failure === null ? null : (
           <ErrorNote

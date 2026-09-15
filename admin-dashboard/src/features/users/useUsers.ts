@@ -1,5 +1,5 @@
 /**
- * The Users screen's five reads and three privileged writes, as hooks.
+ * The Users screen's six reads and three privileged writes, as hooks.
  *
  * `api/users.ts` fetches and `lib/adminQuery.ts` holds the shared error, retry policy and
  * option bundles; this is the layer between them, and it makes four decisions the screen
@@ -43,11 +43,13 @@ import {
   getUser,
   getUserCredits,
   getUserOrders,
+  getUsersStats,
   getWizardState,
   grantCredits,
   listUsers,
   newRequestId,
   unblockUser,
+  POPULATION_NEUTRAL,
   type CreditGrantRequest,
   type CreditGrantResultView,
   type CreditLedgerPage,
@@ -57,6 +59,7 @@ import {
   type UserDetailView,
   type UsersFilters,
   type UsersPage,
+  type UserStatsView,
   type WizardStateView,
 } from "@/api/users";
 import {
@@ -111,6 +114,31 @@ export function usersFilterKey(filters: UsersFilters): FilterKey {
 }
 
 /**
+ * The projection the STAT STRIP is keyed on — the list's filters, narrowed.
+ *
+ * **`sort` and `sortDir` are dropped, and the list's key deliberately keeps them.** That is not
+ * an inconsistency between two keys; it is the difference between two questions. "How many
+ * accounts does this filter set select, and how many of them can we reach?" has one answer
+ * however the rows beneath it are ordered — so keying the strip on the ordering would throw the
+ * cached answer away and refetch the identical four numbers on every press of a column heading,
+ * flickering a figure an operator is mid-sentence about for nothing. The list's own key cannot
+ * do that: its rows ARE ordered, and a cursor minted under one `ORDER BY` is not a position in
+ * another (`usersFilterKey` says so beside the two fields).
+ *
+ * `withTotal` goes for the same reason it is stripped in `getUsersStats`: it asks the list for
+ * a bounded count this route does not take, so it changes nothing about the answer and must not
+ * change the key that stores it.
+ *
+ * Everything else is shared with `usersFilterKey` rather than restated — the six chips, the
+ * window and the segment token are what narrows BOTH, so a filter added to one is in the other.
+ * `POPULATION_NEUTRAL` is the same constant `getUsersStats` spreads on the way to the wire, so
+ * the key cannot describe a request different from the one that was actually sent.
+ */
+export function usersStatsFilterKey(filters: UsersFilters): FilterKey {
+  return usersFilterKey({ ...filters, ...POPULATION_NEUTRAL });
+}
+
+/**
  * The key factory.
  *
  * Shaped so that everything about ONE person hangs under `user(id)` while `detail(id)` stays
@@ -123,6 +151,15 @@ export const usersKeys = {
   lists: () => [USERS_ROOT, "list"] as const,
   list: (filters: UsersFilters, page: PageRequest) =>
     [USERS_ROOT, "list", usersFilterKey(filters), pageKey(page)] as const,
+  /**
+   * Every filter set's counts. A SIBLING of `lists()`, not a child of one: the strip is one
+   * answer about a whole filtered population and the list is a walk through it, so neither
+   * prefix should invalidate the other by accident — a cursor turn must not refetch counts that
+   * did not move, and a write that moves the counts says so explicitly, right below.
+   */
+  statsAll: () => [USERS_ROOT, "stats"] as const,
+  stats: (filters: UsersFilters) =>
+    [USERS_ROOT, "stats", usersStatsFilterKey(filters)] as const,
   /** Everything held about one person. */
   user: (telegramUserId: number | null) => [USERS_ROOT, "user", telegramUserId] as const,
   detail: (telegramUserId: number | null) =>
@@ -165,6 +202,29 @@ export function useUsers(
   return useQuery<UsersPage, AdminQueryError>({
     queryKey: usersKeys.list(filters, page),
     queryFn: ({ signal }) => unwrap(listUsers(filters, page, signal)),
+    ...LIST_READ,
+  });
+}
+
+/**
+ * What the filtered population is made of: matched, reachable, and the two refusals.
+ *
+ * One request per FILTER SET, not per page: the key carries no cursor and no ordering, so a
+ * walk through the table and a press of a column heading both reuse the answer already on
+ * screen. The three counts besides `matched` overlap — read `UserStatsView` before adding any
+ * two of them together.
+ *
+ * `LIST_READ` for the same reasons the list takes it, and `keepPreviousData` matters here:
+ * while a new filter set loads, the previous counts stay up rather than blinking to skeletons
+ * and back. They are the PREVIOUS narrowing's answer for that moment, which is exactly what the
+ * dimmed rows below them are.
+ */
+export function useUsersStats(
+  filters: UsersFilters,
+): UseQueryResult<UserStatsView, AdminQueryError> {
+  return useQuery<UserStatsView, AdminQueryError>({
+    queryKey: usersKeys.stats(filters),
+    queryFn: ({ signal }) => unwrap(getUsersStats(filters, signal)),
     ...LIST_READ,
   });
 }
@@ -302,6 +362,13 @@ export function useUnblockUser(): UseMutationResult<
  * orders, their ledger, their wizard draft and the whole generation ledger are untouched by a
  * block; invalidating those would be extra round trips claiming something moved that did not.
  *
+ * The stat strip goes too, and it is the surface a block moves most visibly: `blocked` and
+ * `reachable` are the flag this write just flipped, counted. A strip left stale would keep
+ * stating a reachable population that includes the account an operator has just barred — which
+ * is the number somebody sizes a broadcast from. The counts go as a SET, like the lists and for
+ * the same reason: with `isBlocked` a filter, the account may have left or joined the narrowing
+ * behind any cached filter set, not only the one on screen.
+ *
  * Not awaited: the result view already carries the new state for the confirmation to render,
  * and holding the dialog's spinner up until every cached list page has refetched would make a
  * write feel like it failed.
@@ -312,6 +379,7 @@ function invalidateBlockState(
 ): void {
   void queryClient.invalidateQueries({ queryKey: usersKeys.detail(telegramUserId) });
   void queryClient.invalidateQueries({ queryKey: usersKeys.lists() });
+  void queryClient.invalidateQueries({ queryKey: usersKeys.statsAll() });
 }
 
 /**
@@ -400,6 +468,12 @@ export function useGrantCredits(): UseMutationResult<
       void queryClient.invalidateQueries({ queryKey: usersKeys.creditsOf(attempt.telegramUserId) });
       void queryClient.invalidateQueries({ queryKey: usersKeys.detail(attempt.telegramUserId) });
       void queryClient.invalidateQueries({ queryKey: usersKeys.lists() });
+      // The strip too, for the membership half of that sentence and not for the balance: no
+      // count here reports credits, but `hasBalance` is a filter, so a grant can move an account
+      // INTO a narrowing it was not in — and then `matched` and `reachable` are both a person
+      // short of the rows now under them. Cheap, and the alternative is a strip that disagrees
+      // with the table it captions until the next filter change.
+      void queryClient.invalidateQueries({ queryKey: usersKeys.statsAll() });
     },
     ...PRIVILEGED_WRITE,
   });

@@ -7,6 +7,7 @@ import {
   MAX_ERROR_CODE_CHARS,
   MAX_PROVIDER_CHARS,
 } from "@/api/constants";
+import type { LedgerWindow } from "@/api/dashboard";
 import {
   GENERATION_KIND_VALUES,
   NAME_STRATEGY_VALUES,
@@ -28,6 +29,7 @@ import { CELL_SECONDARY_CLASS, DataTable, type Column } from "@/components/DataT
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorNote, type NoteTone } from "@/components/ErrorNote";
 import { FilterChips, type FilterChip } from "@/components/FilterChips";
+import { PageStats, type PageStat } from "@/components/PageStats";
 import { Skeleton } from "@/components/Skeleton";
 import { Toolbar, ToolbarButton } from "@/components/Toolbar";
 import { formatCount } from "@/features/dashboard/adapt";
@@ -61,7 +63,7 @@ import {
   TimeRangeFilter,
   TriStateSelect,
 } from "./filterControls";
-import { useGeneration, useGenerations } from "./useGenerations";
+import { useGeneration, useGenerations, useNameAnalytics } from "./useGenerations";
 
 /**
  * `/generations` — the render ledger: every vendor call the pipeline has made, successful or
@@ -99,6 +101,32 @@ import { useGeneration, useGenerations } from "./useGenerations";
  * today, and they render the dashboard's "not tracked" rather than `$0.00 / 0 ms`. See
  * `attemptFormat.ts`; the rule matters most here, because this is the table somebody would
  * total up to decide what a song costs.
+ *
+ * ## The strip answers §11.2's question and refuses the two it cannot
+ *
+ * ADMIN_PANEL_PLAN §11.2 names this screen's question as "is name verification working", with
+ * the overall verification rate as its dominant signal — so the three tiles are the attempts
+ * in view, that rate, and the denominator the rate was taken over. There is deliberately **no
+ * cost tile and no latency tile**, and their absence is the section above made structural: a
+ * strip cannot print "not tracked" in a 22px weight forty times a day and be read as anything
+ * other than a number, and the one figure this page must never publish is a made-up cost per
+ * song. The two columns keep saying it row by row, where the caveat fits.
+ *
+ * There is no failure breakdown here either. The Dashboard's Performance tab already publishes
+ * `failures` over the same window from the same rows; a second copy would be a second caption
+ * to keep honest, and the day the two disagree an operator has no way to tell which one lied.
+ *
+ * ## The strip mixes two populations on purpose, and prints the denominator that shows it
+ *
+ * The attempts tile is the ledger's own bounded total and obeys all eight filters. The other
+ * two come from `/api/metrics/name-analytics`, which takes `?from=&to=` and NOTHING else —
+ * there is no parameter on that route for provider, kind, outcome or error code. So filtering
+ * to one adapter moves the first tile and not the other two. That is why `Checked` is on the
+ * strip at all: a rate whose sample is three attempts is not a measurement of the system, and
+ * the denominator standing beside it is how this codebase already handles that everywhere else
+ * (`LatencyView.sampleCount` travels with its percentiles, `SubscriptionChurnView.endedPlans`
+ * with its rate). An operator who sees `Attempts 3` next to `Checked 1 204` can see at a glance
+ * that the two are not counting the same thing; one without the other hides it.
  *
  * ## There is no name search on this screen, and no invented vendor
  *
@@ -279,6 +307,38 @@ interface Walk {
 }
 
 const FIRST_PAGE_WALK: Walk = { cursor: null, stack: [], isOrdinalKnown: true };
+
+/* -------------------------------------------------------------------------- */
+/* The verification rate                                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `verified` of `checked`, in whole percentage points — formed HERE from the two integers.
+ *
+ * The response also carries `verificationRate`, an IEEE double the server divided out, and it
+ * is deliberately not read: printing it prints the server's rounding, and a quotient formatted
+ * in two places eventually disagrees with itself. The two integers are on the payload so that
+ * the SPA can decide how the rate is spelled, which is the same division of labour the rest of
+ * this console keeps — the wire measures, the browser writes the sentence.
+ *
+ * **Neither end is allowed to round into a lie**, and that is the whole reason this is a
+ * function rather than an expression. 999 verified of 1 000 is 99.9%, which `Math.round` makes
+ * `100%` — "every name verified", on a window that contains a failure somebody is looking for.
+ * One of 1 000 rounds the other way into `0%`, "nothing verified", on a window where something
+ * did. So a full sweep prints 100 only when `verified === checked`, and 0 only when nothing was
+ * verified at all; every other value is held one point short of the boundary it would otherwise
+ * cross. The percentage is decoration over a small sample anyway — the tile beside it carries
+ * `checked`, which is the measurement.
+ *
+ * The caller guarantees `checked > 0`; a zero denominator is not a rate of any kind and is
+ * rendered as an absent figure with `noDenominator` beside it, never as `0%`.
+ */
+function passRateLabel(verified: number, checked: number): string {
+  const rounded = Math.round((verified / checked) * 100);
+  if (rounded >= 100 && verified < checked) return "99%";
+  if (rounded <= 0 && verified > 0) return "1%";
+  return `${String(rounded)}%`;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Failure copy                                                                */
@@ -506,10 +566,28 @@ export function GenerationsScreen(): JSX.Element {
     [state.cursor],
   );
 
+  /**
+   * The only two filters `/api/metrics/name-analytics` can be asked for.
+   *
+   * Narrowed to `from`/`to` at the boundary rather than at the fetcher, so the six filters that
+   * route cannot honour are not even in scope where the request is formed — a screen that
+   * passed `state` wholesale would look like it was filtering the verification figures and
+   * would not be. See the header on what the strip owes the reader in exchange.
+   */
+  const ledgerWindow = useMemo<LedgerWindow>(
+    () => ({ from: state.from, to: state.to }),
+    [state.from, state.to],
+  );
+
   const attempts = useGenerations(filters, page);
   const selected = useGeneration(state.attempt);
+  const verification = useNameAnalytics(ledgerWindow);
 
-  useSessionGuard([attempts.error, selected.error]);
+  /* The verification read is on a DIFFERENT permission, but a 401 is a 401 on any of the three:
+     the session cookie is gone, and the screen must leave rather than render two thirds of
+     itself around the hole. Only `useSessionGuard` branches on that; a 403 from this read is a
+     role refusal and stays local to the strip. */
+  useSessionGuard([attempts.error, selected.error, verification.error]);
 
   const items = attempts.data?.items ?? [];
   const meta = attempts.data?.meta ?? null;
@@ -773,19 +851,95 @@ export function GenerationsScreen(): JSX.Element {
       : formatCount(meta.total);
   }, [meta]);
 
-  const subtitle = useMemo(() => {
-    if (attempts.data === undefined) return undefined;
-    if (totalLabel === null) return t("generations.countNotRequested");
-    const one = meta?.total === 1;
-    if (filterCount === 0) {
-      return one
-        ? t("generations.subtitleAllOne", { count: totalLabel })
-        : t("generations.subtitleAll", { count: totalLabel });
+  /**
+   * The three tiles, and the Toolbar subtitle they replaced.
+   *
+   * **The subtitle is gone rather than kept beside them.** It printed exactly this count in
+   * exactly this position — "1 234 attempts match these filters", two centimetres above a tile
+   * reading `Attempts 1 234` — and two spellings of one number is how they eventually differ:
+   * the first reader to see them disagree has no way to know which is the ledger's. What the
+   * sentence said and the tile does not is whether the count is filtered, and that fact did not
+   * need a sentence: the chips row and the `Filters · N` badge sit between the strip and the
+   * table, they name every filter that is set, and unlike the subtitle they can be pressed to
+   * change it. The pager's range label keeps its own `of {total}` — that is a position within
+   * the count and not a second statement of it.
+   *
+   * **`value: null` is never a zero here.** Each of the four ways a figure can be missing is a
+   * different sentence: the count was not requested, the read has not answered (or was
+   * refused), verification has never run on this deployment, and nothing in this window reached
+   * a verdict. The first three print an absent figure; the last prints a measured `0` for
+   * `checked`, because "nothing was checked in the range you chose" is a fact somebody measured
+   * — and an absent rate beside it, because a quotient over no denominator is not a number.
+   *
+   * No tile is toned `warn`. That tone is for a count an operator must act on, and there is no
+   * published figure on this deployment for what a healthy pass rate is; a threshold invented
+   * here would paint a colour on an opinion and be read as a measurement.
+   */
+  const stats = useMemo<readonly PageStat[]>(() => {
+    const attemptsTile: PageStat = {
+      key: "attempts",
+      label: t("generations.stats.attempts"),
+      value: totalLabel,
+      /* `withTotal` is always sent, so a null total is the server declining to bound one —
+         which is its own sentence and not an outage, and the screen already owns the phrase. */
+      ...(totalLabel === null ? { reason: t("generations.countNotRequested") } : {}),
+    };
+
+    const names = verification.data;
+    if (names === undefined) {
+      /* In flight, or refused. Two dashes and no caption invented from nothing: the note
+         under the strip carries the reason, with the correlation id a refusal is chased by. */
+      return [
+        attemptsTile,
+        { key: "passRate", label: t("generations.stats.passRate"), value: null },
+        { key: "checked", label: t("generations.stats.checked"), value: null },
+      ];
     }
-    return one
-      ? t("generations.subtitleFilteredOne", { count: totalLabel })
-      : t("generations.subtitleFiltered", { count: totalLabel });
-  }, [attempts.data, filterCount, meta, t, totalLabel]);
+
+    if (!names.hasRecordedAttempts) {
+      /* `hasRecordedAttempts` is measured with the window IGNORED, so this is the one state in
+         which `attempts: 0` means "the verifier has never run here" rather than "not in this
+         range". Printing `0 checked` would answer the second question — widen the window —
+         about a deployment where widening it cannot help. */
+      const notInstrumented = t("common.stats.unavailable.notInstrumented");
+      return [
+        attemptsTile,
+        {
+          key: "passRate",
+          label: t("generations.stats.passRate"),
+          value: null,
+          reason: notInstrumented,
+        },
+        {
+          key: "checked",
+          label: t("generations.stats.checked"),
+          value: null,
+          reason: notInstrumented,
+        },
+      ];
+    }
+
+    return [
+      attemptsTile,
+      {
+        key: "passRate",
+        label: t("generations.stats.passRate"),
+        value: names.attempts === 0 ? null : passRateLabel(names.verified, names.attempts),
+        /* The percent sign rides in `value` rather than in `unit`: `unit` is set in a smaller
+           weight a gap away from the number, which is right for `soʻm` and wrong for a
+           percentage — `97 %` is not how this is written in any of the three locales. */
+        ...(names.attempts === 0
+          ? { reason: t("common.stats.unavailable.noDenominator") }
+          : {}),
+      },
+      {
+        key: "checked",
+        label: t("generations.stats.checked"),
+        /* Measured, including at zero — the ledger holds verdicts and this window has none. */
+        value: formatCount(names.attempts),
+      },
+    ];
+  }, [t, totalLabel, verification.data]);
 
   const rangeLabel = useMemo(() => {
     if (attempts.isPlaceholderData) {
@@ -829,6 +983,25 @@ export function GenerationsScreen(): JSX.Element {
     attempts.error === null ? null : noteFor(attempts.error, t("generations.subjects.ledger"), t);
   const detailNote =
     selected.error === null ? null : noteFor(selected.error, t("generations.subjects.attempt"), t);
+  /**
+   * Why the two verification tiles are blank, when they are.
+   *
+   * The tiles themselves print a bare dash in this state and no caption, because the reason is
+   * not one of the six the absence vocabulary covers — those name what the DATA could not say,
+   * and this is the read never having happened. `noteFor` is the copy that does say it, and it
+   * carries the endpoint and the correlation id, which is the difference between an operator
+   * filing a useful report and re-pressing a button.
+   *
+   * The subject is `name verification` — the attempt KIND, which is exactly the population
+   * these two tiles measure, and already translated in all three locales. A 403 here reads
+   * "name verification is not visible to this role", which is the true sentence: the route is
+   * `DASHBOARD_READ` and the rows under it are `RECORDS_READ`, so the table below keeps every
+   * one of its rows while the aggregate over them is refused.
+   */
+  const statsNote =
+    verification.error === null
+      ? null
+      : noteFor(verification.error, t("generations.kinds.name_verification"), t);
 
   return (
     <main className="py-6">
@@ -837,7 +1010,7 @@ export function GenerationsScreen(): JSX.Element {
       <div className="mx-auto flex w-[min(1392px,100%-2rem)] flex-col gap-4">
         <Toolbar
           title={t("generations.title")}
-          subtitle={subtitle}
+          /* No subtitle. It printed the same count the Attempts tile does — see `stats`. */
           actions={
             <ToolbarButton
               icon={<SlidersHorizontal className="h-5 w-5" strokeWidth={1.75} />}
@@ -853,6 +1026,27 @@ export function GenerationsScreen(): JSX.Element {
             </ToolbarButton>
           }
         />
+
+        {/* Above the filter panel, not below it: the strip is what the page ANSWERS and the
+            panel is what narrows it, and an answer that moves down the screen as a disclosure
+            opens is one the operator has to go looking for again. `isLoading` is the union of
+            the two reads on purpose — one strip, one busy state, filled in one go rather than
+            in two stages that shuffle the tiles under whoever is reading them. */}
+        <PageStats stats={stats} isLoading={attempts.isLoading || verification.isLoading} />
+
+        {statsNote === null ? null : (
+          <ErrorNote
+            tone={statsNote.tone}
+            title={statsNote.title}
+            message={statsNote.message}
+            hint={statsNote.hint}
+            retryable={statsNote.canRetry}
+            isRetrying={verification.isFetching}
+            onRetry={() => {
+              void verification.refetch();
+            }}
+          />
+        )}
 
         {isPanelOpen ? (
           <FilterPanel id={FILTER_PANEL_ID}>

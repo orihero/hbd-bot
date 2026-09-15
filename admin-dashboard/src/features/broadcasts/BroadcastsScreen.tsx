@@ -17,6 +17,22 @@
  * the interval is a function of the data rather than a flag this screen sets, so a table of
  * completed campaigns costs nothing and nobody has to remember to turn a timer off.
  *
+ * The strip above the table is on the same clock and on the same verdict: this screen derives
+ * `hasBroadcastInFlight` from the list once and hands the boolean to `useBroadcastStats`, because
+ * an aggregate of totals cannot tell a busy deployment from a sleeping one. An idle deployment
+ * therefore makes no requests at all — not one for the table and not one for the strip.
+ *
+ * ## Where the count of campaigns is stated, and where it is not
+ *
+ * ONCE, in the strip. The toolbar used to carry "412 campaigns" under the title, built from
+ * `meta.total`, which saturates at the server's count cap and reads "at least 10,000" past it.
+ * `GET /api/broadcasts/stats` publishes the same count as the exact sum of its segments, so
+ * keeping both would have put two different numbers for one set of campaigns a few hundred pixels
+ * apart and left an operator to decide which console to believe. The subtitle was the one that
+ * went: the tile says it better, and it says it beside the three figures that give it meaning.
+ * `withTotal` went with it — the list no longer needs a bounded count, so it stops paying for the
+ * second query, and the pager's "of N" reads the exact figure off the strip.
+ *
  * ## What the delivery column may claim
  *
  * `settledCount` over `recipientCount`, and never a percentage of the AUDIENCE: the audience was
@@ -41,6 +57,8 @@ import {
   BROADCAST_STATE_VALUES,
   type BroadcastKind,
   type BroadcastState,
+  type BroadcastStateTotalView,
+  type BroadcastStatsView,
   type BroadcastView,
   type BroadcastsFilters,
 } from "@/api/broadcasts";
@@ -53,6 +71,7 @@ import { CELL_SECONDARY_CLASS, DataTable, type Column } from "@/components/DataT
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorNote } from "@/components/ErrorNote";
 import { FilterChips, type FilterChip } from "@/components/FilterChips";
+import { PageStats, type PageStat } from "@/components/PageStats";
 import { Toolbar, ToolbarButton } from "@/components/Toolbar";
 import {
   BROADCAST_KIND_HINT_KEY,
@@ -63,11 +82,14 @@ import {
   formatAbsolute,
   formatCount,
   formatRelative,
-  formatTotal,
   noteFor,
   type Translate,
 } from "@/features/broadcasts/broadcastFormat";
-import { useBroadcasts } from "@/features/broadcasts/useBroadcasts";
+import {
+  hasBroadcastInFlight,
+  useBroadcastStats,
+  useBroadcasts,
+} from "@/features/broadcasts/useBroadcasts";
 import { EnumToggleGroup } from "@/features/users/filterControls";
 import { useI18n } from "@/i18n";
 import { cn } from "@/lib/cn";
@@ -192,6 +214,132 @@ function DeliveryCell({
 }
 
 /* -------------------------------------------------------------------------- */
+/* The strip                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One state's count, LOOKED UP by name and never taken by position.
+ *
+ * The server publishes every member of a closed vocabulary, including the ones sitting at zero,
+ * so a member that is not in the array is not a state with no campaigns — it is a figure this
+ * build was not given. `null` says so, and the tile above renders it as absent. Reading the array
+ * positionally, or falling back to `0`, would turn a server this bundle does not fully speak into
+ * a confident "nothing is sending" on the one tile an operator is meant to act on.
+ */
+function countOf(
+  counts: readonly BroadcastStateTotalView[],
+  state: BroadcastState,
+): number | null {
+  const segment = counts.find((item) => item.state === state);
+  return segment === undefined ? null : segment.count;
+}
+
+/**
+ * A tile, with the one rule this screen must not break: a reason rides along exactly when the
+ * value is absent.
+ *
+ * `PageStats` already refuses to print a reason beside a measured figure, so this is belt and
+ * braces — but it is the belt that keeps a stale "no campaign has started yet" from being passed
+ * down beside an instant that has since arrived.
+ */
+function statTile(
+  key: string,
+  label: string,
+  value: string | null,
+  reason: string | null,
+  tone: "neutral" | "warn" = "neutral",
+): PageStat {
+  return {
+    key,
+    label,
+    value,
+    tone,
+    ...(value === null && reason !== null ? { reason } : {}),
+  };
+}
+
+/**
+ * The four figures above the table, each one formatted by the side that knows what it means.
+ *
+ * `reachedRecipients` and `audienceTotal` arrive as two integers and are divided by nobody: the
+ * tile prints "1,240 of 1,500" through the same sentence the delivery column uses, so the two
+ * numbers a reader could check against the rows are both on the screen. An `audienceTotal` of zero
+ * is not a reach of 0% — it is a quotient with no denominator, which is not a number — and it
+ * renders as a dash with `noDenominator` underneath.
+ *
+ * `lastSendAt` null is a deployment (or a filter set) in which no run has ever started. It is a
+ * dash, never the word "never" and never an epoch: both of those are a send nobody made.
+ *
+ * `failureReason` is the refusal, already translated, when the strip's own fetch failed. It goes
+ * on every tile, because it is the answer to why every one of the four is missing, and it reaches
+ * nothing else on the screen — the table beside it is a different query and its rows are still
+ * good.
+ */
+function buildStrip(
+  stats: BroadcastStatsView | undefined,
+  failureReason: string | null,
+  t: Translate,
+): readonly PageStat[] {
+  const counts = stats?.counts;
+  const sending = counts === undefined ? null : countOf(counts, "sending");
+  const paused = counts === undefined ? null : countOf(counts, "paused");
+  /* Sending AND paused, which is narrower than the set that makes this screen poll. The poll also
+     watches `ready` and `expanding` because those move on their own; this tile is the count an
+     operator is being asked to LOOK at, and a campaign whose ledger is being written is not one of
+     them. A pause is: nothing will restart it but a person. */
+  const inFlight = sending === null || paused === null ? null : sending + paused;
+
+  let reached: string | null = null;
+  let reachedReason = failureReason;
+  if (stats !== undefined) {
+    reachedReason = stats.audienceTotal === 0 ? t("common.stats.unavailable.noDenominator") : null;
+    if (stats.audienceTotal !== 0) {
+      reached = t("broadcasts.progress.settledOf", {
+        settled: formatCount(stats.reachedRecipients),
+        total: formatCount(stats.audienceTotal),
+      });
+    }
+  }
+
+  let lastSend: string | null = null;
+  let lastSendReason = failureReason;
+  if (stats !== undefined) {
+    /* The caption is this namespace's own and not one of `common.stats.unavailable.*`: those six
+       mirror the server's `AbsenceReason` vocabulary one for one, and "no run has ever started"
+       is derived here from a `lastSendAt` of null rather than sent by anybody. */
+    lastSendReason = stats.lastSendAt === null ? t("broadcasts.stats.noSendYet") : null;
+    if (stats.lastSendAt !== null) {
+      // The relative form, with the exact instant one hover away on the tile's own title — the
+      // rule the table's created column follows. An unparseable instant falls back to the raw
+      // string rather than to a dash: the server did send us something, and pretending otherwise
+      // would report an absence that is not there.
+      lastSend = formatRelative(stats.lastSendAt, t) ?? stats.lastSendAt;
+    }
+  }
+
+  return [
+    statTile(
+      "campaigns",
+      t("broadcasts.stats.campaigns"),
+      stats === undefined ? null : formatCount(stats.total),
+      failureReason,
+    ),
+    statTile(
+      "inFlight",
+      t("broadcasts.stats.inFlight"),
+      inFlight === null ? null : formatCount(inFlight),
+      failureReason,
+      // `warn` only when there is something to act on. A zero here is a measured, honest zero —
+      // nothing is sending — and painting it in the caution ink would train an operator to ignore
+      // the colour on the day it means something.
+      inFlight !== null && inFlight > 0 ? "warn" : "neutral",
+    ),
+    statTile("recipients", t("broadcasts.stats.recipients"), reached, reachedReason),
+    statTile("lastSend", t("broadcasts.stats.lastSend"), lastSend, lastSendReason),
+  ];
+}
+
+/* -------------------------------------------------------------------------- */
 /* The screen                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -230,9 +378,10 @@ export function BroadcastsScreen(): JSX.Element {
 
   const filters = useMemo<BroadcastsFilters>(
     () => ({
-      // Asked for deliberately: the toolbar states a count, and a count nobody asked for is a
-      // count that must not be invented. It is bounded and says so.
-      withTotal: true,
+      // No `withTotal`. It bought the toolbar's "412 campaigns" and nothing else, and that count
+      // now comes off the strip — exactly, rather than saturated at the server's cap. Asking for
+      // it anyway would be a second query per page turn, producing a number this screen would then
+      // have to either hide or print beside a different one for the same set of campaigns.
       state: url.state,
       kind: url.kind,
     }),
@@ -245,15 +394,24 @@ export function BroadcastsScreen(): JSX.Element {
   );
 
   const campaigns = useBroadcasts(filters, page);
+  /* The list's verdict, taken once and spent twice: it is what makes the table poll and what is
+     handed to the strip, which holds no campaign state of its own to decide with. */
+  const isAnyInFlight = hasBroadcastInFlight(campaigns.data);
+  const stats = useBroadcastStats(filters, isAnyInFlight);
+
   /* An abort is a superseded request — a filter change, an unmount — and renders as nothing. */
   const failure =
     campaigns.error !== null && campaigns.error.code !== CLIENT_ERROR_CODES.aborted
       ? campaigns.error
       : null;
-  useSessionGuard([failure]);
+  const statsFailure =
+    stats.error !== null && stats.error.code !== CLIENT_ERROR_CODES.aborted ? stats.error : null;
+  /* Both, because a 401 is a 401 whichever query hits it first and a tab whose session died while
+     only the strip was in flight must still be taken to `/login`. The guard reads `status` alone;
+     it is not a renderer, and `statsFailure` renders in the strip and nowhere else. */
+  useSessionGuard([failure, statsFailure]);
 
   const items = campaigns.data?.items ?? [];
-  const meta = campaigns.data?.meta ?? null;
 
   const isWalkCurrent = walk.cursor === url.cursor;
   const offset = isWalkCurrent ? walk.offset : null;
@@ -404,22 +562,37 @@ export function BroadcastsScreen(): JSX.Element {
   /* What the toolbar and the pager are allowed to claim                     */
   /* ---------------------------------------------------------------------- */
 
-  const total = meta?.total ?? null;
-  const isTotalExact = meta?.isTotalExact ?? null;
+  /* The strip's count, not the list's: exact, and the only one on this screen. `null` while the
+     strip has not arrived or was refused, which the pager below already knows how to say nothing
+     about. */
+  const total = stats.data?.total ?? null;
 
-  let subtitle: string;
-  if (campaigns.data === undefined) {
-    subtitle =
-      failure === null ? t("broadcasts.subtitles.reading") : t("broadcasts.subtitles.failed");
-  } else if (total === null) {
-    subtitle = t("broadcasts.subtitles.onThisPage", { count: formatCount(items.length) });
-  } else {
-    const shown = formatTotal(total, isTotalExact, t);
-    subtitle =
-      filterCount === 0
-        ? t("broadcasts.subtitles.campaigns", { total: shown })
-        : t("broadcasts.subtitles.campaignsFiltered", { total: shown });
-  }
+  /* The subtitle survives only for the states the strip cannot speak for. Once the rows are here
+     the title stands alone: the count moved to the tile, and a second line repeating either it or
+     the pager's range would be the third statement of one fact on one screen. */
+  const subtitle =
+    campaigns.data === undefined
+      ? failure === null
+        ? t("broadcasts.subtitles.reading")
+        : t("broadcasts.subtitles.failed")
+      : undefined;
+
+  const strip = useMemo<readonly PageStat[]>(
+    () =>
+      buildStrip(
+        stats.data,
+        /* The refusal as a sentence an operator can act on — `noteFor`'s title, the same copy the
+           table's own note would use. `isStale` is false because this string can only ever reach a
+           tile that has NO figure: once `stats.data` is held, every tile explains itself out of
+           the data and a failed refetch leaves the last measured numbers standing rather than
+           blanking four figures that were true a poll ago. */
+        statsFailure === null
+          ? null
+          : noteFor(statsFailure, false, t, t("broadcasts.subject")).title,
+        t,
+      ),
+    [stats.data, statsFailure, t],
+  );
 
   let rangeLabel: string;
   if (campaigns.isPlaceholderData) {
@@ -430,10 +603,11 @@ export function BroadcastsScreen(): JSX.Element {
   } else if (items.length === 0) {
     rangeLabel = filterCount === 0 ? t("broadcasts.range.none") : t("broadcasts.range.noneMatching");
   } else {
+    /* The strip's exact sum, so there is no "at least" to qualify. When the strip has not arrived
+       or was refused the clause is empty — the pager says where the walk is and declines to
+       invent a size for the set it is walking. */
     const totalClause =
-      total === null
-        ? ""
-        : t("broadcasts.range.ofTotal", { total: formatTotal(total, isTotalExact, t) });
+      total === null ? "" : t("broadcasts.range.ofTotal", { total: formatCount(total) });
     rangeLabel =
       offset === null
         ? t("broadcasts.range.onThisPage", {
@@ -539,6 +713,12 @@ export function BroadcastsScreen(): JSX.Element {
         </div>
 
         <FilterChips chips={chips} onClearAll={chips.length === 0 ? undefined : clearAll} />
+
+        {/* Under the chips and above the table, because the chips are what these four figures are
+            scoped BY — the strip answers for the whole filter set, not for the page — and a reader
+            who has just narrowed the list needs the totals to move in the same breath as the rows.
+            `isPending` and not `isFetching`: a poll refreshing the numbers must not blank them. */}
+        <PageStats stats={strip} isLoading={stats.isPending} />
 
         {note === null || failure === null ? null : (
           <ErrorNote

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { formatAudio, formatCents } from "@/features/dashboard/adapt";
+import type { FinanceResponse } from "@/api/dashboard";
+import {
+  adaptFinance,
+  formatAudio,
+  formatCents,
+  unavailableKey,
+  type CardValue,
+} from "@/features/dashboard/adapt";
 
 /**
  * The two units the vendor cards were re-denominated into, and the three ways each of them was
@@ -67,5 +74,173 @@ describe("formatAudio — rendered audio as a length", () => {
 
   it("never renders a negative clock", () => {
     expect(formatAudio(-5_000)).toBe("0:00");
+  });
+});
+
+/**
+ * A finance response from the deployment that reported the defect: the panel has no published
+ * unit price and no FX rate, so the estimate and the run-rate pair have no figure and the
+ * server says which of the two is missing on each. Everything not read by `adaptFinance` is
+ * filled with the smallest legal value — these are the counts and flags of a quiet window, and
+ * not one of them is a measurement this file asserts on.
+ */
+function financeWithNoPrices(): FinanceResponse {
+  const noCost = {
+    amountUsd: null,
+    costedCalls: 0,
+    calls: 0,
+    costSource: null,
+    unavailableReason: null,
+  } as const;
+  const noFx = { uzsPerUsd: null, asOf: null } as const;
+  const window = { from: "2026-09-01T00:00:00Z", to: "2026-09-15T00:00:00Z" } as const;
+  return {
+    window,
+    revenue: [],
+    unpricedTopups: { unpriced: 0, priced: 0 },
+    derivedRevenue: {
+      // Songs WERE delivered — the estimate is missing its price, not its population, which
+      // is exactly the case a zero-filled card would have reported as "no revenue".
+      deliveredSongs: 12,
+      unitPriceMinor: null,
+      currency: null,
+      amountMinor: null,
+      unavailableReason: "no_price_published",
+    },
+    vendorSpend: noCost,
+    costPerSong: { cost: noCost, deliveredOrders: 12, attributedOrders: 0, perSongUsd: null },
+    unattributedSpend: noCost,
+    netRunRate: {
+      window,
+      revenue: [],
+      cost: noCost,
+      fxUsed: noFx,
+      currency: null,
+      netMinor: null,
+      annualisedMinor: null,
+      unavailableReason: "no_fx_rate",
+    },
+    fx: noFx,
+    vendorBalances: [],
+    fakeCalls: { fakeCalls: 0, totalCalls: 0 },
+    capabilities: {
+      isCostTelemetry: true,
+      isLatencyTelemetry: true,
+      isAssetStorageKeyRecorded: true,
+      isChatCapture: true,
+      isPaymentLedger: true,
+      isStateTransitionLog: true,
+      isVendorUsage: true,
+      isVendorCost: true,
+      isPlanRevenue: true,
+      isTopupRevenue: true,
+      isChurnInstrumented: true,
+      isVendorBalance: true,
+      isActivityHistory: true,
+    },
+  };
+}
+
+/**
+ * The mapping that carries a server's reason onto the card, and the three ways it must stay
+ * quiet. This is the Finances defect written down: the deployment returned 200 with
+ * `no_price_published` on `derivedRevenue` and `no_fx_rate` on `netRunRate`, and the operator
+ * saw three bare em dashes, because the reason reached `CardValue` and went no further.
+ */
+describe("unavailableKey — the reason a card has no number", () => {
+  it("resolves every reason the wire can name, so none of the six can go silently missing", () => {
+    // Written out one by one rather than looped over `ABSENCE_REASON_VALUES`: a loop asserts
+    // that the table has an entry, and what is being pinned here is WHICH entry — swapping
+    // `no_fx_rate` and `no_price_published` would tell an operator to configure the wrong
+    // thing, and a loop would pass.
+    expect(unavailableKey({ tag: "no fx rate", reason: "no_fx_rate" })).toBe(
+      "common.stats.unavailable.noFxRate",
+    );
+    expect(unavailableKey({ tag: "no price published", reason: "no_price_published" })).toBe(
+      "common.stats.unavailable.noPricePublished",
+    );
+    expect(unavailableKey({ tag: "mixed currencies", reason: "mixed_currencies" })).toBe(
+      "common.stats.unavailable.mixedCurrencies",
+    );
+    expect(unavailableKey({ tag: "not priced", reason: "not_priced" })).toBe(
+      "common.stats.unavailable.notPriced",
+    );
+    expect(unavailableKey({ tag: "no denominator", reason: "no_denominator" })).toBe(
+      "common.stats.unavailable.noDenominator",
+    );
+    expect(unavailableKey({ tag: "not tracked", reason: "not_instrumented" })).toBe(
+      "common.stats.unavailable.notInstrumented",
+    );
+  });
+
+  it("says nothing for a member it has never heard of, rather than printing the wire string", () => {
+    // A bucket name is the realistic accident: `SeriesBucket` and `AbsenceReason` are two
+    // closed vocabularies of short snake_case words, and `hour`/`day`/`week`/`month` are what
+    // arrives if a response ever puts the wrong one in the reason slot. The cast is the whole
+    // point of the case — this cannot be built through the types, and it can still be served.
+    for (const bucket of ["hour", "day", "week", "month"]) {
+      const value = { tag: "not tracked", reason: bucket } as unknown as CardValue;
+      expect(unavailableKey(value)).toBeNull();
+    }
+  });
+
+  it("says nothing for an absence this module inferred itself", () => {
+    // `not polled`, `never answered`, `4h stale` are prose written in `adapt.ts`, not wire
+    // members: there is no key for them and no translation, and an English phrase under a
+    // Russian card is worse than the dash alone.
+    expect(unavailableKey({ tag: "not polled" })).toBeNull();
+    expect(unavailableKey({ tag: "never answered" })).toBeNull();
+    expect(unavailableKey({ tag: "4h stale" })).toBeNull();
+  });
+
+  it("leaves a measured card and a card still in flight alone", () => {
+    // A number is not an absence, and a section that has not answered yet has not said
+    // anything to caption — the skeleton owns that state.
+    expect(unavailableKey({ value: "1 842", delta: "+12%" })).toBeNull();
+    expect(unavailableKey({ value: "0", delta: "" })).toBeNull();
+    expect(unavailableKey(undefined)).toBeNull();
+  });
+});
+
+/**
+ * The adapter end of the same defect: the finance cards have to CARRY the reason before a card
+ * can render it, including on the paths where the server left `unavailableReason` null and the
+ * fallback is this module's own reading of the shape it got.
+ */
+describe("adaptFinance — the absent money cards name their reason", () => {
+  it("carries the server's reason onto Est. revenue, MRR and ARR", () => {
+    const out = adaptFinance(financeWithNoPrices());
+    expect(out.totalRevenue).toEqual({ tag: "no price published", reason: "no_price_published" });
+    expect(out.mrr).toEqual({ tag: "no fx rate", reason: "no_fx_rate" });
+    expect(out.arr).toEqual({ tag: "no fx rate", reason: "no_fx_rate" });
+  });
+
+  it("keeps the pill copy byte for byte when it falls back", () => {
+    // The fallback used to be the phrase and is now the member it was the phrase OF, so the
+    // text is unchanged and the card gains something it can translate.
+    const r = financeWithNoPrices();
+    const out = adaptFinance({
+      ...r,
+      derivedRevenue: { ...r.derivedRevenue, unavailableReason: null },
+      netRunRate: { ...r.netRunRate, unavailableReason: null },
+    });
+    expect(out.totalRevenue).toEqual({ tag: "no price published", reason: "no_price_published" });
+    expect(out.mrr).toEqual({ tag: "not priced", reason: "not_priced" });
+  });
+
+  it("does not touch a card that has a figure", () => {
+    const r = financeWithNoPrices();
+    const out = adaptFinance({
+      ...r,
+      derivedRevenue: {
+        ...r.derivedRevenue,
+        amountMinor: 1_500_000,
+        currency: "UZS",
+        unitPriceMinor: 1_500_000,
+        unavailableReason: null,
+      },
+    });
+    expect(out.totalRevenue).toEqual({ value: "15 000", unit: "soʻm", delta: "" });
+    expect(unavailableKey(out.totalRevenue)).toBeNull();
   });
 });

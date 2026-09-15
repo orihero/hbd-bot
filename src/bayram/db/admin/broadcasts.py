@@ -45,6 +45,7 @@ detail issues its own three statements instead.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Final
 from uuid import UUID
 
@@ -78,8 +79,11 @@ from bayram.db.models.broadcast_recipient import BroadcastRecipientRow
 __all__ = [
     "BroadcastFilters",
     "RecipientFilters",
+    "BroadcastStateTotal",
+    "BroadcastStats",
     "list_broadcasts",
     "count_broadcasts",
+    "broadcast_stats",
     "get_broadcast",
     "list_recipients",
     "count_recipients",
@@ -150,6 +154,82 @@ class RecipientFilters:
     telegram_user_id: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class BroadcastStateTotal:
+    """One :class:`~bayram.contracts.BroadcastState` and how many campaigns are in it.
+
+    Zero-filled over the whole enum by :func:`broadcast_stats` — a state with no campaigns is
+    ``0`` and never absent — which is the contract
+    :class:`~bayram.db.admin.views.OrderStateTotal` argues at length one namespace along and
+    this one deliberately mirrors: ``BroadcastState`` is a CLOSED vocabulary, so every member
+    of it is a question the reader asked and got an answer to. A time series is the opposite
+    case and is not this: a day nobody measured must stay missing, because zero orders and no
+    measurement are two different facts about that day.
+
+    A separate type from ``OrderStateTotal`` rather than a generic one over two enums, for the
+    reason those two are separate: a shared model is a model one of its callers can be
+    silently wrong about, and the only thing these two have in common is their shape.
+    """
+
+    state: BroadcastState
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class BroadcastStats:
+    """Everything the Campaigns page's stat strip renders, over the caller's whole filter set.
+
+    **Counts, enum members and one UTC instant. Nothing here is about a person**, which is
+    what lets this sit on ``BROADCAST_READ`` beside the list it describes: the strip is an
+    aggregate surface, and an aggregate surface in this panel carries no title, no body, no
+    recipient and no Telegram id (§12.3).
+
+    **No rate and no float.** :attr:`settled_recipients` and :attr:`audience_total` travel as
+    the two integers they are, because a ratio in this repo carries the numerator and the
+    denominator it was formed from — ``schemas/overview.RatioView`` refuses to exist without
+    them — and a server-computed "82% reached" is a number the reader cannot check and cannot
+    recompute against the list beneath it. The SPA divides; an empty deployment has a zero
+    denominator and renders a dash rather than "0%".
+
+    **:attr:`last_send_at` is ``None`` when nothing has ever been sent, and that is the whole
+    point of the field being nullable.** ``broadcasts.started_at`` is NULL until the first
+    message of a run leaves, so the absence is a fact — this deployment has never sent
+    anything — and an epoch, a creation date or the current instant substituted for it would
+    all be inventions that render as a plausible timestamp.
+    """
+
+    #: One entry per :class:`~bayram.contracts.BroadcastState`, in declaration order.
+    by_state: tuple[BroadcastStateTotal, ...]
+    #: Recipient rows the campaigns in this filter set have finished with, summed from the
+    #: campaign rows' own rollup counters — sent + failed + skipped + undeliverable + unknown.
+    #: The rollup and not a ``GROUP BY`` over ``broadcast_recipients``: this is a strip above a
+    #: list of campaigns, and the recount that an operator watches a single send with is
+    #: :func:`broadcast_progress` on that campaign's detail.
+    settled_recipients: int
+    #: What those same campaigns froze into their audiences at creation — the denominator the
+    #: numerator above is honest against. It is ``audience_size`` rather than
+    #: ``recipient_count`` because it is the number a human authorised, and a half-written
+    #: expansion must not flatter the strip by shrinking what it is measured against.
+    audience_total: int
+    #: ``MAX(broadcasts.started_at)`` across the filter set, or ``None`` when no campaign in it
+    #: has started. Never an epoch; see the class docstring.
+    last_send_at: datetime | None
+
+    @property
+    def total(self) -> int:
+        """How many campaigns the filter set holds. The sum of the segments, and exact.
+
+        Not :func:`count_broadcasts`, which is
+        :data:`~bayram.db.admin.page.TOTAL_COUNT_CAP`-bounded because it answers "how long is
+        this list". These segments are counted without a cap, so their sum is too, and the two
+        numbers are allowed to disagree above the cap for the reason
+        ``schemas/orders.OrderStateCountsView`` states: "10,000+" is honest about being a
+        ceiling, and a strip drawn from a capped sample would be wrong with nothing on the
+        screen to say so.
+        """
+        return sum(item.count for item in self.by_state)
+
+
 async def list_broadcasts(
     session: AsyncSession, *, filters: BroadcastFilters, request: PageRequest
 ) -> Page[BroadcastListItem]:
@@ -183,6 +263,82 @@ async def count_broadcasts(session: AsyncSession, *, filters: BroadcastFilters) 
     this: that is ``users.count_segment_exactly``, exact by construction.
     """
     return await bounded_total(session, _filtered(filters))
+
+
+async def broadcast_stats(session: AsyncSession, *, filters: BroadcastFilters) -> BroadcastStats:
+    """The stat strip's numbers for the WHOLE filter set, in one grouped statement.
+
+    **It narrows through :func:`_filtered` and through nothing else**, so the strip and the
+    list underneath it can never be answering two different questions. That includes
+    ``?state=`` itself: filtering to ``sending`` makes every other segment ``0``, which is
+    correct rather than useless — it is what lets the SPA choose which population the strip
+    describes by choosing which parameters it sends. A server that quietly dropped a filter to
+    produce a fuller-looking strip would be describing a set the operator is not looking at.
+
+    **One round trip, and it is cheap for the reason ``count_orders_by_state`` is not.**
+    That aggregate is a full scan of the orders table and its docstring pays for it
+    deliberately; this one groups ``broadcasts``, which gains a handful of rows a week and
+    holds the counters already — the sums below read the campaign rows' own rollup and never
+    touch ``broadcast_recipients``, the largest table in the schema. So there is no argument to
+    make here about when the aggregate may run: it costs what the list costs.
+
+    The ``GROUP BY`` returns only the states that matched, and the zero-fill happens here, in
+    Python, over :class:`~bayram.contracts.BroadcastState` in declaration order — a strip whose
+    tiles appear from nowhere as data arrives is a strip that re-lays-out under the operator's
+    cursor. ``MAX(started_at)`` is folded the same way, skipping the groups where it is NULL:
+    a campaign that never started contributes no instant rather than a zero one, and a filter
+    set in which nothing ever started reports ``None``.
+
+    ``SUM`` over an empty set is NULL in SQL and never reaches this code as a ``0``: an empty
+    group is an absent ROW, so the accumulators below start at zero for the one honest reason
+    — nothing was added to them — rather than by coercing a NULL somebody would later read as
+    a measurement.
+    """
+    #: The five terminal rollup counters, summed in SQL rather than five columns summed in
+    #: Python, so "settled" is spelled once per layer: ``schemas/broadcasts._progress`` forms
+    #: the same figure for ONE campaign, and the two agree because they add the same five
+    #: columns. ``pending`` and ``sending`` are deliberately not among them — a row still
+    #: moving has not reached anybody yet, and counting it would make the strip claim a reach
+    #: the campaign has not had.
+    settled = (
+        BroadcastRow.sent_count
+        + BroadcastRow.failed_count
+        + BroadcastRow.skipped_count
+        + BroadcastRow.undeliverable_count
+        + BroadcastRow.unknown_count
+    )
+    statement = (
+        _filtered(filters)
+        .with_only_columns(
+            BroadcastRow.state,
+            sa.func.count().label("campaigns"),
+            sa.func.sum(settled).label("settled"),
+            sa.func.sum(BroadcastRow.audience_size).label("audience"),
+            sa.func.max(BroadcastRow.started_at).label("last_send_at"),
+            maintain_column_froms=True,
+        )
+        .group_by(BroadcastRow.state)
+    )
+    rows = (await session.execute(statement)).all()
+    counted: dict[BroadcastState, int] = {}
+    settled_recipients = 0
+    audience_total = 0
+    last_send_at: datetime | None = None
+    for state, campaigns, settled_sum, audience_sum, group_last_send in rows:
+        counted[state] = int(campaigns)
+        settled_recipients += int(settled_sum)
+        audience_total += int(audience_sum)
+        if group_last_send is not None and (last_send_at is None or group_last_send > last_send_at):
+            last_send_at = group_last_send
+    return BroadcastStats(
+        by_state=tuple(
+            BroadcastStateTotal(state=state, count=counted.get(state, 0))
+            for state in BroadcastState
+        ),
+        settled_recipients=settled_recipients,
+        audience_total=audience_total,
+        last_send_at=last_send_at,
+    )
 
 
 async def get_broadcast(session: AsyncSession, broadcast_id: UUID) -> BroadcastDetail | None:

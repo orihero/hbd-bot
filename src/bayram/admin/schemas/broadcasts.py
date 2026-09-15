@@ -74,6 +74,7 @@ from bayram.admin.schemas.segment import SegmentModel
 from bayram.admin.serializers.redaction import mask_telegram_user_id
 from bayram.bot.i18n import escape_html
 from bayram.contracts import BroadcastKind, BroadcastRecipientState, BroadcastState, Language
+from bayram.db.admin.broadcasts import BroadcastStats
 from bayram.db.admin.views import BroadcastBodyView as BroadcastBodyRecord
 from bayram.db.admin.views import (
     BroadcastDetail,
@@ -105,12 +106,15 @@ __all__ = [
     "BroadcastProgressView",
     "BroadcastView",
     "BroadcastsPage",
+    "BroadcastStateTotalView",
+    "BroadcastStatsView",
     "BroadcastDetailView",
     "BroadcastRecipientView",
     "BroadcastRecipientsPage",
     "BroadcastTestSendResultView",
     "to_body_view",
     "to_broadcast_view",
+    "to_broadcast_stats_view",
     "to_broadcast_detail_view",
     "to_recipient_view",
 ]
@@ -738,6 +742,57 @@ class BroadcastsPage(ApiModel):
     meta: PageMeta
 
 
+class BroadcastStateTotalView(ApiModel):
+    """One tile's worth of the Campaigns strip: a state, and how many campaigns are in it."""
+
+    state: BroadcastState
+    count: int
+
+
+class BroadcastStatsView(ApiModel):
+    """``/broadcasts/stats`` — the strip above the campaign list, for its whole filter set.
+
+    Every :class:`~bayram.contracts.BroadcastState` is present, in enum declaration order, with
+    a count that may be ``0``. ``BroadcastState`` is a closed vocabulary, so a state with no
+    campaigns is a question this response answers with a zero rather than one it leaves out —
+    the argument ``OrderStateCountsView`` makes for the Orders bar, and the opposite of a time
+    series, where a day nobody measured has to stay missing.
+
+    **``reachedRecipients`` and ``audienceTotal`` are two integers and never a percentage.**
+    A ratio in this API carries the two numbers it was formed from — ``RatioView`` in
+    ``schemas/overview.py`` cannot be constructed without them — so that a reader can see what
+    was divided and check it against the rows. Here the two are published plainly rather than
+    wrapped, because both are exact counts rather than measurements of different things, and
+    the SPA that draws "1 240 of 1 500" needs the pair either way. A deployment that has sent
+    nothing has ``audienceTotal == 0``, which the panel renders as a dash and a reason rather
+    than as "0%" — a rate with no denominator is not a number.
+
+    **``lastSendAt`` is ``null`` when no campaign in this filter set has ever started.** It is
+    ``MAX(broadcasts.started_at)``, a column that stays NULL until the first message of a run
+    leaves, and the null crosses as a null: a deployment that has never sent anything is a
+    fact, and an epoch or a creation date put there in its place would render as a real send
+    nobody made.
+
+    ``total`` is the sum of the segments and is **exact**, unlike the list's
+    ``meta.total``, which saturates at
+    :data:`~bayram.db.admin.page.TOTAL_COUNT_CAP`. The two therefore disagree above that cap
+    and should: "10,000+" is honest about being a ceiling, and a strip drawn from a capped
+    sample would not be.
+    """
+
+    counts: list[BroadcastStateTotalView]
+    total: int
+    #: Recipient rows the campaigns in this filter set have finished with — sent, failed,
+    #: skipped, undeliverable and unknown — from the campaign rows' own rollup. The numerator.
+    reached_recipients: int
+    #: What those campaigns froze into their audiences at creation. The denominator, and the
+    #: number a human authorised: a half-written expansion must not flatter the strip by
+    #: shrinking what the reach is measured against.
+    audience_total: int
+    #: The most recent instant a run STARTED, UTC, or ``null`` — see the class docstring.
+    last_send_at: datetime | None
+
+
 class BroadcastDetailView(ApiModel):
     """One campaign with its bodies and the filter it was pointed at.
 
@@ -854,6 +909,25 @@ def to_broadcast_view(item: BroadcastListItem) -> BroadcastView:
         reason_ref=item.reason_ref,
         error_code=item.error_code,
         progress=_progress(item),
+    )
+
+
+def to_broadcast_stats_view(stats: BroadcastStats) -> BroadcastStatsView:
+    """Project the strip. Nothing is computed here that the read layer did not already count.
+
+    In particular no rate is formed: the two integers cross as they were counted and the panel
+    divides them, which is this repo's rule for every quotient it publishes. The ``total`` is
+    the read layer's own property rather than a second sum over the same list — one place to
+    be wrong about what "every campaign in this filter set" means.
+    """
+    return BroadcastStatsView(
+        counts=[
+            BroadcastStateTotalView(state=item.state, count=item.count) for item in stats.by_state
+        ],
+        total=stats.total,
+        reached_recipients=stats.settled_recipients,
+        audience_total=stats.audience_total,
+        last_send_at=stats.last_send_at,
     )
 
 

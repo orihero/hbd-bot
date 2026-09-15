@@ -65,11 +65,12 @@ from bayram.admin.serializers.redaction import (
     mask_username,
 )
 from bayram.contracts import Language, OrderState
-from bayram.db.admin.views import UserDetail, UserListItem
+from bayram.db.admin.views import SegmentBreakdown, UserDetail, UserListItem
 
 __all__ = [
     "UserView",
     "UsersPage",
+    "UserStatsView",
     "OrderStateCount",
     "UserDetailView",
     "DraftFieldView",
@@ -77,6 +78,7 @@ __all__ = [
     "WIZARD_TEXT_FIELDS",
     "WIZARD_CHOICE_FIELDS",
     "to_user_view",
+    "to_user_stats_view",
     "to_user_detail_view",
     "to_wizard_state_view",
 ]
@@ -176,6 +178,65 @@ class UserView(ApiModel):
 class UsersPage(ApiModel):
     items: list[UserView]
     meta: PageMeta
+
+
+class UserStatsView(ApiModel):
+    """``GET /api/users/stats`` — what the population the operator has filtered to is made of.
+
+    **These are the same four numbers ``GET /api/segments/preview`` publishes, and that is a
+    property of the query rather than a resemblance between two.** Both routes hand a
+    :class:`~bayram.db.admin.users.UserFilters` to
+    :func:`~bayram.db.admin.users.segment_breakdown`, which is one grouped statement over the
+    same ``_filtered()`` the Users list pages, so neither can drift from the screen it labels.
+    The only difference is what the filters carry: the preview is narrowed by a ``?segment=``
+    document **alone**, because that is the audience a human authorises a send against, while
+    this route is narrowed by everything the list is currently showing — the six chips of
+    §6.6, the ``from``/``to`` window, and the segment token when one is on the URL. So the
+    strip above the table and the rows beneath it are one population by construction, which is
+    the only way a stat strip can be trusted while an operator is still changing the filters.
+
+    **The three refusal counts overlap and the client must not add them up.** :attr:`blocked`
+    is our own bar and :attr:`bot_blocked` is the customer's — opposite facts about opposite
+    subjects — and an account where both are true is counted in both, so :attr:`matched` is
+    not :attr:`reachable` plus the two. Only :attr:`reachable` is defined as a complement:
+    neither barred by us nor blocking us. :class:`~bayram.db.admin.views.SegmentBreakdown`
+    argues the same arithmetic beside the fields it is read from, and the two must not drift.
+
+    **This breakdown must never be added into any other total.** Every figure here is a
+    statement about ONE narrowing that ONE operator chose a moment ago, so two calls with two
+    filter sets count overlapping people and their sums mean nothing: adding this
+    :attr:`matched` to the dashboard's audience counts, to another screen's strip, or into any
+    running or lifetime figure produces a number with no population behind it. It is a caption
+    for the table it sits above and nothing else.
+
+    **Counts and nothing else, which is what keeps this an aggregate surface.** No Telegram
+    id, no handle, no name, no note — not even the ``byLanguage`` split
+    :class:`~bayram.admin.schemas.segment.SegmentPreviewView` carries, which is on that wire
+    because language is the one personalisation a broadcast body has (§6.1) and answers no
+    question this strip is asked. The breakdown is computed with it and this projection drops
+    it; adding it here later would be a widening of an aggregate surface, not a formatting
+    choice.
+    """
+
+    #: Everything the filter set selects. Exact rather than
+    #: :data:`~bayram.db.admin.page.TOTAL_COUNT_CAP`-bounded, so it deliberately disagrees with
+    #: the list's ``meta.total`` above ten thousand rows — the same split
+    #: :class:`~bayram.admin.schemas.orders.OrderStateCountsView` makes, and for its reason: a
+    #: strip drawn from a capped sample is wrong with nothing on the screen to reveal it,
+    #: whereas "10,000+" is honest about being a ceiling.
+    matched: int
+    #: ``users.is_blocked IS false AND users.blocked_bot_at IS NULL`` — the only figure here
+    #: that is a complement, and the one a send would actually attempt.
+    reachable: int
+    #: Barred by us. Counted whether or not the customer also blocked the bot.
+    #:
+    #: Spelled ``blocked`` and ``botBlocked`` rather than the preview's ``skippedBlocked`` /
+    #: ``skippedBotBlocked``: "skipped" names what a broadcast does with these accounts, and
+    #: nothing is being sent here. The wire word has to match the question the screen asks, or
+    #: an operator reads a records strip as a delivery report.
+    blocked: int
+    #: They blocked the bot. Counted whether or not we also barred them.
+    bot_blocked: int
 
 
 class OrderStateCount(ApiModel):
@@ -294,6 +355,25 @@ def to_user_view(item: UserListItem, *, avatar_url: str | None) -> UserView:
         credit_balance=item.credit_balance,
         lifetime_credits_granted=item.lifetime_credits_granted,
         allowance_period=item.allowance_period_index,
+    )
+
+
+def to_user_stats_view(breakdown: SegmentBreakdown) -> UserStatsView:
+    """Project the breakdown for the stat strip. Four counts out of five fields, on purpose.
+
+    ``by_language`` is read off the same rows and dropped here rather than never computed:
+    :func:`~bayram.db.admin.users.segment_breakdown` groups on the language column because that
+    is what makes the whole thing one pass, and a second function that grouped on two columns
+    instead of three would be a copy of a query this file has no reason to own. The projection
+    is where the narrowing happens, which is also where it can be seen — see
+    :class:`UserStatsView` on why a language split is a widening of this surface rather than a
+    field somebody forgot.
+    """
+    return UserStatsView(
+        matched=breakdown.matched,
+        reachable=breakdown.reachable,
+        blocked=breakdown.blocked,
+        bot_blocked=breakdown.bot_blocked,
     )
 
 

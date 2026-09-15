@@ -1,5 +1,5 @@
 /**
- * The Generations screen's two reads, as hooks.
+ * The Generations screen's three reads, as hooks.
  *
  * `api/generations.ts` fetches and `lib/adminQuery.ts` holds the shared error, retry policy
  * and option bundles; this is the layer between them, and it makes three decisions the screen
@@ -16,6 +16,13 @@
  * `refetchOnWindowFocus` — looking back at the tab — is the freshness signal. The dashboard is
  * where the live numbers live.
  *
+ * **The stat strip is a THIRD query, and the permission is why.** `/api/generations` is
+ * `RECORDS_READ`; `/api/metrics/name-analytics`, which answers the verification figures above
+ * the table, is `DASHBOARD_READ`. The two are granted separately, so an operator can be
+ * entitled to every row of the ledger and refused the aggregate over it — and a hook that
+ * folded the two reads together would turn that refusal into an empty table. One query per
+ * permission is what keeps the blast radius of a 403 to the tiles that asked for it.
+ *
  * **There are no mutations here, and one deliberate absence.** Nothing on this surface writes,
  * and there is no key for a revealed transcript or name candidate: reading
  * `generation_attempts.stt_transcript` is a CHARGED, audited disclosure, and a cache entry is
@@ -25,6 +32,11 @@
 
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
+import {
+  nameAnalytics,
+  type LedgerWindow,
+  type NameAnalyticsView,
+} from "@/api/dashboard";
 import {
   getGeneration,
   listGenerations,
@@ -73,6 +85,20 @@ export function generationsFilterKey(filters: GenerationsFilters): FilterKey {
   });
 }
 
+/**
+ * The verification read's key: the two instants, and deliberately nothing else.
+ *
+ * A key holds exactly what the REQUEST carries. `/api/metrics/name-analytics` accepts
+ * `?from=&to=` and no other parameter, so putting the screen's six remaining filters in here
+ * would mint a fresh cache entry every time an operator typed a provider — each one fetching,
+ * and each one getting back the identical answer the previous entry already held. The
+ * narrowing those filters do is real, it is just not something this route can be asked for;
+ * see `nameAnalytics` in `api/dashboard.ts` on what that costs the screen rendering both.
+ */
+export function nameAnalyticsWindowKey(window: LedgerWindow): FilterKey {
+  return filterKey({ from: window.from, to: window.to });
+}
+
 /** The key factory. `detail` is a leaf under its own namespace; nothing here invalidates it. */
 export const generationsKeys = {
   all: [GENERATIONS_ROOT] as const,
@@ -81,6 +107,10 @@ export const generationsKeys = {
     [GENERATIONS_ROOT, "list", generationsFilterKey(filters), pageKey(page)] as const,
   details: () => [GENERATIONS_ROOT, "detail"] as const,
   detail: (attemptId: string | null) => [GENERATIONS_ROOT, "detail", attemptId] as const,
+  /** Under this root rather than the dashboard's: it is windowed by the LEDGER's `?from=&to=`,
+   * so it goes stale with this screen's filters and not with the dashboard's period picker. */
+  nameAnalytics: (window: LedgerWindow) =>
+    [GENERATIONS_ROOT, "name-analytics", nameAnalyticsWindowKey(window)] as const,
 } as const;
 
 export type GenerationsKeys = typeof generationsKeys;
@@ -127,5 +157,31 @@ export function useGeneration(
     queryFn: ({ signal }) => unwrap(getGeneration(requireSubject(attemptId), signal)),
     enabled: attemptId !== null,
     ...SUBJECT_READ,
+  });
+}
+
+/**
+ * The verification figures behind the screen's stat strip, over the ledger's own window.
+ *
+ * Its own query, for the permission reason in this module's header: this is `DASHBOARD_READ`
+ * and the list beside it is `RECORDS_READ`. A 403 lands in `error` here and nowhere else, so
+ * the table keeps its rows and the strip explains itself.
+ *
+ * **`keepPreviousData` is switched back off, and that is the one thing this bundle changes.**
+ * `LIST_READ` carries it because a table can DIM the previous answer while the next one loads,
+ * and a dimmed row is an honest "this is not the page you just asked for". A tile has no such
+ * affordance: it is four characters in a large weight, and the previous window's pass rate
+ * standing under the new window's dates is simply a wrong measurement with nothing on screen
+ * saying so. A skeleton says less and says it truthfully — `SUBJECT_READ` refuses the same
+ * option for the same reason, one identity instead of one figure.
+ */
+export function useNameAnalytics(
+  window: LedgerWindow,
+): UseQueryResult<NameAnalyticsView, AdminQueryError> {
+  return useQuery<NameAnalyticsView, AdminQueryError>({
+    queryKey: generationsKeys.nameAnalytics(window),
+    queryFn: ({ signal }) => unwrap(nameAnalytics(window, signal)),
+    ...LIST_READ,
+    placeholderData: (): undefined => undefined,
   });
 }
