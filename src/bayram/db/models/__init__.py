@@ -15,6 +15,7 @@ from bayram.db.models.admin_session import AdminSessionRow
 from bayram.db.models.admin_user import AdminUserRow
 from bayram.db.models.asset import AssetRow
 from bayram.db.models.audit_anchor import AuditChainAnchorRow
+from bayram.db.models.bot_chat import BotChatRow
 from bayram.db.models.bot_membership_event import BotMembershipEventRow
 from bayram.db.models.brief import BriefRow
 from bayram.db.models.broadcast import BroadcastRow
@@ -32,6 +33,8 @@ from bayram.db.models.payme_transaction import PaymeTransactionRow
 from bayram.db.models.payment_intent import PaymentIntentRow
 from bayram.db.models.plan_purchase import PlanPurchaseRow
 from bayram.db.models.purge_run import PurgeRunRow
+from bayram.db.models.support_ticket import SupportTicketRow
+from bayram.db.models.support_ticket_event import SupportTicketEventRow
 from bayram.db.models.topup_purchase import TopupPurchaseRow
 from bayram.db.models.user import UserRow
 from bayram.db.models.user_activity_snapshot import UserActivitySnapshotRow
@@ -65,8 +68,11 @@ __all__ = [
     "VendorUsageRow",
     "VendorBalanceRow",
     "BotMembershipEventRow",
+    "BotChatRow",
     "UserActivitySnapshotRow",
     "BroadcastRow",
     "BroadcastBodyRow",
     "BroadcastRecipientRow",
+    "SupportTicketRow",
+    "SupportTicketEventRow",
 ]

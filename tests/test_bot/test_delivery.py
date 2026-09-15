@@ -11,7 +11,13 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.methods import SendMessage, TelegramMethod
 
-from bayram.bot.callbacks import NavAction, NavCB
+from bayram.bot.callbacks import (
+    NavAction,
+    NavCB,
+    SupportAction,
+    SupportCB,
+    pack_reference,
+)
 from bayram.bot.delivery import (
     BLOCKED_BY_CUSTOMER_KEY,
     MAX_CAPTION_CHARS,
@@ -288,7 +294,13 @@ async def test_the_closing_message_carries_a_way_onward(
     # Assert
     payloads = {data for _text, data in buttons(closing_of(session).reply_markup)}
     assert NavCB(action=NavAction.MAKE_ANOTHER).pack() in payloads
-    assert NavCB(action=NavAction.REPORT_PROBLEM).pack() in payloads
+    # ⚠️ carries the ORDER on this screen, so the ticket it opens is filed against the song
+    # that was wrong. This is the one moment the order and the button exist together — the
+    # delivery job clears the customer's FSM immediately after, and the tap may come a month
+    # later — so the id travels in the payload or not at all. The order-LESS ``NavCB`` form
+    # is still drawn by every screen that never knew an order id and is asserted in
+    # ``test_keyboards.py``; both doors open the same flow.
+    assert SupportCB(action=SupportAction.OPEN, ref=pack_reference(kit.order_id)).pack() in payloads
 
 
 async def test_the_closing_message_quotes_a_reference_support_can_reproduce(

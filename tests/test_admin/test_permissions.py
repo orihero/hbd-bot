@@ -158,6 +158,36 @@ _PLAN_MATRIX: Final[Mapping[Permission, tuple[str | None, str | None, str | None
     # creates no state anybody can spend.
     Permission.RAIL_CONTROL: (None, None, _W, _W),
     Permission.PAYMENT_NOTIFY: (None, _W, _W, _W),
+    # A third ruling §12.2 has no rows for, from ``SUPPORT_TICKETS_SPEC §7``. The read is ``M``
+    # everywhere for BROADCAST_READ's reason — the queue is what the panel exists to show — and
+    # the write is the ONLY write cell in this table that starts at SUPPORT, because a support
+    # operator's entire job is answering customers and a role that may watch the queue without
+    # working it is not the role its name describes.
+    #
+    # Neither carries ``+S``, and that is load-bearing rather than lenient: replying does send
+    # a message, which is what earned BROADCAST_SEND its ``W+S``, but it reaches ONE person who
+    # asked us a question rather than every customer at once, it is answered in the minute it
+    # was asked, and it is recorded twice — an ``admin_audit_log`` row and an append-only
+    # ``support_ticket_events`` row. A step-up would re-authenticate an operator forty times a
+    # shift without making the fortieth reply safer. ``Permission.SUPPORT_WRITE`` argues it in
+    # full, including the split this would have to take if a reviewer ever disagreed.
+    Permission.SUPPORT_READ: (_M, _M, _M, _M),
+    Permission.SUPPORT_WRITE: (None, _W, _W, _W),
+    # The fourth such ruling, from the same spec's 2026-09-15 amendment (§5.1, §3.8): the
+    # Telegram group that receives ticket cards moved out of the environment and into a row an
+    # operator repoints, so a capability that used to be bounded by deploy access needs a cell.
+    #
+    # **SUPPORT is absent here and present one line above**, which is the only place in this
+    # table where the two support rows disagree — and it is the whole reason this is a row
+    # rather than a reuse. Working the queue is one customer at a time; choosing where every
+    # FUTURE complaint is published is a different act, and the wrong room shows a customer's
+    # words to people who should not see them with nothing about it visible from the board.
+    #
+    # A plain ``W`` with no ``+S``, transcribing BROADCAST_WRITE's argument: the audit row —
+    # which names the chat selected AND the chat the tickets were taken away from — plus the
+    # ``selected_by_username`` / ``selected_at`` columns left standing on the row are the
+    # accountability, and a cell with a step-up could not be the router guard this one is.
+    Permission.SUPPORT_GROUP_WRITE: (None, None, _W, _W),
 }
 
 _ROLES_IN_PLAN_ORDER: Final[tuple[AdminRole, ...]] = (

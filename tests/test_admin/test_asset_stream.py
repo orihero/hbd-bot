@@ -829,6 +829,11 @@ async def test_no_mounted_route_answers_with_a_text_plain_body(panel: Panel) -> 
         "attempt_id": uuid4(),
         "broadcast_id": uuid4(),
         "intent_id": uuid4(),
+        # The support routes answer a 404, an empty page and four zero columns for an unseeded
+        # id, and all three must still be JSON. T7's rule is about the CLASS of response, and
+        # the ticket namespace is the one that publishes a customer's free text in a body — so
+        # it is exactly where a future ``text/plain`` would most plausibly appear.
+        "ticket_id": uuid4(),
     }
 
     # Act / Assert

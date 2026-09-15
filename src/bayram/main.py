@@ -47,10 +47,11 @@ from bayram.bot.app import (
 )
 from bayram.bot.chatlog import ChatLogOutboundMiddleware, ChatRecorder
 from bayram.bot.deps import BotDeps
-from bayram.bot.ports import OrderSubmitter
+from bayram.bot.ports import OrderSubmitter, SupportTicketEraser
 from bayram.bot.pricing import Pricing
 from bayram.checkout import STUB_PROVIDER_NAME
 from bayram.config import FOREIGN_SECRET_ENV_VARS, Settings, env_file, load_settings
+from bayram.db.support_tickets import SqlSupportTickets
 from bayram.errors import BayramError, ConfigError
 from bayram.logging import configure_logging, get_logger
 from bayram.payme.pause import is_paused
@@ -64,6 +65,7 @@ from bayram.runtime.jobs import (
 )
 from bayram.runtime.startup import verify_host
 from bayram.runtime.submitter import ArqOrderSubmitter, InProcessOrderSubmitter
+from bayram.support import resolve_support_quota
 
 __all__ = [
     "main",
@@ -71,6 +73,7 @@ __all__ = [
     "build_queue_pool",
     "build_submitter",
     "refuse_an_unsafe_checkout_rail",
+    "support_eraser",
 ]
 
 _LOG = get_logger(__name__)
@@ -307,6 +310,44 @@ async def build_submitter(
     return ArqOrderSubmitter(redis, container.repository), redis
 
 
+def support_eraser(store: object | None) -> SupportTicketEraser | None:
+    """The ticket store as an ERASER, when it can actually erase, and ``None`` with a warning.
+
+    **A capability check rather than a second constructor**, and the reason is that this is the
+    one seam in the process whose absence is a PRIVACY claim rather than a missing feature.
+    ``tests/test_db/test_privacy_constraints.py`` carries a written exemption saying
+    ``support_tickets`` and ``support_ticket_events`` keep the customer's own prose
+    indefinitely and that ``/forget`` is the route that erases it. That paragraph is only true
+    while ``handle_forget`` really deletes those rows, and it deletes them through
+    :class:`~bayram.bot.ports.SupportTicketEraser`.
+
+    ``SqlSupportTickets`` does not implement that protocol today —
+    :mod:`bayram.db.support_tickets` ships the twelve working methods and no ``forget_tickets``
+    — so this returns ``None`` and says so, LOUDLY, at boot on any deployment that stores
+    tickets. A structural check rather than a hard-coded ``None`` because the day the delete
+    lands beside the other statements in that module, the protocol is satisfied and this wires
+    itself: no second edit in a file the author of that delete has no reason to open, and no
+    window in which the method exists and nothing calls it.
+
+    ``isinstance`` against a ``runtime_checkable`` Protocol verifies member PRESENCE only and
+    never the signature; ``mypy --strict`` over the implementation is what checks the shape.
+    That asymmetry is acceptable here for the same reason it is acceptable on every other
+    ``runtime_checkable`` port in this codebase: the only class this is ever asked about is one
+    this repository owns and type-checks.
+    """
+    if store is None:
+        return None
+    if isinstance(store, SupportTicketEraser):
+        return store
+    _LOG.warning(
+        "support tickets are stored but /forget cannot erase them; the privacy exemption in "
+        "tests/test_db/test_privacy_constraints.py names a route that does not run. Add "
+        "forget_tickets() to bayram.db.support_tickets.SqlSupportTickets.",
+        extra={"store": type(store).__name__},
+    )
+    return None
+
+
 async def run(settings: Settings, *, data_root: Path | None = None) -> None:
     """Build everything, poll until interrupted, then release it all."""
     # Before anything is built: three statements about configuration alone, each of which
@@ -323,6 +364,16 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
     chat_recorder = ChatRecorder(container.session_factory) if container.session_factory else None
     if chat_recorder is not None:
         bot.session.middleware(ChatLogOutboundMiddleware(chat_recorder))
+    # Built HERE and not on ``AppContainer``, and the asymmetry is the same one ``profiles``
+    # states from the other side: the worker holds no ticket store because nothing in the
+    # worker opens, describes or answers a complaint — the ⚠️ button it DRAWS is pressed in
+    # the bot process, and only the bot process receives updates at all. A field on the
+    # container would be a store two processes hold and one of them can never use.
+    support_tickets = (
+        SqlSupportTickets(container.session_factory, quota=resolve_support_quota(settings))
+        if container.session_factory is not None
+        else None
+    )
     deps = BotDeps(
         settings=settings,
         submitter=submitter,
@@ -391,6 +442,28 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         # worker's arm is the only source that survives a restart.
         bot_blocks=container.bot_blocks,
         chat_recorder=chat_recorder,
+        # Where a complaint is written down. A WRITE port, and the third one this container
+        # holds — it can record that somebody has a problem and it can express no charge, no
+        # grant and no refusal, so the rule ``entitlements`` states ("the bot may not SPEND")
+        # is untouched by it. ``None`` on a deployment with no database, in which case the
+        # ⚠️ button falls back to the sentence it rendered before this feature existed.
+        support=support_tickets,
+        # The ``/forget`` arm for the two ticket tables, and the one field on this container
+        # wired by capability rather than by name. See :func:`support_eraser`.
+        support_erasure=support_eraser(support_tickets),
+        # WHERE THE TICKET CARDS GO, AND IT IS NO LONGER A SETTING. ``BAYRAM_SUPPORT_GROUP_CHAT_ID``
+        # and ``BAYRAM_SUPPORT_GROUP_THREAD_ID`` were deleted rather than kept as a fallback
+        # (``SUPPORT_TICKETS_SPEC §3.8``), so this port is the only route to the answer and a
+        # deployment that leaves it unwired posts no cards at all — the ticket is still written,
+        # the customer still answered, the board still populated.
+        #
+        # Taken off the container rather than built here, which is the opposite of what
+        # ``support`` two lines up does, and the asymmetry is the same one ``bot_blocks``
+        # states: a ticket store is the bot's alone because nothing in the worker opens a
+        # complaint, while THIS is held by both — the bot writes the directory from
+        # ``my_chat_member`` and reads the selection on every group update, and the worker reads
+        # the selection for a card sync and is the only process that can prove the bot may post.
+        bot_chats=container.bot_chats,
     )
     # The lock that makes a state filter a real gate. Built from the same Redis as the
     # storage, so it holds across every process that could handle this chat.

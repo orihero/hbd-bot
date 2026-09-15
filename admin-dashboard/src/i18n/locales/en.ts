@@ -53,6 +53,16 @@ export const en: TranslationSchema = {
     to: "to",
     rangeFrom: "{label}: from",
     rangeTo: "{label}: to",
+    stats: {
+      unavailable: {
+        noFxRate: "No exchange rate published",
+        noPricePublished: "No unit price published",
+        mixedCurrencies: "Receipts span several currencies",
+        notPriced: "No vendor rate configured",
+        noDenominator: "Nothing to divide by",
+        notInstrumented: "Nothing records this yet",
+      },
+    },
   },
 
   nav: {
@@ -85,6 +95,7 @@ export const en: TranslationSchema = {
       generations: "Generations",
       billing: "Billing",
       broadcasts: "Campaigns",
+      support: "Support",
       audit: "Audit",
       admins: "Admins",
     },
@@ -288,15 +299,13 @@ export const en: TranslationSchema = {
     note: {
       noCorrelationId: "no correlation id",
       deniedTitle: "{subject} is not visible to this role",
-      deniedMessage:
-        "Your role cannot read this section.",
-      driftTitle: "{subject}: this build does not understand the server's answer",
+      deniedMessage: "Your role cannot read this section.",
+      driftTitle:
+        "{subject}: this build does not understand the server's answer",
       refusedTitle: "{subject}: the server refused this request",
-      refusedMessage:
-        "{message} Narrow the window or the grain.",
+      refusedMessage: "{message} Narrow the window or the grain.",
       staleTitle: "{subject} stopped refreshing",
-      staleMessage:
-        "{message} The figures below are the last good answer.",
+      staleMessage: "{message} The figures below are the last good answer.",
       offlineTitle: "{subject} could not reach the API",
       failedTitle: "{subject} failed to load",
     },
@@ -462,7 +471,8 @@ export const en: TranslationSchema = {
     noThreadsSearchHint: "Try changing your search keywords.",
     noThreadsEmptyHint: "Customer conversations will appear here.",
     selectConversation: "Select a conversation",
-    selectConversationHint: "Choose a conversation from the left to view details.",
+    selectConversationHint:
+      "Choose a conversation from the left to view details.",
     noChatSelectedTitle: "Select a chat",
     noChatSelectedMessage:
       "Choose a conversation from the left to view the message transcript and customer profile.",
@@ -500,6 +510,12 @@ export const en: TranslationSchema = {
 
   users: {
     title: "Users",
+    stats: {
+      accounts: "Accounts",
+      reachable: "Reachable",
+      blocked: "Barred by us",
+      botBlocked: "Blocked the bot",
+    },
     paginationSubtitle: "Showing {start}–{end} of {total} users",
     searchLabel: "Search by Telegram id",
     searchPlaceholder: "Search by Telegram ID or username…",
@@ -568,7 +584,8 @@ export const en: TranslationSchema = {
     },
     broadcast: {
       action: "Message these users",
-      ariaSegment: "Message these users — open the campaign wizard on this segment",
+      ariaSegment:
+        "Message these users — open the campaign wizard on this segment",
       ariaEveryone:
         "Message these users — open the campaign wizard with no segment, which is every account",
       blockedByQuickFilters:
@@ -736,7 +753,8 @@ export const en: TranslationSchema = {
       noAccountMessage:
         "Nothing has ever been granted, spent or refunded here — there is no account row to move.",
       nothingMovedTitle: "Nothing has moved on this page",
-      nothingMovedMessage: "The account exists; this page of its history is empty.",
+      nothingMovedMessage:
+        "The account exists; this page of its history is empty.",
       allowancePeriod: "allowance period",
     },
     orders: {
@@ -767,6 +785,11 @@ export const en: TranslationSchema = {
 
   generations: {
     title: "Generations",
+    stats: {
+      attempts: "Attempts",
+      passRate: "Pass rate",
+      checked: "Checked",
+    },
     paginationSubtitle: "Showing {start}–{end} of {total} attempts",
     subtitleAll: "{count} attempts in the render ledger",
     subtitleFiltered: "{count} attempts match these filters",
@@ -927,7 +950,8 @@ export const en: TranslationSchema = {
       subjectType: "One type at a time — the parameter is scalar.",
       subjectId:
         "Exact match on an opaque identifier — a UUID, a Telegram id or a config version. Never a name.",
-      action: "Any number of them: repeats are OR within the field, AND across fields.",
+      action:
+        "Any number of them: repeats are OR within the field, AND across fields.",
     },
     actorPlaceholder: "username or id",
     subtitles: {
@@ -1032,7 +1056,8 @@ export const en: TranslationSchema = {
         "Blocks, unblocks and credit grants, plus everything Support can do. Cannot read this roster.",
       support:
         "Reads records and may reveal personal data with a step-up. Cannot read this roster.",
-      viewer: "Reads masked records only — no reveal, no writes. Cannot read this roster.",
+      viewer:
+        "Reads masked records only — no reveal, no writes. Cannot read this roster.",
     },
     notes: {
       sessionEndedMessage: "{message} Signing in again is the only way back.",
@@ -1151,18 +1176,22 @@ export const en: TranslationSchema = {
     query: {
       noCorrelationId: "no correlation id",
       sessionEndedTitle: "Your session has ended",
-      originTitle: "This console is served from an origin the API does not accept",
+      originTitle:
+        "This console is served from an origin the API does not accept",
       originMessage:
         "{message} That is a deployment setting (BAYRAM_ADMIN_PUBLIC_ORIGIN), not something you did — retrying cannot change it.",
-      stepUpTitle: "{subject}: the server asked for a step-up this route does not have",
+      stepUpTitle:
+        "{subject}: the server asked for a step-up this route does not have",
       forbiddenTitle: "{subject} is not visible to this role",
-      driftTitle: "{subject}: this build does not understand the server's answer",
+      driftTitle:
+        "{subject}: this build does not understand the server's answer",
       driftMessage: "{message} ({paths})",
       refusedFiltersTitle: "{subject}: the server refused these filters",
       rateLimitedTitle: "{subject}: the API is rate limiting this session",
       rateLimitedWait: " Try again in {seconds} seconds.",
       staleTitle: "{subject} stopped refreshing",
-      staleMessage: "{message} The rows below are the last good answer, not the current one.",
+      staleMessage:
+        "{message} The rows below are the last good answer, not the current one.",
       offlineTitle: "{subject} could not reach the API",
       failedTitle: "{subject} failed to load",
       notFoundTitle: "{subject}: nothing has that id",
@@ -1232,7 +1261,8 @@ export const en: TranslationSchema = {
         "The name text each attempt proposed, one record per take. Paged, and charged per page.",
       phone:
         "The E.164 number shared once with Telegram's contact button. Masked to its last digits everywhere else. Kept while the account exists; /forget deletes it.",
-      firstName: "Not the recipient's name — the customer's own, from their Telegram contact.",
+      firstName:
+        "Not the recipient's name — the customer's own, from their Telegram contact.",
       lastName: "Often absent: Telegram does not require one.",
       telegramUsername:
         "Without the “@”. A handle the customer chose and can change; not a stable identifier.",
@@ -1248,7 +1278,8 @@ export const en: TranslationSchema = {
       orderEvidenceExport: "export this order's evidence bundle",
       auditExport: "export the audit log",
       adminManage: "manage admin accounts",
-      broadcastSend: "send this campaign to the audience frozen at its creation",
+      broadcastSend:
+        "send this campaign to the audience frozen at its creation",
     },
     reasons: {
       customerRequest: "the customer asked",
@@ -1268,7 +1299,8 @@ export const en: TranslationSchema = {
       pending: "Revealing…",
       nextPage: "Next page — a fresh reveal, {cost} again",
       budgetSpentTitle: "Your {scope} budget is spent.",
-      recordsUnknown: "The server did not say how many records this reveal asked for.",
+      recordsUnknown:
+        "The server did not say how many records this reveal asked for.",
       recordsAsked: "This reveal asked for {count} records.",
       recordsLeft: " {count} records left this hour.",
       conversationsLeft: " {count} conversations left today.",
@@ -1294,7 +1326,8 @@ export const en: TranslationSchema = {
       reasonCodeLabel: "reason code (required)",
       reasonRefLabel: "ticket reference (optional)",
       reasonTextLabel: "why (optional, {max} characters, kept for 90 days)",
-      ceilingsSeparate: " The two ceilings are separate: spending one never spends the other.",
+      ceilingsSeparate:
+        " The two ceilings are separate: spending one never spends the other.",
       recordsNotTouched: "records: not touched by the last reveal",
       conversationsNotTouched: "conversations: not touched",
       pageSizeNote:
@@ -1353,10 +1386,18 @@ export const en: TranslationSchema = {
   },
   broadcasts: {
     title: "Campaigns",
+    stats: {
+      campaigns: "Campaigns",
+      inFlight: "In flight",
+      recipients: "Recipients written",
+      lastSend: "Last send",
+      noSendYet: "No run has started yet",
+    },
     subject: "The campaign list",
     subjectOne: "This campaign",
     subjectRecipients: "The recipient ledger",
-    tableCaption: "Campaigns, newest composed first — one row per campaign, never one per recipient",
+    tableCaption:
+      "Campaigns, newest composed first — one row per campaign, never one per recipient",
     filtersAria: "Campaign filters",
     newCampaign: "New campaign",
     newCampaignAria: "New campaign — compose a message and freeze an audience",
@@ -1437,7 +1478,8 @@ export const en: TranslationSchema = {
         "The recipient rows are still being written. The campaign cannot be authorised until they are all there — a half-written ledger is half an audience.",
       ready:
         "The audience is written and nothing has been sent. This is the only state a send may be authorised from.",
-      sending: "Messages are leaving now. The counters climb without anybody touching this screen.",
+      sending:
+        "Messages are leaving now. The counters climb without anybody touching this screen.",
       paused:
         "Stopped between chunks. Rows a worker had already claimed still settle for a few seconds, so the counters keep moving.",
       completed:
@@ -1515,16 +1557,21 @@ export const en: TranslationSchema = {
         settled: "Settled",
       },
       countersHint: {
-        audience: "What the segment counted at composition. It does not move again.",
-        written: "How many recipient rows the expansion has actually written so far.",
-        unsettled: "Rows with no outcome yet — waiting, or claimed by a worker this second.",
+        audience:
+          "What the segment counted at composition. It does not move again.",
+        written:
+          "How many recipient rows the expansion has actually written so far.",
+        unsettled:
+          "Rows with no outcome yet — waiting, or claimed by a worker this second.",
         sent: "Messages Telegram accepted.",
-        failed: "Messages Telegram refused, for a reason we recorded as a code.",
+        failed:
+          "Messages Telegram refused, for a reason we recorded as a code.",
         skipped: "Accounts skipped because of a block, in either direction.",
         undeliverable: "Telegram says the chat no longer exists.",
         unknown:
           "A killed job left these claimed and they are never retried. The message may well have arrived — this is not a failure, and it is never counted as one.",
-        settled: "The five terminal outcomes added up. The five do not have to equal the audience.",
+        settled:
+          "The five terminal outcomes added up. The five do not have to equal the audience.",
       },
       facts: {
         createdBy: "Composed by",
@@ -1547,11 +1594,13 @@ export const en: TranslationSchema = {
       body: {
         language: "Language",
         asSent: "As the recipient sees it",
-        renderedLength: "{length} of {limit} characters, as Telegram counts them",
+        renderedLength:
+          "{length} of {limit} characters, as Telegram counts them",
         overLimit: "Over the limit Telegram will accept for this message.",
         image: "Image attached",
         imageCached: "already uploaded once — the next send costs no upload",
-        imageNotCached: "not uploaded yet — the first recipient pays for the upload",
+        imageNotCached:
+          "not uploaded yet — the first recipient pays for the upload",
         noImage: "No image",
         button: "Button: {label} → {url}",
         noButton: "No button",
@@ -1572,16 +1621,19 @@ export const en: TranslationSchema = {
         notSettled: "not settled",
         noError: "—",
         emptyTitle: "No recipient rows yet",
-        emptyMessage: "The audience is still being written, or this campaign selected nobody.",
+        emptyMessage:
+          "The audience is still being written, or this campaign selected nobody.",
         emptyFilteredTitle: "No recipient matches this filter",
-        emptyFilteredMessage: "Another outcome may still hold rows — clear the filter to see them.",
+        emptyFilteredMessage:
+          "Another outcome may still hold rows — clear the filter to see them.",
         noIdColumnNote:
           "There is no Telegram id column here at any role, and no reveal that would produce one.",
       },
     },
     actions: {
       send: "Send",
-      sendAria: "Send — authorise this campaign to go out to its frozen audience",
+      sendAria:
+        "Send — authorise this campaign to go out to its frozen audience",
       pause: "Pause",
       resume: "Resume",
       cancel: "Cancel campaign",
@@ -1598,8 +1650,10 @@ export const en: TranslationSchema = {
       whenNow: "Send now",
       whenLater: "Schedule for later",
       atLabel: "Send at",
-      atHint: "Your own time zone. The campaign is picked up by the due sweep, not by this screen.",
-      atInPast: "That instant has already passed. Choose a later one, or send now.",
+      atHint:
+        "Your own time zone. The campaign is picked up by the due sweep, not by this screen.",
+      atInPast:
+        "That instant has already passed. Choose a later one, or send now.",
       atMissing: "Choose the instant to send at.",
       confirmNow: "Send to {count} people now",
       confirmLater: "Schedule for {count} people",
@@ -1639,7 +1693,8 @@ export const en: TranslationSchema = {
     },
     wizard: {
       title: "New campaign",
-      subtitle: "Choose who hears it, write it, then read it back before anything leaves.",
+      subtitle:
+        "Choose who hears it, write it, then read it back before anything leaves.",
       subject: "This campaign",
       stepsAria: "Campaign steps",
       stepOf: "{index} of {total} · {name}",
@@ -1668,7 +1723,8 @@ export const en: TranslationSchema = {
         registryFailedTitle: "The audience fields could not be read",
         registryForbidden:
           "Your role cannot read the audience vocabulary, so the builder cannot be shown.",
-        refusalCounting: "Counting the audience… the next step opens once the number is in.",
+        refusalCounting:
+          "Counting the audience… the next step opens once the number is in.",
         refusalInvalid:
           "The audience has a rule the server would refuse. Fix the rule marked above before going on.",
         refusalNobody:
@@ -1689,7 +1745,8 @@ export const en: TranslationSchema = {
         sampleAccount: "Account",
         sampleLanguage: "Language",
         sampleJoined: "First contact",
-        sampleEmpty: "This filter matches nobody, so there is nothing to sample.",
+        sampleEmpty:
+          "This filter matches nobody, so there is nothing to sample.",
         sampleFailed: "The sample could not be read: {message}",
         sampleNote:
           "A sanity check, not the audience: open the directory with the same filter to page through all of it, {limit} at a time.",
@@ -1699,7 +1756,8 @@ export const en: TranslationSchema = {
         caption:
           "The title is ours, to find the campaign by. The message is what the customer reads.",
         titleLabel: "Campaign title",
-        titleHint: "Internal — it never reaches a recipient. Up to {limit} characters.",
+        titleHint:
+          "Internal — it never reaches a recipient. Up to {limit} characters.",
         titleMissing: "A campaign needs a title.",
         kindLabel: "Kind",
         bodiesHeading: "The message",
@@ -1711,7 +1769,8 @@ export const en: TranslationSchema = {
         languageReady: "ready",
         languageMissing: "unwritten",
         bodyLabel: "Message in {language}",
-        counter: "{sent} of {limit} characters as Telegram will count them ({typed} typed).",
+        counter:
+          "{sent} of {limit} characters as Telegram will count them ({typed} typed).",
         markupHint:
           "Telegram markup only: {tags}. Every tag must be closed, and a link needs an absolute http(s) address.",
         imageLabel: "Image (optional)",
@@ -1728,7 +1787,8 @@ export const en: TranslationSchema = {
         previewEmpty: "Nothing written yet.",
         previewImage: "Image attached: {key}",
         previewSpoiler: "Hidden until the recipient taps it in Telegram.",
-        previewUnparsed: "This message cannot be previewed until the markup below is fixed.",
+        previewUnparsed:
+          "This message cannot be previewed until the markup below is fixed.",
         incomplete: "Still to write: {languages}.",
         issues: {
           empty: "This language has no message yet.",
@@ -1737,20 +1797,25 @@ export const en: TranslationSchema = {
           unknownTag: "That is an HTML tag Telegram does not accept.",
           badAttribute:
             "A tag carries an attribute that is not allowed. Only a link may carry href.",
-          selfClosing: "A self-closing tag is not Telegram markup — write the pair instead.",
-          unbalanced: "A tag is not closed, or closes one that was never opened.",
+          selfClosing:
+            "A self-closing tag is not Telegram markup — write the pair instead.",
+          unbalanced:
+            "A tag is not closed, or closes one that was never opened.",
           nestedLink: "A link may not contain another link.",
-          notMarkup: "The text contains a comment or a declaration, which is not markup.",
+          notMarkup:
+            "The text contains a comment or a declaration, which is not markup.",
           badHref: "A link's address must be an absolute http(s) URL.",
           tooLong:
             "{actual} characters, and Telegram takes {limit}. Ampersands and tags cost more on the wire than in the box.",
-          badUrl: "The button link must be an absolute http(s) URL with a public host.",
+          badUrl:
+            "The button link must be an absolute http(s) URL with a public host.",
           buttonPair: "A button needs both a label and a link, or neither.",
           badStorageKey: "That is not a storage key this deployment wrote.",
         },
         testSend: {
           action: "Send a test copy",
-          actionAria: "Send a test copy — deliver this message to one allowlisted account",
+          actionAria:
+            "Send a test copy — deliver this message to one allowlisted account",
           title: "Send a test copy",
           description:
             "The composed message is sent to one account so it can be read in Telegram. It is recorded on the audit log.",
@@ -1759,7 +1824,8 @@ export const en: TranslationSchema = {
           allowlistNote:
             "Only accounts on this deployment's test-send list can receive it; that list is configuration, not a permission.",
           recipientLabel: "Telegram id of the test recipient",
-          recipientHint: "Digits only. It must be on the deployment's test-send list.",
+          recipientHint:
+            "Digits only. It must be on the deployment's test-send list.",
           confirm: "Send the test copy",
           pending: "Sending…",
           sent: "Sent to {recipient}. Read it in Telegram before authorising the campaign.",
@@ -1783,7 +1849,8 @@ export const en: TranslationSchema = {
         sendCaption:
           "This is the action that makes messages leave. It is recorded with your name, the reason you give, and the size of the audience.",
         confirmLabel: "Type {count} to confirm the audience",
-        confirmHint: "The last check before the messages leave: type the number above.",
+        confirmHint:
+          "The last check before the messages leave: type the number above.",
         confirmMismatch: "That is not the audience size. Type {count}.",
         submitNow: "Freeze the audience and send to {count} people now",
         submitLater: "Freeze the audience and schedule for {count} people",
@@ -1820,17 +1887,22 @@ export const en: TranslationSchema = {
     valueLabel: "Value",
     chooseField: "Choose a field…",
     unknownField: "{key} — no longer offered",
-    unavailableField: "Needs the {capability} table, which this deployment does not have.",
+    unavailableField:
+      "Needs the {capability} table, which this deployment does not have.",
     unavailableOption: "{label} — unavailable here",
-    aggregateField: "Counted across other tables, so this rule costs more to run.",
+    aggregateField:
+      "Counted across other tables, so this rule costs more to run.",
     groupLabel: "Group matching {mode}",
     ruleLabel: "Rule {index}",
     depthLimitReached: "Nesting is at the server's limit of {maxDepth}.",
-    ruleLimitReached: "This segment already carries the server's limit of {maxRules} rules.",
+    ruleLimitReached:
+      "This segment already carries the server's limit of {maxRules} rules.",
     matchLabel: "How these combine",
     loading: "Reading the field registry…",
-    loadFailed: "The field registry could not be read, so no rule can be composed.",
-    forbidden: "Your role does not hold the campaign cell, so the field registry is closed.",
+    loadFailed:
+      "The field registry could not be read, so no rule can be composed.",
+    forbidden:
+      "Your role does not hold the campaign cell, so the field registry is closed.",
     match: {
       all: "All",
       any: "Any",
@@ -1871,7 +1943,8 @@ export const en: TranslationSchema = {
       between: "Half-open: the first bound is included, the second is not.",
       not_within_last_days:
         "Wherever the field can be empty, accounts this never happened to are included as well.",
-      within_next_days: "Counted forward from now, so it never looks into the past.",
+      within_next_days:
+        "Counted forward from now, so it never looks into the past.",
       in: "Several values read as OR within this one field.",
     },
     value: {
@@ -1882,7 +1955,8 @@ export const en: TranslationSchema = {
       dateFrom: "From",
       dateTo: "To (excluded)",
       wholeMonth: "Whole month",
-      wholeMonthHint: "Fills both bounds with that month, in your own time zone.",
+      wholeMonthHint:
+        "Fills both bounds with that month, in your own time zone.",
       days: "Days",
       daysPreset: "{days} days",
       daysRange: "Between {min} and {max} days.",
@@ -1901,16 +1975,19 @@ export const en: TranslationSchema = {
       asc: "Lowest first",
       desc: "Highest first",
       registryDefault: "Default order (first contact, newest first)",
-      narrowsNothing: "A sort orders the audience; it never narrows it. Add a rule for that.",
+      narrowsNothing:
+        "A sort orders the audience; it never narrows it. Add a rule for that.",
       aggregateCost:
         "This sort is computed across other tables, so an exact total is refused beside it.",
-      nullsSortLow: "Accounts this never happened to sort as zero, or as the epoch.",
+      nullsSortLow:
+        "Accounts this never happened to sort as zero, or as the epoch.",
     },
     issues: {
       heading: "Fix these before this segment can be used",
       maxRules: "{actual} rules, and the server accepts at most {limit}.",
       maxDepth: "Nested {actual} deep, and the server accepts at most {limit}.",
-      maxValueMembers: "{field} names {actual} values, and the server accepts at most {limit}.",
+      maxValueMembers:
+        "{field} names {actual} values, and the server accepts at most {limit}.",
       maxAggregateRules:
         "{actual} rules are counted across other tables, and the server accepts at most {limit}.",
       emptyGroup: "A nested group must carry at least one rule.",
@@ -2001,6 +2078,20 @@ export const en: TranslationSchema = {
   },
   billing: {
     title: "Checkout rail",
+    stats: {
+      intents: "Payments opened",
+      settled: "Settled",
+      faults: "Failed inbound calls",
+      attention: "Needs chasing",
+      ofPayments: "{count} payments",
+      period: {
+        label: "Period",
+        day: "Day",
+        week: "Week",
+        month: "Month",
+        year: "Year",
+      },
+    },
     range: {
       onPage: "{count} on this page",
       onPageOf: "{count} of {total}",
@@ -2018,7 +2109,8 @@ export const en: TranslationSchema = {
       label: "Reference or Payme transaction id",
       placeholder: "a1b2c3d4e5f60718293a4b5c",
       submit: "Find",
-      malformed: "That is not a reference. A payment reference and a Payme transaction id are both exactly 24 hex characters.",
+      malformed:
+        "That is not a reference. A payment reference and a Payme transaction id are both exactly 24 hex characters.",
       noMatch: "No payment exists under that reference on this deployment.",
       matchedRef: "Matched our payment reference.",
       matchedTransaction: "Matched Payme's own transaction id.",
@@ -2079,36 +2171,48 @@ export const en: TranslationSchema = {
         missing: "missing",
       },
       notes: {
-        neverOpened: "Payme has never opened a transaction against this payment. That is also what a payment settled by hand looks like.",
-        awaitingRail: "A transaction is open and the rail has not come back. Our clock and Payme's are not the same clock, so this is waiting rather than late.",
-        buyerErased: "The buyer asked to be forgotten. The money moved and there is nobody left to grant to or tell — this is a state, not a discrepancy.",
-        planGrantsNothing: "A plan mints songs as they are used, so it grants no credit at purchase.",
-        notSettled: "This payment never settled, so nothing after it was ever going to happen.",
+        neverOpened:
+          "Payme has never opened a transaction against this payment. That is also what a payment settled by hand looks like.",
+        awaitingRail:
+          "A transaction is open and the rail has not come back. Our clock and Payme's are not the same clock, so this is waiting rather than late.",
+        buyerErased:
+          "The buyer asked to be forgotten. The money moved and there is nobody left to grant to or tell — this is a state, not a discrepancy.",
+        planGrantsNothing:
+          "A plan mints songs as they are used, so it grants no credit at purchase.",
+        notSettled:
+          "This payment never settled, so nothing after it was ever going to happen.",
         alreadyTold: "The confirmation went out.",
-        purged: "The row that recorded this has been deleted on its retention schedule. It happened; the evidence has aged out.",
+        purged:
+          "The row that recorded this has been deleted on its retention schedule. It happened; the evidence has aged out.",
       },
     },
     dossier: {
       title: "Payment {reference}",
       back: "All payments",
       notFound: "No payment under that id",
-      notFoundMessage: "This deployment holds no payment with that identifier. Check the reference in the box on the board.",
+      notFoundMessage:
+        "This deployment holds no payment with that identifier. Check the reference in the box on the board.",
       intentPanel: "The payment",
       transactionsPanel: "Payme's transactions",
       receiptPanel: "The sale",
       ledgerPanel: "Credit ledger",
       callsPanel: "Payme's calls about this payment",
       chainStopPanel: "Did it become a song?",
-      transactionsNone: "Payme has never opened a transaction against this payment.",
+      transactionsNone:
+        "Payme has never opened a transaction against this payment.",
       receiptNone: "No sale has been recorded for this payment.",
       ledgerNone: "No credit movement was written under this payment.",
       callsNever: "Payme has never called us about this payment.",
-      callsPurged: "This payment is older than the 90 days the inbound journal is kept for, so its calls have aged out. Purged, not absent.",
-      chainStopSingle: "Unanswerable, by design. A credit balance is a single number with no lots, so no query can prove which song a purchased credit rendered.",
+      callsPurged:
+        "This payment is older than the 90 days the inbound journal is kept for, so its calls have aged out. Purged, not absent.",
+      chainStopSingle:
+        "Unanswerable, by design. A credit balance is a single number with no lots, so no query can prove which song a purchased credit rendered.",
       chainStopPlan: "{used} of {included} songs used on this plan.",
-      chainStopPlanUnknown: "No plan receipt was recorded, so there is nothing counting songs against it.",
+      chainStopPlanUnknown:
+        "No plan receipt was recorded, so there is nothing counting songs against it.",
       settleByHand: "Settle this by hand",
-      settleByHandCaveat: "The console cannot do this and will not offer to. It is run in a terminal, and only after a charge for this reference is confirmed in the Payme merchant cabinet — which this process is structurally forbidden to see.",
+      settleByHandCaveat:
+        "The console cannot do this and will not offer to. It is run in a terminal, and only after a charge for this reference is confirmed in the Payme merchant cabinet — which this process is structurally forbidden to see.",
       copyCommand: "Copy the command",
       copied: "Copied",
       fields: {
@@ -2145,34 +2249,45 @@ export const en: TranslationSchema = {
       action: "Re-send the confirmation",
       pending: "Queueing…",
       confirmTitle: "Re-send this confirmation?",
-      confirmBody: "The customer is told about a payment they already made. Nothing is charged, no credit is issued and no money row is written. Pressing this twice sends one message.",
+      confirmBody:
+        "The customer is told about a payment they already made. Nothing is charged, no credit is issued and no money row is written. Pressing this twice sends one message.",
       confirmLabel: "Re-send the confirmation",
-      refusalNotPaid: "This payment has not settled, so there is nothing to confirm.",
-      refusalBuyerErased: "The buyer asked to be forgotten. There is nobody to send this to; the receipt and the credit are untouched.",
-      refusalAlreadyNotified: "The confirmation has already gone out. The job stops on that stamp, so re-sending would do nothing.",
+      refusalNotPaid:
+        "This payment has not settled, so there is nothing to confirm.",
+      refusalBuyerErased:
+        "The buyer asked to be forgotten. There is nobody to send this to; the receipt and the credit are untouched.",
+      refusalAlreadyNotified:
+        "The confirmation has already gone out. The job stops on that stamp, so re-sending would do nothing.",
       sent: "Queued. The worker sends it within the minute.",
-      replayed: "Already queued — this press changed nothing, which is the job doing its work.",
+      replayed:
+        "Already queued — this press changed nothing, which is the job doing its work.",
       reasonLabel: "Why this is being re-sent",
-      reasonHint: "Goes on the audit row against your name. Your words, never the customer's.",
-      notDelivered: "This records that we sent it. Whether the customer saw it is a Telegram fact this database does not hold.",
+      reasonHint:
+        "Goes on the audit row against your name. Your words, never the customer's.",
+      notDelivered:
+        "This records that we sent it. Whether the customer saw it is a Telegram fact this database does not hold.",
     },
     pause: {
       pauseAction: "Pause checkouts",
       resumeAction: "Resume checkouts",
       pauseTitle: "Pause new checkouts?",
-      pauseBody: "The bot stops quoting new checkout links. Payments already in flight are unaffected and no money moves. Any operator can undo this in one press.",
+      pauseBody:
+        "The bot stops quoting new checkout links. Payments already in flight are unaffected and no money moves. Any operator can undo this in one press.",
       pauseLabel: "Pause checkouts",
       pausePending: "Pausing…",
       resumeTitle: "Resume checkouts?",
-      resumeBody: "The bot starts quoting checkout links again. Nothing that happened while paused is replayed.",
+      resumeBody:
+        "The bot starts quoting checkout links again. Nothing that happened while paused is replayed.",
       resumeLabel: "Resume checkouts",
       resumePending: "Resuming…",
       reasonLabel: "Why the switch is being moved",
-      reasonHint: "Goes on the audit row against your name. One line is enough.",
+      reasonHint:
+        "Goes on the audit row against your name. One line is enough.",
     },
     calls: {
       title: "Inbound calls",
-      subtitle: "Every JSON-RPC call Payme made to this deployment, newest first.",
+      subtitle:
+        "Every JSON-RPC call Payme made to this deployment, newest first.",
       caption: "Inbound calls from Payme",
       columns: {
         at: "At",
@@ -2187,11 +2302,14 @@ export const en: TranslationSchema = {
       faultsOnly: "Faults only",
       allCalls: "All calls",
       empty: "Payme has never called this endpoint",
-      emptyMessage: "On a live rail this is also what a payment settled by hand looks like, so it is never a synonym for “the gateway is down”.",
+      emptyMessage:
+        "On a live rail this is also what a payment settled by hand looks like, so it is never a synonym for “the gateway is down”.",
       emptyFiltered: "No call matches these filters",
-      emptyFilteredMessage: "Calls exist on this deployment; none is in the range or of the kind you asked for.",
+      emptyFilteredMessage:
+        "Calls exist on this deployment; none is in the range or of the kind you asked for.",
       emptyFailed: "The journal failed to load",
-      emptyFailedMessage: "The note above carries what the server said and the correlation id to quote.",
+      emptyFailedMessage:
+        "The note above carries what the server said and the correlation id to quote.",
       chips: {
         method: "Method",
         faultsOnly: "Faults only",
@@ -2199,6 +2317,336 @@ export const en: TranslationSchema = {
         transactionId: "Payme transaction",
         from: "From",
         through: "Through",
+      },
+    },
+  },
+  support: {
+    title: "Support",
+    subject: "the support queue",
+    subjectOne: "this ticket",
+    subjectBoard: "the support board",
+    atLeast: "at least {count}",
+    refresh: "Refresh",
+    backToBoard: "Back to the board",
+    openTicket: "Open ticket",
+    tableCaption: "Support tickets, newest first",
+    filtersAria: "Ticket filters",
+    subtitles: {
+      reading: "Reading the queue…",
+      failed: "The queue could not be read",
+      onThisPage: "{count} on this page",
+      tickets: "{count} tickets",
+      ticketsFiltered: "{count} tickets match these filters",
+    },
+    range: {
+      onPage: "{count} on this page",
+      onPageOf: "{count} of {total}",
+      none: "No tickets yet",
+      noneMatching: "No ticket matches these filters",
+    },
+    board: {
+      aria: "Support board, four columns",
+      columnAria: "{status}, {count} tickets",
+      cardAria: "Ticket {reference} from {customer}, {status}",
+      columnCount: "{count} in this column",
+      empty: "Nothing in this column",
+      emptyFiltered: "Nothing here matches these filters",
+      loading: "Reading the board…",
+      undescribedHidden:
+        "Tickets nobody described are not on the board — somebody tapped the button and never typed. Those rows are kept, and the list is where to find them.",
+      dropHere: "Move to {status}",
+      cannotDropHere: "A ticket in {from} cannot be moved to {to}",
+    },
+    status: {
+      new: "New",
+      inProgress: "In progress",
+      waiting: "Waiting on customer",
+      resolved: "Resolved",
+    },
+    statusHint: {
+      new: "Nobody has looked at this yet. Nothing ever comes back to this column.",
+      inProgress: "Somebody has it, and the customer is waiting on us.",
+      waiting:
+        "We asked the customer something, and the answer is theirs to send. Nothing here moves until they reply.",
+      resolved:
+        "Answered and closed. A reply from the customer reopens it into In progress, and the date it was closed is kept.",
+    },
+    source: {
+      deliveryButton: "Delivered song",
+      supportCommand: "/support",
+    },
+    sourceHint: {
+      deliveryButton:
+        "Opened from the button under a delivered song, so it carries the order.",
+      supportCommand:
+        "Typed from anywhere in the bot, so no order is attached. It is the same queue.",
+    },
+    card: {
+      reference: "Reference",
+      customer: "Customer",
+      order: "Order",
+      noOrder: "No order",
+      opened: "Opened",
+      updated: "Last change",
+      assignee: "With",
+      unassigned: "Nobody",
+      events: "{count} entries",
+      language: "Written in",
+      body: "What they told us",
+      noBody: "Nothing was described",
+      noBodyHint:
+        "The customer opened this and never typed. The row is kept because it is the only measure of how many people tried to tell us something and gave up.",
+      inGroup: "Posted to the support group",
+      notInGroup: "Not in the support group",
+      notInGroupHint:
+        "The card is still owed, or this deployment has no support group configured. The ticket is not lost and the customer has their reference.",
+      resolvedAt: "Closed",
+      reopened: "Reopened",
+      reopenedHint:
+        "This was closed once and is open again. The date it was closed is deliberately kept.",
+    },
+    actions: {
+      move: "Move",
+      moveTo: "Move to {status}",
+      claim: "Take it",
+      assign: "Hand over",
+      reply: "Reply to the customer",
+      note: "Add an internal note",
+      reopen: "Reopen",
+      resolve: "Resolve",
+      pickColumn: "Choose a column",
+      readOnly: "Your role can read tickets but not answer them.",
+      cancel: "Cancel",
+    },
+    dialogs: {
+      assign: {
+        title: "Hand this ticket to an operator",
+        label: "Operator username",
+        placeholder: "dilnoza",
+        hint: "Not checked against the roster: the name is recorded as it was, so an operator who leaves does not take the queue's history with them.",
+        submit: "Hand over",
+        pending: "Handing over…",
+        invalid:
+          "Lowercase letters, digits, dots, dashes and underscores only.",
+      },
+      reply: {
+        title: "Reply to the customer",
+        label: "Your answer",
+        placeholder: "Write in the language the ticket was opened in.",
+        hint: "Sent to the customer in the bot, in the language they wrote to us in.",
+        submit: "Send",
+        pending: "Sending…",
+        warning:
+          "These words go into somebody's phone. There is no way to unsend them.",
+        remaining: "{count} characters left",
+      },
+      note: {
+        title: "Add an internal note",
+        label: "Note",
+        placeholder: "What the next operator needs to know.",
+        hint: "Kept on this ticket's timeline, beside everything else that happened to it.",
+        submit: "Save the note",
+        pending: "Saving…",
+        warning:
+          "The customer never sees this — and neither do the staff working from the card in the Telegram group.",
+      },
+      move: {
+        title: "Move this ticket",
+        body: "Moving it to {status}.",
+        reopenBody:
+          "Reopening this ticket into {status}. The date it was closed is kept, so it stays visible as a complaint that came back.",
+        submit: "Move",
+        pending: "Moving…",
+      },
+    },
+    timeline: {
+      title: "What happened",
+      empty: "Nothing has happened to this ticket yet",
+      relayed: "Delivered {when}",
+      notRelayed: "Not delivered",
+      notRelayedHint:
+        "This answer was written and has not reached the customer. They may have blocked the bot, or no worker was running when it was sent.",
+      statusMove: "{from} → {to}",
+      assignedTo: "Handed to {username}",
+      unknownAuthor: "Unknown",
+      kind: {
+        opened: "Ticket opened",
+        described: "The customer described the problem",
+        statusChange: "Moved",
+        note: "Internal note",
+        reply: "Replied to the customer",
+        assigned: "Handed over",
+        groupPosted: "Posted to the support group",
+      },
+      author: {
+        customer: "The customer",
+        operator: "Operator",
+        staffGroup: "Staff, in the Telegram group",
+        system: "The system",
+      },
+    },
+    dnd: {
+      instructions:
+        "Press Space to pick a ticket up, the arrow keys to choose a column, Space again to move it, Escape to put it back.",
+      grabbed:
+        "Ticket {reference} picked up from {status}. Use the arrow keys to choose a column.",
+      dropped: "Ticket {reference} put back in {status}.",
+      moved: "Ticket {reference} moved from {from} to {to}.",
+      cancelled: "Move cancelled. Ticket {reference} is still in {status}.",
+      blocked: "A ticket in {from} cannot be moved to {to}.",
+    },
+    empty: {
+      title: "Nobody has written in",
+      message:
+        "A ticket arrives when a customer taps the button under a delivered song, or types /support in the bot.",
+      filteredTitle: "No ticket matches these filters",
+      filteredMessage:
+        "Tickets exist; none is in the range or of the kind you asked for.",
+    },
+    notes: {
+      forbiddenMessage:
+        "Your role may not read this. Nothing here retries, and asking again would only record another refusal.",
+      sessionEndedMessage:
+        "{message} Sign in again and the queue will be where you left it.",
+      refusedFiltersMessage: "{message} Narrow the filters and ask again.",
+      notFoundMessage:
+        "No ticket is held under that id. It may have been erased at the customer's request — a ticket is deleted rather than anonymised.",
+      conflictTitle: "This ticket moved first",
+      conflictMessage:
+        "Somebody else moved it while you were reading — most often a staffer pressing a button on the card in the Telegram group. Nothing was written, and the ticket is being re-read.",
+      workerTitle: "The worker is not reachable",
+      workerMessage:
+        "Nothing was written. A change here has to reach the card in the Telegram group, so the whole action is refused rather than half-done — otherwise the board and the card would disagree for ever.",
+    },
+    filter: {
+      status: "Column",
+      statusHint: "Where the ticket is now.",
+      source: "Opened from",
+      sourceHint:
+        "Which door it came through. Both file the same kind of ticket.",
+      language: "Written in",
+      languageHint:
+        "The language the ticket was opened in — the one a reply has to be written in.",
+      assignedTo: "With",
+      assignedToHint:
+        "An exact name, and deliberately not part of the search box: “Dilnoza's tickets” and “tickets that mention Dilnoza” are two questions.",
+      search: "Reference or words",
+      searchHint: "Matches the reference and the customer's own words.",
+      onlyDescribed: "Only described",
+      onlyDescribedHint:
+        "Hide the tickets somebody opened and never typed into. The board hides them always.",
+    },
+    chips: {
+      status: "Column",
+      source: "Opened from",
+      language: "Written in",
+      assignedTo: "With",
+      search: "Search",
+      onlyDescribed: "Only described",
+      join: ", ",
+    },
+    groups: {
+      open: "Support group",
+      title: "Where ticket cards are posted",
+      subject: "the support group",
+      subtitle:
+        "Every ticket is filed here whatever this says. This is the Telegram group the bot posts a card into when one arrives, and whether it has been proved able to post there.",
+      constraint:
+        "Telegram gives a bot no list of its groups — it only learns of one when it is added. For a group it is already in, paste the chat id.",
+      close: "Close",
+      refresh: "Refresh",
+      known: "Chats the bot knows about",
+      listAria: "Chats the bot knows about",
+      loading: "Reading the chat directory…",
+      emptyMessage:
+        "Nothing has been recorded yet. Add the bot to a group and it appears here, or paste a chat id below.",
+      readOnly:
+        "Your role can see the group but not change it. That needs support.group.write.",
+      botStatusHint:
+        "What Telegram last said about the bot's standing here, at the moment it said it. Evidence, not permission — only a check proves the bot can post.",
+      current: {
+        heading: "Ticket cards go to",
+        none: "No group is selected",
+        noneHint:
+          "Tickets still work and customers still get a reference. Only the Telegram card is not posted.",
+        thread: "In topic {id}",
+        noThread: "In the group itself, no topic",
+        chosenBy: "chosen by {username} on {when}",
+      },
+      row: {
+        selected: "Receives tickets",
+        thread: "topic {id}",
+        selectAria: "Post ticket cards to {chat}",
+      },
+      type: {
+        group: "Group",
+        supergroup: "Supergroup",
+        channel: "Channel",
+      },
+      source: {
+        membershipEvent: "Telegram told us",
+        manual: "Typed in",
+      },
+      sourceHint: {
+        membershipEvent:
+          "The bot was added to or removed from this chat and Telegram sent an update saying so.",
+        manual:
+          "Somebody pasted this chat id. Nothing has confirmed the bot is in this room except the check below.",
+      },
+      botStatus: {
+        member: "Member",
+        administrator: "Administrator",
+        restricted: "Restricted",
+        left: "Left",
+        kicked: "Removed",
+        unknown: "Not known",
+      },
+      verification: {
+        verified: "Posting works",
+        failed: "Cannot post",
+        checking: "Checking…",
+        verifiedWhen: "A message reached this chat {when}.",
+        checkingHint:
+          "A test message is on its way. Refresh in a moment; if nothing changes, no worker is running.",
+      },
+      actions: {
+        select: "Post tickets here",
+        recheck: "Check again",
+        selecting: "Selecting…",
+        clear: "Stop posting to a group",
+        clearing: "Stopping…",
+        clearHint:
+          "Tickets keep working; only the Telegram card stops.",
+      },
+      paste: {
+        heading: "Use a chat id",
+        hint:
+          "For a group the bot is already in. Forward a message from it to a bot that reports chat ids.",
+        chatLabel: "Chat id",
+        chatPlaceholder: "-1001234567890",
+        chatHint: "A group chat id is negative and starts with a minus.",
+        chatIsPerson:
+          "That is not a group. A chat id without a minus belongs to one person, and ticket cards posted there would be visible to nobody else.",
+        threadLabel: "Topic id (optional)",
+        threadPlaceholder: "12",
+        threadHint:
+          "Empty posts into the group itself.",
+        threadInvalid: "A topic id is a whole number above zero.",
+        submit: "Post tickets here",
+      },
+      notes: {
+        forbiddenMessage:
+          "Your role may not change where ticket cards are posted. Asking again cannot change that, and each attempt is recorded as a refusal.",
+        sessionEndedMessage:
+          "{message} Sign in again and this screen will be where you left it.",
+        conflictTitle: "Somebody else changed it first",
+        conflictMessage:
+          "Another operator chose a group at the same moment, and only one group can be selected. Nothing of yours was written — read the list again and choose from what it now says.",
+        refusedTitle: "That chat id was refused",
+        refusedMessage: "{message} Nothing was written.",
+        workerTitle: "Selected, and nothing can check it",
+        workerMessage:
+          "The group was changed and the change is saved. No worker is running, so nothing posted a test message — this chat stays unchecked until one does.",
       },
     },
   },

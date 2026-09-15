@@ -51,7 +51,11 @@ const CONTROL_LABEL_CLASS =
 const CONTROL_HINT_CLASS =
   "m-0 max-w-[38ch] text-[11px] font-normal leading-[1.35] text-ink-400";
 
-function ControlHint({ hint }: { readonly hint: string | undefined }): JSX.Element | null {
+function ControlHint({
+  hint,
+}: {
+  readonly hint: string | undefined;
+}): JSX.Element | null {
   if (hint === undefined) return null;
   return <p className={CONTROL_HINT_CLASS}>{hint}</p>;
 }
@@ -88,6 +92,19 @@ export interface SearchFieldProps {
   readonly maxLength: number;
   readonly delayMs?: number;
   readonly className?: string | undefined;
+  /**
+   * Which soft keyboard a phone should raise. Defaults to `"numeric"`, which is what every
+   * filter on the records screen wants: all four of them search a Telegram id, and a digit
+   * pad is the difference between a two-second lookup and a scroll through a QWERTY layout.
+   *
+   * It became a prop when the support board reused this control for two TEXT filters — a
+   * reference and an operator's username. A word search on a numeric pad is a keyboard the
+   * reader has to dismiss before they can type, which is worse than no hint at all. The
+   * default stays numeric rather than becoming `"text"` so that the four filters this
+   * control was built for keep the behaviour they were given deliberately; a caller
+   * searching words asks for `"search"`.
+   */
+  readonly inputMode?: "numeric" | "search";
 }
 
 export function SearchField({
@@ -99,6 +116,7 @@ export function SearchField({
   maxLength,
   delayMs = FILTER_DEBOUNCE_MS,
   className,
+  inputMode = "numeric",
 }: SearchFieldProps): JSX.Element {
   const [draft, setDraft] = useState(value ?? "");
   /** The last value this control PUT in the URL, so an echo of our own write is not a change. */
@@ -143,7 +161,7 @@ export function SearchField({
         placeholder={placeholder}
         title={hint}
         aria-label={label}
-        inputMode="numeric"
+        inputMode={inputMode}
         maxLength={maxLength}
         className={cn(FIELD_CLASS, "w-full min-w-0")}
         onChange={(event) => {
@@ -251,7 +269,11 @@ export function EnumToggleGroup<T extends string>({
       <span className={CONTROL_LABEL_CLASS} id={labelId}>
         {label}
       </span>
-      <div role="group" aria-labelledby={labelId} className="flex flex-wrap gap-2">
+      <div
+        role="group"
+        aria-labelledby={labelId}
+        className="flex flex-wrap gap-2"
+      >
         {values.map((value) => {
           const isActive = selected.includes(value);
           return (
@@ -261,7 +283,9 @@ export function EnumToggleGroup<T extends string>({
               aria-pressed={isActive}
               onClick={() => {
                 onChange(
-                  isActive ? selected.filter((member) => member !== value) : [...selected, value],
+                  isActive
+                    ? selected.filter((member) => member !== value)
+                    : [...selected, value],
                 );
               }}
               className={cn(
@@ -338,7 +362,10 @@ export function endOfLocalDayExclusiveIso(date: string): string | null {
  * renders as the local day it falls in; the URL keeps the exact value until the field is
  * changed, so nothing is silently rounded behind an operator's back.
  */
-export function dateInputValue(iso: string | null, bound: "start" | "endExclusive"): string {
+export function dateInputValue(
+  iso: string | null,
+  bound: "start" | "endExclusive",
+): string {
   if (iso === null) return "";
   const at = new Date(iso);
   if (Number.isNaN(at.getTime())) return "";
@@ -351,7 +378,10 @@ export interface DateRangeFieldsProps {
   /** RFC 3339 instants, or `null`. Either end may stand alone. */
   readonly from: string | null;
   readonly to: string | null;
-  readonly onChange: (next: { readonly from: string | null; readonly to: string | null }) => void;
+  readonly onChange: (next: {
+    readonly from: string | null;
+    readonly to: string | null;
+  }) => void;
   readonly hint?: string | undefined;
 }
 
@@ -371,7 +401,11 @@ export function DateRangeFields({
       <span className={CONTROL_LABEL_CLASS} id={labelId}>
         {label}
       </span>
-      <div role="group" aria-labelledby={labelId} className="flex flex-wrap items-center gap-2">
+      <div
+        role="group"
+        aria-labelledby={labelId}
+        className="flex flex-wrap items-center gap-2"
+      >
         <input
           type="date"
           aria-label={t("common.rangeFrom", { label })}
@@ -390,7 +424,10 @@ export function DateRangeFields({
           value={dateInputValue(to, "endExclusive")}
           className={cn(FIELD_CLASS, "min-w-[9.5rem]")}
           onChange={(event) => {
-            onChange({ from, to: endOfLocalDayExclusiveIso(event.target.value) });
+            onChange({
+              from,
+              to: endOfLocalDayExclusiveIso(event.target.value),
+            });
           }}
         />
       </div>

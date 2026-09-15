@@ -54,8 +54,54 @@ export const INTENT_PARAM = {
   staleAfterHours: "staleAfterHours",
   from: "from",
   to: "to",
+  period: "period",
   cursor: "cursor",
 } as const;
+
+/**
+ * The quick scopes above the strip: the last day, week, month or year.
+ *
+ * **These are a LABEL, never the query.** Picking one writes concrete `from`/`to` instants
+ * into the URL and records which button produced them; every read on this screen — the table,
+ * the funnel, the attention counts — goes on asking with `from`/`to` and knows nothing about
+ * periods. That keeps ONE source of truth for the window, so the date boxes in the filter
+ * panel and the buttons up here can never disagree, and a pasted link reproduces exactly the
+ * range the operator was looking at rather than "a week" resolved against a different day.
+ *
+ * The label is written in the same edit as the range it produced, so a highlighted button is
+ * always true about the window beside it. Editing either date box clears it, because at that
+ * point the range is the operator's and no longer the button's.
+ */
+export const BILLING_PERIODS = ["day", "week", "month", "year"] as const;
+export type BillingPeriod = (typeof BILLING_PERIODS)[number];
+
+/** How far back each scope reaches, in days. A month is 30 days and a year 365 — see below. */
+const PERIOD_DAYS: Readonly<Record<BillingPeriod, number>> = {
+  day: 1,
+  week: 7,
+  month: 30,
+  year: 365,
+};
+
+/**
+ * The half-open `[from, to)` a scope resolves to, as ISO instants.
+ *
+ * **Rolling windows, not calendar ones.** "Month" is the last 30 days and not "since the 1st",
+ * which is the choice worth writing down because the two answer different questions. A rail is
+ * read to see whether takings are healthy RIGHT NOW, and a calendar month answers that with a
+ * number that collapses to near-zero every time the month turns over — the one morning an
+ * operator is most likely to misread it as an outage. A rolling window has no such cliff.
+ *
+ * `now` is passed in and never read from the clock here, so a test can place the boundary.
+ */
+export function periodRange(
+  period: BillingPeriod,
+  now: Date,
+): { readonly from: string; readonly to: string } {
+  const to = new Date(now.getTime());
+  const from = new Date(now.getTime() - PERIOD_DAYS[period] * 24 * 60 * 60 * 1000);
+  return { from: from.toISOString(), to: to.toISOString() };
+}
 
 export interface IntentUrlState {
   readonly state: readonly IntentState[];
@@ -67,6 +113,13 @@ export interface IntentUrlState {
   readonly staleAfterHours: number | null;
   readonly from: string | null;
   readonly to: string | null;
+  /**
+   * Which quick scope produced `from`/`to`, or `null` for a range the operator typed.
+   *
+   * Never read when building a request — see {@link BILLING_PERIODS}. It exists so the button
+   * that is drawn as selected is the one that actually wrote the window beside it.
+   */
+  readonly period: BillingPeriod | null;
   /** Paging, not a filter. */
   readonly cursor: string | null;
 }
@@ -80,6 +133,7 @@ export const EMPTY_INTENT_STATE: IntentUrlState = {
   staleAfterHours: null,
   from: null,
   to: null,
+  period: null,
   cursor: null,
 };
 
@@ -148,6 +202,12 @@ export function readIntentUrlState(params: URLSearchParams): IntentUrlState {
     staleAfterHours: readStaleHours(params),
     from: readString(params, INTENT_PARAM.from),
     to: readString(params, INTENT_PARAM.to),
+    /* Dropped when it labels nothing. A hand-edited `?period=year` with no dates would draw a
+       button as selected over an unscoped screen — the label must never outlive its range. */
+    period:
+      readString(params, INTENT_PARAM.from) === null
+        ? null
+        : (readEnums(params, INTENT_PARAM.period, BILLING_PERIODS)[0] ?? null),
     cursor: readString(params, INTENT_PARAM.cursor),
   };
 }
@@ -167,6 +227,11 @@ export function writeIntentUrlState(state: IntentUrlState): URLSearchParams {
   }
   if (state.from !== null) params.set(INTENT_PARAM.from, state.from);
   if (state.to !== null) params.set(INTENT_PARAM.to, state.to);
+  // Only beside the range it labels. A `?period=week` with no dates would be a claim about a
+  // window nothing is scoped to, which is the shape this file's own header warns about.
+  if (state.period !== null && state.from !== null) {
+    params.set(INTENT_PARAM.period, state.period);
+  }
   if (state.cursor !== null) params.set(INTENT_PARAM.cursor, state.cursor);
   return params;
 }
@@ -181,6 +246,9 @@ export function activeIntentFilterCount(state: IntentUrlState): number {
     (state.sandbox === null ? 0 : 1) +
     (state.from === null ? 0 : 1) +
     (state.to === null ? 0 : 1)
+    /* `period` is deliberately NOT counted. It adds no narrowing of its own — it is a label on
+       the `from`/`to` already counted above — and counting it would report a one-click "last
+       week" as three filters and offer to clear a filter that does not exist. */
   );
 }
 

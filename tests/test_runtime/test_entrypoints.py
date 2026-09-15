@@ -31,6 +31,9 @@ from bayram.runtime.jobs import (
     PAYME_SWEEP_JOB_NAME,
     RETENTION_JOB_NAME,
     SEND_JOB_NAME,
+    SUPPORT_CARD_JOB_NAME,
+    SUPPORT_RELAY_JOB_NAME,
+    SUPPORT_VERIFY_JOB_NAME,
     TEST_SEND_JOB_NAME,
     VENDOR_BALANCE_JOB_NAME,
     build_kit_worker_settings,
@@ -213,6 +216,24 @@ async def test_the_worker_registers_the_job_the_submitter_enqueues(settings: Set
         SEND_JOB_NAME,
         TEST_SEND_JOB_NAME,
         DUE_JOB_NAME,
+        # The two support-ticket jobs, and they are the third taking of the same decision:
+        # the panel composes a status move or a reply and the WORKER performs it, because a
+        # process denied a Telegram token cannot edit a card in the staff group or put a
+        # sentence in a customer's chat. ``bayram.admin.queue`` restates both of these
+        # strings rather than importing them — importing this module would put ``aiogram.Bot``
+        # in that process's import graph — so reading the list by NAME is once again what
+        # stands between a rename and an operator's reply sitting in Redis until it expired.
+        SUPPORT_CARD_JOB_NAME,
+        SUPPORT_RELAY_JOB_NAME,
+        # The support GROUP check, which is the odd one out in this list: it is about a room
+        # rather than about a ticket. The panel enqueues it the instant an operator selects a
+        # support group — the group is a ``bot_chats`` row now and no longer an environment
+        # variable (``SUPPORT_TICKETS_SPEC §3.8``) — and it is the only thing in the system
+        # that can say whether a chat id somebody TYPED is a real room the bot may post in.
+        # Telegram has no "list my groups" API, so a pasted id is the sole route to a group the
+        # bot was already sitting in; a rename that silently unregistered this job would leave
+        # every such selection on "checking…" for ever.
+        SUPPORT_VERIFY_JOB_NAME,
     ]
     assert worker_settings.max_jobs == settings.worker_concurrency
     assert worker_settings.job_timeout == settings.queue_job_timeout_s

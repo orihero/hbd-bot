@@ -1,8 +1,12 @@
 /**
  * Type-safe i18n schema and contract definitions for the Bayram Admin Dashboard.
  *
- * Covers 13 namespaces: common, nav, auth, dashboard, chats, users, generations,
- * audit, admins, errors, reveal, segments, and broadcasts.
+ * Covers 15 namespaces: common, nav, auth, dashboard, chats, users, generations,
+ * audit, admins, errors, reveal, segments, broadcasts, billing, and support.
+ *
+ * (The count above was written at 13 and stood while two namespaces were added under it. It is
+ * corrected here rather than deleted, and `TranslationSchema` at the foot of this file is the
+ * thing to count — a number in prose is only ever as true as the last person who read it.)
  */
 
 /* -------------------------------------------------------------------------- */
@@ -12,7 +16,11 @@
 export type SupportedLocale = "uz" | "ru" | "en";
 export type Locale = SupportedLocale;
 
-export const SUPPORTED_LOCALES: readonly SupportedLocale[] = ["uz", "ru", "en"] as const;
+export const SUPPORTED_LOCALES: readonly SupportedLocale[] = [
+  "uz",
+  "ru",
+  "en",
+] as const;
 export const DEFAULT_LOCALE: SupportedLocale = "en";
 export const LOCALE_STORAGE_KEY = "bayram.dashboard.locale";
 
@@ -98,6 +106,37 @@ export interface CommonTranslations {
   /** One end of a labelled range, for a screen reader: `{label}` names the range. */
   readonly rangeFrom: string;
   readonly rangeTo: string;
+  /**
+   * Why a figure on a page-header tile is absent — the caption that renders under the dash.
+   *
+   * One member per `AbsenceReason` in `bayram.admin.schemas.overview`, keyed on this console's
+   * camelCase rather than on the wire's `no_fx_rate`, so a member added to that vocabulary is a
+   * compile error here rather than a blank caption in production.
+   *
+   * Every one of the six names the REMEDY and not merely the gap. That is the enum's own test
+   * for membership — each member is documented there as "a state an operator can act on":
+   * configure a rate, publish a price, narrow the window, instrument the worker. A caption that
+   * only restates the absence ("not available") tells the reader what the em dash already told
+   * them and sends them nowhere.
+   *
+   * They live under `common` rather than under the screens that render them because ONE reason
+   * travels with figures on four different screens. Four private copies of "no exchange rate"
+   * is how one missing environment variable comes to read as four unrelated problems, and how
+   * three of the four quietly drift out of date when the remedy changes.
+   *
+   * None of these is ever rendered INSTEAD of a zero: a measured zero is a number and prints as
+   * one. These belong only to the `null` that means nobody could measure it.
+   */
+  readonly stats: {
+    readonly unavailable: {
+      readonly noFxRate: string;
+      readonly noPricePublished: string;
+      readonly mixedCurrencies: string;
+      readonly notPriced: string;
+      readonly noDenominator: string;
+      readonly notInstrumented: string;
+    };
+  };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -136,6 +175,8 @@ export interface NavTranslations {
     readonly billing: string;
     /** The campaign section. One rail entry, above the rule, after Generations. */
     readonly broadcasts: string;
+    /** The ticket queue. One rail entry, last above the rule, after Campaigns. */
+    readonly support: string;
     readonly audit: string;
     readonly admins: string;
   };
@@ -519,6 +560,27 @@ export interface ChatsTranslations {
 
 export interface UsersTranslations {
   readonly title: string;
+  /**
+   * The four tiles over the directory. Three of them count OVERLAPPING populations.
+   *
+   * `blocked` is our bar (`users.is_blocked`) and `botBlocked` is the customer's
+   * (`users.blocked_bot_at`). An account can be in both — barred here after it stopped
+   * listening — so the two never add up to anything, and `reachable` is the complement of
+   * their UNION rather than `accounts - blocked`. That is exactly how
+   * `bayram.db.admin.users.segment_breakdown` counts them, in four `if`s over one grouped
+   * read, and the labels have to carry the distinction because a row of tiles is the one
+   * place a reader will try the subtraction.
+   *
+   * So `blocked` says who did the barring, in every locale. "Blocked" alone would be true of
+   * both columns and would name neither remedy: one is undone from this console and the other
+   * cannot be undone from anywhere.
+   */
+  readonly stats: {
+    readonly accounts: string;
+    readonly reachable: string;
+    readonly blocked: string;
+    readonly botBlocked: string;
+  };
   readonly paginationSubtitle: string;
   readonly searchLabel: string;
   readonly searchPlaceholder: string;
@@ -792,6 +854,21 @@ export interface UsersTranslations {
 
 export interface GenerationsTranslations {
   readonly title: string;
+  /**
+   * The tiles over the render ledger: how much was attempted, how much of it was judged, and
+   * how the judged part went.
+   *
+   * `checked` is the DENOMINATOR of `passRate` and is a tile of its own rather than a caption
+   * on the rate, because the two numbers fail independently: a pass rate of 100% over four
+   * checked attempts out of nine thousand is not a quality signal, and the only way to see
+   * that from a header row is to put the denominator in it. An attempt that carried no
+   * verification outcome at all is in `attempts` and in neither of the other two.
+   */
+  readonly stats: {
+    readonly attempts: string;
+    readonly passRate: string;
+    readonly checked: string;
+  };
   readonly paginationSubtitle: string;
   readonly subtitleAll: string;
   readonly subtitleFiltered: string;
@@ -1594,6 +1671,34 @@ export interface SegmentsTranslations {
  */
 export interface BroadcastsTranslations {
   readonly title: string;
+  /**
+   * The tiles over the campaign list.
+   *
+   * `inFlight` counts CAMPAIGNS in a moving state, never recipients: this namespace's first
+   * rule is that a state belongs to the campaign, and a tile that counted messages under a
+   * campaign-shaped label is the shortest route to breaking it. `recipients` is the one
+   * message-grained figure here and it counts rows that were WRITTEN, which is the audience as
+   * frozen at creation and not the audience a preview would count today.
+   *
+   * `lastSend` is an instant, not a count — the tile it fills carries a formatted UTC time —
+   * and it is `null` on a deployment that has never sent, where "never" is the honest reading
+   * and any zero would be a lie about a clock.
+   *
+   * `noSendYet` is the caption under that dash, and it lives HERE rather than beside the six
+   * `common.stats.unavailable.*` captions on purpose. That block is one member per
+   * `AbsenceReason` in `bayram.admin.schemas.overview` — that parity is the whole reason a
+   * member added to the wire vocabulary is a compile error in this file — and "no run has ever
+   * started" is not on that wire at all: the SPA derives it from a `lastSendAt` of `null`,
+   * which the broadcasts list already carries. Filing a locally-derived absence among the
+   * server-sent ones would cost the block the property it exists for.
+   */
+  readonly stats: {
+    readonly campaigns: string;
+    readonly inFlight: string;
+    readonly recipients: string;
+    readonly lastSend: string;
+    readonly noSendYet: string;
+  };
   /** Names the failing read inside `errors.query.*`'s `{subject}` slot. */
   readonly subject: string;
   readonly subjectOne: string;
@@ -2015,6 +2120,42 @@ export interface BroadcastsTranslations {
 export interface BillingTranslations {
   readonly title: string;
   /**
+   * The four tiles over the rail. Two of them count payments, two of them count trouble, and
+   * the two kinds of trouble are not the same kind at all.
+   *
+   * `faults` counts INBOUND RPC calls the rail answered with an error — a fact about the
+   * integration, visible in the call journal, and usually the same minute repeated. `attention`
+   * counts PAYMENTS in one of `attention.*`'s states: held past the rail's timeout, paid and
+   * never announced, paid with no receipt written. Those are customers waiting on somebody
+   * here, which is why the tile is the warn one and why it is a count of payments and never a
+   * count of calls. A single "problems" figure formed from the two would add an event count to
+   * a queue of people.
+   *
+   * `settled` is a subset of `intents` and is never money: this section counts payments and the
+   * currency-carrying totals live on the dashboard, where a figure travels with its currency.
+   */
+  readonly stats: {
+    readonly intents: string;
+    readonly settled: string;
+    readonly faults: string;
+    readonly attention: string;
+    /**
+     * The row count under a money tile: `{count} payments`.
+     *
+     * A caption and never the headline. The two tiles it sits under are sums of money, and the
+     * count is there only to separate one 15 000 so'm payment from a hundred of them.
+     */
+    readonly ofPayments: string;
+    /** Day / Week / Month / Year. The one control that scopes the whole screen. */
+    readonly period: {
+      readonly label: string;
+      readonly day: string;
+      readonly week: string;
+      readonly month: string;
+      readonly year: string;
+    };
+  };
+  /**
    * The pager's range label, for both keyset lists in this section.
    *
    * Two strings and not one, because `withTotal` is off by default: `total` costs a second
@@ -2226,6 +2367,373 @@ export interface BillingTranslations {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Namespace 15: Support — the ticket queue, the board, and one conversation    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The Support section: a four-column board, one ticket with its timeline, and the four things
+ * an operator does to it.
+ *
+ * **This is the only namespace in the console whose subject is a person waiting for an answer.**
+ * Every other section describes something that happened to the business and is read after the
+ * fact. Five families of keys here are load-bearing rather than decorative, and each one is a
+ * sentence an operator will act on:
+ *
+ *  - **`status` and `statusHint`.** `waiting` means waiting on the CUSTOMER and never on us —
+ *    that is the whole reason it is a column rather than a flag, and a translation that blurs
+ *    it turns the board's two backlog columns into one number that means nothing.
+ *  - **`timeline.relayed` / `timeline.notRelayed`.** A reply with no relay clock was composed
+ *    and never reached anybody. No wording here may let the two read alike.
+ *  - **`card.noBody`.** A ticket with no body is a customer who tapped ⚠️ and never typed. It is
+ *    not a redaction and not an error, and it must not be worded as either.
+ *  - **`author.operator` vs `author.staffGroup`.** One has a session, a role and an audit row;
+ *    the other is somebody in a Telegram group whose only credential is being in it. One word
+ *    for both would let the timeline claim an audited actor for an unaudited act.
+ *  - **`dnd.*`.** The drag path is invisible to a screen reader, so these are not flavour text —
+ *    they are the only announcement a keyboard operator gets that a card moved at all.
+ */
+export interface SupportTranslations {
+  readonly title: string;
+  /** Names the failing read inside `errors.query.*`'s `{subject}` slot. */
+  readonly subject: string;
+  readonly subjectOne: string;
+  readonly subjectBoard: string;
+  /** A bounded LIST total, said as a floor. Never a board column — those are exact. */
+  readonly atLeast: string;
+  readonly refresh: string;
+  readonly backToBoard: string;
+  readonly openTicket: string;
+  readonly tableCaption: string;
+  readonly filtersAria: string;
+  readonly subtitles: {
+    readonly reading: string;
+    readonly failed: string;
+    readonly onThisPage: string;
+    readonly tickets: string;
+    readonly ticketsFiltered: string;
+  };
+  readonly range: {
+    readonly onPage: string;
+    readonly onPageOf: string;
+    readonly none: string;
+    readonly noneMatching: string;
+  };
+  readonly board: {
+    readonly aria: string;
+    readonly columnAria: string;
+    readonly cardAria: string;
+    readonly columnCount: string;
+    readonly empty: string;
+    readonly emptyFiltered: string;
+    readonly loading: string;
+    /** Why the board's columns sum to less than the queue behind them. */
+    readonly undescribedHidden: string;
+    readonly dropHere: string;
+    readonly cannotDropHere: string;
+  };
+  /** The four columns. `waiting` is waiting on the customer. */
+  readonly status: {
+    readonly new: string;
+    readonly inProgress: string;
+    readonly waiting: string;
+    readonly resolved: string;
+  };
+  /** One sentence each: what the column means for the PERSON who is waiting. */
+  readonly statusHint: {
+    readonly new: string;
+    readonly inProgress: string;
+    readonly waiting: string;
+    readonly resolved: string;
+  };
+  readonly source: {
+    readonly deliveryButton: string;
+    readonly supportCommand: string;
+  };
+  readonly sourceHint: {
+    readonly deliveryButton: string;
+    readonly supportCommand: string;
+  };
+  readonly card: {
+    readonly reference: string;
+    readonly customer: string;
+    readonly order: string;
+    readonly noOrder: string;
+    readonly opened: string;
+    readonly updated: string;
+    readonly assignee: string;
+    readonly unassigned: string;
+    readonly events: string;
+    readonly language: string;
+    readonly body: string;
+    /** Tapped and never typed. Not a redaction. */
+    readonly noBody: string;
+    readonly noBodyHint: string;
+    readonly inGroup: string;
+    readonly notInGroup: string;
+    readonly notInGroupHint: string;
+    readonly resolvedAt: string;
+    readonly reopened: string;
+    readonly reopenedHint: string;
+  };
+  readonly actions: {
+    readonly move: string;
+    readonly moveTo: string;
+    readonly claim: string;
+    readonly assign: string;
+    readonly reply: string;
+    readonly note: string;
+    readonly reopen: string;
+    readonly resolve: string;
+    readonly pickColumn: string;
+    readonly cancel: string;
+    /**
+     * Why the action row is absent for a VIEWER, in this section's own words.
+     *
+     * `broadcasts.actions.readOnly` is the model: a role that may read but not write is told
+     * what it may do and what it may not, in one sentence, rather than shown a row of
+     * disabled buttons whose press would be a 403 and a `permission.denied` audit row
+     * against somebody who did nothing wrong. It is a key of its own rather than the shared
+     * `errors.detail.roleCannotTitle` because "cannot do this" names no permission — a
+     * support operator reading it learns nothing about which of the four actions they are
+     * missing, and the whole point of the sentence is to end that question.
+     */
+    readonly readOnly: string;
+  };
+  readonly dialogs: {
+    readonly assign: {
+      readonly title: string;
+      readonly label: string;
+      readonly placeholder: string;
+      readonly hint: string;
+      readonly submit: string;
+      readonly pending: string;
+      readonly invalid: string;
+    };
+    readonly reply: {
+      readonly title: string;
+      readonly label: string;
+      readonly placeholder: string;
+      readonly hint: string;
+      readonly submit: string;
+      readonly pending: string;
+      readonly warning: string;
+      readonly remaining: string;
+    };
+    readonly note: {
+      readonly title: string;
+      readonly label: string;
+      readonly placeholder: string;
+      readonly hint: string;
+      readonly submit: string;
+      readonly pending: string;
+      readonly warning: string;
+    };
+    readonly move: {
+      readonly title: string;
+      readonly body: string;
+      readonly reopenBody: string;
+      readonly submit: string;
+      readonly pending: string;
+    };
+  };
+  readonly timeline: {
+    readonly title: string;
+    readonly empty: string;
+    readonly relayed: string;
+    readonly notRelayed: string;
+    readonly notRelayedHint: string;
+    readonly statusMove: string;
+    readonly assignedTo: string;
+    readonly unknownAuthor: string;
+    readonly kind: {
+      readonly opened: string;
+      readonly described: string;
+      readonly statusChange: string;
+      readonly note: string;
+      readonly reply: string;
+      readonly assigned: string;
+      readonly groupPosted: string;
+    };
+    readonly author: {
+      readonly customer: string;
+      readonly operator: string;
+      readonly staffGroup: string;
+      readonly system: string;
+    };
+  };
+  /** The keyboard path's announcements. The only thing a screen reader is told about a move. */
+  readonly dnd: {
+    readonly instructions: string;
+    readonly grabbed: string;
+    readonly dropped: string;
+    readonly moved: string;
+    readonly cancelled: string;
+    readonly blocked: string;
+  };
+  readonly empty: {
+    readonly title: string;
+    readonly message: string;
+    readonly filteredTitle: string;
+    readonly filteredMessage: string;
+  };
+  readonly notes: {
+    readonly forbiddenMessage: string;
+    readonly sessionEndedMessage: string;
+    readonly refusedFiltersMessage: string;
+    readonly notFoundMessage: string;
+    /** The ticket moved first — almost always a staffer pressing a button in the group. */
+    readonly conflictTitle: string;
+    readonly conflictMessage: string;
+    /** No worker: the whole action rolled back rather than half-landing. */
+    readonly workerTitle: string;
+    readonly workerMessage: string;
+  };
+  readonly filter: {
+    readonly status: string;
+    readonly statusHint: string;
+    readonly source: string;
+    readonly sourceHint: string;
+    readonly language: string;
+    readonly languageHint: string;
+    readonly assignedTo: string;
+    readonly assignedToHint: string;
+    readonly search: string;
+    readonly searchHint: string;
+    readonly onlyDescribed: string;
+    readonly onlyDescribedHint: string;
+  };
+  readonly chips: {
+    readonly status: string;
+    readonly source: string;
+    readonly language: string;
+    readonly assignedTo: string;
+    readonly search: string;
+    readonly onlyDescribed: string;
+    readonly join: string;
+  };
+  /**
+   * The Support group picker — which Telegram chat ticket cards are posted into.
+   *
+   * A sub-tree of `support` rather than a namespace of its own, because it is one dialog opened
+   * from the Support board's toolbar and it shares that section's subjects, refusals and reading
+   * cell. A fifteenth top-level namespace for one dialog would also be a fifteenth entry in
+   * `TranslationSchema`, three catalogues and a `Leaves` depth budget spent on nesting nobody
+   * reads.
+   *
+   * Two rules bind the copy under here and are worth stating where a translator will see them:
+   *
+   *  - **The bot's standing and the verification are different facts, and the words must keep
+   *    them apart.** `botStatus.*` is what Telegram last said; `verification.*` is whether a
+   *    worker actually posted a message and it landed. A translation that renders both as some
+   *    variant of "OK" would collapse the distinction this whole screen exists to draw.
+   *  - **`verificationError` is NOT in this catalogue and never will be.** It is English prose
+   *    the worker writes for staff, rendered verbatim — see `api/support.ts`. Nothing here maps
+   *    to it, because the migrated-group case carries a chat id an operator must copy.
+   */
+  readonly groups: {
+    /** The toolbar button on the Support board. */
+    readonly open: string;
+    readonly title: string;
+    /** Names the failing read inside `errors.query.*`'s `{subject}` slot. */
+    readonly subject: string;
+    readonly subtitle: string;
+    /** Telegram has no "list my groups" API. Said at the top, once, in the operator's words. */
+    readonly constraint: string;
+    readonly close: string;
+    readonly refresh: string;
+    readonly known: string;
+    readonly listAria: string;
+    readonly loading: string;
+    readonly emptyMessage: string;
+    /** Names `support.group.write`. Never the generic `errors.detail.roleCannotTitle`. */
+    readonly readOnly: string;
+    /** "Evidence, never permission", in one line under the bot's standing. */
+    readonly botStatusHint: string;
+    readonly current: {
+      readonly heading: string;
+      readonly none: string;
+      /** "No group" is a supported state, not a fault. This line must not read as an error. */
+      readonly noneHint: string;
+      readonly thread: string;
+      readonly noThread: string;
+      readonly chosenBy: string;
+    };
+    readonly row: {
+      readonly selected: string;
+      readonly thread: string;
+      readonly selectAria: string;
+    };
+    readonly type: {
+      readonly group: string;
+      readonly supergroup: string;
+      readonly channel: string;
+    };
+    /** Telegram's own word versus an operator's paste — the distinction, in two labels. */
+    readonly source: {
+      readonly membershipEvent: string;
+      readonly manual: string;
+    };
+    readonly sourceHint: {
+      readonly membershipEvent: string;
+      readonly manual: string;
+    };
+    readonly botStatus: {
+      readonly member: string;
+      readonly administrator: string;
+      readonly restricted: string;
+      readonly left: string;
+      readonly kicked: string;
+      readonly unknown: string;
+    };
+    readonly verification: {
+      readonly verified: string;
+      readonly failed: string;
+      readonly checking: string;
+      readonly verifiedWhen: string;
+      /** Also where a worker-less deployment sits for ever. The hint says so. */
+      readonly checkingHint: string;
+    };
+    readonly actions: {
+      readonly select: string;
+      readonly recheck: string;
+      readonly selecting: string;
+      readonly clear: string;
+      readonly clearing: string;
+      readonly clearHint: string;
+    };
+    readonly paste: {
+      readonly heading: string;
+      readonly hint: string;
+      readonly chatLabel: string;
+      readonly chatPlaceholder: string;
+      readonly chatHint: string;
+      /** A non-negative id is a PERSON. The refusal says which mistake was made. */
+      readonly chatIsPerson: string;
+      readonly threadLabel: string;
+      readonly threadPlaceholder: string;
+      readonly threadHint: string;
+      readonly threadInvalid: string;
+      readonly submit: string;
+    };
+    readonly notes: {
+      readonly forbiddenMessage: string;
+      readonly sessionEndedMessage: string;
+      /** Two operators pressed Select at once; the partial unique index refused the second. */
+      readonly conflictTitle: string;
+      readonly conflictMessage: string;
+      readonly refusedTitle: string;
+      readonly refusedMessage: string;
+      /**
+       * **Not "nothing was written".** The handler commits and then enqueues, so a 503 means the
+       * selection HAPPENED and no worker will ever check it.
+       */
+      readonly workerTitle: string;
+      readonly workerMessage: string;
+    };
+  };
+}
+
+/* -------------------------------------------------------------------------- */
 /* Top-Level Canonical TranslationSchema                                      */
 /* -------------------------------------------------------------------------- */
 
@@ -2244,6 +2752,7 @@ export interface TranslationSchema {
   readonly segments: SegmentsTranslations;
   readonly broadcasts: BroadcastsTranslations;
   readonly billing: BillingTranslations;
+  readonly support: SupportTranslations;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -2261,11 +2770,12 @@ type Prev = [never, 0, 1, 2, 3, 4, 5, 6];
 export type Leaves<T, D extends number = 5> = [D] extends [never]
   ? never
   : T extends object
-    ? { [K in keyof T]-?: K extends string | number
-        ? T[K] extends string
-          ? `${K}`
-          : Join<K, Leaves<T[K], Prev[D]>>
-        : never
+    ? {
+        [K in keyof T]-?: K extends string | number
+          ? T[K] extends string
+            ? `${K}`
+            : Join<K, Leaves<T[K], Prev[D]>>
+          : never;
       }[keyof T]
     : "";
 
@@ -2279,5 +2789,8 @@ export type TranslationKey = TranslationPath;
 export interface I18nStore {
   readonly locale: SupportedLocale;
   readonly setLocale: (locale: SupportedLocale) => void;
-  readonly t: (path: TranslationPath, params?: Record<string, string | number>) => string;
+  readonly t: (
+    path: TranslationPath,
+    params?: Record<string, string | number>,
+  ) => string;
 }

@@ -46,16 +46,17 @@ from bayram.bot.handlers.common import (
     reset_to_welcome,
     say,
     show_step,
-    support_text,
 )
 from bayram.bot.handlers.submitting import (
     STILL_IN_STUDIO_KEY,
     order_in_flight,
     say_still_working,
 )
+from bayram.bot.handlers.support import open_ticket
 from bayram.bot.i18n import translate
 from bayram.bot.middleware import resolve_language
 from bayram.bot.states import WizardStep, previous_step, step_for_state
+from bayram.contracts import SupportTicketSource
 from bayram.logging import get_logger
 
 __all__ = ["build_router"]
@@ -151,18 +152,37 @@ async def handle_start_over(callback: CallbackQuery, state: FSMContext, deps: Bo
 
 
 async def handle_report_problem(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:
-    """Where to write when a delivered song is wrong. Says nothing about a refund.
+    """The ORDER-LESS ⚠️ door. Opens a support ticket, the same one every other door opens.
 
-    Rendered by the same ``common.support_text`` ``/support`` uses, so the button and the
-    command cannot describe two different routes to the same inbox.
+    **This member and this registration both stay, and that is worth stating because the ⚠️
+    button on a delivered song no longer packs a ``NavCB`` at all** — it packs a
+    :class:`~bayram.bot.callbacks.SupportCB` carrying the order id, and
+    ``handlers.support.handle_open`` answers it. What still arrives here is every ⚠️ that was
+    drawn without an order to name: the degraded screens, and every closing message Telegram
+    is still holding from before this release. Removing the member would have made those
+    buttons match no filter, which is the stale-callback path — "that screen has moved on" —
+    shown to somebody whose song came out wrong. That is precisely how ``TRY_AGAIN`` once
+    shipped, and ``test_every_nav_action_is_registered_to_a_handler`` exists because of it.
+
+    **It opens a real ticket rather than rendering a sentence.** The behaviour it replaces —
+    ``common.support_text``, an address or an invitation to describe it in the chat — is now
+    the FALLBACK inside :func:`~bayram.bot.handlers.support.open_ticket`, taken only when no
+    ticket store is wired. So the button and ``/support`` still cannot describe two different
+    routes to one inbox, which is the rule ``support_text`` was extracted to keep; the route
+    they share is simply a table now instead of a paragraph.
+
+    The ticket carries no ``order_id``, because this door genuinely does not know one. That
+    is a real distinction the row records rather than smooths over: a complaint filed against
+    a named song and one filed from a screen that never had a song are different work items,
+    and ``source`` plus a null ``order_id`` is how an operator tells them apart.
     """
     await callback.answer()
-    language = await resolve_language(state)
-    text = support_text(language, deps.settings.support_contact)
     # Said as a NEW message rather than edited over the screen it was tapped from: that
     # screen is the closing message, and it carries both the order number and the button
     # for the next song.
-    await say(callback, text)
+    await open_ticket(
+        callback, state, deps, source=SupportTicketSource.DELIVERY_BUTTON, order_id=None
+    )
 
 
 def build_router() -> Router:

@@ -142,6 +142,14 @@ class Permission(StrEnum):
     #: Re-enqueue one settled payment's confirmation. Its own row rather than a reuse of
     #: :attr:`RAIL_CONTROL`, so SUPPORT gets the remedy without the switch.
     PAYMENT_NOTIFY = "payment.notify"
+    #: The support queue, read. **M** at every role — see the matrix note beside it.
+    SUPPORT_READ = "support.read"
+    #: Working a ticket: moving it, claiming it, noting it, answering it. A plain ``W`` with
+    #: **no step-up**, which makes it safe as a router guard. See the matrix note.
+    SUPPORT_WRITE = "support.write"
+    #: Repointing where every future ticket card lands. ADMIN and OWNER, **not** SUPPORT, and
+    #: a plain ``W`` with no step-up — see the matrix note, which argues both halves.
+    SUPPORT_GROUP_WRITE = "support.group.write"
 
 
 class StepUpAction(StrEnum):
@@ -538,6 +546,116 @@ RBAC_MATRIX: Final[Mapping[Permission, Mapping[AdminRole, Grant]]] = MappingProx
         # No ``+S`` for reason (b) above, more sharply: the action's entire effect is a
         # message this system already decided to send and failed to.
         Permission.PAYMENT_NOTIFY: _row(support=_W, admin=_W, owner=_W),
+        # ── A third ruling §12.2 has no rows for, in the shape of the CREDIT_GRANT, ──────
+        # ── BROADCAST and RAIL pairs above. ``SUPPORT_TICKETS_SPEC §7`` is the source, and ─
+        # ── the one thing to carry away from this note is the LAST paragraph: neither of ──
+        # ── these two rows carries a step-up, and that is what makes both of them usable ──
+        # ── as router-level guards. ──────────────────────────────────────────────────────
+        #
+        # **The read is ``M`` at every role, VIEWER included**, and it is the same sentence
+        # ``BROADCAST_READ`` is given: the queue is what the panel exists to show. A VIEWER
+        # who can see that eleven people are waiting on an answer but not read the queue is
+        # the reader this panel was built for, told to ask somebody else. ``_M`` and not
+        # ``_R``: the customer's Telegram id is published exactly as ``GET /api/users``
+        # publishes it and their name is not on a ticket at all, so there is nothing here for
+        # an ``R`` cell to unmask — the one plaintext this surface carries is the complaint
+        # itself, which is argued at the view
+        # (:class:`~bayram.db.admin.views.SupportTicketListItem`) rather than at the cell.
+        #
+        # **SUPPORT holds the write, and this is the only write row in the table that starts
+        # at SUPPORT rather than at ADMIN.** That is the whole point of the role: a support
+        # operator's entire job is answering customers, and a matrix in which the role named
+        # SUPPORT may read the support queue and not reply to it describes a person who can
+        # watch the work and not do it. The comparison that settles it is ``PAYMENT_NOTIFY``
+        # directly above — SUPPORT already holds the answer to "I paid and nothing happened",
+        # and it would be incoherent to hand them the remedy and withhold the conversation.
+        #
+        # **Replying is counted HERE rather than split into its own ``support.reply`` row.**
+        # A reply does send a message to a customer, which is the property that earned
+        # ``BROADCAST_SEND`` its ``W+S``, so the asymmetry is stated rather than assumed: a
+        # broadcast reaches EVERY customer at once, cannot be recalled and is composed by
+        # somebody who will not be the one who finds out it was wrong, while a ticket reply
+        # goes to ONE person who asked us a question and is answered in the same minute they
+        # asked it. A step-up on it would re-authenticate an operator forty times a shift,
+        # which does not make the fortieth reply safer — it makes the password box furniture.
+        # The accountability is carried instead by two records that a broadcast does not have:
+        # the ``admin_audit_log`` row (``ticket.reply``, with the ticket as its subject) and
+        # ``support_ticket_events``, which is append-only and names the author of every line.
+        # ``BROADCAST_WRITE``'s own note makes this trade in the other direction, and both are
+        # deliberate.
+        #
+        # **ADMIN and OWNER are on the write too, and not because of a ladder.** Nothing in
+        # this module derives a permission from "greater than" (see the module docstring), so
+        # their cells are here because they were decided: an ADMIN triaging out of hours and
+        # an OWNER answering the one complaint that reached them personally are both ordinary,
+        # and a queue only SUPPORT can touch is a queue that stops at the weekend.
+        #
+        # **Neither row carries a step-up, so neither needs the ROLE-half split that
+        # USER_BLOCK_WRITE, CREDIT_GRANT_WRITE, BROADCAST_WRITE and ADMIN_MANAGE_WRITE were
+        # each forced into.** :func:`check_role` holds no subject and therefore no grant, so
+        # ANY cell carrying ``StepUpRequirement.REQUIRED`` answers ``STEP_UP_REQUIRED`` for
+        # ever when it is declared at a router — to a correctly re-authenticated OWNER
+        # included — while looking exactly right, because ``STEP_UP_REQUIRED`` is what the
+        # matrix predicts. That hazard has been hit five times in this file and is written out
+        # at each of them. These two are plain ``_M``/``_W``, so ``routers/support.py``
+        # declares them directly and there is nothing to enforce in a handler. If a future
+        # reviewer decides a ticket reply deserves a step-up after all, the remedy is the
+        # split the four rows above take — ``SUPPORT_REPLY`` enforced through
+        # ``deps.enforce_step_up`` on the ticket id, with ``SUPPORT_WRITE`` left on the router
+        # — and NEVER adding a step-up to this row.
+        Permission.SUPPORT_READ: _row(viewer=_M, support=_M, admin=_M, owner=_M),
+        Permission.SUPPORT_WRITE: _row(support=_W, admin=_W, owner=_W),
+        # ── A FOURTH ruling §12.2 has no row for, and the second one in this namespace. ──
+        # ── ``SUPPORT_TICKETS_SPEC §5.1``'s 2026-09-15 amendment and §3.8 are the source. ─
+        #
+        # **What this permission is for.** The Telegram group that receives ticket cards used
+        # to be ``BAYRAM_SUPPORT_GROUP_CHAT_ID``, an integer in a unit file: changing it meant
+        # editing a deployment and restarting a process, so the capability belonged to whoever
+        # could deploy and was bounded by that. §3.8 moved it into a ``bot_chats`` row an
+        # operator repoints from a screen, and a capability that has stopped being bounded by
+        # SSH access has to be bounded by a cell in this table instead. This is that cell.
+        #
+        # **It is deliberately NOT ``SUPPORT_WRITE``, and the split is the whole point of
+        # adding a row rather than reusing the one directly above.** A support operator works
+        # the queue: they read a complaint, claim it, answer it and resolve it, dozens of times
+        # a shift, and every one of those acts is about ONE customer who is already waiting.
+        # Choosing where every FUTURE ticket card is posted is a different act with a different
+        # blast radius: the wrong room means a customer's complaint — their words, their
+        # Telegram id, the ⚠️ they pressed — is published to people who should not see it, and
+        # nothing about that is visible from the board an operator is looking at. SUPPORT is
+        # ``—`` here for that reason and loses nothing it is named for; ``SUPPORT_READ`` still
+        # answers "where do my tickets go?" for every role, which is the question an operator
+        # must be able to ask without being able to change the answer.
+        #
+        # **ADMIN and OWNER, not OWNER alone**, on ``BROADCAST_WRITE``'s and
+        # ``CREDIT_GRANT``'s reasoning taken a third time: re-pointing the inbox after a group
+        # is migrated, renamed or accidentally deleted is ordinary operational work done by
+        # whoever is awake, and an action only the owner can take is an action the owner gets
+        # woken up for — which is how a shared login gets made.
+        #
+        # **A plain ``W`` with NO step-up, transcribing ``BROADCAST_WRITE``'s written
+        # argument.** The accountability is carried by the ``admin_audit_log`` row — the actor,
+        # their role, their IP, the chat that was selected AND the chat it was taken away from
+        # (``SelectionChange.previous_chat_id`` exists so that second fact can be recorded) —
+        # beside a ``bot_chats`` row that keeps ``selected_by_username`` and ``selected_at``
+        # standing even after the selection moves on. That is the same trade ``BROADCAST_WRITE``
+        # makes for composing a campaign: the append-only record is the control, and the
+        # re-authentication box is not.
+        #
+        # **And because it carries no step-up it is safe as a router-level guard, which is the
+        # property that actually matters here.** :func:`check_role` is what a router guard
+        # calls; it holds no subject and therefore no grant, so ANY cell carrying
+        # ``StepUpRequirement.REQUIRED`` answers ``STEP_UP_REQUIRED`` for ever when declared at
+        # a router — to a correctly re-authenticated OWNER included — while looking exactly
+        # right, because ``STEP_UP_REQUIRED`` is what the matrix predicts. This file has been
+        # bitten by that five times (REVEAL_PERSONAL_DATA, REVEAL_MEDIA, USER_BLOCK,
+        # CREDIT_GRANT/BROADCAST_SEND, ADMIN_MANAGE) and each has its note above. This row
+        # carries none, so ``routers/support_groups.py`` declares it directly and no handler
+        # there enforces authorisation. If a future reviewer decides repointing the inbox
+        # deserves a step-up, the remedy is the split those five took — a
+        # ``SUPPORT_GROUP_SELECT`` step-up enforced in the handler on the chat id it has read,
+        # with this row left on the router — and NEVER adding a step-up here.
+        Permission.SUPPORT_GROUP_WRITE: _row(admin=_W, owner=_W),
     }
 )
 

@@ -51,7 +51,9 @@ export type Permission =
   | "credit.grant.write"
   | "broadcast.write"
   | "rail.control"
-  | "payment.notify";
+  | "payment.notify"
+  | "support.write"
+  | "support.group.write";
 
 const SUPPORT_UP: readonly AdminRole[] = ["support", "admin", "owner"];
 const OPERATOR_UP: readonly AdminRole[] = ["admin", "owner"];
@@ -64,6 +66,8 @@ export const RBAC_MATRIX: Readonly<Record<Permission, readonly AdminRole[]>> = {
   "broadcast.write": OPERATOR_UP,
   "rail.control": OPERATOR_UP,
   "payment.notify": SUPPORT_UP,
+  "support.write": SUPPORT_UP,
+  "support.group.write": OPERATOR_UP,
 };
 
 /**
@@ -135,6 +139,61 @@ export function canNotifyPayment(role: AdminRole | null): boolean {
   return hasPermission(role, "payment.notify");
 }
 
+/**
+ * Whether this role may MOVE a ticket, claim it, note on it or answer the customer.
+ *
+ * SUPPORT and above — **the only write cell in this table that starts at SUPPORT rather than at
+ * ADMIN**, and the asymmetry is the point rather than an oversight. A support operator's entire
+ * job is answering customers; withholding the reply would leave the role unable to do the thing
+ * it is named for and would push the work back into the Telegram support group, where a staffer
+ * is identified by chat membership alone and nothing writes an audit row at all. The server's
+ * `SUPPORT_WRITE` argues it at length and is the authority here.
+ *
+ * **There is no step-up half to mirror, on any of the four writes.** `permissions.py` keeps
+ * `SUPPORT_WRITE` out of `STEP_UP_ACTIONS` deliberately, and both support cells are therefore
+ * safe as router-level guards — which is the trap that has been sprung five times in this
+ * package: `require_permission` → `check_role` holds no subject and so answers
+ * `STEP_UP_REQUIRED` for ever, to a correctly re-authenticated OWNER included, while looking
+ * exactly correct.
+ *
+ * Reading the board is `support.read`, `M` at every role, and is deliberately NOT mirrored here:
+ * it hides nothing. This one hides the drag handles, the keyboard pick-up and every move
+ * control — a VIEWER who dragged a card would get a 403 and a `permission.denied` audit row
+ * against somebody who did nothing wrong, and would learn that the board is broken.
+ */
+export function canWriteSupport(role: AdminRole | null): boolean {
+  return hasPermission(role, "support.write");
+}
+
+/**
+ * Whether this role may REPOINT the support inbox — choose which Telegram group and topic every
+ * future ticket card is posted into, or stop posting altogether.
+ *
+ * **ADMIN and OWNER, and deliberately NOT the cell beside it.** This is the one place in the
+ * table where two permissions over one screen's worth of subject matter take different rows, so
+ * the reason is worth stating rather than inferring from the server: `support.write` is a
+ * support operator doing their job, one customer at a time, and every act of it is visible on a
+ * timeline the next operator reads. Repointing the inbox is configuration of the desk itself,
+ * done once and then not again for months, and getting it wrong publishes every future
+ * complaint into whatever room was chosen — including a private channel nobody on the team
+ * reads, which looks identical from this console until somebody notices the tickets stopped
+ * arriving. A support operator works the queue; they do not decide where the queue lands.
+ *
+ * **There is no step-up half.** `SUPPORT_GROUP_WRITE` is a plain `W` — `permissions.py` argues
+ * it, transcribing `broadcast.write`'s trade: the audit row plus the standing
+ * `selected_by_username`/`selected_at` on the chosen row carry the accountability, and the act
+ * is undone by selecting the previous group again.
+ *
+ * Reading which group is selected is `support.read`, `M` at every role and deliberately NOT
+ * mirrored here: it hides nothing, and "where do my tickets go?" is a question every operator
+ * must be able to answer without being able to change the answer. This constant hides the
+ * Select buttons, the paste field and the Clear control; a VIEWER who pressed one would get a
+ * 403 and a `permission.denied` audit row against somebody who did nothing wrong.
+ */
+export function canWriteSupportGroup(role: AdminRole | null): boolean {
+  return hasPermission(role, "support.group.write");
+}
+
 /** The signed-in role, or `null` while unknown. The one place a component reads it. */
 export function useRole(): AdminRole | null {
   return useAuthStore((state) => state.account?.role ?? null);
@@ -162,4 +221,12 @@ export function useCanControlRail(): boolean {
 
 export function useCanNotifyPayment(): boolean {
   return canNotifyPayment(useRole());
+}
+
+export function useCanWriteSupport(): boolean {
+  return canWriteSupport(useRole());
+}
+
+export function useCanWriteSupportGroup(): boolean {
+  return canWriteSupportGroup(useRole());
 }

@@ -699,6 +699,51 @@ class Settings(BaseSettings):
     #: handler renders different copy when it is empty and asks them to reply in the chat.
     support_contact: str = Field(default="")
 
+    # THE SUPPORT GROUP IS NOT A SETTING. ``support_group_chat_id`` and
+    # ``support_group_thread_id`` stood here until 2026-09-15 and were REMOVED — not renamed,
+    # not deprecated, not kept as a fallback. The Telegram group that receives ticket cards is
+    # now a row in ``bot_chats`` selected from the admin panel: SUPPORT_TICKETS_SPEC §3.8, and
+    # the 2026-09-15 amendment to D18. Repointing the staff inbox was a unit-file edit, a
+    # redeploy and a bot restart, which is why in practice it never moved.
+    #
+    # **Do not put either variable back, in any form — seed, pin, default or override.** The
+    # database row is the ONLY authority by design. A setting that seeded or overrode the
+    # selection would be a second source of truth needing a precedence rule, and the first
+    # question asked in every support incident — "which room is this actually posting into?" —
+    # would have two answers, one of them invisible to the panel screen that exists to show it.
+    # Both fields were added and deleted inside the same day and are deployed nowhere, so
+    # nothing here is a compatibility shim: there is no operator to warn and no value to carry.
+    #
+    # The two readers reach the selection through a port rather than through ``Settings``. The
+    # bot resolves it per update, because the group filter is now dynamic: a cached answer keeps
+    # claiming messages in a room an operator has just stopped using, and posts the next
+    # customer's complaint there. The worker reads it inside the job, after the transaction that
+    # chose it has committed. "No group selected" is the same state ``0`` used to mean — the
+    # ticket is still written, the customer is still answered, the board still fills, only the
+    # group post is skipped — and it remains the shipped default, because an empty table is what
+    # a fresh deployment has.
+    #
+    # :attr:`support_panel_base_url` below STAYS a setting. It is a display string pasted into a
+    # URL button, not the group, and nothing selects it.
+
+    #: Base URL of the admin panel, used for one thing: the ``🔗 Open in panel`` URL button on
+    #: the group card. Empty is the default and means the button is OMITTED ENTIRELY — not
+    #: rendered pointing at a relative path, not pointed at ``localhost``. Telegram validates a
+    #: URL button at send time, so a half-configured link is not a dead button but a 400 that
+    #: loses the whole card; and a button that opens nothing is the same broken promise
+    #: :attr:`support_contact` refuses to make.
+    #:
+    #: The bot and the worker never *call* the panel — they only paste this string into a
+    #: button — so this is a display value, not a service address, and no credential travels
+    #: with it.
+    support_panel_base_url: str = Field(
+        default="",
+        description=(
+            "Base URL of the admin panel for the ticket card's Open-in-panel button. "
+            "Empty omits the button rather than linking nowhere."
+        ),
+    )
+
     # -- languages ----------------------------------------------------------
     default_ui_language: Language = Field(default=Language.UZ_LATN)
     supported_languages: Annotated[tuple[Language, ...], NoDecode] = Field(

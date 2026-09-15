@@ -663,7 +663,13 @@ async def _send_closing(
         await bot.send_message(
             chat_id=chat_id,
             text="\n\n".join(lines),
-            reply_markup=post_delivery_keyboard(language),
+            # The order id travels in the ⚠️ button's payload. This is the one moment it and
+            # the button exist together: this function runs in the WORKER, the delivery job
+            # clears the customer's FSM immediately afterwards, and the tap may come a month
+            # later from several screens into a different wizard — so a ticket opened from
+            # this message can only know which song it is about if the id is packed into the
+            # callback data here. See ``keyboards.post_delivery_keyboard``.
+            reply_markup=post_delivery_keyboard(language, order_id=kit.order_id),
         )
     except TelegramAPIError as exc:
         return (_log_failure("closing", kit, exc, out=out),)

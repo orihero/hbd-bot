@@ -96,6 +96,10 @@ from bayram.admin.routers import (
     build_reveal_router,
     build_segment_fields_router,
     build_segments_router,
+    build_support_actions_router,
+    build_support_group_actions_router,
+    build_support_groups_router,
+    build_support_router,
     build_user_block_router,
     build_users_router,
     build_vendors_router,
@@ -514,6 +518,27 @@ def create_app(
     # line — and mounting only the read one would leave the campaign screen unable to act.
     application.include_router(build_broadcasts_router())
     application.include_router(build_broadcast_actions_router())
+    # ``support.py`` ships two routers, and the split is the ordinary read/write one rather
+    # than a ``W+S`` row: SUPPORT_READ is ``M`` at every role because the queue is what the
+    # panel exists to show, and SUPPORT_WRITE is the only write cell in the matrix that starts
+    # at SUPPORT — a support operator's whole job is answering customers. NEITHER carries a
+    # step-up, so both are safe as router guards and no handler in that module enforces
+    # authorisation; ``Permission.SUPPORT_WRITE`` argues why replying is counted as an ordinary
+    # write. The guard is per-router (§12.1 T3), so each needs its own line, and mounting only
+    # the read one would leave the queue readable and unworkable.
+    application.include_router(build_support_router())
+    application.include_router(build_support_actions_router())
+    # ``support_groups.py`` ships two more, and the split here is a THIRD permission rather
+    # than the read/write one above: reading which Telegram room the ticket cards go to is
+    # SUPPORT_READ — every role may answer "where do my tickets go?" — while repointing it is
+    # SUPPORT_GROUP_WRITE, ADMIN and OWNER only, because the wrong room publishes a customer's
+    # complaint to people who should not see it and nothing about that is visible from the
+    # board. Neither carries a step-up, so both are safe as router guards;
+    # ``Permission.SUPPORT_GROUP_WRITE`` argues the cell and why it is not ``SUPPORT_WRITE``.
+    # The guard is per-router (§12.1 T3), so each needs its own line, and mounting only the
+    # read one would leave an operator able to see a dead inbox and unable to move it.
+    application.include_router(build_support_groups_router())
+    application.include_router(build_support_group_actions_router())
     application.include_router(build_admins_router())
     # ``admins.py`` splits for the reason ``credits.py`` does: the roster is §6.8 line 949's
     # bare owner ``W`` and creating an operator is the ``W +S`` beneath it, so the two cannot

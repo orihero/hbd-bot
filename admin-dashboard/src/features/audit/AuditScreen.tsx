@@ -931,7 +931,7 @@ export function AuditScreen(): JSX.Element {
               selected={state.action}
               format={(action) => action}
               hint={t("audit.hints.action")}
-              /* Thirty-four toggles want the whole panel width rather than one grid cell. */
+              /* Forty-one toggles want the whole panel width rather than one grid cell. */
               className="sm:col-span-2 xl:col-span-3"
               onChange={(action) => {
                 patchFilters({ action });

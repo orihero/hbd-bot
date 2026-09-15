@@ -656,4 +656,65 @@ CATALOGUE: Final[dict[str, str]] = {
         "Include the order number from the closing message under your song — with it we "
         "can find the exact run and see what went wrong."
     ),
+    # -- support tickets (the ⚠️ button and /support, which are ONE flow) -------
+    # Eight keys, and they are the WHOLE customer-facing surface of the ticket system: the
+    # prompt and its re-prompt, the two answers a description can get, the refusal, the
+    # failure, the reply that comes back from a person and the answer to a follow-up.
+    # Everything a STAFFER reads — the triage card, its buttons,
+    # its status badges — is an English literal in ``bayram.bot.support_card`` and is
+    # deliberately not here: ``translate`` falls back across all four locales and the
+    # catalogues are held in exact key parity, so one staff-facing string in this file would
+    # oblige four translations of an internal message, for ever.
+    #
+    # ``{ref}`` is the ticket's public reference — eight characters of its own id, the same
+    # shape as the order reference in the closing message (``bayram.support.public_ref_for``).
+    # It is rendered inside ``<code>`` in every one of these, because its whole job is to be
+    # read back to us: ``<code>`` is what makes a phone tap copy it rather than select a
+    # word of the sentence around it.
+    "support.ticket.prompt": (
+        "✍️ Tell me what went wrong — reply to this message and describe it in your own "
+        "words.\n\n"
+        "Write as much as you need to: a person reads every one of these."
+    ),
+    "support.ticket.filed": (
+        "✅ Got it. Your ticket is <code>{ref}</code>, and a person will look at it.\n\n"
+        "Keep that number — quote it if you write again about the same thing. The answer "
+        "comes back here, in this chat."
+    ),
+    "support.ticket.already_filed": (
+        "📬 I already have that one — ticket <code>{ref}</code>. There is no need to send it "
+        "again, and the answer comes back here."
+    ),
+    # The re-prompt, NOT a refusal. A customer who taps ⚠️ again while still holding a ticket
+    # they have not described gets the ticket they already have — the specification's own rule
+    # (§1.4) — because a refusal there once locked a blocked account out of support entirely:
+    # it could open tickets it was never allowed to describe, and ran out of allowance.
+    "support.ticket.still_open": (
+        "✍️ You already have ticket <code>{ref}</code> open and I am still waiting to hear "
+        "what went wrong.\n\n"
+        "Reply to this message and describe it in your own words."
+    ),
+    # The DAILY ceiling, and the only real refusal here. It names the limit rather than the
+    # count, because a refusal that says "you have three" invites a fourth attempt.
+    "support.ticket.too_many": (
+        "⏳ That is as many tickets as I can open for one account in a day.\n\n"
+        "Wait for an answer to the ones you have already sent, then tell me about the next "
+        "thing tomorrow."
+    ),
+    "support.ticket.unavailable": (
+        "⚠️ I could not open a ticket just now. Please try again in a moment — and if it "
+        "keeps failing, send /support and describe it here in this chat."
+    ),
+    "support.ticket.reply": (
+        "✉️ <b>Support</b> · ticket <code>{ref}</code>\n\n"
+        "<blockquote>{body}</blockquote>\n\n"
+        "Reply here if there is more to say."
+    ),
+    # The answer to that invitation, and the reason it is no longer a lie. A follow-up joins
+    # the ticket the customer already has; it never mints a second reference, because one
+    # conversation split across two work items is two people each holding half the story.
+    "support.ticket.follow_up": (
+        "📨 Added to ticket <code>{ref}</code>. The people working on it can see it, and the "
+        "answer comes back here."
+    ),
 }

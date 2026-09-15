@@ -188,6 +188,10 @@ export const SUBJECT_TYPE_LABELS: Readonly<Record<AuditSubjectType, string>> = {
   wizard_draft: "wizard draft",
   system: "system",
   payment: "payment",
+  ticket: "ticket",
+  /* Two words, because "bot chat" is what it is and "chat" is already taken by a customer's
+     private conversation with the bot. The underscore is an identifier, not a name. */
+  bot_chat: "bot chat",
 };
 
 /**
@@ -204,13 +208,13 @@ export function subjectTypeLabel(subjectType: string): string {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Actions, grouped so that thirty-four of them can be chosen from             */
+/* Actions, grouped so that all of them can be chosen from                     */
 /* -------------------------------------------------------------------------- */
 
 /**
  * The families a picker groups the actions into.
  *
- * Thirty-four toggles in one undifferentiated wrap is a control nobody scans; grouped by the
+ * Forty-odd toggles in one undifferentiated wrap is a control nobody scans; grouped by the
  * question an operator is actually asking — "who read personal data", "what happened to
  * orders", "who touched an operator account" — they are findable. The families are ours, not
  * the server's: there is no grouping in `AuditAction` and this module invents no wire value.
@@ -220,6 +224,7 @@ export type AuditActionFamily =
   | "disclosure"
   | "orders"
   | "customers"
+  | "support"
   | "moderation"
   | "config"
   | "retention"
@@ -232,6 +237,13 @@ export const AUDIT_ACTION_FAMILY_LABELS: Readonly<Record<AuditActionFamily, stri
   disclosure: "Disclosure",
   orders: "Orders",
   customers: "Customers",
+  /* "Support", not "Support tickets", since 2026-09-15: the family now also holds the two
+     actions that repoint the inbox, whose subject is a Telegram GROUP and not a complaint. A
+     second family for a group of two was declined on the threshold `rail.paused` set — and
+     these two belong beside the ticket actions anyway, because the investigation that reaches
+     for `support.group.clear` is the one that started with "why has nobody in the group seen a
+     ticket since Tuesday". */
+  support: "Support",
   moderation: "Moderation",
   config: "Configuration",
   retention: "Retention",
@@ -282,6 +294,28 @@ export const AUDIT_ACTION_FAMILY: Readonly<Record<AuditAction, AuditActionFamily
      customer today. It is not a `config` action — nothing about the deployment changed. */
   "payment.notify": "customers",
 
+  /* A tenth family, and the threshold the `rail.paused` note below sets is met rather than
+     ignored: it declined one "for a group of two", and this is a group of four that answers a
+     question none of the nine existing families does. "What did we tell the people who
+     complained, and when" is not "what did we do to a customer today" — the ticket a reply
+     belongs to is the subject, an audit filter on `ticket` is how one complaint's whole
+     history is read back, and folding four support actions into `customers` would bury them
+     among eleven toggles about blocks, purges and credit. `ticket.note` would sit worst of
+     all there: it is the one action in this taxonomy that reaches nobody. */
+  "ticket.status": "support",
+  "ticket.note": "support",
+  "ticket.reply": "support",
+  "ticket.assign": "support",
+  /* Choosing WHERE the cards are posted, filed with what is done to the cards. It is
+     configuration, and the `rail.paused` precedent would have put it under `config` — that was
+     considered and declined: the rail switch changes what the BUSINESS does (it stops selling),
+     while this changes only where one queue's notifications land, and the person filtering for
+     it is a support lead reading the support family, not somebody auditing deployment state.
+     The deciding case is the incident where tickets are in the panel and nothing has reached
+     the group: every row that explains it should be under one heading. */
+  "support.group.select": "support",
+  "support.group.clear": "support",
+
   "moderation.approve": "moderation",
   "moderation.reject": "moderation",
 
@@ -313,6 +347,9 @@ const FAMILY_ORDER: readonly AuditActionFamily[] = [
   "disclosure",
   "access",
   "customers",
+  /* Straight after `customers`: a ticket investigation almost always starts from the person,
+     and the two groups are read one after the other. */
+  "support",
   "orders",
   "moderation",
   "config",
@@ -330,7 +367,8 @@ export interface AuditActionGroup {
 
 /**
  * The picker's groups, derived from the placement above rather than written a second time —
- * two lists of thirty-four values drift, and the drift is a filter that silently disappears.
+ * two hand-written lists over one enum drift, and the drift is a filter that silently
+ * disappears.
  */
 export const AUDIT_ACTION_GROUPS: readonly AuditActionGroup[] = FAMILY_ORDER.map((family) => ({
   family,

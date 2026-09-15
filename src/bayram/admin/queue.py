@@ -54,6 +54,9 @@ __all__ = [
     "SEND_JOB_NAME",
     "TEST_SEND_JOB_NAME",
     "PAYMENT_NOTIFY_JOB_NAME",
+    "SUPPORT_CARD_JOB_NAME",
+    "SUPPORT_RELAY_JOB_NAME",
+    "VERIFY_GROUP_JOB_NAME",
     "AdminQueue",
     "ArqAdminQueue",
     "NullAdminQueue",
@@ -62,6 +65,9 @@ __all__ = [
     "job_id_for_send",
     "job_id_for_test_send",
     "job_id_for_payment_notification",
+    "job_id_for_support_card",
+    "job_id_for_support_relay",
+    "job_id_for_support_group_verification",
 ]
 
 _LOGGER: Final = get_logger(__name__)
@@ -88,9 +94,51 @@ TEST_SEND_JOB_NAME: Final[str] = "send_broadcast_test"
 #: would leave customers unannounced with the money already banked.
 PAYMENT_NOTIFY_JOB_NAME: Final[str] = "notify_payment_settled"
 
+#: The fifth and sixth, restated for the fourth and fifth time, and for the hardest version of
+#: the reason again: ``bayram.runtime.support_jobs`` holds an ``aiogram.Bot`` because editing a
+#: message in the support group and sending one to a customer's private chat are the whole of
+#: what those two coroutines do. An import of it here would put the Telegram client in the
+#: admin process's import graph — D10 — and
+#: ``test_the_seam_can_reach_nothing_that_sends_a_message`` fails on it by reading this file's
+#: ``import`` statements.
+#:
+#: **They are Python identifiers and not the ``support:card_sync`` / ``support:relay`` of the
+#: spec's prose.** ARQ dispatches by the registered function's ``__name__``, and every worker
+#: module in this repo closes with ``assert fn.__name__ == JOB_NAME`` for exactly that reason
+#: (``broadcast_job``, ``payme_jobs``, ``activity_job``). A colon cannot be a function name, so
+#: a literal ``"support:relay"`` would be a string the worker could never answer to: the panel
+#: would report success, the job id would be real, and the customer's reply would sit in Redis
+#: until it expired. The colon lives in the JOB ID instead, where it is a namespace and not a
+#: dispatch key — see :func:`job_id_for_support_relay`.
+SUPPORT_CARD_JOB_NAME: Final[str] = "sync_support_card"
+SUPPORT_RELAY_JOB_NAME: Final[str] = "relay_support_reply"
+
+#: The seventh, restated for the sixth time, and it is the one where the restatement earns its
+#: keep most obviously: this job's whole purpose is to talk to Telegram — ``getChat``, then a
+#: message into the room — so the module that holds it holds an ``aiogram.Bot`` by construction,
+#: and importing it here to borrow one string would put the Telegram client in the import graph
+#: of a process D10 forbids a bot token to. ``test_the_seam_can_reach_nothing_that_sends_a_message``
+#: reads this file's ``import`` statements and fails on exactly that.
+#:
+#: **A Python identifier, not the ``support:verify_group`` of ``SUPPORT_TICKETS_SPEC §3.8``'s
+#: prose**, for the reason stated above :data:`SUPPORT_CARD_JOB_NAME`: ARQ dispatches by the
+#: registered coroutine's ``__name__`` and a colon cannot be a function name. A literal
+#: ``"support:verify_group"`` would be accepted by Redis, reported to the panel as a real job
+#: id, and answered by nobody — and this is the job whose silence is worst, because an
+#: unverified selection looks identical to a verified one until a customer's complaint fails to
+#: arrive. The colon lives in the job id; see :func:`job_id_for_support_group_verification`.
+VERIFY_GROUP_JOB_NAME: Final[str] = "verify_support_group"
+
 #: Every job id this seam mints starts here, so one ``SCAN`` shows an operator every broadcast
 #: job in flight without knowing which of the three it is looking for.
 _JOB_ID_PREFIX: Final[str] = "broadcast"
+
+#: The same idea one domain along: ``SCAN support:*`` is every ticket job in flight. A second
+#: prefix rather than one shared namespace because the two families are operated by different
+#: people under different pressure — a stuck campaign is an incident and a stuck card sync is
+#: a card that reads one status behind — and an operator hunting one must not have to page
+#: through the other.
+_SUPPORT_JOB_ID_PREFIX: Final[str] = "support"
 
 
 def job_id_for_expand(broadcast_id: UUID) -> str:
@@ -148,8 +196,75 @@ def job_id_for_payment_notification(public_ref: str) -> str:
     return f"{PAYMENT_NOTIFY_JOB_NAME}:{public_ref}"
 
 
+def job_id_for_support_card(ticket_id: UUID) -> str:
+    """Unique per call, and determinism here would be a card that lies.
+
+    This is :func:`job_id_for_test_send`'s case rather than :func:`job_id_for_send`'s, and the
+    difference is worth stating because the ticket id is right there and a deterministic id
+    looks tidier. ``keep_result`` is 3600 seconds and ARQ refuses an id whose result is still
+    in Redis — so an operator who claims a ticket and resolves it twenty minutes later would
+    get ONE card sync, and the group card would sit at ``🆕 New`` for the rest of the hour
+    while the board said ``resolved``. The card is the copy staff actually work from, so a
+    stale one is worse than a duplicate edit: editing a message to the text it already has is
+    a no-op Telegram absorbs, and there is nothing else for a second sync to get wrong.
+
+    The id is still MINTED here rather than left to ARQ, so the failure path can name the job
+    it lost — the reason :func:`job_id_for_test_send` gives.
+    """
+    return f"{_SUPPORT_JOB_ID_PREFIX}:card:{ticket_id}:{uuid4().hex}"
+
+
+def job_id_for_support_relay(event_id: UUID) -> str:
+    """Deterministic, and keyed on the EVENT rather than on the ticket. Both halves matter.
+
+    Deterministic because one composed reply must reach the customer exactly once: a
+    double-clicked Send, or a retried request, collapses onto the job already queued instead
+    of putting the same paragraph in somebody's phone twice. That is
+    :func:`job_id_for_payment_notification`'s reading of ARQ's duplicate refusal, in the one
+    other place where the thing being deduplicated is a message to a person.
+
+    Keyed on ``support_ticket_events.id`` and never on ``support_tickets.id``, because a
+    ticket is a conversation and gets many replies — a ticket-keyed id would refuse the second
+    answer to the same customer for as long as the first job's result lived, which is the
+    exact hour an operator is most likely to send a correction. The event row is written in
+    the request's own transaction before the enqueue, so its id exists and is stable; the
+    worker stamps ``relayed_at`` on that same row when the message actually lands, which is
+    what makes "composed but never delivered" visible on the timeline instead of assumed away.
+
+    An event id is a UUID this system minted and carries no customer identifier, so this key
+    puts nothing into a Redis key name or a worker log line —
+    :func:`job_id_for_payment_notification`'s constraint, honoured the same way.
+    """
+    return f"{_SUPPORT_JOB_ID_PREFIX}:relay:{event_id}"
+
+
+def job_id_for_support_group_verification(chat_id: int) -> str:
+    """Unique per call, and a deterministic id here would make the feature unusable.
+
+    :func:`job_id_for_support_card`'s case rather than :func:`job_id_for_support_relay`'s, and
+    the reasoning is sharper: ``keep_result`` is 3600 seconds and ARQ refuses an id whose result
+    is still in Redis, so a chat-keyed id would refuse every re-check of the SAME chat for an
+    hour. That hour is exactly the loop this feature exists to support — an operator selects a
+    group, is told the bot cannot post there, adds the bot or grants it permission, and presses
+    Select again. Under a deterministic id the second press would be accepted, enqueue nothing,
+    and leave the row showing the failure the operator has just fixed until the result expired.
+
+    Nothing is lost by allowing duplicates. The job is idempotent by construction: it asks
+    Telegram what is true now and overwrites ``verified_at`` or ``verification_error`` with the
+    answer, so two runs a second apart write the same row twice. That is the same reading
+    :func:`job_id_for_support_card` gives its own duplicates — a repeated no-op beats a stale
+    truth.
+
+    The id is still minted here rather than left to ARQ so a failed enqueue can name the job it
+    lost, and a chat id is a negative integer Telegram issued about a ROOM: unlike a customer's
+    Telegram id it identifies no person, so putting it in a Redis key name and a worker log line
+    breaks no rule :func:`job_id_for_payment_notification` set.
+    """
+    return f"{_SUPPORT_JOB_ID_PREFIX}:verify:{chat_id}:{uuid4().hex}"
+
+
 class AdminQueue(Protocol):
-    """The four things the panel may ask the worker to do, and no fifth.
+    """The seven things the panel may ask the worker to do, and no eighth.
 
     A protocol rather than a concrete client so a test never needs a Redis, and so the
     surface stays a list somebody has to extend on purpose. Every method returns a
@@ -177,6 +292,41 @@ class AdminQueue(Protocol):
     ``tests/test_admin`` run with no Redis and no worker — ``NullAdminQueue`` records the call
     that was not made, and a router test asserts on its ARGUMENTS — and it would put a second
     ARQ client in a process that already documents why it holds exactly one.
+
+    **The fifth and sixth widen it again, and the paragraph above is the standard they had to
+    meet.** :meth:`enqueue_support_card_sync` and :meth:`enqueue_support_reply` are the whole
+    of what a panel-side ticket action can ask for, and both exist because the admin process
+    is structurally forbidden from talking to Telegram (``ADMIN_PANEL_PLAN D10 / §4.2``) while
+    a ticket lives in two places at once: a row this process owns, and a card in a support
+    group only the worker can edit. An operator who moves a ticket on the board and leaves the
+    group card reading ``🆕 New`` has not moved it as far as the staffer working from the card
+    is concerned, and there is no third process that could reconcile them.
+
+    **There is deliberately no ``enqueue_support_note``.** A note is an internal line on an
+    append-only timeline: nothing leaves the building, the card's rendered state does not
+    change, and a job to tell the worker about it would be a Redis write, a deploy-replayed
+    coroutine and an edit to a Telegram message whose text is identical. The rule this follows
+    is :meth:`enqueue_send`'s sibling — "there is no ``enqueue_cancel``" — and it is the same
+    rule: the seam carries work the worker must do, never news it might like.
+
+    **The seventh widens it once more, and it meets the standard the fourth set more squarely
+    than any of them.** :meth:`enqueue_support_group_verification` exists because
+    ``POST /support/groups/select`` accepts a chat id **an operator typed** — Telegram has no
+    "list my groups" API, so a group the bot was already in when the feature shipped can never
+    be discovered and a pasted number is the only route to it (``SUPPORT_TICKETS_SPEC §3.8``).
+    A pasted id is an unverified CLAIM: a typo, a room the bot was thrown out of, a channel it
+    cannot write in, or a group that has since migrated to a new id. The panel cannot check any
+    of that, because checking means asking Telegram and this process is structurally forbidden
+    to (``ADMIN_PANEL_PLAN D10 / §4.2``). So the remedy has to live where the finding does, for
+    the reason ``enqueue_payment_notification`` was admitted: a screen that reports a selection
+    it has no way to validate, with the validation living in a different tool over SSH, is a
+    screen that lies by omission for as long as nobody runs the other tool.
+
+    **There is deliberately no ``enqueue_support_group_unverification`` beside it**, and the
+    clear route enqueues nothing at all. Clearing asks the worker for no work: nothing has to be
+    posted, checked or edited, the rows it would examine are the ones this request has already
+    written, and a job that told the worker "there is now no support group" would be news rather
+    than work — :meth:`enqueue_send`'s "there is no ``enqueue_cancel``" rule, a third time.
     """
 
     async def enqueue_expand(self, broadcast_id: UUID, *, now: datetime) -> Result[str]:
@@ -225,6 +375,62 @@ class AdminQueue(Protocol):
         """
         ...
 
+    async def enqueue_support_card_sync(self, ticket_id: UUID) -> Result[str]:
+        """Re-render ONE ticket's card in the support group from the row as it now stands.
+
+        Takes the ticket and nothing else — no status, no assignee, no rendered text. The
+        worker re-reads the row, which is what makes this job safe to replay and safe to lose:
+        ARQ runs ``retry_jobs=True`` and SIGTERM cancels running jobs, so every job in this
+        system is replayed on every deploy, and a job carrying the state it was enqueued WITH
+        would repaint the card with an hour-old status the moment it ran late. The row is the
+        truth; this is a nudge to go and look at it.
+
+        It is therefore also fire-and-forget in the strong sense: a ticket whose card sync was
+        lost is a ticket whose card is stale, never one whose move did not happen. The move and
+        its audit row are already committed by the time this is called.
+        """
+        ...
+
+    async def enqueue_support_reply(self, ticket_id: UUID, *, event_id: UUID) -> Result[str]:
+        """Deliver an operator's reply to the customer's private chat.
+
+        Both ids travel. ``event_id`` is the authority — it names the
+        ``support_ticket_events`` row holding the exact text to send and the row the worker
+        stamps ``relayed_at`` on, and it is what the deterministic job id is built from, so a
+        double-clicked Send cannot put the same paragraph in somebody's phone twice.
+        ``ticket_id`` rides along because the worker needs the ticket to know WHO and in WHICH
+        LANGUAGE: ``support_tickets.language`` is the locale the ticket was opened in, and
+        answering in the account's language today would send the one message where being
+        understood is the entire point in a language the customer may no longer read.
+
+        Passing the two ids rather than the text is the same decision
+        :meth:`enqueue_support_card_sync` makes, for the same replay reason — and one more:
+        the reply is a customer's words' answer, and a payload carrying it would put the
+        conversation into Redis, where nothing sweeps it.
+        """
+        ...
+
+    async def enqueue_support_group_verification(self, chat_id: int) -> Result[str]:
+        """Find out whether the bot can really post in the chat just selected, and record it.
+
+        Takes the chat and nothing else. The worker re-reads the row for the ``thread_id`` to
+        post into and the ``source`` that says whether it is checking Telegram's word or an
+        operator's paste — :meth:`enqueue_support_card_sync`'s "the row is the truth; this is a
+        nudge to go and look at it", which is what makes the job safe to replay after a deploy.
+
+        **It is enqueued after the selection is COMMITTED, never before**, and this job feels
+        the race more sharply than the two above it: it opens its own session, reads the chat by
+        id, and a job that overtook the request's commit would find no such row — then either
+        create nothing and report success against a selection nobody can see, or write a
+        verification verdict about a chat that does not exist yet. ``routers/support_groups.py``
+        commits and then enqueues for exactly this.
+
+        **Selecting enqueues; clearing does not.** There is nothing to verify about a chat
+        nobody is posting to, and a verdict recorded against a chat an operator has just
+        unselected is a red badge on a row that no longer claims anything.
+        """
+        ...
+
     async def aclose(self) -> None:
         """Release whatever the implementation holds. Called once, by the container."""
         ...
@@ -270,6 +476,47 @@ class ArqAdminQueue:
             PAYMENT_NOTIFY_JOB_NAME,
             public_ref,
             job_id=job_id_for_payment_notification(public_ref),
+        )
+
+    async def enqueue_support_card_sync(self, ticket_id: UUID) -> Result[str]:
+        return await self._enqueue(
+            SUPPORT_CARD_JOB_NAME,
+            str(ticket_id),
+            job_id=job_id_for_support_card(ticket_id),
+        )
+
+    async def enqueue_support_reply(self, ticket_id: UUID, *, event_id: UUID) -> Result[str]:
+        """A duplicate is read as success here, unlike :meth:`enqueue_payment_notification`.
+
+        Both deduplicate a message to one person on a deterministic id, so the divergence is
+        stated rather than left to look like an oversight. The payment route reports the
+        duplicate as ``isReplay`` because the operator pressed "re-send the confirmation" and
+        the interesting answer is which of the two happened. Here the operator pressed Send on
+        a reply they just composed, and "that reply is already on its way" is what they asked
+        for — surfacing it as a distinct outcome would put a question in front of somebody who
+        has none.
+        """
+        return await self._enqueue(
+            SUPPORT_RELAY_JOB_NAME,
+            str(ticket_id),
+            str(event_id),
+            job_id=job_id_for_support_relay(event_id),
+        )
+
+    async def enqueue_support_group_verification(self, chat_id: int) -> Result[str]:
+        """The chat id travels as a STRING, like every other argument this seam sends.
+
+        ARQ pickles its payloads, so an ``int`` would survive the round trip intact — and it is
+        sent as text anyway, because every job in this file takes its subject as a string
+        (``str(broadcast_id)``, ``public_ref``, ``str(ticket_id)``) and one job that did not
+        would be one worker signature that has to remember which. A chat id is a 64-bit integer
+        the worker parses back; ``_job_uuid``'s sibling on that side is where a malformed one is
+        refused, and a job whose subject cannot be parsed is terminal rather than retried.
+        """
+        return await self._enqueue(
+            VERIFY_GROUP_JOB_NAME,
+            str(chat_id),
+            job_id=job_id_for_support_group_verification(chat_id),
         )
 
     async def aclose(self) -> None:
@@ -327,11 +574,14 @@ class ArqAdminQueue:
 class RecordedEnqueue:
     """One call :class:`NullAdminQueue` did not make, kept so a test can assert on it.
 
-    **Two nullable subject fields rather than one ``subject: str``.** The four jobs are about
-    two different kinds of thing — three campaigns and one payment — and a single stringly
-    subject would let a test that meant to assert on a campaign id pass on a public reference
-    that happened to be equal. Exactly one of the two is set on any row, and which one says
-    which job family the call belongs to without parsing :attr:`job`.
+    **Four nullable subject fields rather than one ``subject: str``.** The seven jobs are about
+    four different kinds of thing — three campaigns, one payment, two tickets and one chat — and
+    a single stringly subject would let a test that meant to assert on a campaign id pass on a
+    public reference, a ticket id or a chat id that happened to be equal. Exactly one of the
+    four is set on any row, and which one says which job family the call belongs to without
+    parsing :attr:`job`. A new field is the right shape for a NEW family and a wrong one for a
+    variant of an existing family; see :attr:`ticket_id`, which serves two jobs, and
+    :attr:`chat_id`, which was added under that rule rather than around it.
     """
 
     job: str
@@ -343,6 +593,19 @@ class RecordedEnqueue:
     #: Never an idempotency key and never a Telegram id — see
     #: :func:`job_id_for_payment_notification`.
     public_ref: str | None = None
+    #: The ticket, for the card sync and the reply. ONE field for both jobs rather than one
+    #: each, because both are about the same subject and :attr:`job` already distinguishes
+    #: them; the reply's event id is not lifted out beside it for the same reason — it is in
+    #: :attr:`arguments`, where a test that cares reads it, and hoisting every argument of
+    #: every job onto this dataclass is how a recorder becomes a second copy of the payload.
+    ticket_id: UUID | None = None
+    #: The Telegram chat, for a support-group verification. An ``int`` and never a ``str``,
+    #: unlike the value that goes on the wire: a test asserting ``call.chat_id == -1001`` is
+    #: asserting about the chat the handler resolved, and comparing the stringified form would
+    #: pass on ``"-1001"`` from a caller that had built the argument by hand. The 64-bit width
+    #: is the reason this is worth saying — a chat id truncated to 32 bits is a different chat
+    #: and an equal-looking prefix.
+    chat_id: int | None = None
 
 
 class NullAdminQueue:
@@ -418,8 +681,94 @@ class NullAdminQueue:
             )
         return ok(entry.job_id)
 
+    async def enqueue_support_card_sync(self, ticket_id: UUID) -> Result[str]:
+        return self._record_ticket(
+            SUPPORT_CARD_JOB_NAME,
+            ticket_id,
+            job_id_for_support_card(ticket_id),
+            (str(ticket_id),),
+        )
+
+    async def enqueue_support_reply(self, ticket_id: UUID, *, event_id: UUID) -> Result[str]:
+        return self._record_ticket(
+            SUPPORT_RELAY_JOB_NAME,
+            ticket_id,
+            job_id_for_support_relay(event_id),
+            (str(ticket_id), str(event_id)),
+        )
+
+    async def enqueue_support_group_verification(self, chat_id: int) -> Result[str]:
+        return self._record_chat(
+            VERIFY_GROUP_JOB_NAME,
+            chat_id,
+            job_id_for_support_group_verification(chat_id),
+            (str(chat_id),),
+        )
+
     async def aclose(self) -> None:
         """Nothing is held, so nothing is released. Present because the protocol has it."""
+
+    def _record_chat(
+        self, job: str, chat_id: int, job_id: str, arguments: tuple[object, ...]
+    ) -> Result[str]:
+        """:meth:`_record_ticket` one family along, filing the subject under :attr:`chat_id`.
+
+        A third method rather than a ``subject_field`` parameter, for the reason the second one
+        gives: the whole argument for typed subject fields is that a test asserting on a
+        campaign cannot accidentally pass on a chat, and threading the field name through as a
+        string hands that distinction back to whoever typed it.
+
+        **What a refusing deployment leaves here is the worst of the three and is worth stating
+        plainly.** A refused card sync leaves a card one status behind; a refused relay leaves a
+        visible ``relayedAt`` null. A refused verification leaves a SELECTION THAT NOTHING HAS
+        CHECKED — ``verified_at`` null and ``verification_error`` null, which is indistinguishable
+        from "the job is still queued". The operator is told, because the handler ``unwrap``s
+        this into a 503 over a committed selection; the panel's job is to render "never checked"
+        as its own state rather than as an absence, and that is argued on
+        :class:`~bayram.db.admin.views.BotChatListItem`. The selection itself is not lost: it and
+        its audit row are committed before this is called.
+        """
+        self.calls.append(
+            RecordedEnqueue(job=job, chat_id=chat_id, job_id=job_id, arguments=arguments)
+        )
+        if self._refusing:
+            return err(
+                StorageError(
+                    "this deployment has no ARQ worker, so the chat cannot be verified",
+                    context={"job": job, "chat_id": chat_id},
+                )
+            )
+        return ok(job_id)
+
+    def _record_ticket(
+        self, job: str, ticket_id: UUID, job_id: str, arguments: tuple[object, ...]
+    ) -> Result[str]:
+        """:meth:`_record` for the two ticket jobs, filing the subject under the right field.
+
+        A second method rather than a ``subject_field`` parameter on :meth:`_record`: the
+        whole argument for three typed subject fields on :class:`RecordedEnqueue` is that a
+        test asserting on a campaign cannot accidentally pass on a ticket, and threading the
+        field name through as a string would hand that distinction back to whoever typed it.
+
+        **A refusing deployment refuses these two exactly as it refuses the others, and the
+        consequence differs.** A refused expansion is a campaign that will not go out; a
+        refused card sync is a card that reads one status behind a board that is already
+        correct, and a refused relay is a reply the customer never receives with the timeline
+        showing ``relayed_at`` empty — which is precisely the "composed but never delivered"
+        state ``SupportTicketEventItem`` publishes that clock to make visible. Neither loses
+        the operator's work: the row and its audit entry are committed before this is called.
+        """
+        self.calls.append(
+            RecordedEnqueue(job=job, ticket_id=ticket_id, job_id=job_id, arguments=arguments)
+        )
+        if self._refusing:
+            return err(
+                StorageError(
+                    "this deployment has no ARQ worker, so the ticket job cannot be queued",
+                    context={"job": job, "ticket_id": str(ticket_id)},
+                )
+            )
+        return ok(job_id)
 
     def _record(
         self, job: str, broadcast_id: UUID, job_id: str, arguments: tuple[object, ...]

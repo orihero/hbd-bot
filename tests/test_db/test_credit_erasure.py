@@ -20,10 +20,12 @@ importantly, the three things that shape breaks if nobody looks.
 
 from __future__ import annotations
 
+from dataclasses import fields
 from datetime import datetime, timedelta
 from typing import Final
 from uuid import UUID, uuid4
 
+import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -34,10 +36,13 @@ from bayram.contracts import (
     BroadcastState,
     Language,
     OrderState,
+    SupportAuthorKind,
+    SupportTicketEventKind,
+    SupportTicketSource,
     is_ok,
 )
 from bayram.db.churn import SqlBotBlocks
-from bayram.db.credit_erasure import forget_account
+from bayram.db.credit_erasure import CreditErasure, forget_account
 from bayram.db.credit_sql import stale_debits, verify_balances
 from bayram.db.credits import SqlCreditLedger
 from bayram.db.enums import IntentProduct, PaymentIntentState, TopupKind
@@ -46,6 +51,8 @@ from bayram.db.models import (
     BroadcastRow,
     CreditAccountRow,
     CreditLedgerRow,
+    SupportTicketEventRow,
+    SupportTicketRow,
 )
 from bayram.db.models.bot_membership_event import BotMembershipEventRow
 from bayram.db.models.payment_intent import PaymentIntentRow
@@ -760,3 +767,209 @@ async def test_an_anonymised_delivery_row_does_not_block_a_later_expansion(
             sa.select(sa.func.count()).select_from(BroadcastRecipientRow)
         )
     assert remaining == 3
+
+
+# ---------------------------------------------------------------------------------------
+# The support tables: the one arm that DELETES, and the one whose cascade cannot be trusted
+# ---------------------------------------------------------------------------------------
+
+
+def _ticket(telegram_user_id: int, *, body: str | None = None) -> SupportTicketRow:
+    """A described ticket by default, because an undescribed one has nothing to leak.
+
+    The opposite default to ``tests/test_db/test_support_tickets.py``'s factory, and
+    deliberately so: that file is about the schema, where the tapped-and-never-typed row is
+    the ordinary case worth keeping easy to build. This file is about erasure, and the row
+    that matters here is the one carrying a sentence the customer wrote.
+    """
+    return SupportTicketRow(
+        public_ref=uuid4().hex[:8],
+        telegram_user_id=telegram_user_id,
+        language=Language.UZ_LATN,
+        source=SupportTicketSource.DELIVERY_BUTTON,
+        body=body,
+    )
+
+
+async def test_forget_deletes_the_tickets_and_their_timeline_outright(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """THE ONE ARM THAT DESTROYS, asserted as destruction rather than anonymisation.
+
+    Every other table this function reaches keeps its rows and loses the id, because an
+    aggregate has to survive the person. Nothing counts support tickets, and the body is the
+    person in their own words — so a nulled id here would leave the sentence, and the
+    sentence names them. Both rows go, and the other customer's ticket is untouched.
+    """
+    # Arrange — a described ticket with a timeline, and a second customer alongside it.
+    mine = _ticket(_USER, body="he said the name wrong, it is Dilnora not Dilnoza")
+    theirs = _ticket(_OTHER_USER, body="the song never arrived")
+    async with sessions.begin() as session:
+        session.add(mine)
+        session.add(theirs)
+    async with sessions.begin() as session:
+        session.add(
+            SupportTicketEventRow(
+                ticket_id=mine.id,
+                kind=SupportTicketEventKind.OPENED,
+                author_kind=SupportAuthorKind.CUSTOMER,
+                author_telegram_user_id=_USER,
+                created_at=clock.now,
+            )
+        )
+        session.add(
+            SupportTicketEventRow(
+                ticket_id=mine.id,
+                kind=SupportTicketEventKind.DESCRIBED,
+                author_kind=SupportAuthorKind.CUSTOMER,
+                author_telegram_user_id=_USER,
+                body="he said the name wrong, it is Dilnora not Dilnoza",
+                created_at=clock.now + timedelta(minutes=1),
+            )
+        )
+        session.add(
+            SupportTicketEventRow(
+                ticket_id=theirs.id,
+                kind=SupportTicketEventKind.OPENED,
+                author_kind=SupportAuthorKind.CUSTOMER,
+                author_telegram_user_id=_OTHER_USER,
+                created_at=clock.now,
+            )
+        )
+
+    # Act
+    async with sessions.begin() as session:
+        erasure = await forget_account(session, telegram_user_id=_USER)
+
+    # Assert — the counts say deleted, and the rows agree.
+    assert erasure.tickets_deleted == 1
+    assert erasure.ticket_events_deleted == 2
+    async with sessions() as session:
+        tickets = list(await session.scalars(sa.select(SupportTicketRow)))
+        events = list(await session.scalars(sa.select(SupportTicketEventRow)))
+    assert [row.telegram_user_id for row in tickets] == [_OTHER_USER]
+    assert [row.author_telegram_user_id for row in events] == [_OTHER_USER]
+
+
+async def test_the_timeline_is_deleted_without_the_cascade_being_asked_to_help(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """THE REGRESSION THIS FILE EXISTS TO CATCH, and the one no other test can see.
+
+    ``support_ticket_events.ticket_id`` carries ``ON DELETE CASCADE``, so on Postgres a
+    parent-only delete would clean the timeline up. Nothing in this suite issues
+    ``PRAGMA foreign_keys = ON``, so under SQLite it would not — the events would be
+    orphaned, still carrying ``author_telegram_user_id``, with no parent left to find them
+    by — and a test that only checked ``support_tickets`` would pass either way.
+
+    This asserts the child count on the engine where the cascade is INERT, which is what
+    makes it evidence that the explicit statement ran rather than evidence about the
+    database's own behaviour. Deleting the child statement, or reordering it after the
+    parent so its subquery matches nothing, turns this red.
+    """
+    # Arrange — one ticket, three events.
+    ticket = _ticket(_USER, body="please fix the pronunciation")
+    async with sessions.begin() as session:
+        session.add(ticket)
+    async with sessions.begin() as session:
+        for index in range(3):
+            session.add(
+                SupportTicketEventRow(
+                    ticket_id=ticket.id,
+                    kind=SupportTicketEventKind.NOTE,
+                    author_kind=SupportAuthorKind.OPERATOR,
+                    author_admin_username="owner",
+                    body=f"note {index}",
+                    created_at=clock.now + timedelta(minutes=index),
+                )
+            )
+
+    # Act
+    async with sessions.begin() as session:
+        erasure = await forget_account(session, telegram_user_id=_USER)
+
+    # Assert — no orphan survives, and the count proves the statement did it.
+    assert (erasure.tickets_deleted, erasure.ticket_events_deleted) == (1, 3)
+    async with sessions() as session:
+        orphans = await session.scalar(
+            sa.select(sa.func.count()).select_from(SupportTicketEventRow)
+        )
+    assert orphans == 0
+
+
+async def test_a_second_forget_touches_no_ticket(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """Idempotent by construction: the rows are gone, so the predicate matches nothing."""
+    # Arrange
+    async with sessions.begin() as session:
+        session.add(_ticket(_USER, body="the name is wrong"))
+    async with sessions.begin() as session:
+        assert (await forget_account(session, telegram_user_id=_USER)).tickets_deleted == 1
+
+    # Act
+    async with sessions.begin() as session:
+        erasure = await forget_account(session, telegram_user_id=_USER)
+
+    # Assert
+    assert (erasure.tickets_deleted, erasure.ticket_events_deleted) == (0, 0)
+
+
+async def test_an_undescribed_ticket_is_erased_too(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The tapped-and-never-typed row has no body, and it is still identity.
+
+    A ``NULL`` body makes a ticket look like it holds nothing worth erasing. It holds a
+    ``telegram_user_id``, a language and the fact that this account complained about an
+    order — which is a record about a person whether or not they finished the sentence. An
+    erasure arm that filtered on ``described_at IS NOT NULL``, the way the panel's board
+    does, would leave exactly those rows behind.
+    """
+    # Arrange
+    async with sessions.begin() as session:
+        session.add(_ticket(_USER))
+
+    # Act
+    async with sessions.begin() as session:
+        erasure = await forget_account(session, telegram_user_id=_USER)
+
+    # Assert
+    assert erasure.tickets_deleted == 1
+    async with sessions() as session:
+        assert await session.scalar(sa.select(sa.func.count()).select_from(SupportTicketRow)) == 0
+
+
+async def test_every_counter_the_erasure_reports_reaches_the_log_line(
+    sessions: async_sessionmaker[AsyncSession],
+    clock: MovableClock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """THE RULE ``SqlCreditLedger._forget``'s DOCSTRING STATES, finally asserted.
+
+    That docstring says a counter :class:`CreditErasure` reports and the log line drops makes
+    the record of a data-subject request quietly incomplete, "so a new receipt table adds a
+    field here as well as there". It had already happened once when it was written: a comment
+    beside the log call names the three counters that were reported and dropped, so an
+    erasure which anonymised nine hundred delivery rows logged four zeroes and said nothing
+    about them. The rule was prose, and prose does not fail a build.
+
+    This reads the FIELD NAMES off the dataclass and the KEYS off the emitted record, so it
+    needs no edit when a tenth table is added — it simply goes red until that table's counter
+    is logged. Names rather than values: what is under test is the completeness of the
+    record, and every count here is legitimately zero for an account with nothing to erase.
+    """
+    # Arrange
+    ledger = _ledger(sessions, clock)
+
+    # Act — an account with nothing stored is enough; the line is emitted either way.
+    with caplog.at_level("INFO", logger="bayram.db.credits"):
+        erased = await ledger.forget(telegram_user_id=_USER)
+    assert is_ok(erased), erased
+
+    # Assert
+    emitted = [r for r in caplog.records if r.message == "credit record erased on request"]
+    assert len(emitted) == 1
+    reported = {field.name for field in fields(CreditErasure)}
+    dropped = sorted(reported - set(emitted[0].__dict__))
+    assert not dropped, f"CreditErasure reports counters the /forget log line drops: {dropped}"

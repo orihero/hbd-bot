@@ -8,6 +8,8 @@ of raising inside one. That is the boundary validation for everything a button c
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Final
+from uuid import UUID
 
 from aiogram.filters.callback_data import CallbackData
 
@@ -15,12 +17,17 @@ from bayram.contracts import Genre, Language, Occasion, VoiceGender
 
 __all__ = [
     "NavAction",
+    "SupportAction",
     "LanguageSlot",
     "LanguageCB",
     "OccasionCB",
     "GenreCB",
     "VocalGenderCB",
     "NavCB",
+    "SupportCB",
+    "NO_REFERENCE",
+    "pack_reference",
+    "read_reference",
 ]
 
 
@@ -122,3 +129,87 @@ class VocalGenderCB(CallbackData, prefix="voc"):
 
 class NavCB(CallbackData, prefix="nav"):
     action: NavAction
+
+
+class SupportAction(StrEnum):
+    """The three support buttons: one the customer presses, two the staff group presses.
+
+    A separate enum from :class:`NavAction` rather than three more members on it, and the
+    separation is a wire-format decision rather than a taxonomy one. ``NavCB`` carries an
+    action and nothing else, and every nav button in this product is drawn on a screen that
+    already knows which order it is about — the closing message, the confirm screen, the
+    settings submenu. These three are not: ⚠️ is drawn by the WORKER onto a message the
+    customer may tap a month later from several screens into a different wizard, and ``✋``
+    and ``✅`` are pressed by a staffer in a group chat that has no FSM of ours at all. All
+    three therefore have to carry an id, and giving ``NavCB`` an id field would change the
+    packed wire format of every existing nav button — including the ones already sitting in
+    customers' chats, which would stop matching their handler the moment the field was added.
+    """
+
+    #: The customer's ⚠️ Something is wrong. Carries the ORDER id when the tap came from a
+    #: delivered song's closing message, and :data:`NO_REFERENCE` when it did not.
+    OPEN = "open"
+    #: A staffer taking the ticket in the support group: assign to them, move to
+    #: ``in_progress``, re-render the card. Carries the TICKET id.
+    CLAIM = "claim"
+    #: A staffer closing it. Carries the TICKET id.
+    RESOLVE = "resolve"
+
+
+#: What :attr:`SupportCB.ref` holds when there is no id to carry.
+#:
+#: A single character rather than the empty string, because aiogram packs callback data by
+#: joining the fields with ``:`` and an empty trailing field makes ``sup:open:`` — a payload
+#: whose round trip through ``unpack`` is fine but which reads, in a log line and in a
+#: ``getUpdates`` dump, as a truncated one. ``-`` is not a hex digit, so it can never collide
+#: with a real id.
+NO_REFERENCE: Final[str] = "-"
+
+
+class SupportCB(CallbackData, prefix="sup"):
+    """One id, and the action decides which table it names. 45 of the 64 bytes at worst.
+
+    **``ref`` is deliberately ONE field carrying two different ids**, and that is the only
+    shape the payload budget admits. ``OPEN`` needs the order the complaint is about;
+    ``CLAIM`` and ``RESOLVE`` need the ticket. Carrying both would be
+    ``sup:resolve:<32 hex>:<32 hex>`` — 78 bytes against Telegram's 64 — so the choice is one
+    field or two callback classes, and two classes would put the three support buttons of one
+    feature behind two prefixes that have to be registered, filtered and read separately.
+
+    The overload is safe because the action is not data the caller supplies from somewhere
+    else: it is packed into the same 64 bytes by the builder that also packed the id, and the
+    two are read by handlers registered on ``SupportCB.filter(F.action == …)``. There is no
+    path on which a handler expecting a ticket id is handed an order id — a mismatch is a
+    payload that matches no filter, which is the boundary property the module docstring above
+    states.
+
+    ``ref`` is the id's ``.hex`` (32 characters, no dashes) rather than ``str(uuid)`` (36),
+    because four dashes bought nothing and the budget is the whole reason this class exists
+    instead of a field on ``NavCB``. Use :func:`pack_reference` / :func:`read_reference` at
+    both ends so the two spellings cannot drift.
+    """
+
+    action: SupportAction
+    ref: str
+
+
+def pack_reference(value: UUID | None) -> str:
+    """The wire spelling of an id in :attr:`SupportCB.ref`. ``None`` becomes ``-``."""
+    return NO_REFERENCE if value is None else value.hex
+
+
+def read_reference(value: str) -> UUID | None:
+    """The id back out of :attr:`SupportCB.ref`, or ``None`` for ``-`` and for nonsense.
+
+    Total, and never raises. A malformed ``ref`` is a button from a build that packed
+    something else, or a payload somebody typed by hand; either way the right answer is the
+    same one the module docstring gives for an unparseable payload — treat it as absent, so
+    the handler falls back to the order-less door instead of raising inside a callback whose
+    only visible symptom would be a spinner that never stops.
+    """
+    if value == NO_REFERENCE:
+        return None
+    try:
+        return UUID(hex=value)
+    except ValueError:
+        return None

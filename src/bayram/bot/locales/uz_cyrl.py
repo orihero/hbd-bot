@@ -644,4 +644,61 @@ CATALOGUE: Final[dict[str, str]] = {
         "Қўшиқ остидаги якуний хабардаги буюртма рақамини ҳам қўшинг — у билан айнан "
         "қайси жараён бўлганини топиб, нима нотўғри кетганини кўрамиз."
     ),
+    # -- support tickets (the ⚠️ button and /support, which are ONE flow) -------
+    # Eight keys, and they are the WHOLE customer-facing surface of the ticket system: the
+    # prompt and its re-prompt, the two answers a description can get, the refusal, the
+    # failure, the reply that comes back from a person and the answer to a follow-up.
+    # Everything a STAFFER reads — the triage card, its buttons,
+    # its status badges — is an English literal in ``bayram.bot.support_card`` and is
+    # deliberately not here: ``translate`` falls back across all four locales and the
+    # catalogues are held in exact key parity, so one staff-facing string in this file would
+    # oblige four translations of an internal message, for ever.
+    #
+    # ``{ref}`` is the ticket's public reference — eight characters of its own id, the same
+    # shape as the order reference in the closing message (``bayram.support.public_ref_for``).
+    # It is rendered inside ``<code>`` in every one of these, because its whole job is to be
+    # read back to us: ``<code>`` is what makes a phone tap copy it rather than select a
+    # word of the sentence around it.
+    "support.ticket.prompt": (
+        "✍️ Нима нотўғри бўлганини айтинг — шу хабарга жавоб қилиб, ўз сўзларингиз билан "
+        "ёзинг.\n\n"
+        "Хоҳлаганингизча ёзаверинг: буларнинг ҳар бирини тирик одам ўқийди."
+    ),
+    "support.ticket.filed": (
+        "✅ Қабул қилинди. Мурожаатингиз рақами — <code>{ref}</code>, уни одам кўриб "
+        "чиқади.\n\n"
+        "Шу рақамни сақлаб қўйинг: шу мавзуда яна ёзсангиз, уни ҳам қўшинг. Жавоб шу "
+        "чатга келади."
+    ),
+    "support.ticket.already_filed": (
+        "📬 Бу менда аллақачон бор — мурожаат <code>{ref}</code>. Қайтадан юбориш шарт "
+        "эмас, жавоб шу ерга келади."
+    ),
+    # The re-prompt, NOT a refusal. See the English catalogue: §1.4's rule, and the fix for a
+    # blocked account that could open tickets it was never allowed to describe.
+    "support.ticket.still_open": (
+        "✍️ Сизда <code>{ref}</code> мурожаати аллақачон очиқ ва мен ҳали ҳам нима нотўғри "
+        "бўлганини кутяпман.\n\n"
+        "Шу хабарга жавоб қилиб, ўз сўзларингиз билан ёзинг."
+    ),
+    # The DAILY ceiling, and the only real refusal here.
+    "support.ticket.too_many": (
+        "⏳ Битта ҳисоб учун бир кунда шунча мурожаат оча оламан.\n\n"
+        "Юборганларингизга жавоб келишини кутинг, кейингисини эртага айтинг."
+    ),
+    "support.ticket.unavailable": (
+        "⚠️ Ҳозир мурожаат очолмадим. Бир оздан кейин яна уриниб кўринг — агар "
+        "такрорланса, /support юборинг ва шу чатнинг ўзида ёзиб қолдиринг."
+    ),
+    "support.ticket.reply": (
+        "✉️ <b>Қўллаб-қувватлаш</b> · мурожаат <code>{ref}</code>\n\n"
+        "<blockquote>{body}</blockquote>\n\n"
+        "Айтадиган гапингиз бўлса, шу ерга жавоб ёзинг."
+    ),
+    # The answer to that invitation. A follow-up joins the ticket that already exists and
+    # never mints a second reference.
+    "support.ticket.follow_up": (
+        "📨 <code>{ref}</code> мурожаатига қўшилди. Уни кўраётган одамлар буни ҳам кўради, "
+        "жавоб эса шу ерга келади."
+    ),
 }

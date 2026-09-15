@@ -326,6 +326,92 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     # sweep would then have to read as a legal schedule, and naming it erased-on-request
     # asserts that ``/forget`` DELETEs the row — which would rewrite the delivery record of a
     # campaign that has already gone out.
+    # ``support_tickets`` and ``support_ticket_events`` (revision 0027) are deliberately in
+    # NEITHER set, and this is the only exemption in this file that concedes the table holds
+    # personal data outright. ``support_tickets.body`` is free text a customer wrote about
+    # their own order — "he said the name wrong, it is Dilnora not Dilnoza" — and
+    # ``support_ticket_events.body`` holds both the notes we wrote about it and the replies
+    # they read. None of that can borrow ``broadcasts``' argument that the text is FROM us and
+    # never ABOUT a person: it is the person, in their own words, which is the whole point of
+    # keeping it.
+    #
+    # THE ERASURE ROUTE IS ``/forget``, AND IT IS DELETION RATHER THAN ANONYMISATION. This is
+    # the departure from ``bot_membership_events``, ``credit_ledger``, ``plan_purchases`` and
+    # ``broadcast_recipients`` above, and it is deliberate: those rows are anonymised because
+    # an aggregate has to survive the person — a churn count, a balance, a delivery record —
+    # whereas a complaint with the id nulled is not a statistic, it is somebody's sentence with
+    # the name filed off. So ``telegram_user_id`` on ``support_tickets`` is NOT NULL, unlike
+    # every table in that list, and ``bayram.db.credit_erasure.forget_account`` DELETEs the
+    # customer's tickets — the only arm of that function that destroys a row rather than
+    # nulling an id.
+    #
+    # The timeline goes with them by an EXPLICIT second statement, ordered child-first, and
+    # NOT by the cascade, even though ``support_ticket_events.ticket_id`` does carry
+    # ``ON DELETE CASCADE``. Nothing in this suite issues ``PRAGMA foreign_keys = ON``, so
+    # under SQLite that cascade is inert: a parent-only delete would leave every event row
+    # orphaned — still carrying ``author_telegram_user_id`` — and every unit test of the
+    # erasure would pass anyway, because the tickets really would be gone. The cascade
+    # remains on the column as the backstop for any path that deletes a ticket without going
+    # through ``forget_account``. See that module's docstring, and
+    # ``tests/test_db/test_credit_erasure.py``'s
+    # ``test_the_timeline_is_deleted_without_the_cascade_being_asked_to_help``.
+    #
+    # It is NOT in ``tables_erased_on_request`` even so, because that set is read as the list
+    # of tables ``/forget`` truncates for a FULL RESET TO FIRST-CONTACT STATE (PD-3) —
+    # ``user_profiles``' treatment, where the absence of a row restores an account to having
+    # never been seen. A ticket is deleted for the person who wrote it, which is the same act
+    # with a different scope: the ticket's OWN erasure does not restore anything, it removes a
+    # record of a conversation. Naming it there would also make this file's own assertion —
+    # that the set has no clock — carry a claim about a retention schedule nobody promised.
+    #
+    # It is NOT in ``tables_with_personal_data`` because that set demands a ``*_expires_at``
+    # column, and NO COLUMN ON EITHER SUPPORT TABLE USES THAT SUFFIX, on purpose. In this
+    # codebase the suffix is a published legal clock: it obliges a sweep BY NAME in
+    # ``tests/test_db/test_audit_retention.py``, a ``RetentionPolicy`` field, a ``PurgeReport``
+    # entry and a ``purge_runs`` column. **THE TICKET BODY IS KEPT INDEFINITELY**, on
+    # ``topup_purchases``' footing — a few rows a week is not growth, and this product files
+    # complaints at nothing like the rate it sends messages — and a support history that
+    # deleted itself on a schedule would delete the evidence in the one dispute it was kept
+    # for. Neither table is on a cutoff either, for the same reason: there is no sweep over
+    # them at all, which is why ``test_audit_retention.py`` passes over them by construction
+    # exactly as it does over ``user_profiles``.
+    #
+    # ``bot_chats`` (revision 0028) is deliberately in NEITHER set, and its exemption is the
+    # cleanest in this file: EVERY COLUMN IS ABOUT A GROUP, NOT ABOUT A PERSON. A Telegram chat
+    # id, a chat title, the public ``@handle`` a supergroup publishes, three closed enums (the
+    # chat's type, the BOT's own membership status, and whether we learned of the chat from
+    # Telegram or from an operator's paste), a boolean, a forum thread id, four clocks and a
+    # bounded error string written in words an operator can act on. There is no
+    # ``telegram_user_id`` on it and nothing narrows to a customer at all — so, unlike
+    # ``bot_membership_events`` one table along, it does not even reach the question of
+    # anonymisation: there is nothing on the row to null.
+    #
+    # **ONE FIELD WAS AVAILABLE AND IS DELIBERATELY NOT STORED, WHICH IS WHAT KEEPS THAT CLAIM
+    # TRUE RATHER THAN NEARLY TRUE** — ``vendor_balances``' argument above, in a different
+    # domain. The ``my_chat_member`` update that creates these rows carries ``from_user``: the
+    # actual person who added the bot to the group, with their Telegram id, their first name
+    # and their ``@handle``. It is handed to us for free, it would look mildly useful in the
+    # panel, and it is written nowhere. Storing it would have made this a personal-data table
+    # — needing a retention clock or an erasure route, a set to belong to, and an answer to
+    # what ``/forget`` should do to a group that somebody else still uses every day — for no
+    # product gain whatsoever, since the question the panel asks is "which group receives
+    # tickets?" and never "who put the bot there?".
+    #
+    # The one human name on the table is ``selected_by_username``: an OPERATOR's own login,
+    # denormalised exactly as ``admin_audit_log.actor_username`` and
+    # ``broadcasts.created_by_username`` are, and not a customer's. ``broadcasts`` is already
+    # exempt above while carrying the same kind of column, for the same reason.
+    #
+    # It is on NO retention clock and NO cutoff, and no column ends in ``*_expires_at``. In
+    # this codebase that suffix is a published legal schedule: it obliges a sweep BY NAME in
+    # ``tests/test_db/test_audit_retention.py``, a ``RetentionPolicy`` field, a ``PurgeReport``
+    # entry and a ``purge_runs`` column, and this table has none of those because nothing
+    # sweeps it. Its growth is bounded BY CONSTRUCTION, which is ``vendor_balances``' footing
+    # rather than ``vendor_usage``'s: a row exists per group the bot has ever been added to,
+    # the bot is added to groups by hand, and there are a handful of them ever. A sweep here
+    # would also delete the one thing an operator needs when tickets stop arriving — the row
+    # saying which group was selected and what the last verification said about it.
+    #
     #: Tables whose personal data is erased ON REQUEST rather than on a clock. The absence of
     #: a row IS the erasure record: ``/forget`` DELETEs it outright (PD-3, a full reset to
     #: first-contact state), so there is nothing for a sweep to find and no ``*_expires_at``

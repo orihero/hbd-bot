@@ -461,6 +461,22 @@ BROADCAST_ID: Final[UUID] = UUID("cccccccc-0000-4000-8000-000000000001")
 #: ``isBuyerErased`` beside it.
 INTENT_ID: Final[UUID] = UUID("dddddddd-0000-4000-8000-000000000001")
 
+#: The ticket the sweep asks for, and deliberately NOT seeded — for a reason unlike either of
+#: the two above, and one worth reading before "improving" this fixture.
+#:
+#: A support ticket's body is a customer's own free text and it **crosses to the panel in
+#: full**, by an argued exception to §6.7 that ``SupportTicketListItem`` states at length: the
+#: customer wrote those words TO support, in answer to a prompt asking them to describe a
+#: problem, and an operator who cannot read the complaint cannot answer it. So a ticket seeded
+#: with one of :data:`PLAINTEXTS` in its ``body`` would make this file fail on correct
+#: behaviour — the sweep would be reading the one plaintext this API is supposed to publish.
+#:
+#: What the unseeded id still buys is real: the three ``/support`` routes answer a 404, an
+#: empty page and four zero columns, and none of those bodies may carry a name, a note or a
+#: transcript either. The thing this sweep must NOT be quietly widened to cover is the ticket
+#: body; the thing it must keep covering is everything else on those responses.
+TICKET_ID: Final[UUID] = UUID("eeeeeeee-0000-4000-8000-000000000001")
+
 
 async def seed_broadcast(container: AdminContainer) -> None:
     """One campaign with one recipient row, for the same person the order belongs to.
@@ -555,6 +571,8 @@ async def seed_world(container: AdminContainer, fake_redis: FakeRedis) -> dict[s
         # routes beside it answer over an empty rail, which is the state this deployment is
         # actually in.
         "intent_id": INTENT_ID,
+        # Unseeded, and see :data:`TICKET_ID` for why that is the right fixture here.
+        "ticket_id": TICKET_ID,
     }
 
 

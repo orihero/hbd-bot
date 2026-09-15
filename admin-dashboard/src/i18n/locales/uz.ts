@@ -53,6 +53,16 @@ export const uz: TranslationSchema = {
     to: "gacha",
     rangeFrom: "{label}: dan",
     rangeTo: "{label}: gacha",
+    stats: {
+      unavailable: {
+        noFxRate: "Valyuta kursi eʼlon qilinmagan",
+        noPricePublished: "Qoʻshiq narxi eʼlon qilinmagan",
+        mixedCurrencies: "Cheklarda bir nechta valyuta bor",
+        notPriced: "Provayder tarifi sozlanmagan",
+        noDenominator: "Boʻlish uchun asos yoʻq",
+        notInstrumented: "Buni hali hech narsa yozmaydi",
+      },
+    },
   },
 
   nav: {
@@ -85,6 +95,7 @@ export const uz: TranslationSchema = {
       generations: "Generatsiyalar",
       billing: "Billing",
       broadcasts: "Xabarnomalar",
+      support: "Qoʻllab-quvvatlash",
       audit: "Audit",
       admins: "Administratorlar",
     },
@@ -291,12 +302,10 @@ export const uz: TranslationSchema = {
     note: {
       noCorrelationId: "correlation id yoʻq",
       deniedTitle: "{subject} bu rolga koʻrinmaydi",
-      deniedMessage:
-        "Rolingiz bu boʻlimni oʻqiy olmaydi.",
+      deniedMessage: "Rolingiz bu boʻlimni oʻqiy olmaydi.",
       driftTitle: "{subject}: bu yigʻilma serverning javobini tushunmaydi",
       refusedTitle: "{subject}: server bu soʻrovni rad etdi",
-      refusedMessage:
-        "{message} Oynani yoki qadamni toraytiring.",
+      refusedMessage: "{message} Oynani yoki qadamni toraytiring.",
       staleTitle: "{subject} yangilanishdan toʻxtadi",
       staleMessage:
         "{message} Quyidagi raqamlar — oxirgi muvaffaqiyatli javob.",
@@ -440,7 +449,8 @@ export const uz: TranslationSchema = {
         title: "Buyurtmalar qayerda toʻxtaydi",
         sub: "bitta pogʻona = {count} ta buyurtma · uzuq chiziq — chiqib ketish",
         subOne: "bitta pogʻona = bitta buyurtma · uzuq chiziq — chiqib ketish",
-        subPending: "bitta pogʻona = qatʼiy sondagi buyurtma · uzuq chiziq — chiqib ketish",
+        subPending:
+          "bitta pogʻona = qatʼiy sondagi buyurtma · uzuq chiziq — chiqib ketish",
       },
       grans: {
         hourly: "Soatlik",
@@ -467,7 +477,8 @@ export const uz: TranslationSchema = {
     noThreadsSearchHint: "Qidiruv soʻzlarini oʻzgartirib koʻring.",
     noThreadsEmptyHint: "Mijozlar bilan muloqotlar shu yerda paydo boʻladi.",
     selectConversation: "Suhbatni tanlang",
-    selectConversationHint: "Tafsilotlarni koʻrish uchun chapdagi roʻyxatdan muloqotni tanlang.",
+    selectConversationHint:
+      "Tafsilotlarni koʻrish uchun chapdagi roʻyxatdan muloqotni tanlang.",
     noChatSelectedTitle: "Muloqotni tanlang",
     noChatSelectedMessage:
       "Xabarlar tarixi va mijoz profilini koʻrish uchun chap tomondan suhbatni tanlang.",
@@ -505,6 +516,12 @@ export const uz: TranslationSchema = {
 
   users: {
     title: "Foydalanuvchilar",
+    stats: {
+      accounts: "Hisoblar",
+      reachable: "Yuborish mumkin",
+      blocked: "Biz bloklaganlar",
+      botBlocked: "Botni bloklaganlar",
+    },
     paginationSubtitle:
       "{total} ta foydalanuvchidan {start}–{end} koʻrsatilmoqda",
     searchLabel: "Telegram ID boʻyicha qidirish",
@@ -552,8 +569,10 @@ export const uz: TranslationSchema = {
       accountsFiltered: "Bu filtrlarga mos hisoblar: {total}.",
     },
     sort: {
-      descending: "“{column}” boʻyicha saralash — avval eng kattasi yoki eng yangisi",
-      ascending: "“{column}” boʻyicha saralash — avval eng kichigi yoki eng eskisi",
+      descending:
+        "“{column}” boʻyicha saralash — avval eng kattasi yoki eng yangisi",
+      ascending:
+        "“{column}” boʻyicha saralash — avval eng kichigi yoki eng eskisi",
       clear:
         "“{column}” boʻyicha saralashni bekor qilib, “avval eng yangi hisoblar” tartibiga qaytish",
     },
@@ -614,7 +633,8 @@ export const uz: TranslationSchema = {
       noMatching: "Filtrlarga mos foydalanuvchilar yoʻq",
       noUsersHint:
         "Qator odam botga birinchi marta yozgan paytda paydo boʻladi — sanash mumkin boʻlgan roʻyxatdan oʻtish hodisasi yoʻq.",
-      unmatchable: "“{query}” tarkibida Telegram id da boʻlishi mumkin boʻlmagan belgilar bor. {hint}",
+      unmatchable:
+        "“{query}” tarkibida Telegram id da boʻlishi mumkin boʻlmagan belgilar bor. {hint}",
     },
     filter: {
       blocked: "Bloklanganlik",
@@ -730,7 +750,8 @@ export const uz: TranslationSchema = {
       projected: "kutilayotgan",
       rendersInFlight: "jarayondagi generatsiyalar",
       lifetimeGranted: "jami berilgan kreditlar",
-      balanceHint: "Saqlangan balans — daftar uni qanday tutsa, shundayligicha.",
+      balanceHint:
+        "Saqlangan balans — daftar uni qanday tutsa, shundayligicha.",
       projectedHint:
         "Bot bu mijozga ayni damda nima deyishi: saqlangan balans va muddati kelgan, lekin hali chiqarilmagan davriy nafaqa.",
       inFlightHint:
@@ -774,6 +795,11 @@ export const uz: TranslationSchema = {
 
   generations: {
     title: "Generatsiyalar",
+    stats: {
+      attempts: "Urinishlar",
+      passRate: "Tasdiqlanganlar ulushi",
+      checked: "Tekshirilgan",
+    },
     paginationSubtitle: "{total} ta urinishdan {start}–{end} koʻrsatilmoqda",
     subtitleAll: "render jurnalida {count} ta urinish",
     subtitleFiltered: "filtrlarga mos {count} ta urinish",
@@ -936,7 +962,8 @@ export const uz: TranslationSchema = {
       subjectType: "Bir vaqtda bitta tur — parametr skalyar.",
       subjectId:
         "Noaniq identifikator boʻyicha aniq moslik — UUID, Telegram id yoki konfiguratsiya versiyasi. Hech qachon ism emas.",
-      action: "Nechta boʻlsa ham: takrorlar maydon ichida YOKI, maydonlar orasida VA.",
+      action:
+        "Nechta boʻlsa ham: takrorlar maydon ichida YOKI, maydonlar orasida VA.",
     },
     actorPlaceholder: "foydalanuvchi nomi yoki id",
     subtitles: {
@@ -1047,7 +1074,8 @@ export const uz: TranslationSchema = {
     },
     notes: {
       sessionEndedMessage: "{message} Qaytishning yagona yoʻli — qayta kirish.",
-      stepUpTitle: "Server bu yoʻnalishda mavjud boʻlmagan qoʻshimcha tasdiqni soʻradi",
+      stepUpTitle:
+        "Server bu yoʻnalishda mavjud boʻlmagan qoʻshimcha tasdiqni soʻradi",
       stepUpMessage:
         "{message} Roʻyxatni oʻqish qayta tasdiqni talab qilmaydi (§6.8, 949-qator), demak bu — server tomonidagi ruxsat oʻzgarishi, bu yerda javob beriladigan narsa emas.",
       forbiddenMessage:
@@ -1117,7 +1145,8 @@ export const uz: TranslationSchema = {
       submit: "{username} ni yaratish",
       submitFallback: "Operator yaratish",
       pending: "Yaratilmoqda…",
-      stepUpNote: "{username} ni yaratish uchun shu nomga bogʻlangan tasdiq kerak.",
+      stepUpNote:
+        "{username} ni yaratish uchun shu nomga bogʻlangan tasdiq kerak.",
       createdTitle: "{username} yaratildi",
       createdMessage:
         "Parolni alohida kanal orqali yetkazing. {username} uni birinchi kirishda almashtirishi shart, shungacha har bir yoʻnalish 403 qaytaradi.",
@@ -1165,7 +1194,8 @@ export const uz: TranslationSchema = {
       originTitle: "Bu konsol API qabul qilmaydigan manzildan berilmoqda",
       originMessage:
         "{message} Bu — joylashtirish sozlamasi (BAYRAM_ADMIN_PUBLIC_ORIGIN), sizning xatoyingiz emas; qayta urinish uni oʻzgartirmaydi.",
-      stepUpTitle: "{subject}: server bu yoʻnalishda mavjud boʻlmagan qoʻshimcha tasdiqni soʻradi",
+      stepUpTitle:
+        "{subject}: server bu yoʻnalishda mavjud boʻlmagan qoʻshimcha tasdiqni soʻradi",
       forbiddenTitle: "{subject} bu rolga koʻrinmaydi",
       driftTitle: "{subject}: bu yigʻilma serverning javobini tushunmaydi",
       driftMessage: "{message} ({paths})",
@@ -1173,7 +1203,8 @@ export const uz: TranslationSchema = {
       rateLimitedTitle: "{subject}: API bu sessiya soʻrovlarini cheklamoqda",
       rateLimitedWait: " {seconds} soniyadan soʻng qayta urining.",
       staleTitle: "{subject} yangilanishdan toʻxtadi",
-      staleMessage: "{message} Quyidagi qatorlar — oxirgi muvaffaqiyatli javob, joriysi emas.",
+      staleMessage:
+        "{message} Quyidagi qatorlar — oxirgi muvaffaqiyatli javob, joriysi emas.",
       offlineTitle: "{subject} API bilan bogʻlana olmadi",
       failedTitle: "{subject} yuklanmadi",
       notFoundTitle: "{subject}: bunday id bilan hech narsa yoʻq",
@@ -1232,7 +1263,8 @@ export const uz: TranslationSchema = {
         "Quvur kuylagan ism. Boshqa hamma joyda birinchi belgigacha maskalangan.",
       recipientNameRaw:
         "Mijoz tergan belgilar — “qaysi apostrofni qoʻygan” degan savolga javob.",
-      recipientLookupKey: "Ismlarni solishtiruvchi taqqoslagan yigʻilgan kalit.",
+      recipientLookupKey:
+        "Ismlarni solishtiruvchi taqqoslagan yigʻilgan kalit.",
       recipientCandidates:
         "Koʻrib chiqilgan barcha yozilish variantlari va har birini bergan strategiya.",
       note: "Mijoz qabul qiluvchi haqida yozgan erkin matn. 30 kunlik soatda.",
@@ -1243,7 +1275,8 @@ export const uz: TranslationSchema = {
         "Har bir urinish taklif qilgan ism matni, har dubl uchun bitta yozuv. Sahifalab, sahifasiga toʻlov.",
       phone:
         "Telegramning “kontakt ulashish” tugmasi orqali bir marta yuborilgan E.164 raqami. Boshqa hamma joyda oxirgi raqamlargacha maskalangan. Hisob mavjud ekan saqlanadi; /forget uni oʻchiradi.",
-      firstName: "Qabul qiluvchining emas — mijozning oʻz ismi, Telegram kontaktidan.",
+      firstName:
+        "Qabul qiluvchining emas — mijozning oʻz ismi, Telegram kontaktidan.",
       lastName: "Koʻpincha yoʻq: Telegram uni talab qilmaydi.",
       telegramUsername:
         "“@” siz. Mijoz oʻzi tanlagan va oʻzgartira oladigan taxallus; barqaror identifikator emas.",
@@ -1261,7 +1294,8 @@ export const uz: TranslationSchema = {
         "ushbu buyurtmaning dalillar toʻplamini eksport qilish",
       auditExport: "audit jurnalini eksport qilish",
       adminManage: "administrator hisoblarini boshqarish",
-      broadcastSend: "bu xabarnomani yaratilishida qotirilgan auditoriyaga yuborish",
+      broadcastSend:
+        "bu xabarnomani yaratilishida qotirilgan auditoriyaga yuborish",
     },
     reasons: {
       customerRequest: "mijoz soʻradi",
@@ -1286,13 +1320,15 @@ export const uz: TranslationSchema = {
       recordsLeft: " Shu soatda qolgan yozuvlar: {count}.",
       conversationsLeft: " Bugunga qolgan suhbatlar: {count}.",
       noCountdown: "Konvertda orqaga sanoq boʻlmagan.",
-      windowResets: "Bu oyna {delay} dan keyin yangilanadi. Oyna qatʼiy, siljiydigan emas.",
+      windowResets:
+        "Bu oyna {delay} dan keyin yangilanadi. Oyna qatʼiy, siljiydigan emas.",
       nothingCharged:
         "Hech narsa hisobdan chiqarilmadi va hech narsa oshkor qilinmadi — rad etilgan ochish oʻz narxini qaytaradi.",
       roleRefused: "Rolingiz buni qila olmaydi.",
       refused: "Ochish rad etildi.",
       stepUpPendingTitle: "Yana bir qadam: parolni qayta kiriting.",
-      stepUpNote: "Siz bu {subjectType} da {cost} maskasini olishni soʻradingiz.",
+      stepUpNote:
+        "Siz bu {subjectType} da {cost} maskasini olishni soʻradingiz.",
       stepUpAsk:
         "{subjectType} {subjectLabel} uchun {cost} ni ochish aynan shu obʻektga berilgan ruxsatni talab qiladi. Hech narsa hisobdan chiqarilmadi.",
       budgetNotMeasured:
@@ -1306,7 +1342,8 @@ export const uz: TranslationSchema = {
       reasonCodeLabel: "sabab kodi (majburiy)",
       reasonRefLabel: "tiket havolasi (ixtiyoriy)",
       reasonTextLabel: "nima uchun (ixtiyoriy, {max} belgi, 90 kun saqlanadi)",
-      ceilingsSeparate: " Ikki chegara alohida: birini sarflash ikkinchisini sarflamaydi.",
+      ceilingsSeparate:
+        " Ikki chegara alohida: birini sarflash ikkinchisini sarflamaydi.",
       recordsNotTouched: "yozuvlar: oxirgi ochish ularga tegmadi",
       conversationsNotTouched: "suhbatlar: tegilmagan",
       pageSizeNote:
@@ -1325,7 +1362,8 @@ export const uz: TranslationSchema = {
       costAnd: "{records} va {conversations}",
       retrySeconds: "{count} s",
       retryMinutes: "{count} daq",
-      returnedRecords: "{charged} ta hisoblangan yozuvdan {returned} tasi qaytarildi. ",
+      returnedRecords:
+        "{charged} ta hisoblangan yozuvdan {returned} tasi qaytarildi. ",
       chargeIsThePage:
         "Hisob — bu ochish qaytarishga huquqli boʻlgan sahifa uchun, topilgani uchun emas.",
     },
@@ -1355,7 +1393,8 @@ export const uz: TranslationSchema = {
       created: "Yaratilgan",
       createdFrom: "Yaratilgan (dan)",
       createdTo: "Yaratilgan (gacha)",
-      halfOpenHint: "Yarim ochiq: “dan” kiradi, “gacha” kirmaydi. Vaqt {zone} da.",
+      halfOpenHint:
+        "Yarim ochiq: “dan” kiradi, “gacha” kirmaydi. Vaqt {zone} da.",
       bothEndsHint:
         "Ikkala uchi ham kiradi, bu API dagi boshqa hamma roʻyxatlardan farqli. Vaqt {zone} da.",
     },
@@ -1365,6 +1404,13 @@ export const uz: TranslationSchema = {
   },
   broadcasts: {
     title: "Xabarnomalar",
+    stats: {
+      campaigns: "Xabarnomalar",
+      inFlight: "Yuborilmoqda",
+      recipients: "Yozilgan qabul qiluvchilar",
+      lastSend: "Oxirgi yuborish",
+      noSendYet: "Hali biror yuborish boshlanmagan",
+    },
     subject: "Xabarnomalar roʻyxati",
     subjectOne: "Bu xabarnoma",
     subjectRecipients: "Qabul qiluvchilar jurnali",
@@ -1393,9 +1439,11 @@ export const uz: TranslationSchema = {
     },
     filter: {
       state: "Holat",
-      stateHint: "Bir vaqtda bir nechtasi — bu YOKI: parametr takrorlanadi va API shunday oʻqiydi.",
+      stateHint:
+        "Bir vaqtda bir nechtasi — bu YOKI: parametr takrorlanadi va API shunday oʻqiydi.",
       kind: "Turi",
-      kindHint: "Tur xabarnoma tuzilganda eʻlon qilinadi va matnni tahrirlash uni oʻzgartirmaydi.",
+      kindHint:
+        "Tur xabarnoma tuzilganda eʻlon qilinadi va matnni tahrirlash uni oʻzgartirmaydi.",
     },
     chips: {
       state: "Holat",
@@ -1448,7 +1496,8 @@ export const uz: TranslationSchema = {
         "Qabul qiluvchi qatorlari hali yozilmoqda. Ular toʻliq boʻlmaguncha yuborishni tasdiqlab boʻlmaydi — yarim yozilgan jurnal yarim auditoriya demakdir.",
       ready:
         "Auditoriya yozilgan, hech narsa yuborilmagan. Yuborishni faqat shu holatdan tasdiqlash mumkin.",
-      sending: "Xabarlar hozir ketmoqda. Hisoblagichlar bu ekranga tegmasdan ham oʻsadi.",
+      sending:
+        "Xabarlar hozir ketmoqda. Hisoblagichlar bu ekranga tegmasdan ham oʻsadi.",
       paused:
         "Boʻlaklar orasida toʻxtatilgan. Ishchi allaqachon olgan qatorlar yana bir necha soniya yakuniga yetadi, shuning uchun hisoblagichlar harakatda qoladi.",
       completed:
@@ -1487,7 +1536,8 @@ export const uz: TranslationSchema = {
       frozenNote:
         "Auditoriya xabarnoma tuzilganda belgilangan va boshqa oʻzgarmaydi. Keyin qoʻshilganlar unga kirmagan, ketganlar esa hamon ichida.",
       written: "{size} tadan {written} ta qabul qiluvchi qatori yozildi",
-      incomplete: "Auditoriya hali yozilmoqda, shuning uchun bu sonlar yakuniy emas.",
+      incomplete:
+        "Auditoriya hali yozilmoqda, shuning uchun bu sonlar yakuniy emas.",
       everyone:
         "Bu auditoriyada birorta qoida yoʻq: bu HAR BIR hisob, boʻsh tanlov emas.",
       unreadable:
@@ -1525,16 +1575,20 @@ export const uz: TranslationSchema = {
         settled: "Yakunlangan",
       },
       countersHint: {
-        audience: "Segment tuzilish paytida qancha sanagan boʻlsa, oʻsha. Boshqa oʻzgarmaydi.",
+        audience:
+          "Segment tuzilish paytida qancha sanagan boʻlsa, oʻsha. Boshqa oʻzgarmaydi.",
         written: "Yoyilish hozirgacha nechta qabul qiluvchi qatorini yozgani.",
-        unsettled: "Natijasi yoʻq qatorlar — navbatda yoki aynan hozir ishchi tomonidan olingan.",
+        unsettled:
+          "Natijasi yoʻq qatorlar — navbatda yoki aynan hozir ishchi tomonidan olingan.",
         sent: "Telegram qabul qilgan xabarlar.",
         failed: "Telegram rad etgan xabarlar, sababi kod sifatida yozilgan.",
-        skipped: "Har ikki tomondagi bloklash tufayli oʻtkazib yuborilgan hisoblar.",
+        skipped:
+          "Har ikki tomondagi bloklash tufayli oʻtkazib yuborilgan hisoblar.",
         undeliverable: "Telegram chat endi mavjud emasligini aytmoqda.",
         unknown:
           "Toʻxtatilgan vazifa bu qatorlarni olingan holda qoldirgan va ular hech qachon qayta urinilmaydi. Xabar yetib borgan boʻlishi ham mumkin — bu xato emas va hech qachon xato deb sanalmaydi.",
-        settled: "Beshta yakuniy natijaning yigʻindisi. Bu beshtasi auditoriyaga teng boʻlishi shart emas.",
+        settled:
+          "Beshta yakuniy natijaning yigʻindisi. Bu beshtasi auditoriyaga teng boʻlishi shart emas.",
       },
       facts: {
         createdBy: "Tuzgan",
@@ -1558,10 +1612,13 @@ export const uz: TranslationSchema = {
         language: "Til",
         asSent: "Qabul qiluvchi koʻradigan holda",
         renderedLength: "Telegram hisobida {limit} belgidan {length} tasi",
-        overLimit: "Telegram bunday xabar uchun qabul qiladigan chegaradan koʻp.",
+        overLimit:
+          "Telegram bunday xabar uchun qabul qiladigan chegaradan koʻp.",
         image: "Rasm biriktirilgan",
-        imageCached: "bir marta yuklangan — keyingi yuborish yuklashga tushmaydi",
-        imageNotCached: "hali yuklanmagan — yuklash uchun birinchi qabul qiluvchi kutadi",
+        imageCached:
+          "bir marta yuklangan — keyingi yuborish yuklashga tushmaydi",
+        imageNotCached:
+          "hali yuklanmagan — yuklash uchun birinchi qabul qiluvchi kutadi",
         noImage: "Rasmsiz",
         button: "Tugma: {label} → {url}",
         noButton: "Tugmasiz",
@@ -1582,16 +1639,19 @@ export const uz: TranslationSchema = {
         notSettled: "yakunlanmagan",
         noError: "—",
         emptyTitle: "Hozircha qabul qiluvchi qatorlari yoʻq",
-        emptyMessage: "Auditoriya hali yozilmoqda yoki bu xabarnoma hech kimni tanlamagan.",
+        emptyMessage:
+          "Auditoriya hali yozilmoqda yoki bu xabarnoma hech kimni tanlamagan.",
         emptyFilteredTitle: "Bu filtrga birorta qabul qiluvchi mos kelmadi",
-        emptyFilteredMessage: "Boshqa natijada qatorlar boʻlishi mumkin — koʻrish uchun filtrni oling.",
+        emptyFilteredMessage:
+          "Boshqa natijada qatorlar boʻlishi mumkin — koʻrish uchun filtrni oling.",
         noIdColumnNote:
           "Bu yerda hech bir rol uchun Telegram ID ustuni yoʻq va uni beradigan ochish ham yoʻq.",
       },
     },
     actions: {
       send: "Yuborish",
-      sendAria: "Yuborish — xabarnomani muzlatilgan auditoriyaga ketishga tasdiqlash",
+      sendAria:
+        "Yuborish — xabarnomani muzlatilgan auditoriyaga ketishga tasdiqlash",
       pause: "Toʻxtatib turish",
       resume: "Davom ettirish",
       cancel: "Xabarnomani bekor qilish",
@@ -1608,15 +1668,18 @@ export const uz: TranslationSchema = {
       whenNow: "Hozir yuborish",
       whenLater: "Keyinga rejalashtirish",
       atLabel: "Yuborish vaqti",
-      atHint: "Oʻz vaqt mintaqangizda. Xabarnomani bu ekran emas, navbat kuzatuvchisi oladi.",
-      atInPast: "Bu vaqt allaqachon oʻtgan. Kechroq vaqt tanlang yoki hozir yuboring.",
+      atHint:
+        "Oʻz vaqt mintaqangizda. Xabarnomani bu ekran emas, navbat kuzatuvchisi oladi.",
+      atInPast:
+        "Bu vaqt allaqachon oʻtgan. Kechroq vaqt tanlang yoki hozir yuboring.",
       atMissing: "Yuborish vaqtini tanlang.",
       confirmNow: "Hozir {count} kishiga yuborish",
       confirmLater: "{count} kishi uchun rejalashtirish",
       pending: "Tasdiqlanmoqda…",
       stepUpNote:
         "Yuborish uchun aynan shu xabarnoma doirasida parolingiz yana kerak. Hali hech narsa ketmadi: parol tekshiruvi yozuvdan oldin boʻladi.",
-      noRecipients: "Bu xabarnomada qabul qiluvchi qatorlari yoʻq, yuborishga hech kim yoʻq.",
+      noRecipients:
+        "Bu xabarnomada qabul qiluvchi qatorlari yoʻq, yuborishga hech kim yoʻq.",
     },
     pauseDialog: {
       title: "Xabarnomani toʻxtatib turish",
@@ -1678,7 +1741,8 @@ export const uz: TranslationSchema = {
         registryFailedTitle: "Auditoriya maydonlarini oʻqib boʻlmadi",
         registryForbidden:
           "Sizning rolingiz auditoriya lugʻatini oʻqiy olmaydi, shuning uchun konstruktor koʻrsatilmaydi.",
-        refusalCounting: "Auditoriya sanalmoqda… son kelgach, keyingi bosqich ochiladi.",
+        refusalCounting:
+          "Auditoriya sanalmoqda… son kelgach, keyingi bosqich ochiladi.",
         refusalInvalid:
           "Auditoriyada server rad etadigan qoida bor. Davom etishdan oldin yuqorida belgilangan qoidani tuzating.",
         refusalNobody:
@@ -1699,7 +1763,8 @@ export const uz: TranslationSchema = {
         sampleAccount: "Akkaunt",
         sampleLanguage: "Til",
         sampleJoined: "Birinchi aloqa",
-        sampleEmpty: "Bu filtrga hech kim mos kelmadi, koʻrsatadigan narsa yoʻq.",
+        sampleEmpty:
+          "Bu filtrga hech kim mos kelmadi, koʻrsatadigan narsa yoʻq.",
         sampleFailed: "Namunani oʻqib boʻlmadi: {message}",
         sampleNote:
           "Bu auditoriyaning oʻzi emas, aql bovar qiladimi degan tekshiruv: hammasini {limit} tadan varaqlash uchun maʼlumotnomani shu filtr bilan oching.",
@@ -1709,7 +1774,8 @@ export const uz: TranslationSchema = {
         caption:
           "Sarlavha bizniki — xabarnomani shu orqali topamiz. Xabar esa mijoz oʻqiydigan matn.",
         titleLabel: "Xabarnoma sarlavhasi",
-        titleHint: "Ichki — qabul qiluvchiga hech qachon bormaydi. {limit} belgigacha.",
+        titleHint:
+          "Ichki — qabul qiluvchiga hech qachon bormaydi. {limit} belgigacha.",
         titleMissing: "Xabarnomaga sarlavha kerak.",
         kindLabel: "Turi",
         bodiesHeading: "Xabar",
@@ -1721,14 +1787,16 @@ export const uz: TranslationSchema = {
         languageReady: "tayyor",
         languageMissing: "yozilmagan",
         bodyLabel: "{language} tilidagi xabar",
-        counter: "{limit} belgidan {sent} tasi — Telegram sanaganidek ({typed} terildi).",
+        counter:
+          "{limit} belgidan {sent} tasi — Telegram sanaganidek ({typed} terildi).",
         markupHint:
           "Faqat Telegram belgilari: {tags}. Har bir teg yopilishi shart, havolaga esa toʻliq http(s) manzil kerak.",
         imageLabel: "Rasm (ixtiyoriy)",
         imageHint:
           "Bu tizim allaqachon saqlagan faylning kaliti. Rasm biriktirilsa, chegara 1 024 belgigacha tushadi.",
         buttonLabelLabel: "Tugma yozuvi (ixtiyoriy)",
-        buttonHint: "Tugmaga ham yozuv, ham havola kerak — yo ikkalasi, yo hech biri.",
+        buttonHint:
+          "Tugmaga ham yozuv, ham havola kerak — yo ikkalasi, yo hech biri.",
         buttonUrlLabel: "Tugma havolasi (ixtiyoriy)",
         buttonUrlHint: "Ommaviy xostli toʻliq http(s) manzil.",
         previewHeading: "Qabul qiluvchi koʻrgani kabi",
@@ -1738,7 +1806,8 @@ export const uz: TranslationSchema = {
         previewEmpty: "Hali hech narsa yozilmagan.",
         previewImage: "Rasm biriktirilgan: {key}",
         previewSpoiler: "Qabul qiluvchi Telegramda bosmaguncha yashirin.",
-        previewUnparsed: "Quyidagi belgilash tuzatilmaguncha koʻrinishni chizib boʻlmaydi.",
+        previewUnparsed:
+          "Quyidagi belgilash tuzatilmaguncha koʻrinishni chizib boʻlmaydi.",
         incomplete: "Hali yozilishi kerak: {languages}.",
         issues: {
           empty: "Bu til uchun xabar hali yozilmagan.",
@@ -1747,15 +1816,18 @@ export const uz: TranslationSchema = {
           unknownTag: "Bu Telegram qabul qilmaydigan HTML teg.",
           badAttribute:
             "Tegda ruxsat etilmagan atribut bor. href faqat havolada boʻlishi mumkin.",
-          selfClosing: "Oʻzini yopadigan teg Telegram belgilashi emas — juftini yozing.",
+          selfClosing:
+            "Oʻzini yopadigan teg Telegram belgilashi emas — juftini yozing.",
           unbalanced: "Teg yopilmagan yoki ochilmagan tegni yopmoqda.",
           nestedLink: "Havola ichida boshqa havola boʻlmaydi.",
           notMarkup: "Matnda izoh yoki eʼlon bor — bu belgilash emas.",
           badHref: "Havola manzili toʻliq http(s) URL boʻlishi kerak.",
           tooLong:
             "{actual} ta belgi, Telegram esa {limit} tasini qabul qiladi. Ampersand va teglar joʻnatmada maydondagidan qimmatroq turadi.",
-          badUrl: "Tugma havolasi ommaviy xostli toʻliq http(s) URL boʻlishi kerak.",
-          buttonPair: "Tugmaga ham yozuv, ham havola kerak — yo ikkalasi, yo hech biri.",
+          badUrl:
+            "Tugma havolasi ommaviy xostli toʻliq http(s) URL boʻlishi kerak.",
+          buttonPair:
+            "Tugmaga ham yozuv, ham havola kerak — yo ikkalasi, yo hech biri.",
           badStorageKey: "Bu tizim yozgan saqlash kaliti emas.",
         },
         testSend: {
@@ -1770,7 +1842,8 @@ export const uz: TranslationSchema = {
           allowlistNote:
             "Uni faqat shu tizimning sinov qabul qiluvchilari roʻyxatidagi akkauntlar olishi mumkin; bu roʻyxat — sozlama, huquq emas.",
           recipientLabel: "Sinov qabul qiluvchining Telegram id raqami",
-          recipientHint: "Faqat raqamlar. Akkaunt sinov roʻyxatida boʻlishi shart.",
+          recipientHint:
+            "Faqat raqamlar. Akkaunt sinov roʻyxatida boʻlishi shart.",
           confirm: "Sinov nusxasini joʻnatish",
           pending: "Joʻnatilmoqda…",
           sent: "{recipient} ga joʻnatildi. Xabarnomani tasdiqlashdan oldin Telegramda oʻqing.",
@@ -1784,7 +1857,8 @@ export const uz: TranslationSchema = {
         audienceHeading: "Auditoriya",
         audienceCaption: "Joʻnatishga ruxsat beriladigan son.",
         audienceCount: "Xabarni {count} kishi oladi",
-        audienceFrozenCount: "Yozilgan va kutayotgan qabul qiluvchi qatorlari: {count}",
+        audienceFrozenCount:
+          "Yozilgan va kutayotgan qabul qiluvchi qatorlari: {count}",
         freezeWarning:
           "Joʻnatish avval auditoriyani muzlatadi: qabul qiluvchilar oʻsha lahzada aniqlanadi va boshqa qayta sanalmaydi. Keyin qoʻshilgan odam unga kirmaydi, ketgan odam esa unda qoladi.",
         audienceRulesAria: "Muzlatiladigan auditoriya",
@@ -1794,10 +1868,12 @@ export const uz: TranslationSchema = {
         sendCaption:
           "Bu — xabarlarni chiqaradigan amal. U sizning ismingiz, sababingiz va auditoriya hajmi bilan yoziladi.",
         confirmLabel: "Auditoriyani tasdiqlash uchun {count} deb yozing",
-        confirmHint: "Xabarlar chiqishidan oldingi oxirgi tekshiruv: yuqoridagi sonni tering.",
+        confirmHint:
+          "Xabarlar chiqishidan oldingi oxirgi tekshiruv: yuqoridagi sonni tering.",
         confirmMismatch: "Bu auditoriya hajmi emas. {count} deb yozing.",
         submitNow: "Auditoriyani muzlatib, {count} kishiga hozir joʻnatish",
-        submitLater: "Auditoriyani muzlatib, {count} kishi uchun rejalashtirish",
+        submitLater:
+          "Auditoriyani muzlatib, {count} kishi uchun rejalashtirish",
         pending: "Joʻnatilmoqda…",
         stepUpNote:
           "Joʻnatish uchun parolingiz yana kerak — aynan shu xabarnoma doirasida. Hozircha hech narsa chiqmadi: parol tekshiruvi yozuvdan oldin oʻtadi.",
@@ -1833,15 +1909,19 @@ export const uz: TranslationSchema = {
     unknownField: "{key} — endi taklif qilinmaydi",
     unavailableField: "{capability} jadvali kerak, bu oʻrnatmada esa u yoʻq.",
     unavailableOption: "{label} — bu yerda mavjud emas",
-    aggregateField: "Boshqa jadvallar boʻyicha hisoblanadi, shuning uchun bu qoida qimmatroq.",
+    aggregateField:
+      "Boshqa jadvallar boʻyicha hisoblanadi, shuning uchun bu qoida qimmatroq.",
     groupLabel: "«{mode}» sharti bilan guruh",
     ruleLabel: "{index}-qoida",
     depthLimitReached: "Ichma-ichlik server chegarasiga ({maxDepth}) yetdi.",
-    ruleLimitReached: "Segmentda allaqachon {maxRules} ta qoida bor — bu server chegarasi.",
+    ruleLimitReached:
+      "Segmentda allaqachon {maxRules} ta qoida bor — bu server chegarasi.",
     matchLabel: "Ular qanday birlashadi",
     loading: "Maydonlar reyestri oʻqilmoqda…",
-    loadFailed: "Maydonlar reyestrini oʻqib boʻlmadi, shuning uchun qoida tuzib boʻlmaydi.",
-    forbidden: "Rolingizda xabarnoma huquqi yoʻq, shuning uchun maydonlar reyestri yopiq.",
+    loadFailed:
+      "Maydonlar reyestrini oʻqib boʻlmadi, shuning uchun qoida tuzib boʻlmaydi.",
+    forbidden:
+      "Rolingizda xabarnoma huquqi yoʻq, shuning uchun maydonlar reyestri yopiq.",
     match: {
       all: "Barchasi",
       any: "Istalgani",
@@ -1879,10 +1959,12 @@ export const uz: TranslationSchema = {
       is_not_null: "boʻlgan",
     },
     opHints: {
-      between: "Yarim ochiq oraliq: birinchi chegara kiradi, ikkinchisi kirmaydi.",
+      between:
+        "Yarim ochiq oraliq: birinchi chegara kiradi, ikkinchisi kirmaydi.",
       not_within_last_days:
         "Maydon boʻsh boʻlishi mumkin boʻlgan joyda bu hech qachon sodir boʻlmagan akkauntlarni ham oʻz ichiga oladi.",
-      within_next_days: "Hozirgi paytdan oldinga sanaladi va hech qachon oʻtmishga qaramaydi.",
+      within_next_days:
+        "Hozirgi paytdan oldinga sanaladi va hech qachon oʻtmishga qaramaydi.",
       in: "Bitta maydon ichidagi bir nechta qiymat YOKI deb oʻqiladi.",
     },
     value: {
@@ -1893,7 +1975,8 @@ export const uz: TranslationSchema = {
       dateFrom: "Dan",
       dateTo: "Gacha (kirmaydi)",
       wholeMonth: "Butun oy",
-      wholeMonthHint: "Ikkala chegarani sizning vaqt mintaqangizdagi shu oy bilan toʻldiradi.",
+      wholeMonthHint:
+        "Ikkala chegarani sizning vaqt mintaqangizdagi shu oy bilan toʻldiradi.",
       days: "Kun",
       daysPreset: "{days} kun",
       daysRange: "{min} dan {max} kungacha.",
@@ -1921,8 +2004,10 @@ export const uz: TranslationSchema = {
     },
     issues: {
       heading: "Segmentdan foydalanishdan oldin shularni tuzating",
-      maxRules: "{actual} ta qoida, server esa koʻpi bilan {limit} tasini qabul qiladi.",
-      maxDepth: "Ichma-ichlik {actual}, server esa koʻpi bilan {limit} ni qabul qiladi.",
+      maxRules:
+        "{actual} ta qoida, server esa koʻpi bilan {limit} tasini qabul qiladi.",
+      maxDepth:
+        "Ichma-ichlik {actual}, server esa koʻpi bilan {limit} ni qabul qiladi.",
       maxValueMembers:
         "«{field}» maydonida {actual} ta qiymat, server esa koʻpi bilan {limit} tasini qabul qiladi.",
       maxAggregateRules:
@@ -1932,9 +2017,11 @@ export const uz: TranslationSchema = {
       unknownField: "«{field}» — bunday maydonni server eʼlon qilmaydi.",
       unavailableField: "«{field}» maydoniga bu oʻrnatmada yoʻq jadval kerak.",
       unsupportedOp: "«{field}» maydoni bu shartni qabul qilmaydi.",
-      betweenIncomplete: "«{field}» maydoniga oraliqning ikkala chegarasi kerak.",
+      betweenIncomplete:
+        "«{field}» maydoniga oraliqning ikkala chegarasi kerak.",
       betweenOrder: "«{field}» maydonida oraliq boshlanishidan oldin tugaydi.",
-      daysOutOfRange: "«{field}» maydonida kunlar soni {min} dan {max} gacha boʻlishi kerak.",
+      daysOutOfRange:
+        "«{field}» maydonida kunlar soni {min} dan {max} gacha boʻlishi kerak.",
       unsortableKey: "«{field}» maydoni boʻyicha saralab boʻlmaydi.",
       versionMismatch:
         "Bu panel {expected}-versiya hujjatlarini yozadi, server esa {actual}-versiyani soʻradi. Auditoriya yigʻishdan oldin sahifani qayta yuklang.",
@@ -2015,6 +2102,20 @@ export const uz: TranslationSchema = {
   },
   billing: {
     title: "Toʻlov kanali",
+    stats: {
+      intents: "Ochilgan toʻlovlar",
+      settled: "Yakunlangan",
+      faults: "Xato kiruvchi chaqiruvlar",
+      attention: "Aralashuv kerak",
+      ofPayments: "{count} ta toʻlov",
+      period: {
+        label: "Davr",
+        day: "Kun",
+        week: "Hafta",
+        month: "Oy",
+        year: "Yil",
+      },
+    },
     range: {
       onPage: "Bu sahifada {count} ta",
       onPageOf: "{total} tadan {count} ta",
@@ -2032,10 +2133,12 @@ export const uz: TranslationSchema = {
       label: "Havola yoki Payme tranzaksiya identifikatori",
       placeholder: "a1b2c3d4e5f60718293a4b5c",
       submit: "Topish",
-      malformed: "Bu havola emas. Toʻlov havolasi ham, Payme tranzaksiya identifikatori ham aniq 24 ta oʻn oltilik belgidan iborat.",
+      malformed:
+        "Bu havola emas. Toʻlov havolasi ham, Payme tranzaksiya identifikatori ham aniq 24 ta oʻn oltilik belgidan iborat.",
       noMatch: "Bu oʻrnatmada bunday havolali toʻlov yoʻq.",
       matchedRef: "Bizning toʻlov havolamizga mos keldi.",
-      matchedTransaction: "Payme’ning oʻz tranzaksiya identifikatoriga mos keldi.",
+      matchedTransaction:
+        "Payme’ning oʻz tranzaksiya identifikatoriga mos keldi.",
     },
     intents: {
       title: "Toʻlovlar",
@@ -2093,36 +2196,49 @@ export const uz: TranslationSchema = {
         missing: "yoʻq",
       },
       notes: {
-        neverOpened: "Payme bu toʻlov boʻyicha hech qachon tranzaksiya ochmagan. Qoʻlda yopilgan toʻlov ham xuddi shunday koʻrinadi.",
-        awaitingRail: "Tranzaksiya ochiq va kanal hali javob bermadi. Bizning soatimiz bilan Payme’niki bir soat emas, shuning uchun bu kechikish emas, kutish.",
-        buyerErased: "Xaridor oʻzini oʻchirishni soʻradi. Pul oʻtdi, lekin kredit beradigan ham, xabar beradigan ham qolmadi — bu holat, nomuvofiqlik emas.",
-        planGrantsNothing: "Tarif qoʻshiqlarni ishlatilgani sari beradi, shuning uchun xarid paytida kredit bermaydi.",
-        notSettled: "Bu toʻlov yakunlanmagan, shuning uchun undan keyingi hech narsa boʻlishi ham kerak emas edi.",
+        neverOpened:
+          "Payme bu toʻlov boʻyicha hech qachon tranzaksiya ochmagan. Qoʻlda yopilgan toʻlov ham xuddi shunday koʻrinadi.",
+        awaitingRail:
+          "Tranzaksiya ochiq va kanal hali javob bermadi. Bizning soatimiz bilan Payme’niki bir soat emas, shuning uchun bu kechikish emas, kutish.",
+        buyerErased:
+          "Xaridor oʻzini oʻchirishni soʻradi. Pul oʻtdi, lekin kredit beradigan ham, xabar beradigan ham qolmadi — bu holat, nomuvofiqlik emas.",
+        planGrantsNothing:
+          "Tarif qoʻshiqlarni ishlatilgani sari beradi, shuning uchun xarid paytida kredit bermaydi.",
+        notSettled:
+          "Bu toʻlov yakunlanmagan, shuning uchun undan keyingi hech narsa boʻlishi ham kerak emas edi.",
         alreadyTold: "Tasdiq yuborilgan.",
-        purged: "Buni qayd etgan qator saqlash muddati boʻyicha oʻchirilgan. Voqea boʻlgan; dalil muddati oʻtib oʻchirilgan.",
+        purged:
+          "Buni qayd etgan qator saqlash muddati boʻyicha oʻchirilgan. Voqea boʻlgan; dalil muddati oʻtib oʻchirilgan.",
       },
     },
     dossier: {
       title: "Toʻlov {reference}",
       back: "Barcha toʻlovlar",
       notFound: "Bunday identifikatorli toʻlov yoʻq",
-      notFoundMessage: "Bu oʻrnatmada bunday identifikatorli toʻlov yoʻq. Doskadagi qidiruv maydonida havolani tekshiring.",
+      notFoundMessage:
+        "Bu oʻrnatmada bunday identifikatorli toʻlov yoʻq. Doskadagi qidiruv maydonida havolani tekshiring.",
       intentPanel: "Toʻlov",
       transactionsPanel: "Payme tranzaksiyalari",
       receiptPanel: "Sotuv",
       ledgerPanel: "Kredit jurnali",
       callsPanel: "Payme’ning shu toʻlov boʻyicha chaqiruvlari",
       chainStopPanel: "U qoʻshiqqa aylandimi?",
-      transactionsNone: "Payme bu toʻlov boʻyicha hech qachon tranzaksiya ochmagan.",
+      transactionsNone:
+        "Payme bu toʻlov boʻyicha hech qachon tranzaksiya ochmagan.",
       receiptNone: "Bu toʻlov boʻyicha sotuv yozilmagan.",
       ledgerNone: "Bu toʻlov boʻyicha hech qanday kredit harakati yozilmagan.",
       callsNever: "Payme bu toʻlov haqida bizga hech qachon murojaat qilmagan.",
-      callsPurged: "Bu toʻlov kiruvchi jurnal saqlanadigan 90 kundan eski, shuning uchun uning chaqiruvlari muddati boʻyicha oʻchirilgan. Oʻchirilgan, yoʻq boʻlgan emas.",
-      chainStopSingle: "Tizim tuzilishiga koʻra javob yoʻq. Kredit balansi — partiyalarsiz bitta son, shuning uchun hech bir soʻrov sotib olingan kredit qaysi qoʻshiqqa ketganini isbotlay olmaydi.",
-      chainStopPlan: "Tarif boʻyicha {included} tadan {used} ta qoʻshiq ishlatilgan.",
-      chainStopPlanUnknown: "Tarif xaridi yozuvi topilmadi, shuning uchun qoʻshiqlarni hisoblab turgan qator ham yoʻq.",
+      callsPurged:
+        "Bu toʻlov kiruvchi jurnal saqlanadigan 90 kundan eski, shuning uchun uning chaqiruvlari muddati boʻyicha oʻchirilgan. Oʻchirilgan, yoʻq boʻlgan emas.",
+      chainStopSingle:
+        "Tizim tuzilishiga koʻra javob yoʻq. Kredit balansi — partiyalarsiz bitta son, shuning uchun hech bir soʻrov sotib olingan kredit qaysi qoʻshiqqa ketganini isbotlay olmaydi.",
+      chainStopPlan:
+        "Tarif boʻyicha {included} tadan {used} ta qoʻshiq ishlatilgan.",
+      chainStopPlanUnknown:
+        "Tarif xaridi yozuvi topilmadi, shuning uchun qoʻshiqlarni hisoblab turgan qator ham yoʻq.",
       settleByHand: "Qoʻlda yopish",
-      settleByHandCaveat: "Konsol buni bajarmaydi va taklif ham qilmaydi. Buyruq terminalda va faqat shu havola boʻyicha yechim Payme kabinetida tasdiqlangach ishga tushiriladi — bu jarayonga esa oʻsha kabinetni koʻrish taqiqlangan.",
+      settleByHandCaveat:
+        "Konsol buni bajarmaydi va taklif ham qilmaydi. Buyruq terminalda va faqat shu havola boʻyicha yechim Payme kabinetida tasdiqlangach ishga tushiriladi — bu jarayonga esa oʻsha kabinetni koʻrish taqiqlangan.",
       copyCommand: "Buyruqni nusxalash",
       copied: "Nusxalandi",
       fields: {
@@ -2159,34 +2275,44 @@ export const uz: TranslationSchema = {
       action: "Tasdiqni qayta yuborish",
       pending: "Navbatga qoʻyilyapti…",
       confirmTitle: "Tasdiq qayta yuborilsinmi?",
-      confirmBody: "Mijoz oʻzi allaqachon qilgan toʻlov haqida xabar oladi. Hech narsa yechilmaydi, kredit berilmaydi va pul qatori yozilmaydi. Ikki marta bosilsa ham bitta xabar ketadi.",
+      confirmBody:
+        "Mijoz oʻzi allaqachon qilgan toʻlov haqida xabar oladi. Hech narsa yechilmaydi, kredit berilmaydi va pul qatori yozilmaydi. Ikki marta bosilsa ham bitta xabar ketadi.",
       confirmLabel: "Tasdiqni yuborish",
       refusalNotPaid: "Bu toʻlov yakunlanmagan, tasdiqlaydigan narsa yoʻq.",
-      refusalBuyerErased: "Xaridor oʻzini oʻchirishni soʻradi. Yuboradigan odam yoʻq; sotuv va kredit tegilmagan.",
-      refusalAlreadyNotified: "Tasdiq allaqachon yuborilgan. Vazifa shu belgida toʻxtaydi, shuning uchun qayta yuborish hech narsa bermaydi.",
+      refusalBuyerErased:
+        "Xaridor oʻzini oʻchirishni soʻradi. Yuboradigan odam yoʻq; sotuv va kredit tegilmagan.",
+      refusalAlreadyNotified:
+        "Tasdiq allaqachon yuborilgan. Vazifa shu belgida toʻxtaydi, shuning uchun qayta yuborish hech narsa bermaydi.",
       sent: "Navbatga qoʻyildi. Vorker bir daqiqa ichida yuboradi.",
-      replayed: "Allaqachon navbatda — bu bosish hech narsani oʻzgartirmadi, shundayligi ham kerak.",
+      replayed:
+        "Allaqachon navbatda — bu bosish hech narsani oʻzgartirmadi, shundayligi ham kerak.",
       reasonLabel: "Nega qayta yuborilyapti",
-      reasonHint: "Audit qatoriga sizning nomingiz bilan tushadi. Sizning soʻzlaringiz, mijozniki emas.",
-      notDelivered: "Bu yerda biz yuborganimiz qayd etiladi. Mijoz koʻrdimi — bu Telegram tomonidagi fakt, bu bazada u yoʻq.",
+      reasonHint:
+        "Audit qatoriga sizning nomingiz bilan tushadi. Sizning soʻzlaringiz, mijozniki emas.",
+      notDelivered:
+        "Bu yerda biz yuborganimiz qayd etiladi. Mijoz koʻrdimi — bu Telegram tomonidagi fakt, bu bazada u yoʻq.",
     },
     pause: {
       pauseAction: "Toʻlovlarni toʻxtatish",
       resumeAction: "Toʻlovlarni tiklash",
       pauseTitle: "Yangi toʻlovlar toʻxtatilsinmi?",
-      pauseBody: "Bot yangi toʻlov havolalarini berishni toʻxtatadi. Jarayondagi toʻlovlarga taʼsir qilmaydi va pul hech qayerga koʻchmaydi. Har qanday operator buni bir bosishda qaytaradi.",
+      pauseBody:
+        "Bot yangi toʻlov havolalarini berishni toʻxtatadi. Jarayondagi toʻlovlarga taʼsir qilmaydi va pul hech qayerga koʻchmaydi. Har qanday operator buni bir bosishda qaytaradi.",
       pauseLabel: "Toʻlovlarni toʻxtatish",
       pausePending: "Toʻxtatilyapti…",
       resumeTitle: "Toʻlovlar tiklansinmi?",
-      resumeBody: "Bot yana toʻlov havolalarini bera boshlaydi. Toʻxtatilgan vaqtdagi hech narsa qayta bajarilmaydi.",
+      resumeBody:
+        "Bot yana toʻlov havolalarini bera boshlaydi. Toʻxtatilgan vaqtdagi hech narsa qayta bajarilmaydi.",
       resumeLabel: "Toʻlovlarni tiklash",
       resumePending: "Tiklanyapti…",
       reasonLabel: "Nega kalit oʻzgartirilyapti",
-      reasonHint: "Audit qatoriga sizning nomingiz bilan tushadi. Bitta qator yetarli.",
+      reasonHint:
+        "Audit qatoriga sizning nomingiz bilan tushadi. Bitta qator yetarli.",
     },
     calls: {
       title: "Kiruvchi chaqiruvlar",
-      subtitle: "Payme bu oʻrnatmaga qilgan har bir JSON-RPC chaqiruvi, yangilari birinchi.",
+      subtitle:
+        "Payme bu oʻrnatmaga qilgan har bir JSON-RPC chaqiruvi, yangilari birinchi.",
       caption: "Payme’dan kiruvchi chaqiruvlar",
       columns: {
         at: "Qachon",
@@ -2201,11 +2327,14 @@ export const uz: TranslationSchema = {
       faultsOnly: "Faqat xatolar",
       allCalls: "Barcha chaqiruvlar",
       empty: "Payme bu manzilga hech qachon murojaat qilmagan",
-      emptyMessage: "Ishlayotgan kanalda qoʻlda yopilgan toʻlov ham xuddi shunday koʻrinadi, shuning uchun bu hech qachon «shlyuz ishlamayapti» degani emas.",
+      emptyMessage:
+        "Ishlayotgan kanalda qoʻlda yopilgan toʻlov ham xuddi shunday koʻrinadi, shuning uchun bu hech qachon «shlyuz ishlamayapti» degani emas.",
       emptyFiltered: "Bu filtrlarga mos chaqiruv yoʻq",
-      emptyFilteredMessage: "Bu oʻrnatmada chaqiruvlar bor, lekin biri ham siz soʻragan oraliq yoki turga tushmaydi.",
+      emptyFilteredMessage:
+        "Bu oʻrnatmada chaqiruvlar bor, lekin biri ham siz soʻragan oraliq yoki turga tushmaydi.",
       emptyFailed: "Jurnal yuklanmadi",
-      emptyFailedMessage: "Yuqoridagi izohda serverning javobi va keltirish uchun korrelyatsiya identifikatori bor.",
+      emptyFailedMessage:
+        "Yuqoridagi izohda serverning javobi va keltirish uchun korrelyatsiya identifikatori bor.",
       chips: {
         method: "Metod",
         faultsOnly: "Faqat xatolar",
@@ -2213,6 +2342,340 @@ export const uz: TranslationSchema = {
         transactionId: "Payme tranzaksiyasi",
         from: "Sanadan",
         through: "Sanagacha",
+      },
+    },
+  },
+  support: {
+    title: "Qoʻllab-quvvatlash",
+    subject: "murojaatlar navbati",
+    subjectOne: "bu murojaat",
+    subjectBoard: "qoʻllab-quvvatlash doskasi",
+    atLeast: "kamida {count}",
+    refresh: "Yangilash",
+    backToBoard: "Doskaga qaytish",
+    openTicket: "Murojaatni ochish",
+    tableCaption: "Qoʻllab-quvvatlash murojaatlari, avval yangilari",
+    filtersAria: "Murojaat filtrlari",
+    subtitles: {
+      reading: "Navbat oʻqilmoqda…",
+      failed: "Navbatni oʻqib boʻlmadi",
+      onThisPage: "shu sahifada {count} ta",
+      tickets: "{count} ta murojaat",
+      ticketsFiltered: "filtrlarga {count} ta murojaat mos keldi",
+    },
+    range: {
+      onPage: "shu sahifada {count} ta",
+      onPageOf: "{total} tadan {count} tasi",
+      none: "Hozircha murojaat yoʻq",
+      noneMatching: "Filtrlarga birorta murojaat mos kelmadi",
+    },
+    board: {
+      aria: "Qoʻllab-quvvatlash doskasi, toʻrtta ustun",
+      columnAria: "{status}, {count} ta murojaat",
+      cardAria: "{customer} yuborgan {reference} murojaati, {status}",
+      columnCount: "bu ustunda {count} ta",
+      empty: "Bu ustun boʻsh",
+      emptyFiltered: "Bu yerda filtrlarga hech narsa mos kelmadi",
+      loading: "Doska oʻqilmoqda…",
+      undescribedHidden:
+        "Tavsiflanmagan murojaatlar doskada koʻrinmaydi — odam tugmani bosgan, ammo hech nima yozmagan. Bu yozuvlar saqlanadi va ularni roʻyxatdan topasiz.",
+      dropHere: "«{status}» ustuniga koʻchirish",
+      cannotDropHere: "«{from}» dagi murojaatni «{to}» ga koʻchirib boʻlmaydi",
+    },
+    status: {
+      new: "Yangi",
+      inProgress: "Ishda",
+      waiting: "Mijoz javobi kutilmoqda",
+      resolved: "Hal qilindi",
+    },
+    statusHint: {
+      new: "Bunga hali hech kim qaramagan. Bu ustunga hech narsa qaytmaydi.",
+      inProgress: "Murojaat kimningdir qoʻlida, mijoz esa bizni kutmoqda.",
+      waiting:
+        "Biz mijozga savol berdik, javob undan. U yozmaguncha bu yerda hech nima siljimaydi.",
+      resolved:
+        "Javob berilgan va yopilgan. Mijozning javobi uni yana «Ishda» ustuniga ochadi, yopilgan sana esa saqlanadi.",
+    },
+    source: {
+      deliveryButton: "Tayyor qoʻshiq",
+      supportCommand: "/support",
+    },
+    sourceHint: {
+      deliveryButton:
+        "Tayyor qoʻshiq ostidagi tugma orqali ochilgan, shuning uchun buyurtma maʼlum.",
+      supportCommand:
+        "Botning istalgan joyida yozilgan, shuning uchun buyurtma yoʻq. Navbat esa oʻsha-oʻsha.",
+    },
+    card: {
+      reference: "Raqam",
+      customer: "Mijoz",
+      order: "Buyurtma",
+      noOrder: "Buyurtmasiz",
+      opened: "Ochilgan",
+      updated: "Oxirgi oʻzgarish",
+      assignee: "Kimda",
+      unassigned: "Hech kimda",
+      events: "{count} ta yozuv",
+      language: "Qaysi tilda",
+      body: "Bizga nima yozdilar",
+      noBody: "Tavsif qoldirilmagan",
+      noBodyHint:
+        "Mijoz murojaatni ochgan va hech nima yozmagan. Yozuv saqlanadi: qancha odam bizga aytmoqchi boʻlib, keyin voz kechganini faqat shu koʻrsatadi.",
+      inGroup: "Qoʻllab-quvvatlash guruhiga yuborilgan",
+      notInGroup: "Qoʻllab-quvvatlash guruhida yoʻq",
+      notInGroupHint:
+        "Kartochka hali yuborilmagan yoki bu stendda qoʻllab-quvvatlash guruhi sozlanmagan. Murojaat yoʻqolmagan va mijozda uning raqami bor.",
+      resolvedAt: "Yopilgan",
+      reopened: "Qayta ochilgan",
+      reopenedHint:
+        "Bu murojaat bir marta yopilgan va qaytib keldi. Yopilgan sana ataylab saqlanadi.",
+    },
+    actions: {
+      move: "Koʻchirish",
+      moveTo: "«{status}» ustuniga koʻchirish",
+      claim: "Oʻzimga olaman",
+      assign: "Topshirish",
+      reply: "Mijozga javob berish",
+      note: "Ichki eslatma qoʻshish",
+      reopen: "Qayta ochish",
+      resolve: "Hal qilindi",
+      pickColumn: "Ustunni tanlang",
+      readOnly:
+        "Rolingiz murojaatlarni oʻqishga ruxsat beradi, javob berishga emas.",
+      cancel: "Bekor qilish",
+    },
+    dialogs: {
+      assign: {
+        title: "Murojaatni operatorga topshirish",
+        label: "Operator nomi",
+        placeholder: "dilnoza",
+        hint: "Operatorlar roʻyxati tekshirilmaydi: nom qanday boʻlsa shunday yoziladi, toki ishdan ketgan operator navbat tarixini oʻzi bilan olib ketmasin.",
+        submit: "Topshirish",
+        pending: "Topshirilmoqda…",
+        invalid:
+          "Faqat kichik lotin harflari, raqamlar, nuqta, chiziqcha va pastki chiziq.",
+      },
+      reply: {
+        title: "Mijozga javob berish",
+        label: "Javobingiz",
+        placeholder:
+          "Murojaat qaysi tilda ochilgan boʻlsa, oʻsha tilda yozing.",
+        hint: "Mijozga botda, u bizga yozgan tilda yuboriladi.",
+        submit: "Yuborish",
+        pending: "Yuborilmoqda…",
+        warning:
+          "Bu soʻzlar odamning telefoniga tushadi. Ularni qaytarib olib boʻlmaydi.",
+        remaining: "{count} ta belgi qoldi",
+      },
+      note: {
+        title: "Ichki eslatma qoʻshish",
+        label: "Eslatma",
+        placeholder: "Keyingi operator nimani bilishi kerak.",
+        hint: "Murojaat tarixida, unga tegishli boshqa hamma narsa yonida saqlanadi.",
+        submit: "Eslatmani saqlash",
+        pending: "Saqlanmoqda…",
+        warning:
+          "Buni mijoz koʻrmaydi — Telegram guruhidagi kartochka bilan ishlayotgan xodimlar ham koʻrmaydi.",
+      },
+      move: {
+        title: "Murojaatni koʻchirish",
+        body: "«{status}» ustuniga koʻchirilmoqda.",
+        reopenBody:
+          "Murojaat qayta ochilib, «{status}» ustuniga oʻtkazilmoqda. Yopilgan sana saqlanadi, shuning uchun shikoyat qaytgani koʻrinib turadi.",
+        submit: "Koʻchirish",
+        pending: "Koʻchirilmoqda…",
+      },
+    },
+    timeline: {
+      title: "Nimalar boʻldi",
+      empty: "Bu murojaat bilan hali hech nima boʻlmagan",
+      relayed: "Yetkazildi: {when}",
+      notRelayed: "Yetkazilmagan",
+      notRelayedHint:
+        "Javob yozilgan, ammo mijozga yetib bormagan. U botni bloklagan boʻlishi yoki yuborilgan paytda vorker ishlamagan boʻlishi mumkin.",
+      statusMove: "{from} → {to}",
+      assignedTo: "Topshirildi: {username}",
+      unknownAuthor: "Nomaʼlum",
+      kind: {
+        opened: "Murojaat ochildi",
+        described: "Mijoz muammoni tavsifladi",
+        statusChange: "Koʻchirildi",
+        note: "Ichki eslatma",
+        reply: "Mijozga javob berildi",
+        assigned: "Topshirildi",
+        groupPosted: "Qoʻllab-quvvatlash guruhiga yuborildi",
+      },
+      author: {
+        customer: "Mijoz",
+        operator: "Operator",
+        staffGroup: "Xodim, Telegram guruhida",
+        system: "Tizim",
+      },
+    },
+    dnd: {
+      instructions:
+        "Probel — murojaatni olish, oʻq tugmalari — ustunni tanlash, yana probel — koʻchirish, Escape — joyiga qaytarish.",
+      grabbed:
+        "{reference} murojaati «{status}» ustunidan olindi. Ustunni oʻq tugmalari bilan tanlang.",
+      dropped: "{reference} murojaati «{status}» ustuniga qaytarildi.",
+      moved: "{reference} murojaati «{from}» dan «{to}» ga koʻchirildi.",
+      cancelled:
+        "Koʻchirish bekor qilindi. {reference} murojaati «{status}» ustunida qoldi.",
+      blocked: "«{from}» dagi murojaatni «{to}» ga koʻchirib boʻlmaydi.",
+    },
+    empty: {
+      title: "Bizga hech kim yozmagan",
+      message:
+        "Murojaat mijoz tayyor qoʻshiq ostidagi tugmani bosganda yoki botda /support deb yozganda paydo boʻladi.",
+      filteredTitle: "Filtrlarga birorta murojaat mos kelmadi",
+      filteredMessage:
+        "Murojaatlar bor, ammo birortasi tanlangan davr yoki turga tushmadi.",
+    },
+    notes: {
+      forbiddenMessage:
+        "Sizning rolingiz buni oʻqiy olmaydi. Qayta soʻrash hech nimani oʻzgartirmaydi, faqat yana bitta rad javobini yozadi.",
+      sessionEndedMessage:
+        "{message} Qaytadan kiring — navbat oʻsha joyida turadi.",
+      refusedFiltersMessage:
+        "{message} Filtrlarni toraytiring va qayta soʻrang.",
+      notFoundMessage:
+        "Bunday identifikatorli murojaat yoʻq. U mijozning iltimosiga koʻra oʻchirilgan boʻlishi mumkin — murojaat anonimlashtirilmaydi, oʻchiriladi.",
+      conflictTitle: "Murojaatni allaqachon koʻchirishgan",
+      conflictMessage:
+        "Siz oʻqib turganingizda uni boshqa birov koʻchirdi — koʻpincha xodim Telegram guruhidagi kartochkadagi tugmani bosadi. Hech nima yozilmadi, murojaat qayta oʻqilmoqda.",
+      workerTitle: "Vorker bilan bogʻlanib boʻlmadi",
+      workerMessage:
+        "Hech nima yozilmadi. Oʻzgarish Telegram guruhidagi kartochkaga ham yetishi kerak, shuning uchun amal yarim bajarilgandan koʻra butunlay rad etiladi — aks holda doska bilan kartochka abadiy bir-biriga zid boʻlib qolardi.",
+    },
+    filter: {
+      status: "Ustun",
+      statusHint: "Murojaat hozir qayerda.",
+      source: "Qayerdan ochilgan",
+      sourceHint:
+        "Qaysi eshikdan kelgan. Ikkalasi ham bir xil murojaat yaratadi.",
+      language: "Qaysi tilda",
+      languageHint:
+        "Murojaat qaysi tilda ochilgan boʻlsa — javob ham oʻsha tilda yozilishi kerak.",
+      assignedTo: "Kimda",
+      assignedToHint:
+        "Aniq nom, va ataylab qidiruv qatoriga qoʻshilmagan: «Dilnozaning murojaatlari» va «Dilnoza tilga olingan murojaatlar» — bular ikki xil savol.",
+      search: "Raqam yoki soʻzlar",
+      searchHint: "Raqam boʻyicha va mijozning oʻz soʻzlari boʻyicha qidiradi.",
+      onlyDescribed: "Faqat tavsiflanganlar",
+      onlyDescribedHint:
+        "Ochilgan-u toʻldirilmagan murojaatlarni yashirish. Doskada ular umuman koʻrinmaydi.",
+    },
+    chips: {
+      status: "Ustun",
+      source: "Qayerdan ochilgan",
+      language: "Qaysi tilda",
+      assignedTo: "Kimda",
+      search: "Qidiruv",
+      onlyDescribed: "Faqat tavsiflanganlar",
+      join: ", ",
+    },
+    groups: {
+      open: "Qoʻllab-quvvatlash guruhi",
+      title: "Murojaat kartochkalari qayerga yuboriladi",
+      subject: "qoʻllab-quvvatlash guruhini",
+      subtitle:
+        "Murojaatlar baribir qayd etiladi. Bu yerda — bot yangi murojaat kartochkasini yuboradigan Telegram guruhi va u yerga yoza olishi tekshirilgan-tekshirilmagani koʻrsatiladi.",
+      constraint:
+        "Telegram botga guruhlar roʻyxatini bermaydi — u guruhni faqat qoʻshilganda biladi. Bot allaqachon aʼzo guruh uchun chat id qoʻying.",
+      close: "Yopish",
+      refresh: "Yangilash",
+      known: "Bot biladigan chatlar",
+      listAria: "Bot biladigan chatlar",
+      loading: "Chatlar roʻyxati oʻqilmoqda…",
+      emptyMessage:
+        "Hozircha hech nima yozilmagan. Botni guruhga qoʻshing — guruh shu yerda paydo boʻladi, yoki quyida chat id kiriting.",
+      readOnly:
+        "Rolingiz guruhni koʻradi, lekin oʻzgartira olmaydi. support.group.write huquqi kerak.",
+      botStatusHint:
+        "Telegram bu yerda botning holati haqida oxirgi marta nima deganini koʻrsatadi. Bu dalil, ruxsat emas: bot yoza olishini faqat tekshiruv isbotlaydi.",
+      current: {
+        heading: "Kartochkalar yuboriladi",
+        none: "Guruh tanlanmagan",
+        noneHint:
+          "Murojaatlar ishlaydi va mijoz raqamini oladi. Faqat Telegram kartochkasi yuborilmaydi.",
+        thread: "{id} mavzusiga",
+        noThread: "Guruhning oʻziga, mavzusiz",
+        chosenBy: "{username} tanlagan, {when}",
+      },
+      row: {
+        selected: "Murojaatlarni qabul qiladi",
+        thread: "{id} mavzusi",
+        selectAria: "Kartochkalarni {chat} ga yuborish",
+      },
+      type: {
+        group: "Guruh",
+        supergroup: "Superguruh",
+        channel: "Kanal",
+      },
+      source: {
+        membershipEvent: "Telegram aytgan",
+        manual: "Qoʻlda kiritilgan",
+      },
+      sourceHint: {
+        membershipEvent:
+          "Bot bu chatga qoʻshilgan yoki undan chiqarilgan va Telegram bu haqda xabar yuborgan.",
+        manual:
+          "Bu chat id ni kimdir qoʻlda kiritgan. Bot rostdan shu xonada ekanini tekshiruvdan boshqa hech narsa tasdiqlamaydi.",
+      },
+      botStatus: {
+        member: "Aʼzo",
+        administrator: "Administrator",
+        restricted: "Cheklangan",
+        left: "Chiqib ketgan",
+        kicked: "Chiqarilgan",
+        unknown: "Nomaʼlum",
+      },
+      verification: {
+        verified: "Yuborish ishlaydi",
+        failed: "Yoza olmaydi",
+        checking: "Tekshirilmoqda…",
+        verifiedWhen: "Xabar bu chatga yetib bordi: {when}.",
+        checkingHint:
+          "Sinov xabari yuborilmoqda. Bir ozdan keyin yangilang; oʻzgarmasa — vorker ishlamayapti.",
+      },
+      actions: {
+        select: "Shu yerga yuborilsin",
+        recheck: "Qayta tekshirish",
+        selecting: "Tanlanmoqda…",
+        clear: "Guruhga yozishni toʻxtatish",
+        clearing: "Toʻxtatilmoqda…",
+        clearHint:
+          "Murojaatlar ishlayveradi; faqat Telegram kartochkasi toʻxtaydi.",
+      },
+      paste: {
+        heading: "Chat id orqali",
+        hint:
+          "Bot allaqachon aʼzo guruh uchun. Oʻsha guruhdagi xabarni chat id koʻrsatuvchi botga yuboring.",
+        chatLabel: "Chat id",
+        chatPlaceholder: "-1001234567890",
+        chatHint: "Guruh chat id si manfiy va minus bilan boshlanadi.",
+        chatIsPerson:
+          "Bu guruh emas. Minussiz chat id bitta odamga tegishli, va u yerga yuborilgan kartochkalarni oʻsha odamdan boshqa hech kim koʻrmaydi.",
+        threadLabel: "Mavzu id si (ixtiyoriy)",
+        threadPlaceholder: "12",
+        threadHint:
+          "Boʻsh — guruhning oʻziga.",
+        threadInvalid: "Mavzu id si — noldan katta butun son.",
+        submit: "Shu yerga yuborilsin",
+      },
+      notes: {
+        forbiddenMessage:
+          "Sizning rolingiz kartochkalar qayerga yuborilishini oʻzgartira olmaydi. Qayta urinish buni oʻzgartirmaydi, har bir urinish esa rad etish sifatida yoziladi.",
+        sessionEndedMessage:
+          "{message} Qaytadan kiring — ekran qoldirgan joyingizda boʻladi.",
+        conflictTitle: "Buni boshqa birov oldinroq oʻzgartirdi",
+        conflictMessage:
+          "Ayni shu daqiqada boshqa operator guruh tanladi, tanlangan guruh esa faqat bitta boʻladi. Sizning oʻzgarishingiz yozilmadi — roʻyxatni qayta oʻqing va undagi holatdan tanlang.",
+        refusedTitle: "Bu chat id rad etildi",
+        refusedMessage: "{message} Hech nima yozilmadi.",
+        workerTitle: "Tanlandi, lekin tekshiradigan hech kim yoʻq",
+        workerMessage:
+          "Guruh oʻzgartirildi va oʻzgarish saqlandi. Vorker ishlamayapti, shuning uchun sinov xabari yuborilmadi — vorker paydo boʻlmaguncha bu chat tekshirilmagan qoladi.",
       },
     },
   },

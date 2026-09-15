@@ -43,6 +43,16 @@ export const PATH = {
    */
   broadcastDetail: "/broadcasts/:broadcastId",
   /*
+   * Support. The section's landing screen is the BOARD — four columns over the same
+   * population the queue filters — and there is no `/support/new`: a ticket is opened by a
+   * customer tapping ⚠️ or typing `/support` in the bot, never by an operator here. So
+   * there is no literal sibling to register ahead of the pattern below, and no ordering
+   * trap of the kind `broadcastNew` carries.
+   */
+  support: "/support",
+  /** The router's PATTERN. Never navigate to this — call `supportTicketPath`. */
+  supportTicket: "/support/:ticketId",
+  /*
    * The Payme rail. Three paths, and the section's landing screen is the payments LIST: the
    * filters that narrow it and the lookup that jumps out of it are the whole screen, and the
    * status the board used to explain at length is one pause control in the toolbar.
@@ -98,6 +108,24 @@ export function broadcastNewPath(segmentToken: string | null): string {
  */
 export function broadcastDetailPath(broadcastId: string): string {
   return `${PATH.broadcasts}/${encodeURIComponent(broadcastId)}`;
+}
+
+/**
+ * One support ticket, by its UUID.
+ *
+ * **The UUID and never `publicRef`.** The public reference is the string the customer was given
+ * and shouts down a phone line, so it belongs in the LOOKUP box (`?q=`) rather than in every
+ * link — and the server could not have mounted a route on it anyway, because every path
+ * parameter on this API is asserted to be a `UUID` or an `int`. The id itself carries nothing
+ * about a customer: a ticket's Telegram id, its language and its body are all inside the
+ * record, and none of them enters the address bar, where a value leaks through history,
+ * referrers and screenshots.
+ *
+ * `encodeURIComponent` for `generationDetailPath`'s reason: the value comes back off the wire,
+ * and a path segment is not the place to trust a shape.
+ */
+export function supportTicketPath(ticketId: string): string {
+  return `${PATH.support}/${encodeURIComponent(ticketId)}`;
 }
 
 /**

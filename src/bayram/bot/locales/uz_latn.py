@@ -652,4 +652,61 @@ CATALOGUE: Final[dict[str, str]] = {
         "Qoʻshiq ostidagi yakuniy xabardagi buyurtma raqamini ham qoʻshing — u bilan aynan "
         "qaysi jarayon boʻlganini topib, nima notoʻgʻri ketganini koʻramiz."
     ),
+    # -- support tickets (the ⚠️ button and /support, which are ONE flow) -------
+    # Eight keys, and they are the WHOLE customer-facing surface of the ticket system: the
+    # prompt and its re-prompt, the two answers a description can get, the refusal, the
+    # failure, the reply that comes back from a person and the answer to a follow-up.
+    # Everything a STAFFER reads — the triage card, its buttons,
+    # its status badges — is an English literal in ``bayram.bot.support_card`` and is
+    # deliberately not here: ``translate`` falls back across all four locales and the
+    # catalogues are held in exact key parity, so one staff-facing string in this file would
+    # oblige four translations of an internal message, for ever.
+    #
+    # ``{ref}`` is the ticket's public reference — eight characters of its own id, the same
+    # shape as the order reference in the closing message (``bayram.support.public_ref_for``).
+    # It is rendered inside ``<code>`` in every one of these, because its whole job is to be
+    # read back to us: ``<code>`` is what makes a phone tap copy it rather than select a
+    # word of the sentence around it.
+    "support.ticket.prompt": (
+        "✍️ Nima notoʻgʻri boʻlganini ayting — shu xabarga javob qilib, oʻz soʻzlaringiz "
+        "bilan yozing.\n\n"
+        "Xohlaganingizcha yozavering: bularning har birini tirik odam oʻqiydi."
+    ),
+    "support.ticket.filed": (
+        "✅ Qabul qilindi. Murojaatingiz raqami — <code>{ref}</code>, uni odam koʻrib "
+        "chiqadi.\n\n"
+        "Shu raqamni saqlab qoʻying: shu mavzuda yana yozsangiz, uni ham qoʻshing. Javob "
+        "shu chatga keladi."
+    ),
+    "support.ticket.already_filed": (
+        "📬 Bu menda allaqachon bor — murojaat <code>{ref}</code>. Qaytadan yuborish shart "
+        "emas, javob shu yerga keladi."
+    ),
+    # The re-prompt, NOT a refusal. See the English catalogue: §1.4's rule, and the fix for a
+    # blocked account that could open tickets it was never allowed to describe.
+    "support.ticket.still_open": (
+        "✍️ Sizda <code>{ref}</code> murojaati allaqachon ochiq va men hali ham nima "
+        "notoʻgʻri boʻlganini kutyapman.\n\n"
+        "Shu xabarga javob qilib, oʻz soʻzlaringiz bilan yozing."
+    ),
+    # The DAILY ceiling, and the only real refusal here.
+    "support.ticket.too_many": (
+        "⏳ Bitta hisob uchun bir kunda shuncha murojaat ocha olaman.\n\n"
+        "Yuborganlaringizga javob kelishini kuting, keyingisini ertaga ayting."
+    ),
+    "support.ticket.unavailable": (
+        "⚠️ Hozir murojaat ocholmadim. Bir ozdan keyin yana urinib koʻring — agar "
+        "takrorlansa, /support yuboring va shu chatning oʻzida yozib qoldiring."
+    ),
+    "support.ticket.reply": (
+        "✉️ <b>Qoʻllab-quvvatlash</b> · murojaat <code>{ref}</code>\n\n"
+        "<blockquote>{body}</blockquote>\n\n"
+        "Aytadigan gapingiz boʻlsa, shu yerga javob yozing."
+    ),
+    # The answer to that invitation. A follow-up joins the ticket that already exists and
+    # never mints a second reference.
+    "support.ticket.follow_up": (
+        "📨 <code>{ref}</code> murojaatiga qoʻshildi. Uni koʻrayotgan odamlar buni ham "
+        "koʻradi, javob esa shu yerga keladi."
+    ),
 }

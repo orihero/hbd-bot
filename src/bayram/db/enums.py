@@ -431,6 +431,46 @@ class AuditAction(StrEnum):
     #: it is deliberately not a ``credit.grant``; the row exists because "who told this
     #: customer, and when" is the first question of the support call that follows.
     PAYMENT_NOTIFY = "payment.notify"
+    #: The four things an operator does to a support ticket from the panel. Four members
+    #: rather than one ``ticket.update`` with the verb in a field, for this enum's founding
+    #: reason: "show me every reply we sent this week" has to be an indexed equality on
+    #: ``action``, and an investigation under time pressure must not have to parse
+    #: ``field_names`` to tell a note nobody saw from a message we put in a customer's phone.
+    #:
+    #: ``ticket.reply`` is the one of the four that leaves the building, and it is filed here
+    #: rather than under a reveal or a broadcast action because it is neither: it discloses
+    #: nothing about anybody and it reaches exactly one person, who asked. ``ticket.note`` is
+    #: its deliberate opposite — an internal line the customer never sees — and keeping the
+    #: two apart in the taxonomy is what makes "was this ever actually answered?" a query.
+    #:
+    #: All four are ``subject_type="ticket"`` with the ticket's UUID as the subject; see
+    #: ``bayram.db.admin.audit.SUBJECT_TYPES``. Longest value is 13 characters, well inside
+    #: ``ENUM_LENGTH`` (32).
+    TICKET_STATUS = "ticket.status"
+    TICKET_NOTE = "ticket.note"
+    TICKET_REPLY = "ticket.reply"
+    TICKET_ASSIGN = "ticket.assign"
+    #: Where every FUTURE ticket card is posted, chosen and unchosen from the panel
+    #: (``SUPPORT_TICKETS_SPEC §3.8``). Not a ``ticket.*`` member and not filed under them:
+    #: those four are one operator acting on ONE customer's complaint, and these two are a
+    #: deployment-wide setting that decides where the next thousand complaints are published.
+    #: Folding them in would make "show me everything we did to tickets this week" return the
+    #: act that redirected all of them, which is the opposite of what that filter is for.
+    #:
+    #: **Two members and not one ``support.group.set`` with the chat in a field**, for this
+    #: enum's founding reason: "who turned the support inbox off, and when" has to be an
+    #: indexed equality on ``action`` rather than a scan that parses ``field_names``. Clearing
+    #: is the one that stops cards being posted at all, so it is the one an incident review
+    #: looks for first, and it must not be hidden inside the same value as a routine move.
+    #:
+    #: ``subject_type`` is ``"bot_chat"`` with ``bot_chats.chat_id`` as the subject — for the
+    #: clear, the chat that WAS selected, because "nothing" is not a subject and a row whose
+    #: subject is null has lost the only fact worth having. Not ``"config"``: the pause switch
+    #: is a Redis key with no row behind it, while this names a row in a table the panel lists.
+    #: See ``bayram.db.admin.audit.SUBJECT_TYPES``. Longest value is 20 characters, inside
+    #: ``ENUM_LENGTH`` (32).
+    SUPPORT_GROUP_SELECT = "support.group.select"
+    SUPPORT_GROUP_CLEAR = "support.group.clear"
 
 
 class AuditReasonCode(StrEnum):

@@ -25,7 +25,7 @@ import { cn } from "@/lib/cn";
  *  - **`action` and `outcome` REPEAT** (`?outcome=denied&outcome=error` — OR within the field,
  *    AND across fields), so both are toggle groups. An empty selection omits the parameter,
  *    which means "do not filter" and not "match nothing".
- *  - **`action` has THIRTY-FOUR members**, which is why it gets `GroupedEnumToggles` rather
+ *  - **`action` has FORTY-ONE members**, which is why it gets `GroupedEnumToggles` rather
  *    than one undifferentiated wrap. A control nobody can scan is a filter nobody sets, and an
  *    audit filter nobody sets is an investigation that comes back empty and reads as "it never
  *    happened".
@@ -37,10 +37,15 @@ import { cn } from "@/lib/cn";
  *    `resolve_window`, so its window is not the half-open one every other list on this API
  *    takes. The hint says so, because the difference is a row at the boundary.
  *
- * `subjectType` is a `<select>` over the nine values `SUBJECT_TYPES` allows to be stored even
- * though the parameter is a plain `str` with no enum check: a tenth value cannot exist in the
- * column, so a free-text box there would only ever produce an empty page. `subjectId` IS free
- * text, because it is an opaque identifier somebody pastes.
+ * `subjectType` is a `<select>` over the values `AUDIT_SUBJECT_TYPE_VALUES` mirrors from
+ * `SUBJECT_TYPES`, which is what the column is allowed to store even though the parameter is a
+ * plain `str` with no enum check: a value outside that list cannot exist in the column, so a
+ * free-text box there would only ever produce an empty page. `subjectId` IS free text, because
+ * it is an opaque identifier somebody pastes.
+ *
+ * The count is deliberately NOT written out here. It read "nine" while the list grew to ten
+ * (`payment`) and then eleven (`ticket`, 2026-09-15), and a number in prose beside a closed
+ * list in another module is a fact with no test behind it. Read the list.
  */
 
 /* -------------------------------------------------------------------------- */

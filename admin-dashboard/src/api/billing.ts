@@ -271,10 +271,26 @@ export const billingWindowSchema = z.object({
 });
 export type BillingWindow = z.infer<typeof billingWindowSchema>;
 
-/** One state and how many rows are in it. A state with no rows is ABSENT from the list. */
+/**
+ * One state, the money in it, and how many rows carry that money.
+ *
+ * A state with no rows is ABSENT from the list.
+ *
+ * `amountMinor` leads and `count` qualifies it. A payments screen is read to answer "how much
+ * did we take", and `143` under *Settled* answers a question nobody asks about money: one
+ * 15 000 soʻm song and a hundred of them print the same figure. The count stays beside it
+ * because it is the only thing that tells those two apart.
+ *
+ * `currency` is `null` on the TRANSACTION funnel and a string on the INTENT funnel. That is
+ * the database's asymmetry, not a field somebody forgot: `payme_transactions` has no currency
+ * column because Payme denominates in soʻm and nothing else, while `payment_intents` records
+ * one per row. Label both from the intent side.
+ */
 export const stateCountSchema = z.object({
   state: z.string(),
   count: z.number().int(),
+  amountMinor: z.number().int(),
+  currency: z.string().nullable().default(null),
 });
 export type StateCount = z.infer<typeof stateCountSchema>;
 

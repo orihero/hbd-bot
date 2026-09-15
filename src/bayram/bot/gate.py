@@ -42,7 +42,13 @@ this gate FAILS OPEN. A meter that cannot be read is not a reason to stop sellin
 **The erasure carve-out is not negotiable — but it is not unmetered either.**
 ``/privacy``, ``/forget`` and ``/support`` reach their handler whatever this gate thinks
 about the account: blocking is an operator action of indefinite length, and it may never
-become the mechanism by which a data-subject request is denied. They are exempt from the
+become the mechanism by which a data-subject request is denied. **A reply to one of the
+bot's own messages passes the BLOCK WALL too, and only that wall**: ``/support`` opens a
+ticket with a command and DESCRIBES it with an ordinary message, so a carve-out that covered
+only the command told a blocked customer to "send /support and tell me about it" and then
+refused every sentence they sent. Unlike the three commands it stays under the ordinary
+throttle; :func:`_is_answer_to_the_bot` argues the breadth of that and what bounds it. The
+three commands are exempt from the
 ORDINARY throttle for the same reason — the person most likely to be over it is the person
 whose ``/forget`` must still land — and they carry a small budget of their own instead
 (``InboundPolicy.erasure_max_updates``). They are not the "one canned message each" an
@@ -448,7 +454,16 @@ class InboundGateMiddleware(BaseMiddleware):
         self.touches.offer(UserTouch(telegram_user_id=telegram_user_id, ui_language=chosen, at=now))
         if _is_erasure_request(event):
             return await self._meter_the_erasure_request(telegram_user_id, spoken, now)
-        if await self._is_blocked(telegram_user_id, now):
+        #: An ANSWER to something we asked skips the block wall and nothing else — it goes on
+        #: to the ordinary throttle below, which is the whole difference between it and the
+        #: three commands above. See :func:`_is_answer_to_the_bot` for why it must skip the
+        #: wall, and this comment for why it may not skip the meter: the commands have their
+        #: own small budget BECAUSE they are exempt from the ordinary one, and a reply needs
+        #: no such exemption. Routing it through ``erasure_max_updates`` instead would put a
+        #: customer typing three sentences into a ForceReply on a three-a-minute ceiling
+        #: shared with ``/forget`` — tightening the limit on ordinary customers in order to
+        #: loosen it for blocked ones, which is the wrong trade in both directions.
+        if not _is_answer_to_the_bot(event) and await self._is_blocked(telegram_user_id, now):
             _LOG.info("blocked account refused", extra={"telegram_user_id": telegram_user_id})
             return await self._refuse(_BLOCKED_MESSAGE_KEY, spoken, telegram_user_id, now)
         verdict = await check_update_rate(
@@ -586,3 +601,51 @@ def _is_erasure_request(event: TelegramObject) -> bool:
         return False
     word = text.split(maxsplit=1)[0].removeprefix(COMMAND_PREFIX)
     return word.split("@", 1)[0].casefold() in ERASURE_COMMANDS
+
+
+def _is_answer_to_the_bot(event: TelegramObject) -> bool:
+    """Is this message an ANSWER to something we asked? It joins the carve-out if so.
+
+    **This closes a loop that made ``/support`` a lie to the account that needed it most.**
+    ``/support`` is in :data:`ERASURE_COMMANDS` so a blocked customer can open a ticket — but
+    a ticket is opened by a command and DESCRIBED by an ordinary message. That message is not
+    a command, so the block gate refused it with ``error.blocked``, whose own copy reads
+    "send /support and tell me about it". The customer obeyed, got another ForceReply, was
+    refused again, and after three turns held three empty tickets and was over the undescribed
+    ceiling. The most important sentence this product can receive from a blocked customer —
+    the one that asks a person to lift the block — was the one sentence it structurally could
+    not hear. Blocking is an operator action of indefinite length; it may never become the
+    mechanism by which a request to lift it is denied.
+
+    **Checkable from the update alone, which is what makes it affordable here.** This
+    middleware runs inside aiogram's FSM isolation lock and may not await a database read, so
+    "is this a reply to the support prompt?" — a lookup on ``support_tickets`` by
+    ``prompt_message_id`` — is not available. ``reply_to_message.from_user.is_bot`` is, and it
+    is a fair proxy: a reply to one of our own messages is an answer to a question we asked.
+
+    **It is broader than the support prompt, and the breadth is bounded on purpose.** What a
+    blocked account gains is the ability to reply to bot messages, and only that.
+
+    * It does NOT gain buttons. A :class:`~aiogram.types.CallbackQuery` carries no
+      ``reply_to_message``, so every callback from a blocked account is still refused — and
+      the wizard is reached and walked entirely by buttons (occasion, genre, voice, confirm),
+      so there is no path from here into a draft.
+    * It cannot order. ``handlers.confirm`` refuses ``state.is_blocked`` at the confirm
+      screen, with a test of its own.
+    * It is still METERED. Unlike the three commands this does NOT skip the ordinary
+      throttle — see :meth:`InboundGateMiddleware._decide`, where it short-circuits the block
+      wall and then falls through to ``check_update_rate`` like any other message. That is
+      deliberate: ``erasure_max_updates`` is a SMALLER budget that exists because the commands
+      are exempt from the ordinary one, and putting replies on it would give a customer typing
+      into a ForceReply a three-a-minute ceiling shared with ``/forget``.
+
+    A message with no ``reply_to_message`` is untouched, which is every ordinary message: this
+    does not weaken the block gate for anything a blocked account sends unprompted.
+    """
+    if not isinstance(event, Message):
+        return False
+    replied_to = event.reply_to_message
+    if replied_to is None:
+        return False
+    author = replied_to.from_user
+    return author is not None and author.is_bot

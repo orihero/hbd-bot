@@ -97,8 +97,8 @@ const timestampSchema = z.string();
 /* -------------------------------------------------------------------------- */
 
 /**
- * `AuditAction` — the closed taxonomy of what a row records, `bayram.db.enums.AuditAction`, all
- * 34 members in declaration order.
+ * `AuditAction` — the closed taxonomy of what a row records, `bayram.db.enums.AuditAction`, in
+ * declaration order.
  *
  * The values are dotted and abbreviated and they are **not slugs**: `order.deliver` is written
  * by `ORDER_FORCE_DELIVER` and `login.limited` by `LOGIN_RATE_LIMITED`, so a screen that
@@ -158,6 +158,44 @@ export const AUDIT_ACTION_VALUES = [
   "rail.paused",
   "rail.resumed",
   "payment.notify",
+  /*
+   * The four things an operator does to a support ticket from the panel, all against
+   * `subject_type: "ticket"` with the ticket's UUID. Four members and not one `ticket.update`
+   * with the verb in a field, for this enum's founding reason: "show me every reply we sent
+   * this week" has to be an indexed equality on `action`, and an investigation under time
+   * pressure must not have to parse `fieldNames` to tell an internal note nobody saw from a
+   * message we put in a customer's phone.
+   *
+   * Python and TypeScript hold two independent copies of this taxonomy with NO cross-language
+   * parity test, so these four landed here by hand in the same change as `AuditAction`'s. The
+   * cost of forgetting is not a crash — this app parses `action` as `z.string()` — it is four
+   * actions nobody can FILTER on, which is an investigation that comes back empty and reads as
+   * "it never happened".
+   */
+  "ticket.status",
+  "ticket.note",
+  "ticket.reply",
+  "ticket.assign",
+  /*
+   * Repointing the support inbox, and switching it off. Written against
+   * `subject_type: "bot_chat"` with the chat id as text — on a clear, the chat that WAS selected.
+   *
+   * **Two members and not one `support.group.change` with the verb in a field**, on this enum's
+   * founding reason: "who stopped the cards going anywhere, and when" is the question asked
+   * during an incident where tickets are arriving in the panel and nobody in the Telegram group
+   * has seen one, and it has to be an indexed equality on `action` rather than a filter that
+   * parses `fieldNames` — `support.group.clear` is exactly one row and it is the row that
+   * explains the silence. They are also not symmetrical acts: a select names a NEW chat and is
+   * checked by a worker afterwards, a clear names nothing and is final on arrival.
+   *
+   * Python and TypeScript hold two independent copies of this taxonomy with NO cross-language
+   * parity test, so these two landed here by hand in the same change as `AuditAction`'s. The
+   * cost of forgetting is not a crash — this app parses `action` as `z.string()` — it is two
+   * actions nobody can FILTER on, which is an investigation that comes back empty and reads as
+   * "it never happened".
+   */
+  "support.group.select",
+  "support.group.clear",
 ] as const;
 export const auditActionSchema = z.enum(AUDIT_ACTION_VALUES);
 export type AuditAction = z.infer<typeof auditActionSchema>;
@@ -177,8 +215,10 @@ export const auditOutcomeSchema = z.enum(AUDIT_OUTCOME_VALUES);
 export type AuditOutcome = z.infer<typeof auditOutcomeSchema>;
 
 /**
- * `bayram.db.admin.audit.SUBJECT_TYPES` — the only nine values the column can ever hold, in the
- * order a picker reads best rather than the frozenset's (a set has no order).
+ * `bayram.db.admin.audit.SUBJECT_TYPES` — the only values the column can ever hold, in the order
+ * a picker reads best rather than the frozenset's (a set has no order). The frozenset is CLOSED
+ * server-side: a value outside it raises inside `append`, which `audit_sink` swallows and
+ * retries with `subject_id: null`, so every addition there is an addition here.
  *
  * For the FILTER only. `subjectType` is typed `str` on both the query and the response, with no
  * enum check at either boundary, so the wire field is a plain string below: a tenth subject
@@ -205,6 +245,35 @@ export const AUDIT_SUBJECT_TYPE_VALUES = [
    * values to OR together, which is the argument `payment` was added to `SUBJECT_TYPES` under.
    */
   "payment",
+  /*
+   * ONE support ticket, by its `support_tickets.id` — never `publicRef` (which the customer
+   * was told and a staffer shouts down a phone line) and never the reporter's Telegram id.
+   *
+   * Not `user`: four operators working four complaints from one account would collapse into
+   * one subject, and "what did we do about THIS ticket" would stop being answerable. Not
+   * `order` either — roughly half of all tickets arrive by `/support` and carry no order at
+   * all. Offered as a filter here for the reason `payment` was added under: "everything
+   * anyone did to this ticket" stays one indexed equality on `(subjectType, subjectId)`
+   * rather than a guess about which `action` values to OR together.
+   */
+  "ticket",
+  /*
+   * ONE Telegram chat the bot is in, by its `bot_chats.chat_id` — Telegram's own negative
+   * integer, which is that table's primary key.
+   *
+   * Not `chat`: that subject is a CUSTOMER's private conversation with the bot, and every row
+   * under it is about a person. A `bot_chats` row holds no person at all — the one field that
+   * would have been one, who added the bot, is the field the table deliberately does not store —
+   * so filing the two under one subject would put a group's configuration history and a
+   * customer's messages in the same `(subjectType, subjectId)` space, where `-1002…` and a
+   * positive user id are told apart only by a minus sign.
+   *
+   * Not `config` either, which is where `rail.paused` files a Redis key under an invented
+   * subject id. There is a real row here with a real primary key, and "everything anyone ever
+   * did to this group" is worth being one indexed equality rather than a scan for a magic
+   * string.
+   */
+  "bot_chat",
 ] as const;
 export const auditSubjectTypeSchema = z.enum(AUDIT_SUBJECT_TYPE_VALUES);
 export type AuditSubjectType = z.infer<typeof auditSubjectTypeSchema>;

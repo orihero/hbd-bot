@@ -1,7 +1,7 @@
 /**
  * The rail's contents, as data.
  *
- * Eight sections are listed, and every one of them is routed. Audit and Admins were the last
+ * Nine sections are listed, and every one of them is routed. Audit and Admins were the last
  * two to arrive and the prediction this file made about them held: the item did not move when
  * the screen shipped, because it had been sitting in its final place since before there was
  * anything behind it. That is the whole argument, and it is the same one
@@ -44,6 +44,7 @@
 import {
   CreditCard,
   LayoutDashboard,
+  LifeBuoy,
   Megaphone,
   MessageSquare,
   ScrollText,
@@ -108,8 +109,14 @@ export const PRIMARY_NAV: readonly NavItem[] = [
   {
     /*
      * The Payme rail. After Generations because it reads in the order the business does —
-     * people, then what they asked for, then what they paid with — and before Campaigns, which
-     * stays last above the rule as the only section that WRITES to customers.
+     * people, then what they asked for, then what they paid with — and before the two sections
+     * that WRITE to customers, Campaigns and Support, which close the operational run.
+     * (This sentence read "before Campaigns, which stays last above the rule as the only
+     * section that WRITES to customers" until 2026-09-15. Support arrived below Campaigns and
+     * falsified both halves: Campaigns is no longer last, and writing to a customer is no
+     * longer something only Campaigns does. Corrected rather than deleted, for the same reason
+     * the Campaigns comment below records its own demotion — this file's ordering argument is
+     * the thing a reader checks the rail against, and a stale one is worse than none.)
      *
      * Ungated, on this file's own rule. Six of the section's nine reads are `dashboard.read`
      * and three are `records.read`, both of which every role holds; what differs by role is
@@ -130,9 +137,12 @@ export const PRIMARY_NAV: readonly NavItem[] = [
   },
   {
     /*
-     * Campaigns. Last above the rule, because it is the only operational section that WRITES
-     * to customers rather than reading about them, and because §11.2's rail enumeration puts
-     * it there — this file is transcribed from that section and is not extended by inference.
+     * Campaigns. Second from the rule since Support arrived below it, and it kept its place
+     * rather than being re-ranked: it is the section that writes to customers in BULK, which
+     * is why it sits at the far end of the operational run. (It was "last above the rule"
+     * until 2026-09-15, and the sentence is corrected rather than deleted — §11.2's rail
+     * enumeration moved first, and this file is transcribed from that section and is not
+     * extended by inference.)
      *
      * Ungated, and that is the matrix's own answer rather than this file declining to check:
      * `broadcast.read` is `M` at all four roles (permissions.py — viewer, support, admin and
@@ -147,6 +157,32 @@ export const PRIMARY_NAV: readonly NavItem[] = [
     labelKey: "nav.items.broadcasts",
     href: PATH.broadcasts,
     icon: Megaphone,
+  },
+  {
+    /*
+     * Support. Last above the rule, AFTER Campaigns, because it is the only section whose
+     * subject is a conversation somebody is waiting on rather than a record of something
+     * that already happened — and because `ADMIN_PANEL_PLAN` §11.2 gained the rail entry and
+     * its two route rows in the same change that filed `SUPPORT_TICKETS_SPEC`. This file is
+     * transcribed from that enumeration and is not extended by inference: `DECISIONS.md`
+     * **D12** set that precedent, **D18** records this section's own answer to it, and the
+     * item may not ship ahead of either.
+     *
+     * Ungated, and that is the matrix's own answer rather than this file declining to check:
+     * `support.read` is `M` at all four roles — the queue is what the panel exists to show —
+     * so a client-side gate here would hide nothing from anybody. What differs by role is
+     * moving, claiming, noting and replying (`support.write`, SUPPORT and above, and the only
+     * write cell in the matrix that starts at SUPPORT), and that is gated where it is spent,
+     * on the controls themselves.
+     *
+     * `LifeBuoy` rather than a speech bubble: `MessageSquare` is Chats, four items up, and two
+     * sections whose icons both say "a message" is a rail an operator has to read rather than
+     * recognise.
+     */
+    key: "support",
+    labelKey: "nav.items.support",
+    href: PATH.support,
+    icon: LifeBuoy,
   },
 ];
 
@@ -175,8 +211,8 @@ export interface NavSection {
   readonly key: string;
   /**
    * The group's name. A `<p>`, deliberately not a heading and not a list item: the rail is
-   * already a labelled landmark, and eight items under two extra headings is more structure to
-   * walk, not less. (Eight is the count this file declares — six above the rule and two
+   * already a labelled landmark, and nine items under two extra headings is more structure to
+   * walk, not less. (Nine is the count this file declares — seven above the rule and two
    * below — and it is the number this argument has to be checked against.) Hidden when the
    * rail is collapsed to icons — the rule still separates them, and a two-letter abbreviation
    * would be a worse label than none.

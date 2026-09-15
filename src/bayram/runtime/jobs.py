@@ -43,7 +43,7 @@ Because it is the join, it also owns every way the run can end from the customer
   ``WIZARD_STATE_TTL`` is the fourteen-day abandoned-draft retention clock, a data
   lifetime rather than a session one. See :func:`_release_session`.
 
-It also assembles ``WorkerSettings``, which is where every OTHER job lives. There are nine
+It also assembles ``WorkerSettings``, which is where every OTHER job lives. There are eleven
 of them now, each in its own module and each registered here:
 
 * the hourly retention sweep (:mod:`bayram.runtime.retention_job`). Until it was added,
@@ -69,7 +69,14 @@ of them now, each in its own module and each registered here:
   image of that reason: the panel is denied a Telegram token by design, so composing a
   campaign and sending it are necessarily two processes. The sweep is both the scheduled-send
   path (nothing else starts a campaign scheduled for Monday) and the crash recovery for a
-  chunk job a deploy cancelled mid-send.
+  chunk job a deploy cancelled mid-send;
+* the two support-ticket jobs (:mod:`bayram.runtime.support_jobs`) — repaint one ticket's card
+  in the staff group, and deliver one operator's reply to the customer. Their enqueue side is
+  the ADMIN PANEL again, for the same D10 reason as the broadcast four, and they are the first
+  entries here with NO backstop sweep behind them. That is deliberate and is argued in their
+  module: an unposted card and an undelivered reply are both already visible to an operator —
+  on the board and on the ticket's timeline — where a settled-but-unannounced payment was
+  visible to nobody, which is the whole reason ``run_payme_sweep`` has a third arm.
 
 The registration is here rather than in each job's own module because ARQ needs one class
 naming every job the process can run, and one place naming them is what keeps the enqueue
@@ -144,6 +151,17 @@ from bayram.runtime.retention_job import (
     RETENTION_JOB_NAME,
     run_retention_sweep,
 )
+from bayram.runtime.support_jobs import (
+    SUPPORT_CARD_JOB_NAME,
+    SUPPORT_CARD_MAX_TRIES,
+    SUPPORT_RELAY_JOB_NAME,
+    SUPPORT_RELAY_MAX_TRIES,
+    SUPPORT_VERIFY_JOB_NAME,
+    SUPPORT_VERIFY_MAX_TRIES,
+    relay_support_reply,
+    sync_support_card,
+    verify_support_group,
+)
 from bayram.runtime.vendor_balance_job import (
     VENDOR_BALANCE_CRON_MINUTE,
     VENDOR_BALANCE_JOB_NAME,
@@ -162,6 +180,8 @@ __all__ = [
     "send_broadcast_chunk",
     "send_broadcast_test",
     "sweep_due_broadcasts",
+    "sync_support_card",
+    "relay_support_reply",
     "build_kit_worker_settings",
     "KIT_JOB_NAME",
     "RETENTION_JOB_NAME",
@@ -173,6 +193,9 @@ __all__ = [
     "SEND_JOB_NAME",
     "TEST_SEND_JOB_NAME",
     "DUE_JOB_NAME",
+    "SUPPORT_CARD_JOB_NAME",
+    "SUPPORT_RELAY_JOB_NAME",
+    "SUPPORT_VERIFY_JOB_NAME",
     "CONTAINER_CTX_KEY",
     "BOT_CTX_KEY",
     "STORAGE_CTX_KEY",
@@ -807,6 +830,61 @@ def build_kit_worker_settings(
             # other cron here is: ARQ dispatches by NAME and a schedule whose function is
             # absent from this list has nothing behind it.
             sweep_due_broadcasts,
+            # THE TWO SUPPORT-TICKET JOBS. Their enqueue side is the admin panel too, and
+            # their names are stated explicitly for the broadcast trio's reason —
+            # ``bayram.admin.queue`` restates the same two strings rather than importing this
+            # package, because importing it would put ``aiogram.Bot`` in the import graph of
+            # the one process that is structurally forbidden a Telegram token.
+            #
+            # ``max_tries`` is a DIFFERENT number for each, and both are read back by the job
+            # itself: ARQ compares ``job_try > max_tries`` before it re-enters the function,
+            # so a ``Retry`` raised on the last permitted attempt is discarded with nobody
+            # told, and the constant a job stops raising at must equal the one registered
+            # here. Three for the card and five for the reply, because the cost of giving up
+            # differs: a stale card is repainted by the next action on that ticket, while an
+            # undelivered reply is a customer who thinks they were ignored. Their own modules
+            # carry the full argument.
+            #
+            # ``timeout`` is ``queue_job_timeout_s`` for both, and not a knob of their own:
+            # each makes one Telegram call and one or two short reads. The one thing either
+            # can sit in for a while is the outbound pacer's park, which is capped at 600
+            # seconds — comfortably inside the 900 the kit job already shares that ceiling
+            # with, and a job cancelled there has written nothing and is safe to replay.
+            func(
+                sync_support_card,
+                name=SUPPORT_CARD_JOB_NAME,
+                max_tries=SUPPORT_CARD_MAX_TRIES,
+                timeout=settings.queue_job_timeout_s,
+            ),
+            func(
+                relay_support_reply,
+                name=SUPPORT_RELAY_JOB_NAME,
+                max_tries=SUPPORT_RELAY_MAX_TRIES,
+                timeout=settings.queue_job_timeout_s,
+            ),
+            # THE SUPPORT GROUP CHECK, and it is the odd one out in this list: it is about a
+            # ROOM rather than about a ticket. The panel enqueues it the instant an operator
+            # selects a support group, after that selection has COMMITTED — the uncommitted
+            # enqueue was a critical defect in this feature only hours ago — and it is the only
+            # thing in the system that can answer whether a chat id somebody typed is a real
+            # room the bot may post in. Telegram has no "list my groups" API, so a pasted id is
+            # the sole route to a group the bot was already sitting in; without this job that
+            # route ends in a support inbox that is silently dead.
+            #
+            # ``max_tries`` is read back by the job for this list's stated reason, and THREE is
+            # generous rather than tight: the four verdicts this job exists to produce are all
+            # terminal and never touch the ladder at all. The ladder is for Telegram being
+            # unreachable or rate-limiting, which is the one case where waiting helps.
+            #
+            # ``timeout`` is ``queue_job_timeout_s`` for the two above's reason — one ``getChat``,
+            # one ``sendMessage`` and two short writes, with the group pacer's 600-second park
+            # as the only thing it can sit in.
+            func(
+                verify_support_group,
+                name=SUPPORT_VERIFY_JOB_NAME,
+                max_tries=SUPPORT_VERIFY_MAX_TRIES,
+                timeout=settings.queue_job_timeout_s,
+            ),
         ]
         # The FIL-7 retention schedule, on a clock at last. Hourly rather than nightly for
         # two reasons: every sweep is bounded by ``batch_size``, so a backlog is worked off

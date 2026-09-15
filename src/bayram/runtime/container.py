@@ -20,6 +20,7 @@ from typing import Final
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from bayram.audio.processor import FfmpegAudioPostProcessor
+from bayram.bot_chats import BotChatDirectory
 from bayram.checkout import (
     STUB_PROVIDER_NAME,
     CheckoutProvider,
@@ -31,6 +32,7 @@ from bayram.churn import BotBlockRecorder
 from bayram.config import ENV_PREFIX, Settings
 from bayram.contracts import AudioPostProcessor, KitRepository, PaymentProvider, Storage
 from bayram.db.base import Base
+from bayram.db.bot_chats import SqlBotChats
 from bayram.db.churn import SqlBotBlocks
 from bayram.db.credits import SqlCreditLedger
 from bayram.db.engine import create_engine, create_session_factory
@@ -184,6 +186,35 @@ class AppContainer:
     #: property that pin actually protects is "every field past the required head defaults",
     #: which a field inserted anywhere in the tail satisfies exactly as well.
     intents: PaymentIntentOpener | None = None
+    #: WHICH GROUPS THE BOT IS IN, AND WHICH ONE OF THEM THE TICKET CARDS GO TO.
+    #:
+    #: Held by BOTH processes, which puts it in the small company of ``bot_blocks`` rather than
+    #: with the bot-only ``profiles``, and for a closely related reason: the fact is learned in
+    #: one process and needed in two. The BOT writes the directory (its ``my_chat_member``
+    #: registration is the only automatic route by which this system ever learns a group exists
+    #: — Telegram has no "list my groups" API) and reads the selection on every group update and
+    #: every filed complaint. The WORKER reads the selection when the panel asks it to sync a
+    #: card, and it is the only process that writes ``verified_at`` — the ``support:verify_group``
+    #: job actually posts into the room, which is a thing no other process holds a token to do.
+    #:
+    #: The ADMIN process builds it too and never calls it: the panel's reads go through
+    #: ``bayram.db.admin.bot_chats`` and its two writes — select and clear — are module-level
+    #: functions composed into the request transaction that carries the ``admin_audit_log`` row.
+    #: :class:`~bayram.bot_chats.BotChatDirectory` has no method for either, so no process
+    #: holding this object can repoint the support inbox without an audit trail.
+    #:
+    #: Built unconditionally and carrying no policy argument: there is nothing to configure.
+    #: The two settings that used to name the group, ``BAYRAM_SUPPORT_GROUP_CHAT_ID`` and
+    #: ``BAYRAM_SUPPORT_GROUP_THREAD_ID``, were REMOVED rather than kept as a fallback
+    #: (``SUPPORT_TICKETS_SPEC §3.8``), so the selected row is the only authority and there is
+    #: no precedence rule for a reader to reason about.
+    #:
+    #: DEFAULTED for the reason every field above it is, and placed INSIDE the defaulted tail
+    #: rather than after it because ``tests/test_runtime/test_purge_cron.py`` pins ``profiles``
+    #: as the final field. ``None`` means "this deployment records no chat directory": the bot's
+    #: group registration writes nothing, nothing is ever selectable, and the group leg of the
+    #: support feature is off while tickets keep working.
+    bot_chats: BotChatDirectory | None = None
     #: The onboarding record — which language the customer chose, the number they shared, and
     #: the username, name and profile photo behind it. Written by the BOT and by nothing else:
     #: the worker has no customer in front of it and never learns anything new about one, so
@@ -566,6 +597,14 @@ async def build_container(
         # this table is ``bayram.db.purge.BOT_MEMBERSHIP_RETENTION_DAYS``, a module constant
         # rather than a knob, because the only thing a knob here could do is lose history.
         bot_blocks=SqlBotBlocks(session_factory),
+        # Built unconditionally, including for the ADMIN process, which holds it and never
+        # calls it — its reads go through ``bayram.db.admin.bot_chats`` and its two writes are
+        # composed into the request transaction that carries the audit row. No policy argument
+        # exists to pass and none should: this table has no retention clock (it is a directory
+        # of rooms, not a log of events) and no configuration, because the two settings that
+        # used to name the support group were removed outright rather than demoted to a
+        # fallback. See ``SUPPORT_TICKETS_SPEC §3.8``.
+        bot_chats=SqlBotChats(session_factory),
     )
 
 

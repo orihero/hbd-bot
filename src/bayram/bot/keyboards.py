@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Final
+from uuid import UUID
 
 from aiogram.types import (
     InlineKeyboardButton,
@@ -46,7 +47,10 @@ from bayram.bot.callbacks import (
     NavAction,
     NavCB,
     OccasionCB,
+    SupportAction,
+    SupportCB,
     VocalGenderCB,
+    pack_reference,
 )
 from bayram.bot.i18n import (
     SUPPORTED_LANGUAGES,
@@ -722,7 +726,9 @@ def paid_late_keyboard(language: Language) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def post_delivery_keyboard(language: Language) -> InlineKeyboardMarkup:
+def post_delivery_keyboard(
+    language: Language, *, order_id: UUID | None = None
+) -> InlineKeyboardMarkup:
     """After the song lands: the next order, the complaint, and the way home.
 
     One button per row rather than the two the row budget would allow. The first two are not
@@ -734,12 +740,51 @@ def post_delivery_keyboard(language: Language) -> InlineKeyboardMarkup:
     delivered song is a dead end unless the customer still has the reply keyboard on screen,
     and it is chat-level state they are free to collapse. It sits below the complaint rather
     than between the two, so the order reads as "again / something was wrong / done".
+
+    **``order_id`` is what turns the middle button into a support ticket**, and it is here
+    rather than anywhere else because this is the one moment the order and the button exist
+    together. The only caller is ``bayram.bot.delivery._send_closing``, which runs inside the
+    ARQ WORKER; by the time the customer taps, their FSM has been cleared by the delivery job
+    and they may be several screens into a new wizard, so the id cannot be recovered from
+    session state and has to travel in the payload. With it the button packs a
+    :class:`~bayram.bot.callbacks.SupportCB` and the ticket is filed against the song that was
+    wrong; without it the button stays exactly what it was — a ``NavCB`` carrying
+    ``REPORT_PROBLEM`` — which is what the degraded and legacy screens still draw.
+
+    **Both spellings are live, and that is deliberate rather than a migration left half
+    done.** ``NavAction.REPORT_PROBLEM`` keeps its member, its label key and its registration
+    (``test_every_nav_action_is_registered_to_a_handler`` AST-walks ``.register(`` calls, and
+    a drawn-but-unregistered button is exactly how ``TRY_AGAIN`` once shipped): it is the
+    order-less door, pressed from a screen that never knew an order id and from every closing
+    message Telegram is still holding from before this release. Both doors open the same
+    flow, so a customer cannot tell them apart; only the ticket can, and it records which by
+    whether ``order_id`` is set.
+
+    The LABEL is one key either way. Two spellings of the same button with two labels would
+    be two buttons as far as the catalogues, the width budget and the duplicate-emoji rule
+    are concerned, and they are one button as far as the customer is concerned.
     """
     builder = InlineKeyboardBuilder()
     builder.row(_nav_button(NavAction.MAKE_ANOTHER, language))
-    builder.row(_nav_button(NavAction.REPORT_PROBLEM, language))
+    builder.row(_report_problem_button(language, order_id=order_id))
     builder.row(_nav_button(NavAction.TO_MENU, language))
     return builder.as_markup()
+
+
+def _report_problem_button(language: Language, *, order_id: UUID | None) -> InlineKeyboardButton:
+    """⚠️ Something is wrong, addressed at an order when we know which one.
+
+    Kept beside :func:`post_delivery_keyboard` rather than inlined into it because the label
+    key is shared with the ``NavCB`` form and the two must not drift: a reader changing the
+    copy has one string to change, and ``button.report_problem`` is what both branches ask
+    ``translate`` for.
+    """
+    if order_id is None:
+        return _nav_button(NavAction.REPORT_PROBLEM, language)
+    return InlineKeyboardButton(
+        text=translate(f"button.{NavAction.REPORT_PROBLEM.value}", language),
+        callback_data=SupportCB(action=SupportAction.OPEN, ref=pack_reference(order_id)).pack(),
+    )
 
 
 def main_menu_keyboard(language: Language) -> ReplyKeyboardMarkup:

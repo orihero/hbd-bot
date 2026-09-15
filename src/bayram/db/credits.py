@@ -830,5 +830,12 @@ class SqlCreditLedger:
                 "membership_events_anonymised": erased.membership_events_anonymised,
                 "intents_anonymised": erased.intents_anonymised,
                 "recipients_anonymised": erased.recipients_anonymised,
+                # The last two are DELETIONS, not anonymisations, and they are the only ones
+                # on this line that are. Named in full rather than folded into a total for
+                # the reason the docstring above gives: when the person asks later what was
+                # done with what they told support, "two rows deleted" and "two rows kept
+                # with the name off" are opposite answers, and this line is the record.
+                "tickets_deleted": erased.tickets_deleted,
+                "ticket_events_deleted": erased.ticket_events_deleted,
             },
         )

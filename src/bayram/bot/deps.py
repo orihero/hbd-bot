@@ -13,8 +13,9 @@ from typing import Final
 
 from bayram.bot.chatlog import ChatRecorder
 from bayram.bot.payment import DEFAULT_CURRENCY, FREE_AMOUNT_MINOR, NoopPaymentProvider
-from bayram.bot.ports import Clock, OrderSubmitter, utc_now
+from bayram.bot.ports import Clock, OrderSubmitter, SupportTicketEraser, utc_now
 from bayram.bot.pricing import Pricing
+from bayram.bot_chats import BotChatDirectory
 from bayram.checkout import (
     CheckoutProvider,
     PaymentIntentOpener,
@@ -27,6 +28,7 @@ from bayram.contracts import PaymentProvider
 from bayram.entitlements import EntitlementStore
 from bayram.lyric_budget import LyricBudgetStore
 from bayram.pipeline.ports import ContentWriter
+from bayram.support import SupportTicketStore
 from bayram.user_profiles import UserProfileStore
 
 __all__ = ["BotDeps", "DEPS_KEY"]
@@ -205,3 +207,68 @@ class BotDeps:
     #: construction sites in the suite build it by keyword, and a field inserted anywhere but
     #: the end, or without a default, breaks every one of them at once.
     intents: PaymentIntentOpener | None = None
+    #: Where a complaint is written down. The ⚠️ button under a delivered song, ``/support``,
+    #: the customer's answer to the ForceReply prompt and every staff action taken in the
+    #: support group all end in this port.
+    #:
+    #: A WRITE port, and the third one on this container — ``lyric_budget``, ``purchases`` and
+    #: now this — so the rule stated on ``entitlements`` is worth restating rather than
+    #: assuming: the bar is not "the bot writes nothing", it is that the bot may not SPEND.
+    #: This port cannot express a charge, a grant or a refusal; the most it can do is record
+    #: that somebody has a problem and what was said about it. Note what it also cannot do:
+    #: there is no "list this customer's tickets" method, so no screen in this bot is one
+    #: refactor away from showing a customer a row an operator wrote about them.
+    #:
+    #: TRAILING and DEFAULTED for the reason measured on ``profiles``: the whole bot suite
+    #: builds ``BotDeps`` by keyword, and a field inserted anywhere but the end, or without a
+    #: default, breaks every construction site at once.
+    #:
+    #: ``None`` means NO TICKETING AT ALL, and it is a supported configuration rather than a
+    #: degraded one: the ⚠️ button and ``/support`` fall back to exactly the sentence they
+    #: rendered before this feature existed (``handlers.common.support_text``), which is the
+    #: unwired-not-broken posture ``profiles`` takes. It is NOT the same thing as no support
+    #: group being SELECTED (``bot_chats`` below) — that switches off only the GROUP POST,
+    #: leaving the ticket written, the customer answered and the panel board populated.
+    support: SupportTicketStore | None = None
+    #: The ``/forget`` arm for the table above. SEPARATE from ``support`` on purpose; see
+    #: :class:`~bayram.bot.ports.SupportTicketEraser` for why a delete does not belong on the
+    #: seam every support handler holds.
+    #:
+    #: ``None`` means this deployment cannot erase tickets, and ``handle_forget`` then reports
+    #: the same "nothing to erase it in" success the profile and credit arms report when their
+    #: store is unwired — never a false claim that the bodies are gone. The privacy exemption
+    #: written into ``tests/test_db/test_privacy_constraints.py`` names ``/forget`` as this
+    #: table's erasure route, so a deployment that stores tickets and leaves this unwired has
+    #: an exemption whose route does not run. ``bayram.main`` says so at boot.
+    support_erasure: SupportTicketEraser | None = None
+    #: WHICH GROUPS THE BOT IS IN, AND WHICH ONE OF THEM THE TICKET CARDS GO TO.
+    #:
+    #: This replaced two ``Settings`` fields — ``support_group_chat_id`` and
+    #: ``support_group_thread_id`` — which were deleted outright rather than kept as a fallback
+    #: (``SUPPORT_TICKETS_SPEC §3.8``, the 2026-09-15 amendment to D18). There is no precedence
+    #: rule to reason about: the selected row is the only authority, and a host whose dotenv
+    #: still carries the old variables boots fine and ignores them.
+    #:
+    #: A WRITE port, and the fourth on this container, so the rule ``entitlements`` states is
+    #: worth checking against it once more: the bar is that the bot may not SPEND, and this
+    #: port cannot express a charge, a grant or a refusal. Note what it also cannot express —
+    #: SELECTING a support group. That write belongs to the admin panel, where it lands in the
+    #: same transaction as the ``admin_audit_log`` row naming who made it, and
+    #: :class:`~bayram.bot_chats.BotChatDirectory` deliberately has no method for it: a bot
+    #: process able to repoint the support inbox is one bug away from repointing it with
+    #: nothing in the audit trail to say so.
+    #:
+    #: Read by :class:`~bayram.bot.handlers.support.InSupportGroup` on every group update and
+    #: by the card poster on every filed complaint — both UNCACHED, which the protocol argues
+    #: at length: the whole point of the feature is that an operator can move the inbox and see
+    #: it move, and a cache is a window in which the tickets keep arriving in the old room.
+    #:
+    #: TRAILING and DEFAULTED for the reason measured on ``profiles``: the whole bot suite
+    #: builds ``BotDeps`` by keyword, and a field inserted anywhere but the end, or without a
+    #: default, breaks every construction site at once.
+    #:
+    #: ``None`` means this deployment records no chat directory. The group registration on
+    #: ``handlers.membership`` then writes nothing, no chat is ever selectable, and the group
+    #: half of the support feature is simply off — the ticket is still written, the customer is
+    #: still answered and the panel board is still populated.
+    bot_chats: BotChatDirectory | None = None

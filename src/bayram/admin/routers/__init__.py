@@ -44,6 +44,14 @@ from bayram.admin.routers.segments import (
     build_segment_fields_router,
     build_segments_router,
 )
+from bayram.admin.routers.support import (
+    build_support_actions_router,
+    build_support_router,
+)
+from bayram.admin.routers.support_groups import (
+    build_support_group_actions_router,
+    build_support_groups_router,
+)
 from bayram.admin.routers.users import (
     build_user_block_router,
     build_users_router,
@@ -78,6 +86,10 @@ __all__ = [
     "build_reveal_router",
     "build_segment_fields_router",
     "build_segments_router",
+    "build_support_actions_router",
+    "build_support_group_actions_router",
+    "build_support_groups_router",
+    "build_support_router",
     "build_user_block_router",
     "build_users_router",
     "build_vendors_router",

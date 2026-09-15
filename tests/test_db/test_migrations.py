@@ -36,7 +36,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import Connection, inspect
+from sqlalchemy import Connection, inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from bayram.config import get_settings
@@ -125,6 +125,34 @@ _PAYME_RAIL_TABLES: Final[frozenset[str]] = frozenset(
 _BROADCAST_TABLES: Final[frozenset[str]] = frozenset(
     {"broadcasts", "broadcast_bodies", "broadcast_recipients"}
 )
+
+#: The two tables revision ``0027`` adds: the support ticket and its append-only timeline.
+#: Named by hand for the reason stated on ``_EXPECTED_TABLES``, and the stake is the latch.
+#: ``support_tickets.(group_chat_id, group_message_id)`` is both the once-only claim that stops
+#: a replayed ARQ job posting a second card into the staff group and the key a staffer's reply
+#: is matched back to a ticket by — and its uniqueness is what keeps one customer's answer from
+#: reaching another. Every test that proves either property builds its schema with
+#: ``create_all``, so an unregistered model would not turn this suite red; it would leave it
+#: green while never once exercising the constraint.
+_SUPPORT_TICKET_TABLES: Final[frozenset[str]] = frozenset(
+    {"support_tickets", "support_ticket_events"}
+)
+_SUPPORT_TICKETS_TABLE: Final[str] = "support_tickets"
+#: The card latch, asserted by name AND by shape. UNIQUE over the PAIR, because a Telegram
+#: ``message_id`` is a per-chat counter: unique over the message id alone, it fails the latch
+#: for a card that posted successfully as soon as the support group's chat id changes.
+_SUPPORT_CARD_INDEX: Final[str] = "ix_support_tickets_group_chat_id_group_message_id"
+
+#: The table revision ``0028`` adds: every group the bot knows it is in, and which one of them
+#: receives ticket cards. Named by hand for the reason stated on ``_EXPECTED_TABLES``, and the
+#: stake is that this table REPLACES a setting. ``BAYRAM_SUPPORT_GROUP_CHAT_ID`` is removed in
+#: the same change, so the row is the only authority there is on where support tickets land.
+_BOT_CHATS_TABLE: Final[str] = "bot_chats"
+#: The partial unique index that makes "at most one selected support group" true. Asserted by
+#: name AND by shape, the way the support card latch is: a unique index correct in name and
+#: wrong in uniqueness passes ``test_the_migrated_indexes_match_the_model_metadata`` cleanly,
+#: because that test compares NAMES in one direction only.
+_SELECTED_SUPPORT_GROUP_INDEX: Final[str] = "ix_bot_chats_selected_support_group"
 
 #: The revision that adds the lyric the customer approves in the wizard, and the one it
 #: builds on. Named here because both halves of the product depend on this column existing
@@ -241,6 +269,36 @@ def _indexes_of(url: str) -> dict[str, set[str]]:
         }
 
     async def _run() -> dict[str, set[str]]:
+        engine = create_async_engine(url)
+        try:
+            async with engine.connect() as connection:
+                return await connection.run_sync(_read)
+        finally:
+            await engine.dispose()
+
+    return asyncio.run(_run())
+
+
+def _index_columns_of(url: str, table: str) -> dict[str, tuple[tuple[str, ...], bool]]:
+    """One table's indexes, read back from a live database as ``name -> (columns, unique)``.
+
+    Separate from :func:`_indexes_of`, which reads names only. A name proves an index was
+    created; it does not prove WHICH columns it spans or whether it is unique, and both of
+    those are load-bearing for the support card latch — an index correct in name and wrong in
+    shape is the failure that reached review.
+    """
+
+    def _read(connection: Connection) -> dict[str, tuple[tuple[str, ...], bool]]:
+        return {
+            str(index["name"]): (
+                tuple(str(column) for column in index["column_names"]),
+                bool(index.get("unique")),
+            )
+            for index in inspect(connection).get_indexes(table)
+            if index.get("name") is not None
+        }
+
+    async def _run() -> dict[str, tuple[tuple[str, ...], bool]]:
         engine = create_async_engine(url)
         try:
             async with engine.connect() as connection:
@@ -407,6 +465,68 @@ def test_the_broadcast_tables_are_registered_as_well_as_migrated() -> None:
     )
 
 
+def test_the_support_ticket_tables_are_registered_as_well_as_migrated() -> None:
+    """Revision 0027 creates two tables; two models have to declare them too.
+
+    The same companion the three tests above are, and the same blind spot in
+    ``_EXPECTED_TABLES``: a model file that exists but is never imported in
+    ``db/models/__init__.py`` is invisible to ``Base.metadata`` and drops out of BOTH sides of
+    every comparison in this module at once — the migration creates the table, the models do
+    not declare it, and the comparison agrees on a table neither side knows about.
+
+    These two are named rather than left to the derived comparison because of what the schema
+    is carrying. ``support_tickets.(group_chat_id, group_message_id)`` is the once-only latch for
+    the staff-group card: ARQ replays every job on every deploy, so the row and not the job is
+    the record of "this was posted", and the UNIQUE over that pair is also what resolves a
+    staffer's reply to exactly one ticket — per chat, because a Telegram message id is a
+    per-chat counter. ``support_ticket_events`` is the append-only record of what a customer
+    was actually told, and ``ON DELETE CASCADE`` on its ``ticket_id`` is what makes ``/forget``
+    one statement instead of two that can disagree. Every test that proves any of that builds
+    its schema with ``create_all``. An unregistered model would leave the whole support suite
+    green against a database with no ticket tables in it — the symptom is not a red suite, it is
+    a green one that has never once exercised the constraint stopping one customer's complaint
+    being answered with another customer's reply.
+    """
+    # Arrange / Act
+    registered = set(Base.metadata.tables)
+
+    # Assert
+    missing = sorted(_SUPPORT_TICKET_TABLES - registered)
+    assert missing == [], (
+        f"{missing} are created by revision 0027 but no model declares them; import "
+        "SupportTicketRow and SupportTicketEventRow in src/bayram/db/models/__init__.py"
+    )
+
+
+def test_the_bot_chats_table_is_registered_as_well_as_migrated() -> None:
+    """Revision 0028 creates ``bot_chats``; a model has to declare it too.
+
+    The same companion the four tests above are, and the same blind spot in
+    ``_EXPECTED_TABLES``: a model file that exists but is never imported in
+    ``db/models/__init__.py`` is invisible to ``Base.metadata``, so it drops out of BOTH sides
+    of every comparison in this module at once — the migration creates the table, the models do
+    not declare it, and the comparison agrees on a table neither side knows about.
+
+    This one is named rather than left to the derived comparison because of what it replaces.
+    ``BAYRAM_SUPPORT_GROUP_CHAT_ID`` is REMOVED in the same change: there is no setting behind
+    this table, no seed and no fallback, so a row here is the only authority there is on where
+    a customer's complaint gets posted. And the invariant that keeps that answer singular is a
+    PARTIAL UNIQUE index — at most one row with ``is_support_group`` true — which lives in the
+    model's ``__table_args__`` and is therefore built by ``create_all`` only if the model is
+    registered. An unregistered model would not turn this suite red; it would leave every test
+    of the picker green against a database with no ``bot_chats`` table at all, having never
+    once exercised the constraint that stops two groups each receiving half the tickets.
+    """
+    # Arrange / Act
+    registered = set(Base.metadata.tables)
+
+    # Assert
+    assert _BOT_CHATS_TABLE in registered, (
+        f"{_BOT_CHATS_TABLE} is created by revision 0028 but no model declares it; "
+        "import BotChatRow in src/bayram/db/models/__init__.py"
+    )
+
+
 def test_the_approved_lyrics_revision_is_reachable_from_head() -> None:
     # Arrange — walk_revisions starts at head, so membership proves the chain resolves.
     script = ScriptDirectory.from_config(_config())
@@ -526,6 +646,108 @@ def test_the_capability_probe_on_cost_usd_is_indexed_by_the_chain(
 
     # Assert
     assert _VENDOR_USAGE_COST_INDEX in _indexes_of(url)[_VENDOR_USAGE_TABLE]
+
+
+def test_the_support_card_latch_is_unique_per_chat_and_not_per_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The chain builds ``UNIQUE (group_chat_id, group_message_id)`` and nothing narrower.
+
+    REGRESSION, and asserted against the CHAIN rather than the metadata because that is where
+    the defect lived: revision 0027 shipped ``ix_support_tickets_group_message_id`` UNIQUE over
+    the column alone. A Telegram ``message_id`` is a per-chat counter, so that index asserts
+    something Telegram never promised — and the row it costs is not a rejected duplicate, it is
+    a ticket whose card posted fine and then could not be latched.
+
+    The scenario, traced end to end: the support group moves (a new group, or Telegram
+    auto-upgrading a basic group to a supergroup, which CHANGES the chat id) and an operator
+    repoints ``BAYRAM_SUPPORT_GROUP_CHAT_ID``. Old rows still hold message ids 2, 5, 9… from the
+    old chat. ``_send_card`` succeeds, Telegram returns ``message_id=5`` in the NEW chat,
+    ``claim_group_post``'s UPDATE trips the global unique index, the commit raises
+    ``IntegrityError``, ``run_guarded`` converts it to an ``Err`` — and the ticket is left
+    permanently un-latched beside an orphan card nothing can edit or relay from.
+
+    ``test_the_migrated_indexes_match_the_model_metadata`` cannot catch this: it compares index
+    NAMES in one direction only, so a name that matches while spanning the wrong columns, or
+    carrying the wrong uniqueness, passes it cleanly.
+    """
+    # Arrange
+    url = _sqlite_url(tmp_path, "support-card-index.db")
+
+    # Act
+    _upgrade(url, monkeypatch)
+    indexes = _index_columns_of(url, _SUPPORT_TICKETS_TABLE)
+
+    # Assert — the pair, in order, unique.
+    assert indexes.get(_SUPPORT_CARD_INDEX) == (("group_chat_id", "group_message_id"), True)
+    # And nothing in the chain enforces uniqueness on the message id by itself, whatever it is
+    # called. Checked by SHAPE rather than by name so a renamed revival is caught too.
+    global_uniques = sorted(
+        name
+        for name, (columns, unique) in indexes.items()
+        if unique and columns == ("group_message_id",)
+    )
+    assert global_uniques == [], (
+        f"{global_uniques} makes a per-chat Telegram message id globally unique; the latch "
+        "must be UNIQUE (group_chat_id, group_message_id)"
+    )
+
+
+def test_the_support_group_selection_index_is_unique_and_partial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The chain builds ``UNIQUE (is_support_group) WHERE is_support_group``, both halves.
+
+    Asserted against the CHAIN rather than the metadata, and in three parts, because each part
+    fails differently and only one of them is visible to any other test in this file.
+
+    ``test_the_migrated_indexes_match_the_model_metadata`` compares index NAMES in one
+    direction only, so an index correct in name and wrong in everything else passes it
+    cleanly. The UNIQUE half is the invariant itself: without it two operators pressing Select
+    at the same moment can each clear the row they read and set their own, and two groups then
+    receive half the tickets each with nothing to say which is right. The PARTIAL half is the
+    one a "simplification" reaches for, and dropping it is far worse than it looks — a plain
+    ``UNIQUE (is_support_group)`` allows one ``true`` row and one ``false`` row, so the table
+    would silently refuse the third chat the bot is ever added to.
+
+    The ``WHERE`` clause is read out of ``sqlite_master`` because the shape helper above cannot
+    see it: SQLAlchemy reports an index's columns and its uniqueness, and a partial index and a
+    total one are identical in both. Revision ``0010``'s active-OWNER index is the precedent
+    for the predicate being a bare column name — SQLite evaluates an integer column as a
+    boolean and Postgres takes a boolean column directly, so one string renders on both
+    engines, which ``test_migration_applies_and_reverses_against_postgres`` is what proves.
+    """
+    # Arrange
+    url = _sqlite_url(tmp_path, "support-group-index.db")
+
+    # Act
+    _upgrade(url, monkeypatch)
+    indexes = _index_columns_of(url, _BOT_CHATS_TABLE)
+
+    def _read_sql(connection: Connection) -> str | None:
+        return connection.execute(
+            text("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = :name"),
+            {"name": _SELECTED_SUPPORT_GROUP_INDEX},
+        ).scalar_one_or_none()
+
+    async def _run() -> str | None:
+        engine = create_async_engine(url)
+        try:
+            async with engine.connect() as connection:
+                return await connection.run_sync(_read_sql)
+        finally:
+            await engine.dispose()
+
+    created_sql = asyncio.run(_run())
+
+    # Assert — one column, unique, and partial.
+    assert indexes.get(_SELECTED_SUPPORT_GROUP_INDEX) == (("is_support_group",), True)
+    assert created_sql is not None, f"{_SELECTED_SUPPORT_GROUP_INDEX} was not created at all"
+    assert "WHERE" in created_sql.upper(), (
+        f"{_SELECTED_SUPPORT_GROUP_INDEX} is not partial: {created_sql!r}. A total "
+        "UNIQUE (is_support_group) permits one selected row AND one unselected row, so the "
+        "table would refuse the third group the bot is added to."
+    )
 
 
 def test_upgrade_then_downgrade_leaves_no_tables_behind(

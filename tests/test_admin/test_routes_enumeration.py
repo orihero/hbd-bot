@@ -100,6 +100,7 @@ from bayram.admin.routers.broadcasts import (
     BROADCAST_RESUME_PATH,
     BROADCAST_REVISE_PATH,
     BROADCAST_SEND_PATH,
+    BROADCAST_STATS_PATH,
     BROADCAST_TEST_SEND_PATH,
     BROADCASTS_PATH,
 )
@@ -135,11 +136,26 @@ from bayram.admin.routers.orders import (
 from bayram.admin.routers.retention import RETENTION_PATH
 from bayram.admin.routers.reveal import REVEAL_PATH
 from bayram.admin.routers.segments import SEGMENT_FIELDS_PATH, SEGMENT_PREVIEW_PATH
+from bayram.admin.routers.support import (
+    SUPPORT_BOARD_PATH,
+    SUPPORT_TICKET_ASSIGN_PATH,
+    SUPPORT_TICKET_NOTES_PATH,
+    SUPPORT_TICKET_PATH,
+    SUPPORT_TICKET_REPLY_PATH,
+    SUPPORT_TICKET_STATUS_PATH,
+    SUPPORT_TICKETS_PATH,
+)
+from bayram.admin.routers.support_groups import (
+    SUPPORT_GROUP_CLEAR_PATH,
+    SUPPORT_GROUP_SELECT_PATH,
+    SUPPORT_GROUPS_PATH,
+)
 from bayram.admin.routers.users import (
     USER_AVATAR_PATH,
     USER_BLOCK_PATH,
     USER_ORDERS_PATH,
     USER_PATH,
+    USER_STATS_PATH,
     USER_UNBLOCK_PATH,
     USERS_PATH,
     WIZARD_STATE_PATH,
@@ -150,7 +166,7 @@ from bayram.admin.routers.vendors import (
     VENDOR_USAGE_PATH,
 )
 from bayram.admin.security.permissions import RBAC_MATRIX, Permission, StepUpAction
-from bayram.contracts import BroadcastKind, Language
+from bayram.contracts import BroadcastKind, Language, SupportTicketStatus
 from bayram.db.base import Base
 from bayram.db.enums import AdminRole, AuditReasonCode
 from bayram.db.models.asset import AssetRow
@@ -255,6 +271,21 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         ("GET", ORDER_ASSETS_PATH, Permission.RECORDS_READ),
         ("GET", ORDER_TIMELINE_PATH, Permission.RECORDS_READ),
         ("GET", USERS_PATH, Permission.RECORDS_READ),
+        # The Users hub's stat strip, over the whole filter set rather than over the fifty rows
+        # the browser happens to hold — the same shape, the same argument and the same cell as
+        # ``ORDER_STATE_COUNTS_PATH`` eleven lines above. It publishes the four counts of
+        # ``SegmentBreakdown`` and nothing else: no telegram id, no handle, no name, not even
+        # the language split ``/segments/preview`` carries, so it is an aggregate surface and
+        # this line is what puts it into the plaintext sweep that says so. It sits on
+        # RECORDS_READ rather than DASHBOARD_READ because it is a caption for a records list
+        # and answers for exactly the population that list is showing; an operator who may
+        # page those rows may certainly be told how many there are.
+        #
+        # A literal segment in a namespace whose detail route takes an ``int``, so it must stay
+        # registered ahead of ``USER_PATH`` or ``/users/stats`` is a 422 about a malformed
+        # ``telegramUserId``. ``ORDER_STATE_COUNTS_PATH`` and ``SUPPORT_BOARD_PATH`` carry the
+        # identical warning.
+        ("GET", USER_STATS_PATH, Permission.RECORDS_READ),
         ("GET", USER_PATH, Permission.RECORDS_READ),
         ("GET", USER_ORDERS_PATH, Permission.RECORDS_READ),
         # The ONE identified route on the dashboard surface, and the only reason it is a
@@ -326,8 +357,50 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         # campaign record is operator copy, closed enums and counters, and the one list that
         # touches people at all (the recipient ledger) publishes a mask and never an id.
         ("GET", BROADCASTS_PATH, Permission.BROADCAST_READ),
+        # The Campaigns strip: one count per campaign state, the reach those campaigns had as
+        # a numerator and a denominator, and the last send as a UTC instant or a null. The
+        # same cell as the list because it is the same rows counted — and an aggregate over
+        # them holds strictly less than the list does: no title, no body, no recipient.
+        #
+        # A literal single segment under ``/broadcasts``, exactly like ``{broadcast_id}``, so
+        # it must stay declared ahead of ``BROADCAST_PATH`` or an operator's strip is answered
+        # with a 422 about a malformed UUID. ``ORDER_STATE_COUNTS_PATH`` and
+        # ``SUPPORT_BOARD_PATH`` are the same case; the seven verb paths below are not, being
+        # two segments to the parameterised route's one.
+        ("GET", BROADCAST_STATS_PATH, Permission.BROADCAST_READ),
         ("GET", BROADCAST_RECIPIENTS_PATH, Permission.BROADCAST_READ),
         ("GET", BROADCAST_PATH, Permission.BROADCAST_READ),
+        # The support queue. SUPPORT_READ is ``M`` in all four cells for BROADCAST_READ's
+        # reason one domain along — the queue is what the panel exists to show, and a VIEWER
+        # who can see that eleven people are waiting is the reader this panel was built for.
+        #
+        # ``/board`` is declared and listed BEFORE ``{ticket_id}`` and, unlike the broadcast
+        # verb paths above, the ordering is genuinely load-bearing: both are ONE segment under
+        # ``/support/tickets``, so a ``{ticket_id}`` registered first would answer an
+        # operator's board with a 422 about a malformed UUID. ``ORDER_STATE_COUNTS_PATH``
+        # carries the same warning.
+        #
+        # All three are reads with no audit row and no write of any kind — the board in
+        # particular is the one route on this surface a "mark the queue as seen" feature would
+        # naturally attach itself to, and this line is what puts it into the no-GET-writes
+        # snapshot below.
+        ("GET", SUPPORT_BOARD_PATH, Permission.SUPPORT_READ),
+        ("GET", SUPPORT_TICKETS_PATH, Permission.SUPPORT_READ),
+        ("GET", SUPPORT_TICKET_PATH, Permission.SUPPORT_READ),
+        # The support GROUP directory, on the same read cell as the queue: every role may
+        # answer "where do my tickets go?" without being able to change the answer, which is
+        # why the two POSTs below stand on a different permission entirely.
+        #
+        # Unlike ``/board`` above, nothing here is order-sensitive — this namespace declares no
+        # path parameter at all, so ``/select`` and ``/clear`` have no parameterised sibling to
+        # be shadowed by. That is the reason the chat id travels in the BODY: it is a 64-bit
+        # negative integer somebody may have typed, and a path converter that knows only "int"
+        # would let a pasted PERSON's id through to be refused two statements deeper.
+        #
+        # A read with no audit row and no write of any kind, which is what puts it into the
+        # no-GET-writes snapshot below — this is the route a "last checked" stamp would
+        # naturally attach itself to on a screen the panel polls.
+        ("GET", SUPPORT_GROUPS_PATH, Permission.SUPPORT_READ),
         # Operations.
         ("GET", CONFIG_PATH, Permission.CONFIG_READ),
         ("GET", RETENTION_PATH, Permission.RETENTION_READ),
@@ -397,6 +470,33 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         ("POST", RAIL_PAUSE_PATH, Permission.RAIL_CONTROL),
         ("POST", RAIL_RESUME_PATH, Permission.RAIL_CONTROL),
         ("POST", INTENT_NOTIFY_PATH, Permission.PAYMENT_NOTIFY),
+        # The four ticket actions, and the FIRST write rows in this table that are not the
+        # role half of a ``W+S`` cell and not RAIL_CONTROL's special case. SUPPORT_WRITE is a
+        # plain ``W`` at SUPPORT, ADMIN and OWNER, so the router guard decides the whole
+        # question and no handler in ``routers/support.py`` enforces anything — which is the
+        # deliberate opposite of the five split rows above, and is only safe BECAUSE there is
+        # no step-up: ``check_role`` holds no subject, so any ``+S`` cell declared here would
+        # answer STEP_UP_REQUIRED for ever while looking correct.
+        #
+        # ``POST /{id}/reply`` is the one of the four that puts a message in somebody's phone,
+        # and it deliberately does NOT carry BROADCAST_SEND's step-up: one answer to one
+        # person who asked us a question is not the act §12.1 T2 was written about, and the
+        # ``ticket.reply`` audit row plus the append-only timeline carry the accountability.
+        # ``Permission.SUPPORT_WRITE`` argues that trade at length.
+        ("POST", SUPPORT_TICKET_STATUS_PATH, Permission.SUPPORT_WRITE),
+        ("POST", SUPPORT_TICKET_NOTES_PATH, Permission.SUPPORT_WRITE),
+        ("POST", SUPPORT_TICKET_REPLY_PATH, Permission.SUPPORT_WRITE),
+        ("POST", SUPPORT_TICKET_ASSIGN_PATH, Permission.SUPPORT_WRITE),
+        # Repointing the support inbox, and the ONLY two routes in this table that stand on
+        # SUPPORT_GROUP_WRITE. It is not SUPPORT_WRITE: a support operator works the queue,
+        # while choosing the Telegram room every future card is published into is a different
+        # act with a different blast radius — the wrong room shows a customer's complaint to
+        # people who should not see it, and the board looks fine either way. SUPPORT is
+        # deliberately absent from that cell; ADMIN and OWNER hold it, with no step-up, so it
+        # is safe as the router guard it is declared as (``permissions.py`` argues all three
+        # halves).
+        ("POST", SUPPORT_GROUP_SELECT_PATH, Permission.SUPPORT_GROUP_WRITE),
+        ("POST", SUPPORT_GROUP_CLEAR_PATH, Permission.SUPPORT_GROUP_WRITE),
     }
 )
 
@@ -445,6 +545,24 @@ MUTATIONS: Final[frozenset[tuple[str, str]]] = frozenset(
         ("POST", RAIL_PAUSE_PATH),
         ("POST", RAIL_RESUME_PATH),
         ("POST", INTENT_NOTIFY_PATH),
+        # The four ticket actions. Each writes its state change (or its timeline row) AND its
+        # audit row in the request's own transaction, which is what §9.1's first rule requires
+        # of an action that is a single database transaction; three of the four then enqueue
+        # an ARQ job as their last statement, and a refused enqueue rolls the whole thing back
+        # rather than leaving the board and the group card disagreeing for ever.
+        ("POST", SUPPORT_TICKET_STATUS_PATH),
+        ("POST", SUPPORT_TICKET_NOTES_PATH),
+        ("POST", SUPPORT_TICKET_REPLY_PATH),
+        ("POST", SUPPORT_TICKET_ASSIGN_PATH),
+        # The two support-group writes. Select writes its row and its audit entry in the
+        # request's own transaction, COMMITS, and only then enqueues the verification job —
+        # the ordering ``routers/support.py`` had to learn the hard way, because a worker that
+        # overtakes the commit opens its own session and finds no such chat. Clear enqueues
+        # nothing at all: there is no room to verify once nobody is posting to it. Neither is
+        # a GET and neither could be — §12.1 T8 forbids a GET that changes state, and being a
+        # POST is also what puts each behind the CSRF check inside ``get_current_admin``.
+        ("POST", SUPPORT_GROUP_SELECT_PATH),
+        ("POST", SUPPORT_GROUP_CLEAR_PATH),
     }
 )
 
@@ -846,6 +964,32 @@ _MUTATION_BODIES: Final[dict[str, dict[str, Any]]] = {
     RAIL_PAUSE_PATH: {"reasonCode": AuditReasonCode.INCIDENT.value},
     RAIL_RESUME_PATH: {"reasonCode": AuditReasonCode.INCIDENT.value},
     INTENT_NOTIFY_PATH: {"reasonCode": AuditReasonCode.CUSTOMER_REQUEST.value},
+    # The four ticket actions, and the only bodies in this mapping that carry NO reason code —
+    # none of the four inherits ``ReasonedRequest``, which ``schemas/tickets.py`` argues at
+    # length. Well-shaped in the same sense as everything above: the CSRF and origin checks
+    # run inside ``get_current_admin``, before the body is validated and before any ticket is
+    # looked up, so a refusal here is the layer under test rather than a 422 or a 404.
+    SUPPORT_TICKET_STATUS_PATH: {
+        "expectedStatus": SupportTicketStatus.NEW.value,
+        "toStatus": SupportTicketStatus.IN_PROGRESS.value,
+    },
+    SUPPORT_TICKET_NOTES_PATH: {"body": "A note nobody records"},
+    SUPPORT_TICKET_REPLY_PATH: {"body": "A reply nobody sends"},
+    SUPPORT_TICKET_ASSIGN_PATH: {"adminUsername": "an-operator-nobody-assigns"},
+    # The two support-group writes, and the only bodies here that carry no reason code either
+    # — ``schemas/groups.py`` argues that departure separately from the ticket one, because
+    # repointing an inbox destroys nothing and discloses nothing. Well-shaped in the same
+    # sense as everything above: the CSRF and origin checks run inside ``get_current_admin``,
+    # before this body is validated and before a single ``bot_chats`` row is read, so a
+    # refusal here is the layer under test rather than a 422 or a 409.
+    #
+    # ``chatId`` is NEGATIVE because a non-negative Telegram id is a private chat — a person —
+    # and the schema refuses one. A positive number here would still fail the assertions, but
+    # for the wrong reason, which is the failure mode this mapping exists to avoid.
+    SUPPORT_GROUP_SELECT_PATH: {"chatId": -1_001_000_000_777},
+    # Clear takes no body at all. ``{}`` is sent for the same reason ``/auth/logout`` sends
+    # it: the probe needs a request with a JSON content type, not a request with fields.
+    SUPPORT_GROUP_CLEAR_PATH: {},
 }
 
 #: Path parameters for the two CSRF sweeps. :data:`MUTATIONS` now carries templates, and a
@@ -856,6 +1000,7 @@ MUTATION_IDENTIFIERS: Final[dict[str, object]] = {
     "telegram_user_id": 770_000_123,
     "broadcast_id": UUID(int=4),
     "intent_id": UUID(int=6),
+    "ticket_id": UUID(int=8),
 }
 
 
@@ -1020,6 +1165,11 @@ async def test_no_get_route_changes_domain_state(
         # and the settlement route additionally 422s here for want of a ``?from=`` — which is
         # a refusal that must also leave the database untouched.
         "intent_id": UUID(int=7),
+        # Nor a ticket: the detail answers 404 for an unknown id, the queue answers an empty
+        # page, and the board answers four zeroes. All three are still GETs that must write
+        # nothing — and the board is the route on this surface most likely to grow a "seen"
+        # write, which is exactly why it is swept here.
+        "ticket_id": UUID(int=9),
     }
     await create_account(container, role=AdminRole.OWNER)
     assert (await sign_in(client)).status_code == 200
@@ -1049,6 +1199,7 @@ _PROBE_IDENTIFIERS: Final[dict[str, object]] = {
     "attempt_id": UUID(int=3),
     "broadcast_id": UUID(int=4),
     "intent_id": UUID(int=6),
+    "ticket_id": UUID(int=8),
 }
 
 

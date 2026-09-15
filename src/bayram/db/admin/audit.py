@@ -159,6 +159,38 @@ SUBJECT_TYPES: Final[frozenset[str]] = frozenset(
         # ``(subject_type, subject_id)`` rather than a guess about which ``action`` values to
         # OR together, which is the same argument ``broadcast`` above was added under.
         "payment",
+        # ONE support ticket, identified by ``support_tickets.id`` — a UUID, never
+        # ``public_ref`` (which the customer was told and a staffer shouts down a phone line)
+        # and never the reporter's Telegram id. Not a ``user``: four operators working four
+        # complaints from one account would collapse into one subject, and "what did we do
+        # about THIS ticket" would stop being answerable. Not an ``order`` either — roughly
+        # half of all tickets arrive by ``/support`` and carry no order at all.
+        #
+        # **The ticket's own timeline is not a substitute for these rows, nor they for it.**
+        # ``support_ticket_events`` is append-only and records what was SAID, including by
+        # staffers in a Telegram group who hold no session and no role. This table records
+        # that an audited actor with a role and an IP did it, lives 730 days, and cannot be
+        # deleted by the process that writes it. An investigation reads both.
+        "ticket",
+        # ONE Telegram chat the bot is in, identified by ``bot_chats.chat_id`` — the negative
+        # integer Telegram issues, which IS the primary key of that table. The subject of
+        # ``support.group.select`` and ``support.group.clear``, and on a clear it is the chat
+        # that WAS selected: "nothing" is not a subject, and a row whose subject is null has
+        # lost the only fact an incident review wants from it.
+        #
+        # **Not ``chat``.** That member is a customer's conversation with the bot — a private
+        # chat keyed on a person, read through the chat index. This one is a GROUP, and the
+        # table behind it holds no person at all: ``my_chat_member`` hands us ``from_user`` and
+        # ``bot_chats`` deliberately does not store it. Sharing one subject type would put a
+        # customer's chat and a staff room into one population, so "everything anyone did to
+        # this chat" — an indexed equality on ``(subject_type, subject_id)`` — would answer two
+        # different questions depending on the sign of the id.
+        #
+        # **Not ``config`` either**, which is where ``rail.paused`` files a deployment-wide
+        # switch. That switch is a Redis key with no row behind it and a made-up subject id
+        # (``"payme_rail"``); this names a real row in a table the panel lists, so the subject
+        # is the row's own key and an operator can follow it straight to the record.
+        "bot_chat",
     }
 )
 

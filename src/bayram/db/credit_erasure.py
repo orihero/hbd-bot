@@ -83,6 +83,38 @@ and can never block a later expansion for a different account. ``broadcasts`` an
 ``broadcast_bodies`` are untouched — they hold operator copy and a segment document of
 registry keys, and nothing about a customer at all.
 
+**``support_tickets`` and ``support_ticket_events`` are the eighth and ninth tables, and
+they are the ONLY ones here that are DELETED rather than anonymised.** Every arm above keeps
+its rows because an aggregate has to survive the person — a churn count, a balance, a
+delivery record, a receipt a third party can still ask about. A support ticket is none of
+those. ``support_tickets.body`` is free text the customer wrote about their own order — "he
+said the name wrong, it is Dilnora not Dilnoza" — and ``support_ticket_events.body`` holds
+both the notes we wrote about them and the replies they read. A complaint with the id nulled
+is not a statistic, it is somebody's sentence with the name filed off, and it would still
+name the person inside the sentence. There is no arithmetic anywhere that counts these rows,
+so nothing shrinks retroactively when they go; the panel's board is a live view of open work,
+not a historical figure an operator has already read and acted on. So both tables take the
+``credit_accounts`` treatment and the rows leave.
+
+That is also why ``support_tickets.telegram_user_id`` is ``NOT NULL`` — alone among the
+tables this function touches. The column cannot be nulled, because nulling it was never the
+plan: a row that survives this function is a bug, not an anonymous aggregate, and the
+``NOT NULL`` is what makes an accidental ``UPDATE ... SET telegram_user_id = NULL`` fail
+loudly here instead of silently leaving an identified complaint behind.
+
+**The events are deleted by their own statement rather than by the cascade, and that is not
+belt-and-braces.** ``support_ticket_events.ticket_id`` really is ``ON DELETE CASCADE``, so
+on Postgres one ``DELETE`` over the parent would be enough. It is not enough everywhere this
+code runs: nothing in the test suite issues ``PRAGMA foreign_keys = ON``, so under SQLite
+the cascade does not fire at all and a parent-only delete would leave every event row behind
+— orphaned, still carrying ``author_telegram_user_id``, and with no parent left for a later
+sweep or a later reader to find them by. A unit test of that erasure would pass regardless,
+because the tickets really would be gone. So the child statement is written out, exactly as
+:func:`bayram.db.purge._purge_due_orders` writes out its ``generation_attempts``, ``briefs``
+and ``assets`` deletes ahead of the ``orders`` one whose cascade would otherwise cover them.
+The cascade stays on the column as the backstop for any path that deletes a ticket without
+coming through here; this function does not depend on it.
+
 **Why ``idempotency_key`` deliberately keeps the id it was built from.** The rolling
 allowance is minted once per window on ``grant:period:{telegram_user_id}:{index}``, and the
 unique index on that key is the ONLY thing that makes the mint idempotent. Rewriting the
@@ -99,8 +131,9 @@ know it is there.
 
 Shape follows :mod:`bayram.db.admin` and :func:`bayram.db.purge.purge_expired`: session first and
 positional, exceptions propagate, and **nothing is committed here**. The caller owns the
-transaction, which is what lets the seven statements below be atomic — an erasure that
-deleted the balance and then failed to anonymise the ledger would be the worst of both.
+transaction, which is what lets the nine statements below be atomic — an erasure that
+deleted the balance and then failed to anonymise the ledger would be the worst of both, and
+one that deleted a ticket and then failed to delete its timeline would be worse still.
 """
 
 from __future__ import annotations
@@ -116,6 +149,8 @@ from bayram.db.models.broadcast_recipient import BroadcastRecipientRow
 from bayram.db.models.credit_account import CreditAccountRow
 from bayram.db.models.credit_ledger import CreditLedgerRow
 from bayram.db.models.payment_intent import PaymentIntentRow
+from bayram.db.models.support_ticket import SupportTicketRow
+from bayram.db.models.support_ticket_event import SupportTicketEventRow
 from bayram.db.plan_sql import anonymise_plans
 from bayram.db.topup_sql import anonymise_topups
 
@@ -124,15 +159,15 @@ __all__ = ["CreditErasure", "forget_account"]
 
 @dataclass(frozen=True, slots=True)
 class CreditErasure:
-    """What one ``/forget`` actually removed. Seven numbers, so the log is not a guess.
+    """What one ``/forget`` actually removed. Nine numbers, so the log is not a guess.
 
-    All seven being zero is a perfectly ordinary answer — most people who send ``/forget`` never
+    All nine being zero is a perfectly ordinary answer — most people who send ``/forget`` never
     confirmed an order, so they have no account row and no ledger history — and it is
     reported as such rather than treated as a failure. The handler's confirmation to the
     customer does not depend on it: it says the same thing either way, because "there was
     nothing of yours to delete" and "I deleted it" are the same promise kept.
 
-    All seven come from the driver's ``rowcount`` over a bulk statement, which
+    All nine come from the driver's ``rowcount`` over a bulk statement, which
     :func:`bayram.db.credit_sql.rowcount_of` documents as exact only for single-row writes.
     They are therefore DIAGNOSTIC — they go in a log line and nothing branches on them.
     """
@@ -173,17 +208,34 @@ class CreditErasure:
     #: the only number here that can be in the thousands for one account: a customer who has
     #: been on the audience of every campaign we have ever run has a row for each.
     recipients_anonymised: int = 0
+    #: ``support_tickets`` rows DELETED, and an EIGHTH number that must never be read as one
+    #: more anonymisation. Every count above this one is a row that survived with its
+    #: identity removed; this one is a row that is gone. An operator reading the log line
+    #: after a complaint about the erasure itself needs that distinction immediately —
+    #: "we kept the receipt, we did not keep what you told us" is the sentence the two
+    #: halves of this dataclass are for.
+    tickets_deleted: int = 0
+    #: ``support_ticket_events`` rows deleted with them, and a NINTH number rather than a
+    #: silence because this one is the evidence that the child statement ran. The cascade on
+    #: ``ticket_id`` does not fire under SQLite (no ``PRAGMA foreign_keys``), so a timeline
+    #: left behind would be invisible in every unit test and in the log line too if this
+    #: number did not exist. A non-zero ``tickets_deleted`` with a zero here, for a customer
+    #: who ever described a ticket, means the child delete has been removed or reordered.
+    ticket_events_deleted: int = 0
 
 
 async def forget_account(session: AsyncSession, *, telegram_user_id: int) -> CreditErasure:
     """Erase what the credit tables hold about one Telegram account.
 
-    Ordered receipts-first and balance-last on purpose. All seven statements run in the
+    Ordered receipts-first and balance-last on purpose. All nine statements run in the
     caller's transaction, so they either all land or none do; but if a future caller ever
     splits them, a run that leaves the receipts anonymous and the balance behind is far less
-    bad than one that deletes the balance and leaves a fully identified history.
+    bad than one that deletes the balance and leaves a fully identified history. The two
+    support statements sit second-to-last for the same reasoning read one step further: they
+    are the only arm that destroys rather than anonymises, so they are the last thing worth
+    risking and the first thing a half-run must not have done alone.
 
-    Idempotent by construction: a second call matches nothing and returns seven zeroes.
+    Idempotent by construction: a second call matches nothing and returns nine zeroes.
 
     **What this does not reach.** A song already in the studio settles after the erasure,
     and the worker writes that settlement from the ``orders`` row — which keeps its own id
@@ -230,6 +282,27 @@ async def forget_account(session: AsyncSession, *, telegram_user_id: int) -> Cre
         .where(CreditLedgerRow.telegram_user_id == telegram_user_id)
         .values(telegram_user_id=None)
     )
+    # THE ONLY DELETING ARM, AND ITS TWO STATEMENTS ARE ORDERED CHILD-FIRST. The subquery is
+    # what makes the child statement independent of the cascade: it names the events by their
+    # parent's owner while that parent still exists, so it does the same work on SQLite —
+    # where no ``PRAGMA foreign_keys`` is ever issued and the cascade is inert — as on
+    # Postgres, where it makes the cascade redundant rather than trusted. Reversing these two
+    # lines would silently restore the dependency: the tickets would go first and the
+    # subquery would then match nothing. See the module docstring, and
+    # :func:`bayram.db.purge._purge_due_orders` for the same child-before-parent shape over a
+    # foreign key that also carries ``ON DELETE CASCADE``.
+    ticket_events = await session.execute(
+        sa.delete(SupportTicketEventRow).where(
+            SupportTicketEventRow.ticket_id.in_(
+                sa.select(SupportTicketRow.id).where(
+                    SupportTicketRow.telegram_user_id == telegram_user_id
+                )
+            )
+        )
+    )
+    tickets = await session.execute(
+        sa.delete(SupportTicketRow).where(SupportTicketRow.telegram_user_id == telegram_user_id)
+    )
     deleted = await session.execute(
         sa.delete(CreditAccountRow).where(CreditAccountRow.telegram_user_id == telegram_user_id)
     )
@@ -241,4 +314,6 @@ async def forget_account(session: AsyncSession, *, telegram_user_id: int) -> Cre
         membership_events_anonymised=events,
         intents_anonymised=rowcount_of(intents),
         recipients_anonymised=rowcount_of(recipients),
+        tickets_deleted=rowcount_of(tickets),
+        ticket_events_deleted=rowcount_of(ticket_events),
     )

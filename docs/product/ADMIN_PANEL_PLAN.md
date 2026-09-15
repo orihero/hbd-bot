@@ -897,6 +897,7 @@ Every path parameter is `{telegramUserId}`, typed `int`.
 | Method | Path | Purpose | Role |
 |---|---|---|---|
 | GET | `/users` | List; `telegramUserId`, `q`, `isBlocked`, `hasBalance`, `uiLanguage`, `from`, `to` | V (masked) |
+| GET | `/users/stats` | The stat strip: `matched`, `reachable`, `blocked`, `botBlocked` over the **list's own filter set** — the same `segment_breakdown` `/segments/preview` runs, narrowed by the six chips, the window and `?segment=` instead of by a segment alone. Takes no `limit`, `cursor`, `sort` or `withTotal`: an aggregate cannot honour paging and `matched` **is** the total, exact rather than `TOTAL_COUNT_CAP`-bounded. Counts only — no id, no handle, no name, and not the `byLanguage` split the preview carries. A **literal** segment, so it is registered before `/users/{telegramUserId}` or it 422s on `int` coercion | V (counts only) |
 | GET | `/users/{telegramUserId}` | Detail + order counts by state + first/last seen | V (masked) |
 | GET | `/users/{telegramUserId}/orders` | Their orders | V |
 | GET | `/users/{telegramUserId}/wizard-state` | **Projected** FSM read from Redis: step, session id, order in flight, and per-draft-key `{isPresent, charCount}` only | V (no plaintext at any role) |
@@ -1654,6 +1655,64 @@ data-integrity bug.
 > permissions, a step-up and two audit rows per send. `DECISIONS.md` **D12** records the reversal,
 > its fallback and the trigger that switches to it.
 
+> **Amended 2026-09-15.** The rail gains **Support** and the table below gains its two routes.
+> The rule is the one the 2026-09-09 amendment states and is repeated here rather than assumed:
+> `navItems.ts` is transcribed from this enumeration and refuses to be "extended by inference", so
+> a ninth rail entry with no §11.2 row is a silent widening of the information architecture.
+> `admin-dashboard/src/app/navItems.ts` additionally asserts a section COUNT in prose **twice** —
+> "Eight sections are listed" and "eight items under two extra headings" — and both go stale at
+> nine; that file's own argument is that stale counts are how this documentation rots, so both are
+> corrected in the same change. Support sits **after Broadcasts and before the rule**, which is
+> where an operator's day actually splits: everything above the rule is the work, everything below
+> it (Config · Audit · Admins) is the console administering itself. `DECISIONS.md` **D18** records
+> the decision, its fallback (`BAYRAM_SUPPORT_GROUP_CHAT_ID=0` — the ticket queue without the
+> Telegram group leg) and the triggers that switch to it; `SUPPORT_TICKETS_SPEC` is the
+> specification. This is again **not** the notifications button `TopBar.tsx:29-32` refuses by name,
+> and that refusal still stands — this is a worked queue with a schema behind it, not an inbound
+> feed with nothing behind it, and §4 of that spec is explicit that a reopened ticket is announced
+> by the board and by nothing else, precisely so no notification surface is invented to carry it.
+
+> **Amended 2026-09-15 — D18's fallback is no longer an environment variable.** The paragraph
+> above names that fallback as `BAYRAM_SUPPORT_GROUP_CHAT_ID=0`, and that variable no longer
+> exists: it and `BAYRAM_SUPPORT_GROUP_THREAD_ID` were **deleted** from `Settings` in the same
+> change that added the `bot_chats` table (revision 0028), rather than kept as a seed or a
+> fallback — see `SUPPORT_TICKETS_SPEC` **§3.8** and **D18**'s own 2026-09-15 amendment.
+>
+> **The fallback itself is unchanged in substance, only in spelling.** It is still "the ticket
+> queue without the Telegram group leg", and it is still what every fresh deployment gets; it is
+> now expressed as **no row in `bot_chats` carrying the selection** — an empty table — reached by
+> `POST /api/support/groups/clear` rather than by editing a unit file and redeploying. The
+> triggers that switch to it are the ones D18 already records.
+>
+> **This rewording does NOT widen §11.2.** The picker is a dialog on the Support board's toolbar,
+> not a ninth rail entry: `navItems.ts` is still transcribed from this enumeration, the section
+> count above is still right, and no route row is added here. That placement is argued at
+> `SupportGroupDialog.tsx` and in §3.8; if it ever becomes a route, §11.2 gains a row in the same
+> change and not before.
+
+> **Amended 2026-09-15 (second amendment).** The `/broadcasts` row below gains a **stat strip**,
+> served by `GET /api/broadcasts/stats` on `BROADCAST_READ` — the same cell as the list it sits
+> above, because it is the same rows counted and an aggregate over them holds strictly less than
+> the list does: one count per `BroadcastState`, the reach as two integers, and one UTC instant.
+> `BROADCAST_SPEC` §3.2's router table gains the corresponding row.
+>
+> **Three things about the shape are decisions and not details.** The state counts are
+> **zero-filled over the enum** — `BroadcastState` is a closed vocabulary, so a state with no
+> campaigns is `0` rather than absent and the strip's tiles never appear from nowhere under the
+> operator's cursor. That is the opposite of a time series, where a day nobody measured has to
+> stay missing. The reach travels as `reachedRecipients` **and** `audienceTotal` and never as a
+> percentage, which is this repo's rule for every quotient it publishes (`RatioView` in
+> `schemas/overview.py` cannot be constructed without its denominator): the SPA divides, and a
+> deployment with a zero denominator draws a dash rather than "0%". And `lastSendAt` is
+> `MAX(broadcasts.started_at)` or **`null`** — a deployment that has never sent anything is a
+> fact, and an epoch or a fall-back to `created_at` would render as a send nobody made.
+>
+> It is a **sibling route and not a field on the list's `meta`**, for `/orders/state-counts`'
+> reason (§6.5): an aggregate over the whole filter set carried on `meta` runs again on every
+> `?cursor=` an operator turns, paying for numbers that did not change. `/broadcasts/stats` is a
+> single literal segment where `/broadcasts/:broadcastId` also matches, so it is **registered
+> first** — the `ORDER_STATE_COUNTS_PATH` warning, which `/support/board` carries too.
+
 > **Amended 2026-09-09 (second amendment).** The top bar's inventory below gains the **vendor
 > balances** — one pill per polled account, a mark inside a ring rather than a word — and a
 > **language switcher**, which is being built separately and has a reserved slot rather than a
@@ -1681,8 +1740,31 @@ data-integrity bug.
 > in the shipped console** — the env badge is a real gap in `admin-dashboard`, not a thing
 > this amendment quietly renamed.
 
+> **Amended 2026-09-15 (second amendment).** The `/users` row of the table below is corrected:
+> its dominant signal read "Total users + 30-day new-user sparkline", and what ships is neither
+> half of that. The screen gets a **four-count stat strip** — accounts · reachable · blocked ·
+> bot-blocked — from `GET /api/users/stats` (§6.6), computed over the operator's **own filter
+> set** rather than over the whole database.
+>
+> The sparkline is not merely unbuilt, it is withdrawn, and the reason is the one this section
+> keeps making about numbers that do not move: a 30-day new-account series is a DASHBOARD
+> question that `/api/metrics/audience` already answers (§6.4), and repeating it above a
+> *filtered* records table would put a figure on the screen that stays put while the operator
+> changes a chip — which is the most misleading thing a strip above a table can do. "Total
+> users" survives in a narrowed form as `matched`: the total of what is being SHOWN, exact
+> rather than `TOTAL_COUNT_CAP`-bounded, so it deliberately disagrees with the list's own
+> `meta.total` above ten thousand rows in the same way `/orders/state-counts` does.
+>
+> `reachable` is what the row's question — "who are they and are they blocked?" — was actually
+> asking for, and it is the only one of the three refusal figures that is a complement.
+> `blocked` is our bar, `botBlocked` is the customer's, an account can carry both, so the four
+> numbers do not add up and the SPA must not sum them. This is the same breakdown the broadcast
+> wizard authorises a send against (§6.7's `/segments/preview`), which is deliberate: the count
+> an operator sees above the Users table and the count the wizard shows them are one statement
+> about one population, not two numbers that have to be kept in agreement.
+
 Left rail (220px, collapsible to 64px, persisted) → **Live · Orders · Users · Generations · Assets ·
-Chat · Payments · Moderation ③ · Broadcasts** ─── **Config · Audit · Admins**. Top bar (56px): env badge (`dev`
+Chat · Payments · Moderation ③ · Broadcasts · Support** ─── **Config · Audit · Admins**. Top bar (56px): env badge (`dev`
 slate / `staging` amber / **`prod` violet with a glow ring** — an operator must never be unsure which
 database they are looking at), ⌘K palette, `● LIVE` connection pill, **UTC/local toggle** (every
 column is `timestamptz` and three parties may be in three places; an ambiguous "14:32" is a support
@@ -1697,7 +1779,7 @@ names.
 | `/` Live Ops | "Is the system fine right now?" | 24 h delivery success rate at 44px, colour-driven (green ≥95%, amber 85–95%, red <85%); secondary **in flight** with a pulsing ring |
 | `/orders` | "What is the shape of what I just filtered to?" | A full-width 8px stacked state-distribution bar under the filter bar, before the eye reaches row one |
 | `/orders/:id` | "Where is it, or exactly where did it die?" | `PipelineTimeline` across the top third, driven by `stagePlan` (9 stages by default, not 11 — `greetings_per_kit=0` is shipped) with unplanned stages ghosted. The merged timeline renders a `sources` legend so an absent section reads as "not enabled in this deployment", never as "nothing happened" |
-| `/users` | "Who are they and are they blocked?" | Total users + 30-day new-user sparkline. **`lastSeenAt` is labelled "last seen" only from Phase 3**, when the inbound upsert gives it a real writer; before that the column header reads "last order" |
+| `/users` | "Who are they and are they blocked?" | A four-count stat strip over the CURRENT filter set — accounts · reachable · blocked · bot-blocked — from `GET /users/stats`, before the eye reaches row one, the same shape `/orders` gives its distribution bar. *Amended 2026-09-15: the earlier "Total users + 30-day new-user sparkline" is withdrawn — see the second amendment above this table for why a whole-database figure does not belong over a filtered list.* **`lastSeenAt` is labelled "last seen" only from Phase 3**, when the inbound upsert gives it a real writer; before that the column header reads "last order" |
 | `/users/:id` | "What happened to my song?" | Full-width banner: status of their most recent order |
 | `/generations` | "Is name verification working?" | Overall verification rate |
 | `/generations/names` | "What should `BAYRAM_NAME_CANDIDATE_ORDER` be?" | Per-strategy bake-off bars + a similarity histogram with the threshold marked, linking straight to `/config` |
@@ -1706,9 +1788,11 @@ names.
 | `/payments` | "How many authorisations, how many declines?" | Authorisation count — **not** revenue; a big "0 UZS" would be the most misleading number in the console |
 | `/config` | "What differs from the deployed config?" | Active override count + restart-required-pending count; four visual tiers (live / after-fix / read-only / secret-absent) |
 | `/moderation` | "How long has someone been waiting?" | Oldest waiting age, amber >5 min, red >15 min |
-| `/broadcasts` | "What has been sent, and what is going out right now?" | Campaign list with a per-campaign progress bar for anything `expanding`/`sending`; the counters are `broadcast_recipients`, never the job result (`BROADCAST_SPEC` §4.7) |
+| `/broadcasts` | "What has been sent, and what is going out right now?" | Campaign list with a per-campaign progress bar for anything `expanding`/`sending`; the counters are `broadcast_recipients`, never the job result (`BROADCAST_SPEC` §4.7). Above it a **stat strip** over the list's own filter set — `GET /api/broadcasts/stats`, amended 2026-09-15: campaigns per state **zero-filled over the enum**, reach as `reachedRecipients` of `audienceTotal` (two integers, never a rate), and the last send as a UTC instant **or `null` when nothing has ever been sent** |
 | `/broadcasts/new` | "Exactly who will receive this, before I authorise it?" | The dry-run audience count — an exact `count(*)`, never the capped total — restated at every step and typed back by the operator at the last one. A literal route, registered before `/broadcasts/:broadcastId` |
 | `/broadcasts/:broadcastId` | "Did it land, and who did it miss?" | Sent / failed / skipped / **unknown** as four tiles, `unknown` shown rather than rounded away because an interrupted send is never retried (`BROADCAST_SPEC` §4.4). Recipient ids are masked on this wire — there is no `/broadcasts/**` route that keys on a raw Telegram id |
+| `/support` | "What has a customer told us is wrong, and who is on it?" | A four-column Kanban board — `new` · `in_progress` · `waiting` · `resolved` — with the oldest unclaimed ticket in `new` as the number that matters. `waiting` means waiting on the CUSTOMER, never on us (`SUPPORT_TICKETS_SPEC` §4.1), which is the whole reason it is a column: a backlog that mixes "we asked them three days ago" with "nobody has looked at this" has a length that means nothing. Tickets with no description — tapped ⚠️ and never typed — are **excluded by default and not deleted** (§4.3). Cards move by native drag **and** by keyboard, with an `aria-live` announcement; a stale move is a 409 naming both ends, never a silent overwrite |
+| `/support/:ticketId` | "What did they actually say, and what have we done about it?" | The customer's complaint in full — the one free-text column in this schema that crosses to the panel unmasked, argued in `SUPPORT_TICKETS_SPEC` §5.4 — above an append-only timeline of every status change, note, reply and group post. A `reply` row with no `relayed_at` is an answer nobody received. Telegram ids are masked here as everywhere else |
 | `/audit` | "Who did something destructive?" | Destructive actions in the last 24 h, counted separately; **reveals charted by `record_count`, not by row count** |
 | `/admins` | "Is there a stale account?" | Active count + last-login recency |
 

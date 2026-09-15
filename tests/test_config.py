@@ -138,3 +138,88 @@ def test_an_unknown_log_level_fails_at_startup_not_inside_a_running_worker() -> 
     # the ConfigError contract every caller of build_settings relies on.
     with pytest.raises(ConfigError, match="LOG_LEVEL"):
         build_settings(_overrides(log_level="TRACE"), require_vendor_secrets=False)
+
+
+# ---------------------------------------------------------------------------
+# The support group is NOT a setting, and these tests are what keeps it that way
+# ---------------------------------------------------------------------------
+#: The two variables that configured the staff support group until 2026-09-15, spelled as an
+#: operator's ``.env`` still spells them. The group is a row in ``bot_chats`` chosen from the
+#: panel now (SUPPORT_TICKETS_SPEC §3.8, D18's 2026-09-15 amendment), and these names are kept
+#: here for the same reason a removed migration keeps its revision id: to assert the absence.
+_RETIRED_SUPPORT_GROUP_FIELDS: Final[tuple[str, ...]] = (
+    "support_group_chat_id",
+    "support_group_thread_id",
+)
+
+
+def test_the_support_group_is_not_a_setting_and_must_not_become_one_again() -> None:
+    """The database selection is the ONLY authority on where a ticket card is posted.
+
+    This test exists to fail a well-meant re-addition. The obvious "compatibility" move when
+    the panel's list is empty is to seed the selection from an environment variable, or to let
+    one override it — and either makes the first question of every support incident ("which
+    room is this actually posting into?") have two answers, one of them invisible to the screen
+    that exists to show it. There is nothing to be compatible with: both fields were added and
+    removed inside 2026-09-15 and were deployed nowhere.
+    """
+    # Assert
+    for field in _RETIRED_SUPPORT_GROUP_FIELDS:
+        assert field not in Settings.model_fields, (
+            f"{field} is back on Settings. The support group is chosen in the panel and stored "
+            "in bot_chats — see SUPPORT_TICKETS_SPEC §3.8 before re-adding it."
+        )
+
+
+def test_a_stale_support_group_variable_in_the_environment_is_ignored_not_fatal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An operator's ``.env`` will still hold these for months, and that must cost nothing.
+
+    ``Settings`` is ``extra="ignore"``, so this is an assertion about a deliberate config choice
+    rather than about pydantic: with ``extra="forbid"`` the removal of a setting would have been
+    a boot refusal on every host whose dotenv had not been hand-edited first — the bot down over
+    a variable nothing reads. It must also not come back to life as an attribute.
+    """
+    # Arrange — the values exactly as .env.example used to ship them.
+    monkeypatch.setenv("BAYRAM_SUPPORT_GROUP_CHAT_ID", "-1001234567890")
+    monkeypatch.setenv("BAYRAM_SUPPORT_GROUP_THREAD_ID", "42")
+
+    # Act
+    settings = build_settings(
+        {"database_url": _DATABASE_URL, "_env_file": None}, require_vendor_secrets=False
+    )
+
+    # Assert
+    for field in _RETIRED_SUPPORT_GROUP_FIELDS:
+        assert not hasattr(settings, field)
+
+
+def test_the_two_support_settings_that_stayed_still_ship_empty() -> None:
+    # Act
+    settings = build_settings(_overrides(), require_vendor_secrets=False)
+
+    # Assert — neither survivor is the group. ``support_contact`` is where a customer is sent
+    # and ``support_panel_base_url`` is a string pasted into a URL button; both ship empty for
+    # one reason — a destination nobody reads is worse than none, because the customer believes
+    # a human has their problem. "No group selected" is now an empty ``bot_chats`` table, which
+    # is what a fresh deployment has, and it means what 0 meant: the ticket is still written,
+    # the customer is still answered, the board still fills, only the group post is skipped.
+    assert settings.support_panel_base_url == ""
+    assert settings.support_contact == ""
+
+
+def test_the_panel_base_url_is_not_treated_as_a_credential() -> None:
+    """It is a display string, and listing it as a secret would be a boot refusal.
+
+    ``VENDOR_SECRET_FIELDS`` is what ``admin/app.py::derive_forbidden_env_vars()`` derives
+    the forbidden list from, and a prod admin host REFUSES TO BOOT when any named variable is
+    reachable. Naming this there would take the panel down over its own public address. The
+    same argument protected the support group's chat id until the chat id stopped being a
+    setting at all — an address is not a secret, and knowing one grants nothing without the bot
+    token, which the admin process deliberately does not hold (ADMIN_PANEL_PLAN D10 / §4.2).
+    """
+    # Assert
+    for field in ("support_contact", "support_panel_base_url"):
+        assert field in Settings.model_fields
+        assert field not in VENDOR_SECRET_FIELDS

@@ -166,6 +166,14 @@ def test_commands_are_routed_before_the_free_text_steps(settings: Settings) -> N
     # by reordering, because ``navigation`` must keep answering Cancel.
     assert names.index("start") < names.index("onboarding") < names.index("menu")
     assert names.index("menu") < names.index("navigation") < names.index("questions")
+    # The two support routers sit in two different places and both positions are arguments.
+    # ``support_group`` is above ``onboarding`` because that catch-all claims every update
+    # from an account with no ``user_profiles`` row — which is every staffer in the support
+    # group — and would answer a reply to a ticket card with the phone-number screen. The
+    # customer half is under ``menu`` and above the free-text steps, because a reply to the
+    # support prompt reaching ``handle_note`` would be stored as the note and sung.
+    assert names.index("start") < names.index("support_group") < names.index("onboarding")
+    assert names.index("menu") < names.index("support") < names.index("questions")
     # ``membership`` is first and its position is the ONE in this list that is not
     # load-bearing: it registers on ``my_chat_member``, a third observer neither of the two
     # this ordering is about, so it can neither swallow an update from the ladder nor be
@@ -175,8 +183,10 @@ def test_commands_are_routed_before_the_free_text_steps(settings: Settings) -> N
         "membership",
         "commands",
         "start",
+        "support_group",
         "onboarding",
         "menu",
+        "support",
         "navigation",
         "questions",
         "name",

@@ -53,6 +53,13 @@ __all__ = [
     "BroadcastKind",
     "BroadcastState",
     "BroadcastRecipientState",
+    "SupportTicketStatus",
+    "SupportTicketSource",
+    "SupportTicketEventKind",
+    "SupportAuthorKind",
+    "BotChatType",
+    "BotChatStatus",
+    "BotChatSource",
     "HealthState",
     # Result
     "Ok",
@@ -500,6 +507,188 @@ class BroadcastRecipientState(StrEnum):
     SKIPPED_BLOCKED = "skipped_blocked"
     UNDELIVERABLE = "undeliverable"
     UNKNOWN = "unknown"
+
+
+class SupportTicketStatus(StrEnum):
+    """Which Kanban column a ticket sits in. Four, and deliberately only four.
+
+    ``NEW -> IN_PROGRESS -> WAITING -> RESOLVED``, and ``RESOLVED`` goes back to
+    ``IN_PROGRESS`` when a customer replies to a ticket somebody thought was finished.
+
+    **``WAITING`` means waiting on the CUSTOMER, never on us**, and that is the whole reason
+    it is a column rather than a flag: a queue where "we asked them a question three days ago"
+    and "nobody has looked at this yet" share one state is a queue whose length means nothing,
+    because the operator cannot tell which half is their backlog. ``BroadcastState`` makes the
+    same argument about ``EXPANDING`` and ``READY``.
+
+    **There is no ``TRIAGED`` and no ``CLOSED``.** A triage step was rejected because the act
+    that would set it — a staffer reading the card in the group — is the same act that claims
+    the ticket, so the two states would always move together and one of them would be noise. A
+    separate archive state was rejected because ``RESOLVED`` is already terminal and a board
+    with a fifth column nobody drags to is a column that silently collects tickets; a ticket
+    leaves the board by ageing out of the default filter, not by changing state. Adding a
+    state later needs no migration — ``enum_type`` renders a plain ``VARCHAR(32)`` with
+    ``create_constraint`` off — so the cost of starting narrow is a code change, not DDL.
+
+    The status is NOT the record of how a ticket got here: every move writes a
+    ``STATUS_CHANGE`` row on ``support_ticket_events`` carrying both ends. This column is where
+    it is now, and the events are how it got there — ``credit_accounts.balance`` beside
+    ``credit_ledger``, one domain along.
+    """
+
+    NEW = "new"
+    IN_PROGRESS = "in_progress"
+    WAITING = "waiting"
+    RESOLVED = "resolved"
+
+
+class SupportTicketSource(StrEnum):
+    """Which door the customer came through. Recorded, never branched on afterwards.
+
+    ``DELIVERY_BUTTON`` is the ⚠️ button under a finished song — the only moment an
+    ``order_id`` is in hand — and ``SUPPORT_COMMAND`` is ``/support``, typed from anywhere,
+    about anything, with no order attached.
+
+    Both file the SAME kind of ticket into the SAME inbox, which is the product rule
+    ``common.support_text`` was extracted to keep: one route to support, described one way. So
+    this column exists to answer "where do complaints come from?" and to explain why half the
+    rows have a NULL ``order_id`` — not to select a different flow. A second inbox keyed off
+    this value would be exactly the divergence the shared copy was written to prevent.
+    """
+
+    DELIVERY_BUTTON = "delivery_button"
+    SUPPORT_COMMAND = "support_command"
+
+
+class SupportTicketEventKind(StrEnum):
+    """What happened to a ticket. The append-only timeline the panel and the card both read.
+
+    ``OPENED`` and ``DESCRIBED`` are two events and not one on purpose: a customer who taps ⚠️
+    and never types is a real, common row — they changed their mind, or the ForceReply prompt
+    scrolled away — and collapsing the pair would make that row indistinguishable from one that
+    was never opened. ``support_tickets.described_at`` is the same fact as a column, for the
+    board's filter; this is the same fact as history, for the timeline.
+
+    ``NOTE`` is internal and ``REPLY`` left the building. They are never one member, because
+    the only question that matters when a ticket is re-read months later is which sentences the
+    customer actually saw — and a timeline that cannot answer it is a timeline an operator
+    cannot trust enough to paste from.
+
+    ``GROUP_POSTED`` records that the card reached the support group. The LATCH that makes the
+    post happen once is the ``group_chat_id``/``group_message_id`` pair on the ticket row, not
+    this event: ARQ replays every job on every deploy, so a record kept only in the timeline
+    would be written twice by a job that had already run. The event is the human-readable
+    shadow of the latch, never its authority.
+    """
+
+    OPENED = "opened"
+    DESCRIBED = "described"
+    STATUS_CHANGE = "status_change"
+    NOTE = "note"
+    REPLY = "reply"
+    ASSIGNED = "assigned"
+    GROUP_POSTED = "group_posted"
+
+
+class SupportAuthorKind(StrEnum):
+    """Who wrote a timeline row. Three humans and one machine, kept apart deliberately.
+
+    ``CUSTOMER`` is the person the ticket is about. ``OPERATOR`` acted in the admin panel and
+    is identified by ``author_admin_username``. ``STAFF_GROUP`` replied from the Telegram
+    support group and is identified by a Telegram id and a display name — and it is a SEPARATE
+    member from ``OPERATOR`` rather than a flag beside it, because the two are authenticated
+    by entirely different things: an operator has an ``admin_users`` row, a session and an
+    ``admin_audit_log`` entry behind them, while a group staffer has only membership of a chat
+    whose id sits in configuration. Folding them together would let the timeline claim an
+    audited actor for an act that was never audited.
+
+    ``SYSTEM`` is us: the ``OPENED`` row, the ``GROUP_POSTED`` row, an automatic move out of
+    ``NEW`` when staff reply. It is its own member so that "nobody has touched this" stays
+    answerable — a machine transition attributed to the last human who spoke would make an
+    untouched ticket look worked.
+    """
+
+    CUSTOMER = "customer"
+    OPERATOR = "operator"
+    STAFF_GROUP = "staff_group"
+    SYSTEM = "system"
+
+
+class BotChatType(StrEnum):
+    """What KIND of chat the bot has been added to. Three members, and ``private`` is absent.
+
+    Telegram's ``chat.type`` has four values and this enum carries three of them. The missing
+    one is the point: ``private`` is a conversation with a PERSON, it is handled by the
+    ``my_chat_member`` registration filtered to ``ChatType.PRIVATE`` — the one that records
+    churn against ``users`` — and a private chat reaching ``bot_chats`` would mean the two
+    registrations had stopped being disjoint. ``bayram.bot.handlers.membership``'s docstring
+    makes the same argument from the other side: a chat id is a USER id only when the filter
+    guarantees it, and a group arriving in the private handler mints a phantom ``users`` row.
+    Leaving ``private`` out of this enum is what makes the second half of that pair
+    unrepresentable rather than merely unwritten.
+
+    ``CHANNEL`` is included even though nobody would deliberately pick one as the support
+    inbox. The bot can be added to a channel as an administrator, Telegram sends the same
+    ``my_chat_member`` update when it happens, and a type this enum could not spell would be a
+    row the recorder had to drop — which is precisely the "the vocabulary moved and nobody
+    found out" failure ``BotChatStatus`` below is built to avoid. Recording it and letting an
+    operator see it is strictly better than a chat the panel cannot explain the absence of.
+    """
+
+    GROUP = "group"
+    SUPERGROUP = "supergroup"
+    CHANNEL = "channel"
+
+
+class BotChatStatus(StrEnum):
+    """The bot's own standing in that chat, in Telegram's vocabulary — which is NOT closed.
+
+    ``member``, ``administrator``, ``restricted``, ``left`` and ``kicked`` are what Telegram
+    sends today. ``UNKNOWN`` is the sixth member and the reason this enum is safe to persist:
+    Telegram's member statuses are not a set this code controls, and
+    ``bayram.bot.handlers.membership`` already argues at length why the recorder must turn an
+    unrecognised status into a WARNING naming it rather than into a dropped update. A row
+    stored as ``UNKNOWN`` beside a log line is how we learn the vocabulary moved; a filter that
+    matched only the five we know about is how we would never find out.
+
+    **This column is evidence, never permission.** It says what Telegram last told us, at the
+    instant it told us, and that is a different question from "can the bot post here now" —
+    an administrator can be stripped of ``can_post_messages`` without any membership
+    transition at all, and a group can be deleted under us with no update sent. The answer to
+    the second question is ``bot_chats.verified_at``, written by the verification job that
+    actually tried. Reading this column as a capability is the one misuse worth naming: it
+    would let the panel show a green chat the bot cannot write a word into.
+    """
+
+    MEMBER = "member"
+    ADMINISTRATOR = "administrator"
+    RESTRICTED = "restricted"
+    LEFT = "left"
+    KICKED = "kicked"
+    UNKNOWN = "unknown"
+
+
+class BotChatSource(StrEnum):
+    """How we came to know this chat exists — Telegram's own word, or an operator's claim.
+
+    ``MEMBERSHIP_EVENT`` means Telegram delivered a ``my_chat_member`` update: the bot really
+    is in that chat, or really was, and the id, the title and the type all came from Telegram.
+    ``MANUAL`` means somebody typed a chat id into the panel, and it is an UNVERIFIED CLAIM —
+    the id may be a typo, a group the bot was removed from, or a chat that never existed.
+
+    The two are one column for the reason ``BotBlockSource`` gives about the same distinction
+    in a different domain: a fact stamped by the source is stronger than a fact we inferred,
+    and a reader must be able to tell them apart. Here it is also the only honest thing the
+    panel can show, because of a constraint nothing in this codebase can engineer around:
+    **Telegram has no "list my groups" API.** A bot cannot enumerate its chats; the only way
+    it learns of one is a membership transition, so a group the bot was ALREADY in before this
+    feature shipped can never be discovered and can only ever arrive as ``MANUAL``. That is
+    not a gap to be closed later — it is why the manual field exists at all, and why the
+    verification job rather than this column is what decides whether a chat is postable.
+    """
+
+    MEMBERSHIP_EVENT = "membership_event"
+    MANUAL = "manual"
 
 
 class HealthState(StrEnum):

@@ -312,7 +312,21 @@ async def test_the_funnel_omits_states_with_no_rows_and_carries_its_probes(
     payload = body(await client.get(FUNNEL_PATH))
 
     # Assert — one bar, not five. A zero bar is a claim about payments nobody attempted.
-    assert payload["intents"] == [{"state": PaymentIntentState.PENDING.value, "count": 1}]
+    #
+    # The bar carries MONEY as well as a count, and the money is what the strip leads with: a
+    # payments screen is read to answer "how much did we take", which `count` answers
+    # identically for one 7 000 so'm song and for a hundred. `amountMinor` is tiyin, so 700_000
+    # is the one 7 000 so'm intent `make_intent` writes, and `currency` is the intent's own —
+    # the server groups by it so a second currency arrives as a second bar rather than being
+    # summed into this one.
+    assert payload["intents"] == [
+        {
+            "state": PaymentIntentState.PENDING.value,
+            "count": 1,
+            "amountMinor": 700_000,
+            "currency": "UZS",
+        }
+    ]
     assert payload["transactions"] == []
     assert (payload["rpcCalls"], payload["rpcFaults"]) == (0, 0)
     assert payload["hasRecordedTransaction"] is False

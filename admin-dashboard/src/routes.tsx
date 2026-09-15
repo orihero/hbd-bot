@@ -20,6 +20,8 @@ import { DashboardPage } from "@/features/dashboard/DashboardPage";
 import { AttemptDeepLink } from "@/features/generations/AttemptDeepLink";
 import { GenerationsScreen } from "@/features/generations/GenerationsScreen";
 import { ChatsPage } from "@/features/chats/ChatsPage";
+import { SupportBoardScreen } from "@/features/support/SupportBoardScreen";
+import { SupportTicketScreen } from "@/features/support/SupportTicketScreen";
 import { UserDetailScreen } from "@/features/users/UserDetailScreen";
 import { UsersScreen } from "@/features/users/UsersScreen";
 
@@ -98,6 +100,22 @@ export const router = createBrowserRouter([
           { path: PATH.broadcasts, element: <BroadcastsScreen /> },
           { path: PATH.broadcastNew, element: <BroadcastWizardScreen /> },
           { path: PATH.broadcastDetail, element: <BroadcastDetailScreen /> },
+          /*
+           * Support. Two paths, and unlike Campaigns their order is free: there is no literal
+           * sibling under `/support` — a ticket is opened by a customer in the bot, never by
+           * an operator here — so `:ticketId` has nothing to shadow.
+           *
+           * The ticket is a SIBLING of the board rather than a child. It replaces the board,
+           * so nesting would keep four column counts and a fifty-row queue mounted behind a
+           * screen that never shows them; and the board is a drag surface, which is the last
+           * thing that should stay live under a reply box somebody is typing into.
+           *
+           * No guard element. `support.read` is `M` at all four roles, and the writes are
+           * refused by the server with a 403 the screens render as a denial naming the role —
+           * a guard here would be a second, forgeable copy of §12.2.
+           */
+          { path: PATH.support, element: <SupportBoardScreen /> },
+          { path: PATH.supportTicket, element: <SupportTicketScreen /> },
           /*
            * The two administration sections, after the operational ones so this table reads
            * in the rail's order — the rule in `navItems.ts` sits here, between the two.

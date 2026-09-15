@@ -332,6 +332,10 @@ export const REQUIRED_NAMESPACES = [
   "admins",
   "reveal",
   "errors",
+  // The ticket queue's namespace, added with the section on 2026-09-15. This list is CLOSED and
+  // is the only thing that parity-checks a namespace across en/ru/uz — a namespace missing from
+  // it is three catalogues free to drift, silently, for as long as nobody opens all three.
+  "support",
 ] as const;
 
 export const SUPPORTED_LOCALES = ["en", "ru", "uz"] as const;

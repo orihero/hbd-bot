@@ -46,17 +46,18 @@ from aiogram.types import BotCommand, Message
 
 from bayram.bot.deps import BotDeps
 from bayram.bot.handlers.balance import handle_balance
-from bayram.bot.handlers.common import error_text, privacy_text, support_text
+from bayram.bot.handlers.common import error_text, privacy_text
 from bayram.bot.handlers.submitting import (
     ORDER_ID_KEY,
     PROGRESS_MESSAGE_ID_KEY,
     order_in_flight,
 )
+from bayram.bot.handlers.support import open_ticket
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import start_over_keyboard
 from bayram.bot.middleware import resolve_language
 from bayram.bot.states import Wizard
-from bayram.contracts import Err, Language, Result, ok
+from bayram.contracts import Err, Language, Result, SupportTicketSource, ok
 from bayram.db.retention import DEFAULT_RETENTION_POLICY
 from bayram.logging import get_logger
 
@@ -141,15 +142,31 @@ async def handle_privacy(message: Message, state: FSMContext) -> None:
 
 
 async def handle_support(message: Message, state: FSMContext, deps: BotDeps) -> None:
-    """Where to report a song that came out wrong.
+    """Report a song that came out wrong — and this now FILES the report rather than
+    describing where to send one.
 
-    The copy is rendered by ``common.support_text``, which the Report-a-problem button on
-    the closing message also uses: the command and the button must not describe two
-    different routes to the same inbox. It is also where the unconfigured case is handled —
-    the copy changes, the destination is never faked.
+    **It converges on exactly the flow the ⚠️ button opens**, through the same
+    ``handlers.support.open_ticket``: a ForceReply prompt, the customer's own words, a row, a
+    card in the staff group. The command and the button must not describe two different routes
+    to one inbox — the rule ``common.support_text`` was extracted to keep — and the strongest
+    form of that rule is not two surfaces rendering one sentence, it is two surfaces calling
+    one function. ``support_text`` survives as the FALLBACK inside that function, taken when no
+    ticket store is wired, so the unconfigured case still changes the copy and still never
+    fakes a destination.
+
+    The one thing this door does NOT carry is an ``order_id``: a customer typing ``/support``
+    has not told us which song, and ``source=support_command`` is how the row records that it
+    was this door rather than the button under a specific delivery.
+
+    **It stays in ``gate.ERASURE_COMMANDS``**, and that carve-out now buys strictly more than
+    it did: a blocked account can still open a ticket, which is the whole point of blocking
+    being an operator decision a person can lift. The ⚠️ button deliberately does not join that
+    set — it is a button on a screen, not a data-subject command, and admitting it would make
+    the carve-out a hole an unmetered write amplifier walks through.
     """
-    language = await resolve_language(state)
-    await message.answer(support_text(language, deps.settings.support_contact))
+    await open_ticket(
+        message, state, deps, source=SupportTicketSource.SUPPORT_COMMAND, order_id=None
+    )
 
 
 async def handle_forget(message: Message, state: FSMContext, deps: BotDeps) -> None:
@@ -178,6 +195,17 @@ async def handle_forget(message: Message, state: FSMContext, deps: BotDeps) -> N
     the failure this command exists to make impossible. Both calls are idempotent, so
     attempting both and reporting the FIRST failure costs nothing and loses nothing; sending
     ``/forget`` again finishes whichever half did not land.
+
+    **And the support tickets, which are on no schedule either and hold the customer\'s own
+    prose.** A ticket body is whatever they typed about what went wrong, and
+    ``tests/test_db/test_privacy_constraints.py`` carries a written exemption saying those two
+    tables keep it indefinitely with ``/forget`` as the erasure route — so this arm is the
+    thing that makes that paragraph true rather than aspirational. It DELETES the rows: unlike
+    ``credit_ledger``, which keeps a count with the account number taken off it,
+    ``support_tickets.telegram_user_id`` is NOT NULL and there is no count here worth keeping.
+    A complaint detached from the person who made it is a body nobody may read and an answer
+    nobody can send. ``support_ticket_events.ticket_id`` is ``ON DELETE CASCADE``, so the
+    timeline — every note and every reply written about them — goes in the same statement.
 
     **And the credit record, which is on no schedule at all.** The entitlement layer added
     two tables that ``/privacy`` could not truthfully describe: ``credit_accounts`` is a
@@ -260,7 +288,10 @@ async def handle_forget(message: Message, state: FSMContext, deps: BotDeps) -> N
     telegram_user_id = user.id if user else None
     forgotten = await _forget_profile(deps, telegram_user_id)
     erased = await _forget_credits(deps, telegram_user_id)
-    failure = forgotten if isinstance(forgotten, Err) else erased
+    torn_up = await _forget_tickets(deps, telegram_user_id)
+    failure = next(
+        (result for result in (forgotten, erased, torn_up) if isinstance(result, Err)), None
+    )
     if isinstance(failure, Err):
         await message.answer(error_text(failure.error, language), reply_markup=keyboard)
         return
@@ -308,6 +339,31 @@ async def _forget_credits(deps: BotDeps, telegram_user_id: int | None) -> Result
     if isinstance(erased, Err):
         _LOG.error("the credit record could not be erased", extra=erased.error.to_log_dict())
     return erased
+
+
+async def _forget_tickets(deps: BotDeps, telegram_user_id: int | None) -> Result[None]:
+    """Delete this customer\'s support tickets and everything written on their timelines.
+
+    The same shape as its two neighbours, deliberately: an unwired store and an unknown sender
+    both succeed, the caller reports the first ``Err`` of the three, and a difference between
+    them would show up there as an inconsistency in what "it worked" means. The count is
+    dropped rather than returned because the confirmation the customer reads does not quote
+    numbers; it is logged, where it is the one piece of evidence that this arm did anything.
+
+    **Unwired is a supported configuration and NOT a silent hole**, but it is the one case in
+    which the privacy exemption names a route that does not run — see
+    :attr:`bayram.bot.deps.BotDeps.support_erasure`, and ``bayram.main``, which says so at
+    boot on a deployment that stores tickets without wiring this.
+    """
+    store = deps.support_erasure
+    if store is None or telegram_user_id is None:
+        return ok(None)
+    removed = await store.forget_tickets(telegram_user_id)
+    if isinstance(removed, Err):
+        _LOG.error("the support tickets could not be erased", extra=removed.error.to_log_dict())
+        return removed
+    _LOG.info("support tickets erased on request", extra={"tickets_deleted": removed.value})
+    return ok(None)
 
 
 def build_router() -> Router:

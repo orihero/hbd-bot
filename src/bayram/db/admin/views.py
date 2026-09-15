@@ -46,6 +46,9 @@ from bayram.contracts import (
     AssetKind,
     BalanceEstimateBasis,
     BalanceUnit,
+    BotChatSource,
+    BotChatStatus,
+    BotChatType,
     BroadcastKind,
     BroadcastRecipientState,
     BroadcastState,
@@ -56,6 +59,10 @@ from bayram.contracts import (
     Occasion,
     OrderState,
     Script,
+    SupportAuthorKind,
+    SupportTicketEventKind,
+    SupportTicketSource,
+    SupportTicketStatus,
     Vendor,
     VendorOperation,
     VoiceGender,
@@ -87,6 +94,13 @@ __all__ = [
     "BroadcastBodyView",
     "BroadcastDetail",
     "BroadcastRecipientItem",
+    # -- support: the queue, one ticket, and what we told the customer ---
+    "SupportTicketColumnTotal",
+    "SupportTicketListItem",
+    "SupportTicketEventItem",
+    "SupportTicketDetail",
+    # -- the chat directory: every group the bot is in, and the selected one ---
+    "BotChatListItem",
     "CreditAccountState",
     "CreditLedgerItem",
     "OrdersPerDay",
@@ -968,6 +982,280 @@ class BroadcastRecipientItem:
     def is_erased(self) -> bool:
         """``/forget`` anonymised this row. The delivery record is kept; the id is gone."""
         return self.telegram_user_id is None
+
+
+# ---------------------------------------------------------------------------
+# Support — the queue, one ticket, and the timeline that says what we told them
+#
+# THESE SHAPES BREAK THIS MODULE'S STANDING RULE ABOUT FREE TEXT, ON PURPOSE. The rule at
+# the top of this file is that a customer's words cross as a ``*_chars`` count and a ``has_*``
+# flag, with the plaintext routed through the audited, step-up-gated ``POST /reveal``. A
+# ticket body does not, and the argument is made in full on :class:`SupportTicketListItem`
+# rather than left implicit — so that a reviewer who notices the inconsistency finds a
+# decision instead of an oversight, and so that the exception stays confined to the one
+# column it was argued for.
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class SupportTicketColumnTotal:
+    """How many described tickets sit in one Kanban column. One per status, always.
+
+    Zero-filled over every :class:`~bayram.contracts.SupportTicketStatus` in declaration
+    order, for the reason :class:`OrderStateTotal` gives about a distribution bar: a column
+    that appeared from nowhere as the first ticket arrived would re-lay-out the board under
+    the operator's cursor, and a board whose columns depend on the data is a board whose
+    emptiness is indistinguishable from a failed request.
+
+    **The count excludes undescribed tickets** (``described_at IS NULL``), which is the one
+    place this type differs from every other counter in this module and the reason it exists
+    at all rather than being ``bounded_total`` per status. Those rows are real data — somebody
+    tapped ⚠️ and never typed — and they are kept and counted elsewhere; what they are not is
+    work, and a queue length that included them would tell an operator to look at a column
+    holding nothing anyone can act on. ``support_tickets``' module docstring argues why the
+    rows are kept rather than deleted.
+
+    Not bounded and not sampled. ``bounded_total``'s ``LIMIT`` trick cannot be borrowed for a
+    distribution — an arbitrary ten thousand rows have an arbitrary distribution — and the
+    board is four ``GROUP BY`` buckets over ``ix_support_tickets_status_created_at_id``,
+    which is the index that exists for exactly this and for the keyset page beside it.
+    """
+
+    status: SupportTicketStatus
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class SupportTicketListItem:
+    """One ticket as a row of the queue and as a card on the board — the complaint included.
+
+    **THE BODY CROSSES IN FULL, AND THIS IS THE ARGUED EXCEPTION TO THIS MODULE'S RULE.**
+    Everywhere else a customer's free text is a length: ``briefs.note``,
+    ``briefs.approved_lyrics`` and ``generation_attempts.stt_transcript`` are words a customer
+    wrote about a real third party, collected to render a song, and an operator reading them
+    is reading something they were not addressed with — so §6.7 routes the plaintext through
+    an audited, budgeted, step-up-gated ``POST /reveal`` and these views carry ``*_chars`` and
+    ``has_*`` instead. :class:`BroadcastBodyView` publishes its text whole for the mirror-image
+    reason: that body is operator-authored and contains no customer at all.
+
+    A support ticket is neither, and it is the case the rule was never written about. The
+    customer wrote these words **to support**, deliberately, in answer to a prompt that asked
+    them to describe a problem; the body is not metadata about the work item, it *is* the work
+    item; and an operator who cannot read the complaint cannot answer it, which leaves a
+    reveal gate standing between a customer and the reply they asked for. Gating it would not
+    protect anybody — the same sentence is already in the support group, on a card, being read
+    by staff — it would only add an audited click to every ticket and train operators to click
+    through reveals, which is the habit that makes the gate meaningless where it matters.
+
+    So the exception is: **this column, on this view, because the customer addressed it to
+    this reader.** It does not generalise. Nothing else on a ticket is free text, and the
+    reveal machinery is untouched.
+
+    :attr:`body` is nevertheless ``None`` for a large minority of rows, and that is not a
+    redaction: it is a customer who tapped ⚠️ and never typed. :attr:`described_at` is the
+    same fact as a clock, and the board excludes those rows while the list keeps them.
+
+    :attr:`telegram_user_id` is the third read in this package to name a person, and it names
+    them exactly as ``GET /api/users`` already does — an id, no handle, no first name, no
+    phone. ``db.admin.audience_lists`` makes that argument in full; this view widens it by
+    nothing and the masking serializer (§6.5) is what the wire sees.
+    """
+
+    id: UUID
+    #: The short reference the customer was given and the staffer quotes back. The operator's
+    #: search box matches on this, which is what makes a phone call resolvable.
+    public_ref: str
+    telegram_user_id: int
+    #: The locale the ticket was OPENED in — what the relay must answer in, not the account's
+    #: language today.
+    language: Language
+    source: SupportTicketSource
+    #: ``None`` for every ``/support`` ticket, which is roughly half of them and not a defect:
+    #: the command has no order in hand. The delivery button always carries one.
+    order_id: UUID | None
+    status: SupportTicketStatus
+    #: The customer's own words. See the class docstring for why this is not a length.
+    body: str | None
+    #: When the body arrived. ``None`` means tapped-and-never-typed; the board hides those.
+    described_at: datetime | None
+    #: Denormalised, with no foreign key to ``admin_users`` — a rename must not rewrite who
+    #: worked a ticket, and an operator who leaves must not take the queue's history away.
+    assigned_admin_username: str | None
+    assigned_at: datetime | None
+    #: Whether the card reached the support group. The chat and message ids themselves are
+    #: deliberately absent: they are a Telegram routing detail the panel has no use for, the
+    #: admin process is structurally forbidden from talking to Telegram at all
+    #: (``ADMIN_PANEL_PLAN D10 / §4.2``), and publishing them would invite a future screen to
+    #: try. ``False`` with a described body means the post is still owed — never lost.
+    is_posted_to_group: bool
+    group_posted_at: datetime | None
+    #: Stamped on the way into ``resolved`` and NEVER cleared by a reopen: it records that this
+    #: ticket was once considered finished, which is the most useful thing to know about a
+    #: ticket that came back.
+    resolved_at: datetime | None
+    #: How many timeline rows this ticket has. A correlated count, so a queue page costs one
+    #: statement rather than one per row — and the number is what tells an operator at a glance
+    #: which tickets have been talked about and which have had nothing said.
+    event_count: int
+    created_at: datetime
+    #: Last move of any kind. The column a "nothing has happened here for four days" filter
+    #: reads, which is why ``support_tickets`` carries ``TimestampMixin`` where this package's
+    #: append-only tables refuse it.
+    updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class SupportTicketEventItem:
+    """One thing that happened to one ticket — a row of the append-only timeline.
+
+    :attr:`body` crosses whole for the reason :class:`SupportTicketListItem` argues, and here
+    it is even less arguable: a ``NOTE`` is an operator's own words and a ``REPLY`` is a
+    sentence we sent to the customer. Neither is a third party's data, and the timeline exists
+    to be read.
+
+    **:attr:`relayed_at` is published because its absence is the point.** A ``REPLY`` row with
+    no relay clock is a sentence that was composed and never reached anybody — the customer
+    blocked the bot, Telegram refused the chat — and an operator who cannot see the difference
+    will re-read a timeline as "we answered them" when nothing landed. That is the single
+    worst mistake available on this screen, and one nullable instant removes it.
+
+    The three author columns travel separately rather than flattened into one ``author``
+    string, exactly as the table stores them: an ``author_admin_username`` is an actor with an
+    ``admin_users`` row, a session and an ``admin_audit_log`` entry behind it, while a Telegram
+    id is somebody whose only credential is membership of a chat. One string would let a row
+    claim an audited actor for an act nobody audited.
+    """
+
+    id: UUID
+    ticket_id: UUID
+    kind: SupportTicketEventKind
+    author_kind: SupportAuthorKind
+    #: Set for ``operator``. Denormalised; a rename must not rewrite history.
+    author_admin_username: str | None
+    #: Set for ``customer`` and ``staff_group``. Masked on the wire like every other raw id.
+    author_telegram_user_id: int | None
+    #: The group staffer's ``@handle`` or first name, so the timeline reads as prose rather
+    #: than as a column of numbers. ``None`` for ``system`` and for a customer, whose name this
+    #: schema deliberately does not hold on a ticket at all.
+    author_display_name: str | None
+    #: Both ends of a move, set only on ``status_change``. Two fields and not one, because
+    #: "it went to waiting" and "it went to waiting from resolved" are different events, and
+    #: the second is a reopened ticket — the shape anybody goes looking for.
+    from_status: SupportTicketStatus | None
+    to_status: SupportTicketStatus | None
+    #: A note or a reply. ``None`` on the kinds that carry no prose.
+    body: str | None
+    #: When a reply actually reached the customer. See the class docstring.
+    relayed_at: datetime | None
+    created_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class SupportTicketDetail:
+    """One ticket and its whole timeline, as ``GET /api/support/tickets/{id}`` reports it.
+
+    Two statements rather than a join, because every relationship in this schema is
+    ``lazy="raise"`` and a join to a one-to-many child would multiply the ticket row by its
+    events for Python to un-multiply. ``get_broadcast`` runs three for the same reason, one
+    domain along.
+
+    The timeline is **unbounded and unpaged**, unlike every other child collection in this
+    package, and that is a judgement about the data rather than an omission: a ticket is a
+    conversation between one customer and a handful of staff, so its event count is tens at
+    the very worst — where ``broadcast_recipients`` is tens of thousands per campaign and is
+    paged for exactly that reason. A ticket that somehow grew a thousand events would be a
+    ticket worth seeing all of.
+    """
+
+    ticket: SupportTicketListItem
+    #: Oldest first: a timeline is read forwards, and it is the one list in this package that
+    #: is not newest-first. ``(created_at, id)`` ascending, the order
+    #: ``ix_support_ticket_events_ticket_id_created_at_id`` was declared to serve.
+    events: tuple[SupportTicketEventItem, ...]
+
+
+# ---------------------------------------------------------------------------
+# The chat directory — every group the bot knows it is in, and which one gets the tickets
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class BotChatListItem:
+    """One ``bot_chats`` row, as the Support group screen renders it.
+
+    **EVERY COLUMN OF THE TABLE CROSSES, WHICH IS THIS MODULE'S ONLY VIEW THAT CAN SAY THAT.**
+    It is not an exception to the free-text rule at the top of this file; it is a table the rule
+    has nothing to say about. A chat id, a chat title, a public ``@handle``, three closed enums,
+    a boolean, an operator's own login and a bounded error string — nothing here is a customer's
+    words, and the one field that would have been a person is the one the table deliberately does
+    not store (``my_chat_member.from_user``, argued in full on ``bayram.db.models.bot_chat``).
+    There is no ``*_chars`` count anywhere below because there is nothing to withhold.
+
+    **:attr:`source` IS A FIRST-CLASS FIELD AND THE SCREEN MUST RENDER IT.** ``membership_event``
+    means Telegram delivered a ``my_chat_member`` update — the bot really is in that chat, and
+    the id, title and type are Telegram's own. ``manual`` means somebody typed a number into a
+    box, and it is an unverified claim that may be a typo, a group the bot was thrown out of, or
+    a chat that never existed. The two exist as separate values only because
+    **Telegram has no "list my groups" API**: a group the bot was already in when this feature
+    shipped can never be discovered and can only ever arrive as ``manual``. Rendering the two
+    identically would present a guess with the same confidence as a fact.
+
+    **:attr:`bot_status` IS EVIDENCE, NEVER PERMISSION, AND THE BADGE MUST COME FROM
+    :attr:`verified_at`.** ``bot_status`` is what Telegram last said, at the instant it said it;
+    an administrator can be stripped of ``can_post_messages`` with no membership transition sent,
+    a group can be deleted in silence, and a ``manual`` row has never had a transition at all.
+    A green chat drawn from ``bot_status`` alone is a chat the panel claims works and the bot
+    cannot write a word into — which is the exact failure the verification job exists to make
+    visible. :attr:`verified_at` and :attr:`verification_error` are mutually exclusive: the
+    writers clear each when they set the other, so a row never shows a proof beside a reason.
+    """
+
+    #: Telegram's own id, and the primary key. NEGATIVE for every row — a group id is negative
+    #: and a supergroup id begins ``-100`` — so it is BIGINT the whole way to the wire; a panel
+    #: that parsed it into a 32-bit integer would select a chat that does not exist.
+    chat_id: int
+    chat_type: BotChatType
+    #: What the group calls itself. ``None`` until something learns it, which for a pasted id
+    #: means until the verification job's ``getChat`` runs — and the title is the ONLY way an
+    #: operator tells four negative numbers apart, so a row without one is a row to be honest
+    #: about rather than to fill in with the id again.
+    title: str | None
+    #: The public ``@handle``. ``None`` for every private group, which is most of them, and not
+    #: a gap.
+    username: str | None
+    bot_status: BotChatStatus
+    source: BotChatSource
+    #: The selection. At most one row in the whole response holds ``True``, enforced by a
+    #: partial unique index rather than by whoever wrote the last endpoint.
+    is_support_group: bool
+    #: The forum topic cards are posted into, or ``None`` for the group itself. Travels beside
+    #: the chat because a topic id is meaningless apart from the chat it is a topic OF.
+    thread_id: int | None
+    #: When the bot was last PROVED able to post here. ``None`` means nobody has checked since
+    #: this row last changed — the state every freshly pasted id is in, and the reason a
+    #: selection is never reported to an operator as a success.
+    verified_at: datetime | None
+    #: Why the last check failed, in words an operator can act on: the chat was not found, the
+    #: bot is not a member, the bot cannot post, or the group was upgraded to a supergroup and
+    #: has a NEW id — which the message names, because that is the only way a selected group
+    #: that migrated is distinguishable from a healthy one.
+    verification_error: str | None
+    #: The operator's login, denormalised with no foreign key, exactly as
+    #: :attr:`SupportTicketListItem.assigned_admin_username` is: a rename must not rewrite who
+    #: repointed the support inbox, and an operator who leaves must not take the record with
+    #: them. This is the only human name on the row, and it is an operator's, not a customer's.
+    selected_by_username: str | None
+    #: NOT cleared when a chat is unselected. "This was once the support group" is the most
+    #: useful thing to know about a chat somebody is looking at while wondering where last
+    #: month's tickets went.
+    selected_at: datetime | None
+    #: TELEGRAM's clocks, not ours: ``ChatMemberUpdated.date`` from the first and most recent
+    #: membership updates. For a ``manual`` row both are the instant the id was pasted, which is
+    #: the only instant that row has. :attr:`last_seen_at` is the nearest thing to "is this group
+    #: still live?" available to a bot that cannot ask Telegram that question.
+    first_seen_at: datetime
+    last_seen_at: datetime
+    #: Ours. ``updated_at`` is true and load-bearing here, where this package's append-only
+    #: tables refuse the mixin: every column above is mutable and this is the cheapest evidence
+    #: that a chat moved at all.
+    created_at: datetime
+    updated_at: datetime
 
 
 # ---------------------------------------------------------------------------
@@ -2276,10 +2564,32 @@ class CheckoutSeen:
 
 @dataclass(frozen=True, slots=True)
 class IntentStateCount:
-    """How many intents are in one ``PaymentIntentState``. Absent states are not zero rows."""
+    """How much money is in one ``PaymentIntentState``, and how many rows carry it.
+
+    Absent states are not zero rows.
+
+    **The amount is the figure this row exists for and the count is its qualifier**, which is
+    the reverse of how it was built. A payment rail is read to answer "how much did we take",
+    and a strip that printed ``143`` under *Settled* answered a question nobody asks about
+    money — one 15 000 soʻm song and a hundred of them are the same number there. The count
+    survives beside it because it is the only thing that tells those two apart, and because
+    ``amount_minor / count`` is the average payment, which is how a pricing change shows up.
+
+    **Grouped by ``(state, currency)``, not by state alone.** ``payment_intents.currency`` is a
+    real column and summing across it would add soʻm to whatever the second currency turns out
+    to be and print the total as one number. Today every row is ``UZS`` and this grouping is
+    therefore a one-row-per-state no-op — which is exactly when it is cheap to get right;
+    ``db/admin/topup_purchases.py`` groups its revenue the same way for the same reason.
+    """
 
     state: str
     count: int
+    #: Tiyin, not soʻm — ``payment_intents.amount_minor`` is minor units, as everything on this
+    #: rail is. The panel divides; nothing here does, because a fraction of a tiyin is not a
+    #: thing and rounding belongs at the edge that renders.
+    amount_minor: int
+    #: ISO 4217 as the intents recorded it. Never assumed: see the class docstring.
+    currency: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -2470,10 +2780,24 @@ class IntentReferenceMatch:
 
 @dataclass(frozen=True, slots=True)
 class RailStateCount:
-    """How many rail-side transactions are in one ``PaymeState``. Absent states are omitted."""
+    """How much money is in one ``PaymeState``, and how many transactions carry it.
+
+    Absent states are omitted.
+
+    **No ``currency`` field, unlike :class:`IntentStateCount`, and the asymmetry is the
+    schema's rather than an oversight.** ``payme_transactions`` has ``amount_minor`` and no
+    currency column at all, because a Payme transaction is denominated by the rail itself:
+    Payme settles soʻm and nothing else, so the column would have held one literal for every
+    row ever written. The currency that labels these amounts in the panel therefore comes from
+    the intent side of the same funnel, which does record it — and if a second currency ever
+    reaches ``payment_intents``, that is where it will surface, which is the right place for it
+    to surface first.
+    """
 
     state: str
     count: int
+    #: Tiyin. See :attr:`IntentStateCount.amount_minor`.
+    amount_minor: int
 
 
 @dataclass(frozen=True, slots=True)

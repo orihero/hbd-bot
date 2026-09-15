@@ -307,15 +307,23 @@ async def intent_funnel(session: AsyncSession, *, window: TimeWindow | None = No
     # labelled ``count`` shadows ``tuple.count`` and ``row.count`` silently hands back the bound
     # METHOD rather than the number. It type-checks nowhere and would have read as a database
     # bug at runtime.
+    #
+    # ``SUM`` is wrapped in ``COALESCE`` even though a GROUP BY bucket cannot be empty: the
+    # bucket exists only because a row fell into it, so the sum is never NULL in practice.
+    # The coalesce is there so the TYPE is ``int`` on every engine rather than ``int | None``
+    # — SQLAlchemy cannot know the grouping guarantees it, and ``int(row.amount)`` on a None
+    # would be the kind of failure that only appears on the first empty window in production.
+    #
+    # Grouped by ``(state, currency)``: see ``IntentStateCount``. Today that is one row per
+    # state, because every intent is UZS.
+    grouping = (PaymentIntentRow.state, PaymentIntentRow.currency)
     grouped: Select[Any] = sa.select(
-        PaymentIntentRow.state, sa.func.count().label("total")
+        *grouping,
+        sa.func.count().label("total"),
+        sa.func.coalesce(sa.func.sum(PaymentIntentRow.amount_minor), 0).label("amount"),
     ).select_from(PaymentIntentRow)
     grouped = apply_window(grouped, PaymentIntentRow.created_at, window)
-    rows = (
-        await session.execute(
-            grouped.group_by(PaymentIntentRow.state).order_by(PaymentIntentRow.state)
-        )
-    ).all()
+    rows = (await session.execute(grouped.group_by(*grouping).order_by(*grouping))).all()
 
     split: Select[Any] = sa.select(
         sa.func.count(sa.case((_HELD_BY_A_TRANSACTION, 1), else_=None)).label("after"),
@@ -325,7 +333,15 @@ async def intent_funnel(session: AsyncSession, *, window: TimeWindow | None = No
     expiry = (await session.execute(split)).one()
 
     return IntentFunnel(
-        states=tuple(IntentStateCount(state=str(row.state), count=int(row.total)) for row in rows),
+        states=tuple(
+            IntentStateCount(
+                state=str(row.state),
+                count=int(row.total),
+                amount_minor=int(row.amount),
+                currency=str(row.currency),
+            )
+            for row in rows
+        ),
         expired_after_transaction=int(expiry.after),
         expired_with_no_transaction=int(expiry.without),
     )

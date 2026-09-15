@@ -610,4 +610,60 @@ CATALOGUE: Final[dict[str, str]] = {
         "Приложите номер заказа из завершающего сообщения под песней — по нему мы найдём "
         "именно ваш прогон и увидим, что пошло не так."
     ),
+    # -- support tickets (the ⚠️ button and /support, which are ONE flow) -------
+    # Eight keys, and they are the WHOLE customer-facing surface of the ticket system: the
+    # prompt and its re-prompt, the two answers a description can get, the refusal, the
+    # failure, the reply that comes back from a person and the answer to a follow-up.
+    # Everything a STAFFER reads — the triage card, its buttons,
+    # its status badges — is an English literal in ``bayram.bot.support_card`` and is
+    # deliberately not here: ``translate`` falls back across all four locales and the
+    # catalogues are held in exact key parity, so one staff-facing string in this file would
+    # oblige four translations of an internal message, for ever.
+    #
+    # ``{ref}`` is the ticket's public reference — eight characters of its own id, the same
+    # shape as the order reference in the closing message (``bayram.support.public_ref_for``).
+    # It is rendered inside ``<code>`` in every one of these, because its whole job is to be
+    # read back to us: ``<code>`` is what makes a phone tap copy it rather than select a
+    # word of the sentence around it.
+    "support.ticket.prompt": (
+        "✍️ Расскажите, что пошло не так — ответьте на это сообщение и опишите своими "
+        "словами.\n\n"
+        "Пишите столько, сколько нужно: каждое такое обращение читает человек."
+    ),
+    "support.ticket.filed": (
+        "✅ Принято. Номер вашего обращения — <code>{ref}</code>, им займётся человек.\n\n"
+        "Сохраните его: приложите, если напишете об этом же снова. Ответ придёт сюда, в "
+        "этот чат."
+    ),
+    "support.ticket.already_filed": (
+        "📬 Оно у меня уже есть — обращение <code>{ref}</code>. Отправлять заново не нужно, "
+        "ответ придёт сюда."
+    ),
+    # The re-prompt, NOT a refusal. See the English catalogue: §1.4's rule, and the fix for a
+    # blocked account that could open tickets it was never allowed to describe.
+    "support.ticket.still_open": (
+        "✍️ У вас уже открыто обращение <code>{ref}</code>, и я всё ещё жду рассказа о том, "
+        "что пошло не так.\n\n"
+        "Ответьте на это сообщение и опишите своими словами."
+    ),
+    # The DAILY ceiling, and the only real refusal here.
+    "support.ticket.too_many": (
+        "⏳ Столько обращений на один аккаунт за сутки я открыть не могу.\n\n"
+        "Дождитесь ответа на уже отправленные, а о следующем расскажите завтра."
+    ),
+    "support.ticket.unavailable": (
+        "⚠️ Сейчас не получилось открыть обращение. Попробуйте ещё раз через минуту — а "
+        "если повторится, отправьте /support и опишите всё в этом чате."
+    ),
+    "support.ticket.reply": (
+        "✉️ <b>Поддержка</b> · обращение <code>{ref}</code>\n\n"
+        "<blockquote>{body}</blockquote>\n\n"
+        "Если есть что добавить — ответьте здесь."
+    ),
+    # The answer to that invitation. A follow-up joins the ticket that already exists and
+    # never mints a second номер: одна переписка, одно обращение.
+    "support.ticket.follow_up": (
+        "📨 Добавлено к обращению <code>{ref}</code>. Те, кто им занимается, это видят, а "
+        "ответ придёт сюда."
+    ),
 }

@@ -179,6 +179,23 @@ EXPECTED_DECISIONS: Final[
     # route on RAIL_CONTROL: SUPPORT takes the "I paid and nothing happened" call, and folding
     # the two would have handed them the switch that stops the business selling.
     Permission.PAYMENT_NOTIFY: (_NO, _OK, _OK, _OK),
+    # The support queue, and the same two properties as the pair above: a plain read and a
+    # plain write, so every cell is ``_OK`` or ``_NO`` and never ``_SU``. A VIEWER is refused
+    # the WRITE flat rather than prompted — no grant would ever help them, and an SPA that
+    # opened a re-authentication box at somebody permanently ineligible is the confusion
+    # ``FORBIDDEN_ROLE`` and ``STEP_UP_REQUIRED`` are kept apart to prevent.
+    #
+    # SUPPORT holding the write is the one cell worth checking twice: it is the only ``_OK``
+    # in the SUPPORT column of any write row in this table.
+    Permission.SUPPORT_READ: (_OK, _OK, _OK, _OK),
+    Permission.SUPPORT_WRITE: (_NO, _OK, _OK, _OK),
+    # Repointing the support inbox, and the row whose SUPPORT cell is the interesting one: it
+    # is ``_NO`` while the write directly above is ``_OK``, which is the deliberate line
+    # between "work the queue" and "decide where the queue is published". A refusal and never
+    # a prompt — no grant would ever help a SUPPORT operator here, and this row appears in no
+    # ``STEP_UP_ACTIONS`` entry at all, which is asserted below and is what makes it usable as
+    # the router-level guard ``routers/support_groups.py`` declares it as.
+    Permission.SUPPORT_GROUP_WRITE: (_NO, _NO, _OK, _OK),
 }
 
 #: Every ``(permission, role)`` pair, flattened once so the parameter list is the matrix.
@@ -203,6 +220,7 @@ _IDENTIFIERS: Final[Mapping[str, object]] = {
     "telegram_user_id": 770_000_123,
     "broadcast_id": uuid4(),
     "intent_id": uuid4(),
+    "ticket_id": uuid4(),
 }
 
 

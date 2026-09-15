@@ -203,15 +203,29 @@ def to_optional_window(window: TimeWindow | None) -> WindowView | None:
 
 
 class StateCountView(ApiModel):
-    """One state and how many rows are in it. **A state with no rows is ABSENT, never zero.**
+    """One state, the money in it, and how many rows carry that money.
+
+    **A state with no rows is ABSENT, never zero.**
 
     Shared by the intent funnel and the transaction funnel because the shape is identical and a
     second class would be two chances to zero-fill one of them. A zero bar on a payments screen
     is a claim about payments nobody attempted on a day this rail may not have been on.
+
+    ``amountMinor`` is the figure the strip leads with and ``count`` is its qualifier, which is
+    the reverse of the order they were built in — a payments screen is read to answer "how much
+    did we take", and ``143`` under *Settled* answers a question nobody asks about money.
+
+    ``currency`` is ``None`` on the TRANSACTION funnel and set on the INTENT funnel, and that
+    is the schema's asymmetry rather than an optional field nobody filled in:
+    ``payme_transactions`` has no currency column, because Payme denominates in soʻm and
+    nothing else, while ``payment_intents`` records one per row. The panel labels both from the
+    intent side. See ``RailStateCount`` for the argument in full.
     """
 
     state: str
     count: int
+    amount_minor: int
+    currency: str | None = None
 
 
 class CheckoutSeenView(ApiModel):
@@ -485,10 +499,21 @@ def to_rail_funnel_view(
 ) -> RailFunnelView:
     return RailFunnelView(
         window=to_optional_window(window),
-        intents=[StateCountView(state=row.state, count=row.count) for row in funnel.states],
+        intents=[
+            StateCountView(
+                state=row.state,
+                count=row.count,
+                amount_minor=row.amount_minor,
+                currency=row.currency,
+            )
+            for row in funnel.states
+        ],
         intents_expired_after_transaction=funnel.expired_after_transaction,
         intents_expired_with_no_transaction=funnel.expired_with_no_transaction,
-        transactions=[StateCountView(state=row.state, count=row.count) for row in transactions],
+        transactions=[
+            StateCountView(state=row.state, count=row.count, amount_minor=row.amount_minor)
+            for row in transactions
+        ],
         rpc_calls=rpc_calls,
         rpc_faults=rpc_faults,
         has_opened_any_intent=has_opened_any_intent,

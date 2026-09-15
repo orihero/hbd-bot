@@ -13,7 +13,7 @@ a file in `docs/` with no home.
 | --- | --- | --- |
 | [`deployment/`](deployment/README.md) | How the system is provisioned, released, operated and debugged. Has its own index. | Living — must track reality |
 | [`decisions/`](decisions/DECISIONS.md) | Decisions taken, each with its named fallback and the trigger that switches to it. | Append-only; supersede, never rewrite |
-| [`product/`](product/) | What is being built and why: scope of work, the admin-panel plans, and the payment-rail, billing-console and broadcast specifications. | Living until shipped, then historical |
+| [`product/`](product/) | What is being built and why: scope of work, the admin-panel plans, and the payment-rail, billing-console, broadcast and support-ticket specifications. | Living until shipped, then historical |
 | [`research/`](research/) | Investigations that fed a decision — benchmarks, vendor teardowns, unit economics, bake-off prompts. | Frozen at their date; correct by adding, not editing |
 | [`audits/`](audits/) | Point-in-time reviews of something that already exists. | Frozen at their date |
 | [`mockups/`](mockups/) | Standalone HTML design mockups. Not built, not served, not tested. | Superseded by the real UI |
@@ -50,11 +50,22 @@ all-or-nothing operation with its own rollback.
 ### `decisions/`
 
 - [`DECISIONS.md`](decisions/DECISIONS.md) — the vendor and architecture picks, numbered
-  (`D1`, `D2`, …, currently through `D15`) and cited by number from code comments throughout
+  (`D1`, `D2`, …, currently through `D19`) and cited by number from code comments throughout
   `src/bayram/`. Those citations are by number, not by path, so they survive this file moving.
-  The two newest are about the admin console rather than a vendor: **D14** draws the line
-  between what the panel may do to a payment and what stays in the terminal, and **D15** records
-  which of the two SPAs in this repository is the deployed one.
+  The later ones are mostly about the product rather than a vendor: **D14** draws the line
+  between what the panel may do to a payment and what stays in the terminal, **D15** records
+  which of the two SPAs in this repository is the deployed one, **D16** settles how ElevenLabs
+  music is metered, **D17** makes a settled payment start the render on a redirect rail,
+  **D18** builds the support-ticket queue behind the ⚠️ button — four Kanban states, the
+  Telegram support group as a staff surface with two-way reply, and a ticket body kept
+  indefinitely rather than on a retention clock, **amended on 2026-09-15** so that the group
+  is chosen in the admin panel instead of by an environment variable (the amendment sits under
+  D18 rather than opening a new decision, because it changes only how the room is picked) — and
+  **D19** records that the song price and
+  the soʻm-per-USD rate are mirrored into the admin process **by hand**, with an unset pair
+  rendering an em dash that names its own absence rather than a zero. D19's operator half is
+  [`deployment/02-configuration.md`](deployment/02-configuration.md) §"The four finance
+  variables", which is where to go when the Finances tab looks empty.
 
 ### `product/`
 
@@ -105,6 +116,24 @@ all-or-nothing operation with its own rollback.
   the send pipeline (§4). To be cited by section (`BROADCAST_SPEC §4.4`) from
   `src/bayram/db/admin/segment.py` and `src/bayram/runtime/`. It specifies `DECISIONS.md` **D12**, and
   §6.3 records what the first build deliberately leaves out.
+- [`SUPPORT_TICKETS_SPEC.md`](product/SUPPORT_TICKETS_SPEC.md) — the ticket queue behind the ⚠️
+  button and `/support`: the FSM-free customer flow and why it must stay that way (§1.2), the two
+  tables of revision `0027` (§2), the Telegram group card, its once-only latch and the two-way
+  reply (§3), the four Kanban states and their legal transitions (§4), the API and its
+  deliberately step-up-free `support.write` (§5), and the privacy position (§7). **§3.8 is the
+  2026-09-15 amendment**: the support group is no longer `BAYRAM_SUPPORT_GROUP_CHAT_ID` but a
+  `bot_chats` row (revision `0028`) chosen in the panel on `support.group.write`, because
+  Telegram has no "list my groups" API and the design is what that constraint leaves — §3.7,
+  §5.1, §5.2, §6.1, §8 and §9 carry their own dated blocks. To be cited by
+  section (`SUPPORT_TICKETS_SPEC §3.3`) from `migrations/versions/…_0027_…`,
+  `src/bayram/db/models/support_ticket*.py`, `src/bayram/bot/` and
+  `admin-dashboard/src/features/support/`. It specifies `DECISIONS.md` **D18**. **§7.2 is the
+  section to read first**: the ticket body is kept **indefinitely** — no `*_expires_at`, no
+  cutoff, no sweep — and `/forget` DELETEs a customer's tickets rather than anonymising them,
+  which is the opposite of what every other table holding a Telegram id in this schema does. §7.3
+  records what the first build deliberately leaves out, and §9 Q2/Q3/Q7 are the open questions
+  that need a human: who is in the support group, whether indefinite retention has a lawful
+  basis, and who may answer a customer unreviewed.
 
 ### `research/`
 

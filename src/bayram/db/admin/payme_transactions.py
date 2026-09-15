@@ -78,8 +78,16 @@ async def transaction_funnel(
     # labelled ``count`` shadows ``tuple.count`` and ``row.count`` silently hands back the bound
     # METHOD rather than the number. It type-checks nowhere and would have read as a database
     # bug at runtime.
+    #
+    # ``COALESCE`` around the ``SUM`` for the reason ``intent_funnel`` writes out: a GROUP BY
+    # bucket is never empty, so the sum is never NULL, but only the grouping knows that and
+    # the type does not. Grouped by state ALONE and not by currency, unlike the intent funnel
+    # — ``payme_transactions`` has no currency column, because Payme denominates in soʻm and
+    # nothing else. ``RailStateCount`` carries that asymmetry and its argument.
     statement: Select[Any] = sa.select(
-        PaymeTransactionRow.state, sa.func.count().label("total")
+        PaymeTransactionRow.state,
+        sa.func.count().label("total"),
+        sa.func.coalesce(sa.func.sum(PaymeTransactionRow.amount_minor), 0).label("amount"),
     ).select_from(PaymeTransactionRow)
     statement = apply_window(statement, PaymeTransactionRow.payme_time, window)
     rows = (
@@ -87,7 +95,10 @@ async def transaction_funnel(
             statement.group_by(PaymeTransactionRow.state).order_by(PaymeTransactionRow.state)
         )
     ).all()
-    return tuple(RailStateCount(state=str(row.state), count=int(row.total)) for row in rows)
+    return tuple(
+        RailStateCount(state=str(row.state), count=int(row.total), amount_minor=int(row.amount))
+        for row in rows
+    )
 
 
 async def transactions_for_intent(
