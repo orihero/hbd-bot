@@ -210,6 +210,13 @@ def checkout_link_screen(language: Language, *, url: str, amount_minor: int) -> 
     would refuse. What happens next is told by ``runtime.payme_jobs.notify_payment_settled``,
     from the worker, whenever the money actually lands — which may be seconds or hours later
     and does not depend on the customer coming back at all.
+
+    **This screen REPLACES the paywall in the message the price button was on.** The customer
+    presses 💳 and the button they pressed becomes the 🔗 one; they are never left reading a
+    price underneath a link they have already been handed. That is a property of the
+    ``present`` call in ``handlers.checkout._settle``'s pending branch and of
+    ``common._edit_or_send`` declining to clone a message that already reads the way it was
+    about to be drawn — see the comment on that branch for the shape of the bug it fixes.
     """
     return Screen(
         "\n\n".join(

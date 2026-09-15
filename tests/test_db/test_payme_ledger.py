@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from typing import Any, Final
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -742,3 +742,127 @@ async def test_a_cancelled_transaction_counts_towards_nothing(
     async with sessions() as session:
         row = (await session.execute(sa.select(PaymeTransactionRow))).scalar_one()
     assert row.state is PaymeState.CANCELLED
+
+
+# ---------------------------------------------------------------------------
+# the resume claim
+# ---------------------------------------------------------------------------
+async def test_the_resume_claim_succeeds_once_and_refuses_thereafter(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """**The only durable at-most-once latch the auto-render has.**
+
+    ``notify_payment_settled`` is at-least-once by construction — five ARQ attempts, the
+    sweep's backstop, and two processes enqueuing the same job name — so a side effect placed
+    in that job with no latch of its own fires once per attempt. This one bills a vendor and
+    delivers a song, so "once" has to be a property of the ROW rather than of whichever caller
+    read it first.
+    """
+    # Arrange
+    ledger = _ledger(sessions, clock)
+    intent = await _open(ledger)
+    assert is_ok(await ledger.force_settle(public_ref=intent.public_ref, now=clock.now, note="x"))
+
+    # Act
+    first = await ledger.claim_resume(public_ref=intent.public_ref, now=clock.now)
+    second = await ledger.claim_resume(public_ref=intent.public_ref, now=clock.now)
+
+    # Assert — and the second is ``Ok(False)``, not an error: a redelivered job is ordinary.
+    assert is_ok(first) and first.value is True
+    assert is_ok(second) and second.value is False
+
+
+async def test_the_resume_claim_refuses_an_intent_that_is_not_paid(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """``state = 'paid'`` is a CONJUNCT of the claim, not an assumption about the caller.
+
+    ``resumed_at IS NULL`` alone would let a stale read of a not-yet-settled intent take the
+    claim and start a render for money that has not arrived — which is how a free song is
+    given away. The row refuses it, so no caller has to remember to.
+    """
+    # Arrange — opened, never settled.
+    ledger = _ledger(sessions, clock)
+    intent = await _open(ledger)
+
+    # Act
+    claimed = await ledger.claim_resume(public_ref=intent.public_ref, now=clock.now)
+
+    # Assert
+    assert is_ok(claimed) and claimed.value is False
+
+
+async def test_claiming_a_resume_for_an_unknown_reference_is_an_error(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    # Arrange / Act — the same distinction ``mark_notified`` draws: a reference nobody issued
+    # is a bug in the caller, while an already-claimed one is a legitimate ``False``.
+    claimed = await _ledger(sessions, clock).claim_resume(public_ref="deadbeef" * 3, now=clock.now)
+
+    # Assert
+    assert is_err(claimed)
+
+
+async def test_an_opened_intent_carries_the_render_it_was_opened_for(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    # Arrange
+    ledger = _ledger(sessions, clock)
+    order_id = uuid4()
+
+    # Act
+    opened = await ledger.open_intent(
+        telegram_user_id=_USER,
+        product=Product.SINGLE,
+        amount_minor=_PRICE,
+        currency="UZS",
+        idempotency_key=f"topup:{_USER}:marker:1",
+        language="uz_latn",
+        merchant_id=_MERCHANT,
+        is_sandbox=True,
+        resume_order_id=order_id,
+    )
+
+    # Assert
+    assert is_ok(opened)
+    assert opened.value.resume_order_id == order_id
+
+
+async def test_a_replayed_open_returns_the_first_presss_marker(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """The winner's marker, and this is the answer to "what if the draft changed in between?".
+
+    A customer who presses the price button twice in one wizard run, having edited their draft
+    between the presses, mints the SAME ``idempotency_key`` — the counter did not move — so the
+    second insert is ignored and the intent keeps the render the link they are holding was
+    opened for. The second press's marker is discarded along with its reference, and the
+    mismatch is noticed at settlement rather than silently overwriting the first here.
+    """
+    # Arrange
+    ledger = _ledger(sessions, clock)
+    key = f"topup:{_USER}:marker:2"
+    first_draft, second_draft = uuid4(), uuid4()
+
+    async def open_with(order_id: UUID) -> PaymentIntent:
+        opened = await ledger.open_intent(
+            telegram_user_id=_USER,
+            product=Product.SINGLE,
+            amount_minor=_PRICE,
+            currency="UZS",
+            idempotency_key=key,
+            language="uz_latn",
+            merchant_id=_MERCHANT,
+            is_sandbox=True,
+            resume_order_id=order_id,
+        )
+        assert is_ok(opened)
+        return opened.value
+
+    # Act
+    first = await open_with(first_draft)
+    replayed = await open_with(second_draft)
+
+    # Assert — one intent, one reference, and the FIRST press's render.
+    assert replayed.public_ref == first.public_ref
+    assert replayed.resume_order_id == first_draft

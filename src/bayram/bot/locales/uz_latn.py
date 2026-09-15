@@ -156,6 +156,17 @@ CATALOGUE: Final[dict[str, str]] = {
         "{ends_on} kunigacha {songs} ta qoʻshiq sizniki — qoʻshiq yasash uchun quyidagi "
         "tugmalardan foydalaning."
     ),
+    # Uchinchi "sovuq" jumla, va yagona chek boʻlmagani: toʻlov oʻtdi VA qoʻshiq allaqachon
+    # yozilmoqda, chunki toʻlov paytida odamda tayyor qoralama bor edi
+    # (``runtime.render_resume``). Yozuv boshlanganda u yuqoridagi ikkala jumlani almashtiradi,
+    # shuning uchun hech qanday tugmani vada qilmaydi: jarayon ekrani bir soniyadan keyin
+    # keladi va bu xabar ostida klaviatura umuman yoʻq.
+    #
+    # **``{credits}`` oʻrni bu yerda ataylab yoʻq.** Qoʻshiq tayyor deb aytib, oʻsha zahoti uni
+    # sarflash — yuqoridagi izoh ogohlantirayotgan holatning oʻzi.
+    "checkout.paid_late_resuming": (
+        "✅ <b>Toʻlovingiz oʻtdi.</b>\n\nQoʻshigʻingizni hozir yozishni boshlayapman."
+    ),
     # Reja ishlab turganda tasdiqlash ekrani va ``/balance`` qoʻshadigan yagona qator.
     "checkout.plan_note": "<i>Rejangizda {songs} ta qoʻshiq qoldi, {ends_on} kunigacha.</i>",
     # Tashqi toʻlov sahifasida BOSHLANGAN toʻlov — bu muvaffaqiyat. Bu kalit paydo boʻlgunicha

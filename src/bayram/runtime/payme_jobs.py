@@ -74,11 +74,12 @@ from typing import Any, Final
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
+from aiogram.types import InlineKeyboardMarkup
 from arq.worker import Retry
 
 from bayram.bot.delivery import is_blocked_by_customer
 from bayram.bot.i18n import parse_language, translate
-from bayram.bot.keyboards import start_over_keyboard
+from bayram.bot.keyboards import paid_late_keyboard, start_over_keyboard
 from bayram.checkout import PaymentIntent, PaymentIntentState, PlanState, Product
 from bayram.config import Settings
 from bayram.contracts import Language, Result, is_err
@@ -91,6 +92,12 @@ from bayram.payme.ports import PaymeLedger, SettlementCounts
 from bayram.payme.protocol import PaymeState
 from bayram.payme.rules import DEFAULT_TRANSACTION_TIMEOUT_MS
 from bayram.runtime.container import AppContainer
+from bayram.runtime.render_resume import (
+    ResumeAssessment,
+    ResumeDecision,
+    plan_resume,
+    resume_render,
+)
 
 __all__ = [
     "notify_payment_settled",
@@ -105,6 +112,7 @@ __all__ = [
     "PAYME_NOTIFY_GRACE_S",
     "PAID_LATE_SINGLE_KEY",
     "PAID_LATE_PLAN_KEY",
+    "PAID_LATE_RESUMING_KEY",
     "SweepReport",
 ]
 
@@ -174,6 +182,14 @@ PAYME_ORPHAN_SCAN_LIMIT: Final[int] = 50
 #: holds the four catalogues in step with these two constants.
 PAID_LATE_SINGLE_KEY: Final[str] = "checkout.paid_late_single"
 PAID_LATE_PLAN_KEY: Final[str] = "checkout.paid_late_plan"
+
+#: The third cold sentence: the payment landed AND the song is already being made.
+#:
+#: It REPLACES the two above whenever a render is being started, rather than being appended
+#: to one of them, and it carries no credit count on purpose — telling somebody they have one
+#: song ready and spending it in the same breath is the support ticket ``_announcement``'s
+#: docstring warns about. The keyboard under it is ``None``; see :func:`_announcement_keyboard`.
+PAID_LATE_RESUMING_KEY: Final[str] = "checkout.paid_late_resuming"
 
 
 def payme_notify_job_id(public_ref: str) -> str:
@@ -423,11 +439,23 @@ def _snapshot_end_date(intent: PaymentIntent) -> str:
 
 
 async def notify_payment_settled(ctx: Mapping[str, Any], public_ref: str) -> None:
-    """Tell one customer that their redirect payment landed. Enqueued by the GATEWAY.
+    """Tell one customer that their redirect payment landed, and start the song. Enqueued by
+    the GATEWAY.
 
     A job and not a direct send because the process that took the money holds no Telegram
     token — see the module docstring — and because the gateway owes Payme an answer in
     milliseconds, which a ``sendMessage`` round trip is not.
+
+    **It does a SECOND thing now, and it is deliberately the same job rather than a sibling.**
+    A settled payment starts the render it was opened for (``DECISIONS.md D17``,
+    :mod:`bayram.runtime.render_resume`). "Make it a sibling job" is the obvious review
+    comment and it is rejected on the one requirement the customer actually stated: they want
+    the payment confirmation and THEN the song starting, and two ARQ jobs cannot order two
+    messages. The resume runs LAST, below the stamp, so every retry path in this function
+    returns above it and the notification's own ladder behaves exactly as it did before.
+
+    The gateway is untouched by all of this. Its payload is still one string, it still holds no
+    Telegram token, and it still cannot settle anything the bot could not.
 
     **Three silences, each of them correct.**
 
@@ -444,6 +472,16 @@ async def notify_payment_settled(ctx: Mapping[str, Any], public_ref: str) -> Non
       commit, which the gateway is written not to do; it is logged at ERROR and left alone
       rather than announced, because announcing an unsettled payment is how a free song is
       given away.
+
+    **All three silences are shared with the RENDER for free**, because ``_announceable_buyer``
+    returns above everything the resume does. That is why this function was not split when the
+    resume landed: an unsettled intent, an already-announced one and an erased buyer resume
+    nothing by control flow rather than by new code that has to be right.
+
+    A FOURTH decision belongs to the render alone and is not a silence: the customer may have
+    no draft parked, or one that has moved since they paid, or one they are still editing. See
+    :class:`~bayram.runtime.render_resume.ResumeDecision` for the closed vocabulary that says
+    which, and ``06-troubleshooting.md`` §20.4 for reading it back.
 
     **Send first, stamp second, and the order is deliberate.** Stamping first would make a
     failed send permanent — ``notified_at`` set, the backlog query blind to the row, the
@@ -471,9 +509,17 @@ async def notify_payment_settled(ctx: Mapping[str, Any], public_ref: str) -> Non
         return
 
     language = parse_language(intent.language)
-    text = await _announcement(
-        container, intent, telegram_user_id=telegram_user_id, language=language
-    )
+    # A PURE READ, and it runs before the sentence is chosen precisely so the sentence can be
+    # chosen from it: a customer whose song is about to start must not be told they have one
+    # song ready, and a customer whose render was declined must not be handed a button that
+    # throws away the draft they just paid for. One read answers both.
+    assessment = await plan_resume(ctx, container, bot=bot, intent=intent)
+    if assessment.plan is not None:
+        text: str | None = translate(PAID_LATE_RESUMING_KEY, language)
+    else:
+        text = await _announcement(
+            container, intent, telegram_user_id=telegram_user_id, language=language
+        )
     if text is None:
         _retry_or_give_up(ctx, public_ref=public_ref, reason="meter_unreadable")
         return
@@ -484,10 +530,15 @@ async def notify_payment_settled(ctx: Mapping[str, Any], public_ref: str) -> Non
         ctx,
         chat_id=telegram_user_id,
         text=text,
-        language=language,
         public_ref=public_ref,
+        markup=_announcement_keyboard(assessment, language),
     )
     if not is_sent:
+        # **A blocked customer resumes NOTHING, and this ``return`` is where that is
+        # decided.** ``_send`` has already stamped ``notified_at`` for a chat nobody can
+        # reach. Rendering for them anyway would spend the credit they paid for on a kit that
+        # provably cannot arrive — ``entitlements`` settles NOT_DELIVERED exactly as it
+        # settles DELIVERED — so "they paid, render it anyway" is rejected outright.
         return
     stamped = await ledger.mark_notified(public_ref=public_ref, now=utc_now())
     if is_err(stamped):
@@ -505,6 +556,62 @@ async def notify_payment_settled(ctx: Mapping[str, Any], public_ref: str) -> Non
             "is_first_stamp": stamped.value,
         },
     )
+    # LAST, and after the stamp, so that nothing about the render can cost the customer their
+    # notification: every retry path above returns before this line, and the ladder behaves
+    # exactly as it did before the resume existed.
+    decision = (
+        await resume_render(ctx, bot, ledger, container, intent=intent, plan=assessment.plan)
+        if assessment.plan is not None
+        # A decline that ``plan_resume`` already made. It is reported through the SAME line and
+        # the same vocabulary as a decline made while acting, so an operator reading the log
+        # cannot tell — and does not need to tell — which of the two passes noticed.
+        else ResumeDecision(False, assessment.reason)
+    )
+    # **Logged unconditionally, and that is the correction to how this first shipped.** The
+    # line used to sit inside the ``if`` above, so it fired only when a render was actually
+    # attempted — which is to say it was silent for every case an operator would ever be
+    # asked about. "The customer paid and no song started" was answered by a log line that
+    # only existed when a song HAD started. One line per settled payment is nothing: a
+    # settlement is money, and there are never many.
+    _LOG.info(
+        "the settled payment's render was considered",
+        extra={
+            "public_ref": public_ref,
+            "is_queued": decision.is_queued,
+            # The closed vocabulary on ``ResumeDecision``. This field is the operator's
+            # whole answer to "the customer paid and no song started; why?".
+            "reason": decision.reason,
+            "order_id": decision.order_id or "",
+        },
+    )
+
+
+def _announcement_keyboard(
+    assessment: ResumeAssessment, language: Language
+) -> InlineKeyboardMarkup | None:
+    """Which keyboard belongs under "your payment landed". Three answers, not one.
+
+    * **About to resume — no keyboard at all.** The progress frame lands a second later, and
+      🔄 Start over over a running render is a button ``navigation._refuse_while_running``
+      would refuse anyway.
+    * **Declined, but a usable draft is sitting there** — ``paid_late_keyboard``: a live 🎬 on
+      the draft they paid for. This covers the customer who edited after paying, the one who
+      already has a render in flight, and — importantly — the one who bought from
+      ``/balance``, where no marker is ever minted. They get one tap instead of none, and
+      without this module having to guess which run their money belonged to.
+    * **Nothing to point at** — ``start_over_keyboard``, which is correct HERE and was wrong
+      everywhere else: it is the right offer for somebody whose session is genuinely gone.
+
+    ``start_over_keyboard``'s ↩️ reaches ``common.reset_to_welcome`` ("a clean slate, every
+    time"), so until this function existed the only prominent button under a 15 000 soʻm
+    receipt destroyed the draft it was paid for. That was a live defect, independent of the
+    auto-render, and it is what ``_send``'s old argument for that keyboard did not foresee.
+    """
+    if assessment.plan is not None:
+        return None
+    if assessment.has_live_draft:
+        return paid_late_keyboard(language)
+    return start_over_keyboard(language)
 
 
 def _announceable_buyer(intent: PaymentIntent) -> int | None:
@@ -543,17 +650,23 @@ async def _send(
     *,
     chat_id: int,
     text: str,
-    language: Language,
     public_ref: str,
+    markup: InlineKeyboardMarkup | None,
 ) -> bool:
     """Put the sentence in the chat. ``True`` when it landed and the stamp should follow.
 
-    ``start_over_keyboard`` under it rather than nothing, and rather than a keyboard of this
-    job's own: this message arrives COLD, minutes or hours after the customer left the bot, and
-    a message with no control is a dead end on a phone. That builder already pairs "start
-    another run" with 🏠 Back to menu, which is exactly the pair a paid-and-came-back customer
-    needs, and reusing it keeps this workstream out of ``keyboards.py`` — a module whose
-    builders are covered by a hand-listed register test.
+    **The keyboard is CHOSEN by the caller now, and the argument this docstring used to make
+    for a fixed one is spent.** It said that ``start_over_keyboard`` was right because a cold
+    message with no control is a dead end on a phone, and that reusing it kept this workstream
+    out of ``keyboards.py`` — a module whose builders are covered by a hand-listed register
+    test. The first half is still true; the second was a reason to avoid work rather than a
+    reason the button was correct, and the button was not correct: ↩️ Start over reaches
+    ``common.reset_to_welcome``, which threw away the draft the customer had just paid to
+    record. ``keyboards.py`` therefore does grow one builder, and that builder IS added to the
+    register test. See :func:`_announcement_keyboard` for the three cases.
+
+    ``None`` is a legitimate value and means "a progress frame is about to land underneath
+    this"; it is not "no keyboard was chosen".
 
     **A ``Forbidden`` is stamped as delivered, and that is the interesting decision here.**
     Telegram returns it for a customer who blocked the bot and for an account that was deleted;
@@ -567,9 +680,7 @@ async def _send(
     told apart in the log line rather than by reading an exception's ``str``.
     """
     try:
-        await bot.send_message(
-            chat_id=chat_id, text=text, reply_markup=start_over_keyboard(language)
-        )
+        await bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
     except TelegramForbiddenError as exc:
         _LOG.warning(
             "a settled payment could not be announced; the chat is unreachable",

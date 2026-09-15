@@ -150,6 +150,27 @@ async def say(event: Event, text: str) -> None:
     await event.answer(text)
 
 
+#: Telegram's own words for "this edit would change nothing". Matched as a lower-cased
+#: SUBSTRING because there is no machine-readable signal: Telegram returns no error code for
+#: it, and aiogram maps every 400 that is not ``retry_after``/``migrate_to_chat_id`` onto a
+#: bare ``TelegramBadRequest`` carrying only the description string. A substring survives a
+#: prefix change (``"Bad Request: "``) and a lengthened tail, both of which have moved before.
+#:
+#: **The failure direction is the safe one, and that is the whole reason a prose match is
+#: acceptable here.** Bot API descriptions are English whatever language the customer is
+#: being spoken to in, so this is not a localisation hazard; and if Telegram ever rewords it
+#: entirely, this predicate answers ``False`` and the behaviour degrades to exactly what
+#: shipped before it existed — one duplicate message — never to a crash and never to a
+#: screen that failed to draw. Nothing would go red, and that is the honest cost of matching
+#: on prose: it is written down here rather than discovered later.
+_UNCHANGED_MESSAGE: Final[str] = "message is not modified"
+
+
+def _is_unchanged(exc: TelegramBadRequest) -> bool:
+    """Whether Telegram refused an edit because the screen already reads that way."""
+    return _UNCHANGED_MESSAGE in (exc.message or "").lower()
+
+
 async def _edit_or_send(callback: CallbackQuery, screen: Screen) -> None:
     message = callback.message
     if not isinstance(message, Message):
@@ -166,7 +187,19 @@ async def _edit_or_send(callback: CallbackQuery, screen: Screen) -> None:
     try:
         await message.edit_text(screen.text, reply_markup=screen.markup)
     except TelegramBadRequest as exc:
-        # Unchanged text, or a message too old to edit. Neither is worth failing over.
+        if _is_unchanged(exc):
+            # The message ALREADY reads exactly as we were about to draw it, so there is
+            # nothing to do and sending is not a fallback — it is a CLONE. This branch used
+            # to send anyway, and on the checkout screen the clone carried a LIVE price
+            # button underneath a payment link the customer had not paid yet: one press of
+            # 💳 produced the link message and a second paywall below it. The correct
+            # redraw of an idempotent redraw is no redraw.
+            _LOG.debug(
+                "the screen already reads as we would have drawn it; nothing to edit",
+                extra={"failure": repr(exc)},
+            )
+            return
+        # A message too old to edit, or one that is no longer ours. Send.
         _LOG.info("could not edit in place, sending a new message", extra={"failure": repr(exc)})
         await message.answer(screen.text, reply_markup=screen.markup)
 

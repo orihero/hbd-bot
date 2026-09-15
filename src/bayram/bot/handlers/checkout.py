@@ -19,12 +19,26 @@ provider that could not fail. Every defence in this file is sized for the real r
 for the stub, because a duplicate grant against the stub is a free song and the same
 duplicate against Payme is 7 000 UZS taken twice.
 
-Paying does NOT queue a render. It buys the entitlement and redraws the screen the button
-was pressed on, which then wears whatever the meter now says, and the customer presses
-🎬 Record it themselves. Folding the purchase into ``handlers.confirm.handle_confirm`` was
-rejected: that handler's double-tap defence is four ordered facts, and three tests park it
-on ``deps.payment.authorize`` specifically — an ``await`` inserted ahead of that suspension
+Paying does NOT queue a render **in this process, and that half of the decision is
+unchanged.** On an INLINE rail it buys the entitlement and redraws the screen the button was
+pressed on, which then wears whatever the meter now says, and the customer presses 🎬 Record
+it themselves. Folding the purchase into ``handlers.confirm.handle_confirm`` was rejected and
+STAYS rejected: that handler's double-tap defence is four ordered facts, and three tests park
+it on ``deps.payment.authorize`` specifically — an ``await`` inserted ahead of that suspension
 point would gut what they measure without ever going red.
+
+**On a REDIRECT rail the customer is not on that screen any more**, and may be hours away
+with the phone in their pocket, so there is nobody there to press anything. The render is
+therefore started at SETTLEMENT, by the worker, from a marker this handler records on the
+payment intent when it builds the link — :func:`_resumable_order_id` below,
+:mod:`bayram.runtime.render_resume`, ``DECISIONS.md D17``. That reverses "paying starts
+nothing" for that rail and for that rail alone, behind ``BAYRAM_AUTO_RENDER_ON_PAYMENT``,
+whose false value restores exactly the behaviour described above.
+
+The next reader tempted to re-fold the purchase into ``handle_confirm`` on the strength of
+that reversal should read the paragraph before it again: it is still true, and the reason the
+resume lives in another module in another process is precisely that it must not be true of
+this one.
 
 TWO SURFACES, AND THE SECOND ONE WAS DEAD
 -----------------------------------------
@@ -84,7 +98,10 @@ than to notice that one of them expires the moment the handler returns:
    wizard, ``balance.show_balance`` from ``/balance`` — so the screen the customer reads
    afterwards is drawn from the account rather than assumed. A paid purchase that failed to
    redraw would leave a paywall on screen over an account that could now afford a render,
-   and the customer would pay twice.
+   and the customer would pay twice. On the PENDING branch the meter has not moved in the
+   wizard, so the redraw's real work there is fact 2's state restoration plus an edit that
+   changes nothing and that ``common._edit_or_send`` now swallows in silence; the link
+   screen is what removes the price button.
 5. **A REDIRECT rail leaves ``Wizard.submitting`` the instant this handler returns**, and
    fact 1 is therefore gone for the whole of the customer's trip to the payment page. The
    ``finally`` restores ``Wizard.confirm`` before the browser has even opened, and settlement
@@ -98,7 +115,9 @@ than to notice that one of them expires the moment the handler returns:
    ``public_ref`` and therefore produces one link, however many taps got there
    (``PAYME_INTEGRATION §5``). None of the three guards here is redundant for all that: they
    are what stops the bot re-sending the same link on a redelivered update, which the unique
-   index has no opinion about.
+   index has no opinion about. The durable guarantee against a DOUBLE RENDER is a different
+   column again — ``payment_intents.resumed_at``, claimed by a conditional UPDATE before any
+   side effect — and is likewise not this module's.
 
 TWO THINGS THE COUNTER CANNOT SEE, AND WHAT CLOSES THEM
 -------------------------------------------------------
@@ -153,6 +172,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from enum import StrEnum
 from typing import Final
+from uuid import UUID
 
 from aiogram import F, Router
 from aiogram.filters import StateFilter
@@ -161,10 +181,12 @@ from aiogram.types import CallbackQuery, Update
 
 from bayram.bot.callbacks import NavAction, NavCB
 from bayram.bot.deps import BotDeps
+from bayram.bot.draft import WizardDraft
 from bayram.bot.handlers.balance import show_balance, show_confirm
 from bayram.bot.handlers.common import error_text, expire, present, read_draft, say
 from bayram.bot.i18n import translate
 from bayram.bot.middleware import resolve_language
+from bayram.bot.order_id import order_id_for
 from bayram.bot.screens import checkout_link_screen, menu_screen
 from bayram.bot.states import Wizard
 from bayram.checkout import Product, PurchaseRequest
@@ -355,6 +377,12 @@ async def _buy_in_wizard(
             scope=draft.session_id,
             update_id=event_update.update_id,
             redraw=redraw,
+            # The render this payment buys, if it buys one. Computed HERE rather than at
+            # settlement because the draft is HERE: the id is a UUID5 over these exact
+            # answers, so one value is simultaneously the order's address and the proof, when
+            # the money lands, that the draft has not moved since. See
+            # :func:`_resumable_order_id` for the two refusals that make it ``None``.
+            resume_order_id=_resumable_order_id(callback.from_user.id, draft),
         )
     finally:
         # Fact 2. Only a path that neither redrew nor cleared can still be parked here, and
@@ -409,6 +437,18 @@ async def _buy_from_balance(
         scope=_balance_scope(callback),
         update_id=event_update.update_id,
         redraw=redraw,
+        # **No render marker is minted on this surface, and the omission is the decision.**
+        # There is no draft here to take a fingerprint of, and reaching into the FSM for
+        # whatever one happens to be parked would attach this money to a run the customer did
+        # not buy it for — the scope of the idempotency key above is this BALANCE MESSAGE,
+        # while the marker's scope would be some other wizard run entirely, and the two
+        # disagreeing about which purchase belongs to which run is worse than not resuming.
+        #
+        # A customer who buys from ``/balance`` with a finished draft parked behind them is
+        # not stranded by this: ``runtime.render_resume`` reads the session anyway to choose
+        # the announcement's keyboard, so they are handed a live 🎬 on the draft they were
+        # working on. One tap instead of none, and no guess about whose money it was.
+        resume_order_id=None,
     )
     # ``SETTLED`` only, and ``PENDING`` deliberately not. The menu is drawn here as the next
     # step for somebody who has just bought a song — and a customer who has just been handed
@@ -430,6 +470,7 @@ async def _settle(
     scope: str,
     update_id: int,
     redraw: Callable[[], Awaitable[None]],
+    resume_order_id: UUID | None = None,
 ) -> SettleOutcome:
     """Charge, fulfil, remember, redraw — or hand over a link and grant nothing.
 
@@ -494,6 +535,12 @@ async def _settle(
             amount_minor=amount_minor,
             currency=pricing.currency,
             idempotency_key=key,
+            # Passed through untouched, and meaningful only to a REDIRECT rail: it records
+            # which render this money buys, so the settlement — which happens in another
+            # process, after the customer has put their phone away — can start it. An inline
+            # rail ignores it, because there is nothing to resume when the answer arrives on
+            # this very call.
+            resume_order_id=resume_order_id,
         )
     )
     if isinstance(charged, Err):
@@ -519,18 +566,33 @@ async def _settle(
         # away a song for every checkout anybody ever abandoned.
         _LOG.info(
             "a purchase was started at a redirect rail",
-            extra={"product": product.value, "idempotency_key": key},
+            extra={
+                "product": product.value,
+                "idempotency_key": key,
+                # Whether, and never WHICH. The marker is a fingerprint of the customer's own
+                # words — a name, a note, a lyric — and the key above already identifies the
+                # intent for anybody reading this line.
+                "has_resume_marker": resume_order_id is not None,
+            },
         )
         await _remember_pending(
             state, data, update_id=update_id, now=deps.clock().timestamp(), product=product
         )
-        # Fact 4 holds on this branch too, and it is not a formality here: ``show_confirm``
-        # and ``show_balance`` both go through ``show_step``/``present``, so the redraw is
-        # what re-reads the meter AND — in the wizard — what puts the FSM back in
-        # ``Wizard.confirm`` before a screen whose buttons are answered from that state is
-        # drawn. The link screen then replaces it in the same message. On a message Telegram
-        # will no longer let us edit, ``_edit_or_send`` falls back to sending, and the two
-        # arrive as two messages in the right order — the balance first, the link under it.
+        # Fact 4 holds on this branch too. The redraw re-reads the meter — which on the
+        # ``/balance`` surface really can have moved, because a DIFFERENT intent may have
+        # settled since that message was drawn — and in the wizard it is what puts the FSM
+        # back in ``Wizard.confirm`` before a screen whose buttons are answered from that
+        # state is drawn.
+        #
+        # In the wizard this branch grants nothing, so the redraw normally renders BYTE-
+        # IDENTICAL text and markup and Telegram answers 400 "message is not modified".
+        # ``common._edit_or_send`` swallows exactly that and draws nothing. It used to send a
+        # clone instead, which is how ONE press produced a link message AND a second paywall
+        # carrying a live 💳 button underneath it — the customer read a price under a link
+        # they had already been handed. The link screen then replaces the paywall IN THE SAME
+        # MESSAGE, which is what the customer should see: the price button becomes the Pay
+        # button. On a message Telegram will no longer let us edit — a different 400 — the
+        # fallback still sends, and the link arrives as a new message.
         await redraw()
         await present(callback, checkout_link_screen(language, url=link, amount_minor=amount_minor))
         return SettleOutcome.PENDING
@@ -784,6 +846,32 @@ def _balance_scope(callback: CallbackQuery) -> str:
     """
     message = callback.message
     return "balance" if message is None else f"balance:{message.message_id}"
+
+
+def _resumable_order_id(telegram_user_id: int, draft: WizardDraft) -> UUID | None:
+    """The render this draft would produce, or ``None`` if it would produce none.
+
+    **The two refusals are ``handlers.confirm.handle_confirm``'s own, in its order**, and that
+    is the point of this function existing rather than the id being computed inline: a payment
+    must never record a render that the 🎬 button would itself have refused, because the
+    settlement that reads this marker back runs in a process with no screen to refuse ON.
+
+    * ``to_brief()`` is ``Err`` — the draft is incomplete (``confirm.py``'s first gate).
+    * ``draft.lyrics is None`` — no lyric was approved. **This is the critical one.**
+      ``REQUIRED_ANSWERS`` deliberately excludes the lyric, so ``to_brief()`` succeeds without
+      one, and the pipeline writes its own lyric at ``WRITING_LYRICS`` and delivers it. A
+      resume that skipped this check would deliver a song whose words nobody ever read, with
+      no error anywhere to show for it — which is the exact failure the Confirm handler's
+      comment on that gate describes, arriving by a route that has no customer watching.
+
+    ``None`` is ordinary rather than exceptional: a customer can perfectly well buy a song
+    with an unfinished draft on screen, and all that happens is that the settlement announces
+    the payment and leaves them a button, which is what this product did for every purchase
+    before the resume existed.
+    """
+    if isinstance(draft.to_brief(), Err) or draft.lyrics is None:
+        return None
+    return order_id_for(telegram_user_id, draft)
 
 
 def _idempotency_key(telegram_user_id: int, scope: str, *, product: Product, seq: int) -> str:

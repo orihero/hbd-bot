@@ -58,6 +58,11 @@ from tests.test_db.conftest import MovableClock
 #: through the account primary key and the ledger column, and a narrowed column on that path
 #: would corrupt identity rather than fail loudly.
 _USER: Final[int] = 8_912_345_678_901
+
+#: A stand-in for the UUID5 the bot records on an intent when it builds a payment link. A
+#: literal rather than a computed one: what is under test here is that erasure NULLS the
+#: column, not how the id is derived.
+_RENDER: Final[UUID] = UUID("8bd6c9f4-2f1a-5b7e-9c3d-1a2b3c4d5e6f")
 _OTHER_USER: Final[int] = 7_112_345_678_902
 _ACTOR: Final[str] = "pipeline"
 
@@ -480,6 +485,8 @@ async def test_forget_anonymises_the_payment_intent_and_keeps_it_answerable(
                 valid_until=clock.now + timedelta(hours=12),
                 settled_at=clock.now,
                 settle_note="payme",
+                resume_order_id=_RENDER,
+                resumed_at=clock.now,
             )
         )
 
@@ -498,6 +505,14 @@ async def test_forget_anonymises_the_payment_intent_and_keeps_it_answerable(
     assert row.state is PaymentIntentState.PAID
     assert (row.settled_at, row.settle_note) == (clock.now, "payme")
     assert row.idempotency_key == "topup:seed:session:0"
+    # The one non-identity column that DOES come off. It is a UUID5 over the customer's own
+    # answers — a name, a note, a lyric — so although it is irreversible it is the only value
+    # on this row that could re-link an anonymised payment back to a draft. The rail has never
+    # seen it and will never quote it back, so GetStatement loses nothing.
+    assert row.resume_order_id is None
+    # ``resumed_at`` STAYS: it is a clock like the other four, and says only that a decision
+    # was taken.
+    assert row.resumed_at == clock.now
 
 
 async def test_forget_leaves_another_customers_payment_intent_alone(

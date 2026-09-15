@@ -62,7 +62,7 @@ import secrets
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Final
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -78,6 +78,7 @@ from bayram.db.models.payment_intent import SETTLE_NOTE_LENGTH, PaymentIntentRow
 from bayram.db.payme_sql import (
     claim_intent,
     claim_intent_for_operator,
+    claim_intent_resume,
     expire_intent,
     hold_intent,
     insert_intent,
@@ -180,6 +181,7 @@ def _intent_view(row: PaymentIntentRow) -> PaymentIntent:
         valid_until=row.valid_until,
         settled_at=row.settled_at,
         notified_at=row.notified_at,
+        resume_order_id=row.resume_order_id,
     )
 
 
@@ -265,6 +267,7 @@ class SqlPaymeLedger:
         is_sandbox: bool,
         plan_songs: int | None = None,
         plan_days: int | None = None,
+        resume_order_id: UUID | None = None,
     ) -> Result[PaymentIntent]:
         return await run_guarded(
             "payme.open_intent",
@@ -279,6 +282,7 @@ class SqlPaymeLedger:
                 is_sandbox=is_sandbox,
                 plan_songs=plan_songs,
                 plan_days=plan_days,
+                resume_order_id=resume_order_id,
             ),
             telegram_user_id=telegram_user_id,
             idempotency_key=idempotency_key,
@@ -382,6 +386,13 @@ class SqlPaymeLedger:
             public_ref=public_ref,
         )
 
+    async def claim_resume(self, *, public_ref: str, now: datetime) -> Result[bool]:
+        return await run_guarded(
+            "payme.claim_resume",
+            lambda: self._claim_resume(public_ref=public_ref, now=now),
+            public_ref=public_ref,
+        )
+
     async def force_settle(
         self, *, public_ref: str, now: datetime, note: str
     ) -> Result[PaymentIntent]:
@@ -413,6 +424,7 @@ class SqlPaymeLedger:
         is_sandbox: bool,
         plan_songs: int | None,
         plan_days: int | None,
+        resume_order_id: UUID | None = None,
     ) -> PaymentIntent:
         """Insert-or-ignore, then read the WINNER back. A replay writes nothing.
 
@@ -424,6 +436,16 @@ class SqlPaymeLedger:
 
         The minted reference is therefore discarded on a loss, which is why it is generated
         here and passed IN rather than generated inside the insert.
+
+        **``resume_order_id`` inherits that property, and it answers a question the render
+        resume would otherwise have to guess at.** A customer who presses the price button
+        twice in one wizard run, having edited their draft in between, mints the same
+        ``idempotency_key`` (the counter did not move) and therefore loses the insert — so the
+        intent keeps the FIRST press's marker, which is the render the link they are holding
+        was opened for. The second press's marker is discarded along with its reference, and
+        the mismatch is noticed at settlement, where ``runtime.render_resume`` compares this
+        value against the draft it actually finds and declines rather than rendering answers
+        the customer has since changed.
         """
         now = self._clock()
         intent_id = uuid4()
@@ -444,6 +466,7 @@ class SqlPaymeLedger:
                 is_sandbox=is_sandbox,
                 language=language,
                 valid_until=now + timedelta(seconds=self._intent_ttl_s),
+                resume_order_id=resume_order_id,
                 now=now,
             )
             row = await intent_by_key(session, idempotency_key)
@@ -782,6 +805,13 @@ class SqlPaymeLedger:
             if row is None:
                 raise not_found("payment_intent", public_ref=public_ref)
             return await mark_intent_notified(session, intent_id=row.id, now=now)
+
+    async def _claim_resume(self, *, public_ref: str, now: datetime) -> bool:
+        async with self._sessions.begin() as session:
+            row = await intent_by_ref(session, public_ref)
+            if row is None:
+                raise not_found("payment_intent", public_ref=public_ref)
+            return await claim_intent_resume(session, intent_id=row.id, now=now)
 
     async def _force_settle(self, *, public_ref: str, now: datetime, note: str) -> PaymentIntent:
         """The recovery button. Settles by hand under the intent's OWN key, so a late rail call

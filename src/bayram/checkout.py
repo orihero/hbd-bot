@@ -54,7 +54,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Final, Protocol, runtime_checkable
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -137,6 +137,24 @@ class PurchaseRequest:
     #: tap, a stale message and a redelivered Telegram update all collapse onto one key, and
     #: the unique index on the write side turns the second one into a no-op.
     idempotency_key: str
+    #: The render this money buys, when it buys one: ``bayram.bot.order_id.order_id_for``'s
+    #: UUID5 over the draft the customer is looking at. ``None`` when the purchase is not
+    #: attached to a render at all — bought from ``/balance``, or made against a draft that
+    #: could not produce one — and ``None`` is also what every inline rail does with it,
+    #: because a rail that settles while the customer is still on the screen has nothing to
+    #: resume.
+    #:
+    #: **This field confronts a precedent that says not to add it, and the precedent does not
+    #: reach.** ``PaymeCheckoutProvider`` argues that ``PurchaseRequest`` carries no language
+    #: because "the neutral vocabulary must not grow a field for one rail's URL parameter".
+    #: That is right, and this is a different kind of thing: a language is one rail's
+    #: PRESENTATION of a payment page, while "which render this money buys" is a property of
+    #: the purchase itself — meaningful to any redirect rail, named in no rail's protocol, and
+    #: read by this system's own settlement rather than by anybody's API. The alternative
+    #: considered was a second parameter on ``CheckoutProvider.charge``; that was worse, since
+    #: the one-method shape of that protocol is far more load-bearing than this dataclass's
+    #: field list.
+    resume_order_id: UUID | None = None
 
 
 class Purchase(BaseModel):
@@ -563,6 +581,16 @@ class PaymentIntent:
     settled_at: datetime | None
     #: When the customer was told. ``None`` while they have not been. See the class docstring.
     notified_at: datetime | None
+    #: The render this payment was opened FOR, or ``None`` when it was not opened from a
+    #: draft. Recorded by the bot at link time and read by the worker at settlement, which is
+    #: what lets a payment that lands hours later start the song it was paid for. See
+    #: ``bayram.db.models.payment_intent`` for the column and ``DECISIONS.md D17``.
+    #:
+    #: ``resumed_at`` is deliberately NOT on this view, even though the column exists beside
+    #: this one. Its only reader is the rowcount of the conditional UPDATE that claims it, and
+    #: a field here would invite a read-then-write where a claim belongs — which is precisely
+    #: the at-most-once property the column was added to provide.
+    resume_order_id: UUID | None = None
 
 
 @runtime_checkable
@@ -605,6 +633,7 @@ class PaymentIntentOpener(Protocol):
         is_sandbox: bool,
         plan_songs: int | None = None,
         plan_days: int | None = None,
+        resume_order_id: UUID | None = None,
     ) -> Result[PaymentIntent]:
         """Open — or re-open — the intent for ``idempotency_key``. **Never raises.**
 
@@ -619,6 +648,18 @@ class PaymentIntentOpener(Protocol):
         package change between the tap and the payment cannot shrink what somebody has
         already paid for — the argument the plan receipt table already makes for storing
         ``songs_included`` on the row.
+
+        ``resume_order_id`` is a snapshot on exactly the same terms: the render this payment
+        is being opened FOR, as it was at the moment the link was built. It is what lets the
+        settlement start the customer's song instead of leaving them a button to press.
+
+        **It does not widen this port.** ``open_intent`` is still one method, still additive,
+        still unable to settle or cancel anything — the security argument in the class
+        docstring is untouched, because a parameter on the only write a caller already has is
+        not a new power. A replayed key still returns the FIRST intent, which is to say the
+        first press's ``resume_order_id`` and not this call's: the winner's marker is the one
+        that was paid for, and a second press whose draft has moved is declined at settlement
+        rather than silently overwriting it here.
 
         Returns ``Result`` and never raises, like every seam in this codebase: a store that
         could not write the row has told the caller something it must handle, and "the button

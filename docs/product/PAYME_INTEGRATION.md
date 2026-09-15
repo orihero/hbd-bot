@@ -377,7 +377,7 @@ diagnosis into one line of the journal instead of a support ticket (see
 
 ---
 
-## 5. Idempotency: the five replay guarantees
+## 5. Idempotency: the six replay guarantees
 
 Payme resends `CreateTransaction`, `PerformTransaction` and `CancelTransaction` on a lost
 response, and the sandbox asserts that the second answer **equals** the first. Not "is also a
@@ -399,8 +399,20 @@ and compares the parsed bodies with `==`.
    `idempotency_key` — the same string a real Perform would use — so both land on the same
    unique index (§6.2).
 
+6. **A replayed settlement NOTIFICATION queues at most one render.** `notify_payment_settled`
+   is at-least-once by construction — five ARQ attempts, the sweep's third arm as a backstop,
+   the gateway's post-commit enqueue and an operator force-settle all reach it — so the render
+   it now starts (§9) is latched by a conditional `UPDATE` of its own:
+   `payment_intents.resumed_at`, claimed under `WHERE state = 'paid' AND resumed_at IS NULL`
+   **before any side effect**. And even a render that somehow queued twice would be ONE order,
+   because the id it queues is a UUID5 over the customer's draft — so the `orders` primary
+   key, `job_id_for` and `credits.charge`'s already-paid probe all collide on that one value.
+
 Guarantee 5 is why the recovery button is safe to press while unsure. It is the difference
 between a recovery mechanism and a second way to pay a customer twice.
+
+Guarantee 6 is the same property for the *render* rather than for the *charge*, and it is the
+one guarantee here whose failure costs a vendor bill rather than only a duplicate row.
 
 ---
 
@@ -843,3 +855,70 @@ exactly what a sandbox slot needs. The mirrored error is the dangerous one: enab
 running for no reason, and switching the **bot** to `payme` in the belief that the gateway's
 own switch still guards anything charges customers with no second gate behind it. There is no combination that is
 merely untidy — each is a specific failure, and they are different failures.
+
+---
+
+## 9. The settlement starts the render (D17)
+
+A settled payment does not merely announce itself. It starts the song the customer was paying
+for — which is the difference between a redirect rail and an inline one, stated as product:
+an inline rail settles while the customer is still looking at the screen, so "pay, then press
+🎬" is two taps in one sitting, while a redirect rail settles minutes or hours later with the
+customer's phone in their pocket.
+
+### 9.1 The marker, and why it is the order id
+
+`bayram/bot/handlers/checkout.py` computes `order_id_for(user, draft)` when it builds the
+checkout link and passes it through `PurchaseRequest.resume_order_id` → `open_intent` →
+`payment_intents.resume_order_id` (migration 0026). It is `None` whenever the purchase buys no
+render: bought from `/balance`, or made against a draft that is incomplete or carries no
+approved lyric — the same two refusals `handle_confirm` makes, in the same order, so a payment
+can never record a render the 🎬 button would itself have refused.
+
+That id is the draft's own UUID5 fingerprint, so one value is three things at once: the
+`orders` primary key, the seed of `pipeline.worker.job_id_for`, and the proof at settlement
+that the draft has not moved. A customer who edits anything after paying is declined by a
+single equality.
+
+**A replayed `open_intent` returns the WINNER's marker.** Two presses in one wizard run mint
+the same `idempotency_key` (the counter does not move on this branch — guarantee 4), so the
+second insert is ignored and the intent keeps the render the link the customer is holding was
+opened for.
+
+### 9.2 The settlement, in order
+
+`bayram/runtime/render_resume.py`, called from `notify_payment_settled` **after** the payment
+sentence has been sent and stamped:
+
+1. **Plan** — a pure read. Storage handle, the customer's FSM session, `Wizard.confirm` and no
+   render already in flight, the draft loads and is complete with an approved lyric, the flag
+   is on, a marker exists, the re-derived id matches, no `orders` row holds it yet. It writes
+   nothing, so the announcement's sentence and keyboard can be chosen from its answer.
+2. **Queue handle** — checked first among the acting steps because it is the only one with no
+   side effect, so a half-wired worker burns neither the claim nor a progress frame.
+3. **Claim** — `claim_resume`, the conditional `UPDATE` of guarantee 6, before anything else.
+4. **Progress frame** — posted before the submit, so the render job's events land in a message
+   that already exists.
+5. **Submit** — through `ArqOrderSubmitter`, which owns persist-then-enqueue.
+6. **Park** — one `update_data`, after the submit, so `jobs._release_session` finds the order
+   id it expects and can un-park the session when the song lands.
+
+### 9.3 What it deliberately does not do
+
+* **It does not synthesise a Telegram update.** aiogram's event-isolation lock is
+  per-dispatcher and in-process, so a second dispatcher in the worker would hold a different
+  lock over the same Redis FSM key — a real tap and a synthesised one could both proceed, and
+  that is a second charge. The full argument is in `render_resume`'s module docstring.
+* **It does not render for a blocked customer.** `_send` returns `False` on a `Forbidden` and
+  the resume is below that return: `entitlements` settles `NOT_DELIVERED` exactly as it
+  settles `DELIVERED`, so rendering for an unreachable chat spends a paid credit on a kit that
+  provably cannot arrive.
+* **It does not recover from a crash between the claim and the enqueue.** That customer is
+  left where every customer was before this existed — told they have a song, one tap away.
+
+### 9.4 The rollback
+
+`BAYRAM_AUTO_RENDER_ON_PAYMENT=false`, one restart, no deploy and no migration. It restores
+the previous behaviour exactly. The migration's downgrade is for removing the *schema* once
+that lever is already off — dropping the columns with the feature still on would take the
+at-most-once latch away with them.

@@ -1730,6 +1730,47 @@ refusal (`05-operations.md`, *Credits and entitlements*) — tells you the bot's
 stub. That is a recorded owner decision dated 2026-09-10, not an oversight
 (`09-payme-go-live.md` §6).
 
+### 20.4 The customer paid and no song started
+
+**SYMPTOM.** A customer says they paid, the receipt arrived, and nothing began recording.
+
+**FIRST: is this deployment even supposed to start one?** `BAYRAM_AUTO_RENDER_ON_PAYMENT`
+defaults true but is the documented rollback lever for `DECISIONS.md D17`, and the feature is
+unreachable on a stub rail by construction. If the bot's rail is the stub, "no song started" is
+the shipped behaviour and the customer should press 🎬.
+
+**Otherwise the answer is two columns on `payment_intents`, read by `public_ref`:**
+
+```sql
+select resume_order_id, resumed_at, settled_at, notified_at
+from payment_intents where public_ref = :ref;
+```
+
+* `resume_order_id IS NULL` — **no marker was ever minted.** The purchase was made from
+  `/balance`, or the draft was incomplete or had no approved lyric when the link was built, or
+  the intent predates migration 0026. Not a fault; the customer's receipt carried a live 🎬 if
+  a usable draft was parked.
+* `resumed_at IS NULL` — **the job never reached a decision.** The notification may not have
+  been delivered yet (check `notified_at`), or the resume declined before claiming. The reason
+  is in the journal:
+
+  ```
+  journalctl -u bayram-worker | grep "the settled payment's render was considered"
+  ```
+
+  The `reason` field is a closed vocabulary and is the whole answer: `disabled`, `no_marker`,
+  `no_storage`, `no_draft`, `draft_moved`, `not_on_confirm`, `already_queued`, `order_exists`,
+  `already_claimed`, `no_progress_message`, `no_queue`, `enqueue_failed`, `queued`.
+* `resumed_at` set with **no `orders` row for `resume_order_id`** — the claim was taken and the
+  worker then died before the enqueue. **There is no automated recovery for this, by design**
+  (D17, claim-before-act): tell the customer to press 🎬, which still works and still costs
+  them the credit they already paid for exactly once.
+
+**`draft_moved` is not a bug.** It means the customer edited their answers after paying, and
+the render was declined rather than made from the answers they had changed. Their receipt
+carries a live 🎬 on the draft they are actually holding.
+
+
 ---
 
 ## Quick reference: what a healthy deployment answers

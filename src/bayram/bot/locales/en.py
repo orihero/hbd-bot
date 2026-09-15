@@ -154,6 +154,19 @@ CATALOGUE: Final[dict[str, str]] = {
         "✅ <b>Your payment landed.</b>\n\n"
         "{songs} songs are yours until {ends_on} — use the buttons below to make one."
     ),
+    # The THIRD cold sentence, and the one that is not a receipt: the payment landed AND the
+    # song is already being made, because the customer had a finished draft waiting when they
+    # paid (``runtime.render_resume``). It replaces the two above whenever a render is being
+    # started, so it must not promise a button — the progress frame arrives a second later
+    # and the message carries no keyboard at all.
+    #
+    # **No ``{credits}`` placeholder, deliberately.** Telling somebody they have one song
+    # ready and spending it in the same breath is exactly the support ticket the comment above
+    # warns about; the number would be true for a fraction of a second and wrong by the time
+    # they read it.
+    "checkout.paid_late_resuming": (
+        "✅ <b>Your payment landed.</b>\n\nI'm starting your song now."
+    ),
     # The one line the Confirm screen and ``/balance`` add while a plan is running. Italic
     # and short: it is a footnote to a number that is already on the screen.
     "checkout.plan_note": "<i>{songs} songs left on your plan, until {ends_on}.</i>",

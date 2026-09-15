@@ -43,14 +43,18 @@ from datetime import datetime
 
 import pytest
 from aiogram import Bot
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.methods import EditMessageText, SendMessage
 
 from bayram.bot.app import build_dispatcher
 from bayram.bot.callbacks import NavAction, NavCB
 from bayram.bot.handlers.checkout import DOUBLE_TAP_WINDOW, PURCHASE_SEQ_KEY, SettleOutcome
+from bayram.bot.handlers.common import read_draft, write_draft
 from bayram.bot.handlers.start import PAID_DEEP_LINK
 from bayram.bot.i18n import translate
+from bayram.bot.order_id import order_id_for
 from bayram.bot.pricing import Pricing
 from bayram.bot.screens import checkout_link_screen
 from bayram.bot.states import Wizard
@@ -59,6 +63,7 @@ from bayram.config import Settings
 from bayram.contracts import Language, Result, err
 from bayram.errors import CheckoutPausedError
 from tests.test_bot.conftest import (
+    USER_ID,
     FakePurchases,
     RecordingCheckout,
     RecordingSession,
@@ -324,6 +329,104 @@ async def test_a_started_plan_payment_quotes_the_plan_price_and_opens_no_plan(
     assert session.last_screen.text == expected.text
     assert purchases.plans == []
     assert purchases.plan is None
+
+
+# ---------------------------------------------------------------------------
+# one press, one screen
+# ---------------------------------------------------------------------------
+async def test_pressing_the_price_button_leaves_exactly_one_screen_in_the_chat(
+    settings: Settings,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+    submitter: RecordingSubmitter,
+    clock: Callable[[], datetime],
+    purchases: FakePurchases,
+) -> None:
+    """The reported bug, pinned: 💳 must BECOME the pay button, not sit underneath it.
+
+    ``_settle``'s pending branch redraws the Confirm screen and then presents the link over
+    the top of it, and on this branch the redraw is provably a no-op: nothing was granted, so
+    the meter has not moved and the paywall renders byte for byte as it already reads.
+    Telegram answers such an edit with 400 "message is not modified", which
+    ``common._edit_or_send`` used to answer by SENDING — cloning the paywall, price button and
+    all, into a new message below the link the customer had just been handed.
+
+    The failure is invisible unless the refusal is injected, because ``RecordingSession``
+    accepts every edit. That is exactly why nothing in this file caught it: every assertion
+    here counts the LINK text, which was correct throughout. So the refusal is injected here,
+    once, on the redraw — ``failures_once`` and not ``failures``, because the SECOND edit is
+    the link screen and it must succeed.
+    """
+    # Arrange
+    rail = redirect_rail()
+    pricing = Pricing.from_settings(settings)
+    deps = selling(settings, submitter, clock, purchases, checkout=rail)
+    dispatcher = build_dispatcher(deps, storage=storage)
+    await walk_to_confirm(dispatcher, bot)
+    session.clear()
+    session.failures_once["EditMessageText"] = TelegramBadRequest(
+        method=EditMessageText(chat_id=1, text="x"),
+        message=(
+            "Bad Request: message is not modified: specified new message content and reply "
+            "markup are exactly the same as a current content and reply markup of the message"
+        ),
+    )
+
+    # Act
+    await press(dispatcher, bot, PAY)
+
+    # Assert
+    expected = checkout_link_screen(
+        Language.EN, url=link_for(rail), amount_minor=pricing.single_amount_minor
+    )
+    assert [call for call in session.calls if isinstance(call, SendMessage)] == []
+    assert session.last_screen.text == expected.text
+
+
+async def test_the_screen_the_customer_is_left_on_carries_no_live_price_button(
+    settings: Settings,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+    submitter: RecordingSubmitter,
+    clock: Callable[[], datetime],
+    purchases: FakePurchases,
+) -> None:
+    """Not "the link is somewhere on screen" — that nothing on screen can still charge them.
+
+    The clone's real cost was not the duplicate text; it was that the duplicate carried a
+    LIVE ``nav:pay`` button under a payment link, one tap from opening a second intent for a
+    purchase already in flight. Asserted over EVERY markup the press drew, not just the last
+    one, because the defect was precisely a second message the last-screen assertions could
+    not see.
+
+    ``session.delivered`` and not ``session.calls``: the redraw Telegram refused is recorded
+    as an attempt but changed nothing on the customer's screen, so counting it here would
+    fail the test for a button that was never drawn.
+    """
+    # Arrange
+    rail = redirect_rail()
+    deps = selling(settings, submitter, clock, purchases, checkout=rail)
+    dispatcher = build_dispatcher(deps, storage=storage)
+    await walk_to_confirm(dispatcher, bot)
+    session.clear()
+    session.failures_once["EditMessageText"] = TelegramBadRequest(
+        method=EditMessageText(chat_id=1, text="x"),
+        message="Bad Request: message is not modified",
+    )
+
+    # Act
+    await press(dispatcher, bot, PAY)
+
+    # Assert
+    drawn = [
+        button.callback_data
+        for call in session.delivered
+        for row in getattr(getattr(call, "reply_markup", None), "inline_keyboard", [])
+        for button in row
+    ]
+    assert PAY not in drawn
 
 
 # ---------------------------------------------------------------------------
@@ -631,6 +734,104 @@ async def test_a_plain_start_still_reaches_the_menu(
 
     # Assert
     assert translate("menu.prompt", Language.EN) in screen_texts(session)
+
+
+# ---------------------------------------------------------------------------
+# the render the payment was opened for
+# ---------------------------------------------------------------------------
+async def test_a_pending_press_records_the_render_it_was_opened_for(
+    settings: Settings,
+    bot: Bot,
+    storage: MemoryStorage,
+    submitter: RecordingSubmitter,
+    clock: Callable[[], datetime],
+    purchases: FakePurchases,
+    state: FSMContext,
+) -> None:
+    """The marker the settlement reads back hours later, minted here and nowhere else.
+
+    Asserted against ``order_id_for`` recomputed from the draft the bot actually holds, rather
+    than against a constant: the whole value of this id is that the two processes agree on it,
+    and a test naming a literal would keep passing if the fingerprint changed shape.
+    """
+    # Arrange
+    rail = redirect_rail()
+    deps = selling(settings, submitter, clock, purchases, checkout=rail)
+    dispatcher = build_dispatcher(deps, storage=storage)
+    await walk_to_confirm(dispatcher, bot)
+    draft = await read_draft(state)
+    assert draft is not None
+
+    # Act
+    await press(dispatcher, bot, PAY)
+
+    # Assert
+    assert len(rail.requests) == 1
+    assert rail.requests[0].resume_order_id == order_id_for(USER_ID, draft)
+
+
+async def test_a_pending_press_on_a_draft_with_no_approved_lyric_records_no_render(
+    settings: Settings,
+    bot: Bot,
+    storage: MemoryStorage,
+    submitter: RecordingSubmitter,
+    clock: Callable[[], datetime],
+    purchases: FakePurchases,
+    state: FSMContext,
+) -> None:
+    """**The worst failure this feature could have, refused at the source.**
+
+    ``REQUIRED_ANSWERS`` excludes the lyric, so ``to_brief()`` succeeds without one and the
+    pipeline writes its own words and delivers them. A marker minted here would let a
+    settlement render a song whose words nobody ever read, in a process with no screen to
+    refuse on — so ``_resumable_order_id`` makes ``handle_confirm``'s own two refusals before
+    it mints anything.
+    """
+    # Arrange
+    rail = redirect_rail()
+    deps = selling(settings, submitter, clock, purchases, checkout=rail)
+    dispatcher = build_dispatcher(deps, storage=storage)
+    await walk_to_confirm(dispatcher, bot)
+    draft = await read_draft(state)
+    assert draft is not None
+    await write_draft(state, draft.model_copy(update={"lyrics": None}))
+
+    # Act
+    await press(dispatcher, bot, PAY)
+
+    # Assert
+    assert len(rail.requests) == 1
+    assert rail.requests[0].resume_order_id is None
+
+
+async def test_a_purchase_from_the_balance_screen_records_no_render(
+    settings: Settings,
+    bot: Bot,
+    storage: MemoryStorage,
+    submitter: RecordingSubmitter,
+    clock: Callable[[], datetime],
+    purchases: FakePurchases,
+) -> None:
+    """There is no draft on this surface, so there is nothing to attach the money to.
+
+    Reaching into the FSM for whatever draft happens to be parked would attach the purchase to
+    a run the customer did not buy it for — the idempotency key's scope here is the BALANCE
+    MESSAGE, and a marker scoped to some other wizard run is worse than no marker at all. The
+    customer is still offered their draft; see the settlement's keyboard.
+    """
+    # Arrange
+    rail = redirect_rail()
+    deps = selling(settings, submitter, clock, purchases, checkout=rail)
+    dispatcher = build_dispatcher(deps, storage=storage)
+    await complete_onboarding(dispatcher, bot, language=Language.EN)
+    await send(dispatcher, bot, "/balance")
+
+    # Act
+    await press(dispatcher, bot, PAY)
+
+    # Assert
+    assert len(rail.requests) == 1
+    assert rail.requests[0].resume_order_id is None
 
 
 # ---------------------------------------------------------------------------

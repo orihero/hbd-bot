@@ -51,6 +51,7 @@ from bayram.bot.keyboards import (
     note_keyboard,
     occasion_keyboard,
     own_lyrics_keyboard,
+    paid_late_keyboard,
     post_delivery_keyboard,
     settings_keyboard,
     start_over_keyboard,
@@ -185,6 +186,7 @@ def every_keyboard(language: Language) -> Iterator[tuple[str, InlineKeyboardMark
     )
     yield "checkout_link", checkout_link_keyboard(language, SAMPLE_CHECKOUT_URL)
     yield "start_over", start_over_keyboard(language)
+    yield "paid_late", paid_late_keyboard(language)
     yield "post_delivery", post_delivery_keyboard(language)
     yield "settings", settings_keyboard(language)
 
@@ -518,11 +520,54 @@ def test_a_dead_end_offers_the_way_home(language: Language) -> None:
     dead_ends = {
         "start_over": buttons(start_over_keyboard(language)),
         "post_delivery": buttons(post_delivery_keyboard(language)),
+        "paid_late": buttons(paid_late_keyboard(language)),
     }
 
     # Assert
     for name, offered in dead_ends.items():
         assert home in [data for _, data in offered], f"{name} in {language.value}"
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_the_paid_late_keyboard_offers_the_confirm_button_the_wizard_draws(
+    language: Language,
+) -> None:
+    """Byte-equal callback data, and that equality is the design rather than a coincidence.
+
+    The 🎬 under "your payment landed" must be the customer's OWN press reached from another
+    message, not a second route to a render: ``handlers.confirm.handle_confirm`` is registered
+    on ``Wizard.confirm`` plus this exact filter, so an equal ``callback_data`` lands in the
+    ordinary handler, inside the dispatcher's per-chat lock, with all four ordered double-tap
+    defences intact. A button carrying anything else would need defences of its own.
+    """
+    # Arrange
+    confirm = [data for _, data in buttons(confirm_keyboard(language))]
+
+    # Act
+    offered = [data for _, data in buttons(paid_late_keyboard(language))]
+
+    # Assert
+    assert offered[0] == NavCB(action=NavAction.CONFIRM).pack()
+    assert offered[0] in confirm
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_the_paid_late_keyboard_carries_nothing_that_throws_the_draft_away(
+    language: Language,
+) -> None:
+    """**The standing regression guard**, and the reason this builder exists at all.
+
+    ``start_over_keyboard`` was what the settlement message used to carry, and its ↩️ routes
+    ``NavAction.START_OVER`` to ``common.reset_to_welcome`` — "a clean slate, every time". So
+    the only prominent button under a 15 000 soʻm receipt destroyed the draft it had been paid
+    for. ``CANCEL`` is checked for the same reason wearing a politer label.
+    """
+    # Act
+    offered = [data for _, data in buttons(paid_late_keyboard(language))]
+
+    # Assert
+    assert NavCB(action=NavAction.START_OVER).pack() not in offered
+    assert NavCB(action=NavAction.CANCEL).pack() not in offered
 
 
 # ---------------------------------------------------------------------------

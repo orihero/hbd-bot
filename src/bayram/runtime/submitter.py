@@ -25,8 +25,7 @@ from arq import ArqRedis
 from bayram.contracts import Err, KitRepository, Order, Result, err, ok
 from bayram.errors import ConfigError, StorageError
 from bayram.logging import get_logger
-from bayram.pipeline.worker import job_id_for
-from bayram.runtime.jobs import KIT_JOB_NAME
+from bayram.pipeline.worker import KIT_JOB_NAME, job_id_for
 
 __all__ = ["ArqOrderSubmitter", "InProcessOrderSubmitter", "JobRunner"]
 

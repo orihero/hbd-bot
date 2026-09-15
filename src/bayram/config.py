@@ -863,6 +863,19 @@ class Settings(BaseSettings):
     #: instead, and the two checks are not redundant: this one is about the rail, that one is
     #: about two subsystems' clocks agreeing.
     payme_intent_ttl_s: int = Field(default=43_200, ge=60, le=86_400)
+    #: Whether a settled REDIRECT payment starts the render it was opened for.
+    #:
+    #: ``False`` restores, exactly, the behaviour that shipped before ``DECISIONS.md D17``:
+    #: the customer is told their payment landed and presses 🎬 themselves. It is the rollback
+    #: lever for that decision, and it is an environment variable rather than a code change
+    #: precisely so the rollback needs a restart and not a deploy — which is what this
+    #: repository's decision format asks a fallback to be.
+    #:
+    #: **No effect on a stub deployment**, and therefore no blast radius on one: the pending
+    #: branch that records a render marker is unreachable when ``charge`` reports the purchase
+    #: already paid, so nothing is ever recorded and nothing is ever resumed. Default ``True``
+    #: for that reason — the feature is off by construction everywhere it was not wanted.
+    auto_render_on_payment: bool = Field(default=True)
     #: How often the worker's Payme sweep runs, in minutes.
     #:
     #: A BACKSTOP, not a mechanism: intent expiry is a predicate evaluated against the injected

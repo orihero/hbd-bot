@@ -1175,6 +1175,13 @@ Four things, and three of them are not the database.
    trio is not a theoretical addition: `[HOST 2026-09-10]` the Payme rail took its first real
    settlement on this host on 2026-09-10 and those are the only rows that record it. A dump
    taken from this list as it read yesterday **cannot answer a Payme dispute at all.**
+
+   `payment_intents` carries two more columns since migration `0026` — `resume_order_id`, the
+   render a payment was opened for, and `resumed_at`, the claim that stops a redelivered
+   settlement making a second song. They are the whole audit trail for "the customer paid and
+   no song started" (`06-troubleshooting.md` §20.4); a restore that loses `resumed_at` loses
+   the at-most-once latch, so restore with `BAYRAM_AUTO_RENDER_ON_PAYMENT=false` if the dump
+   predates `0026`.
 2. **`<data root>/archive`.** One object-store root holding two key namespaces with different
    lifecycles: `orders/{order_id}/{filename}` for delivered assets (storage.py:73-84), swept on
    the asset clock, and `users/{user_id}/avatar.jpg` for customer profile photos
@@ -1188,6 +1195,14 @@ Four things, and three of them are not the database.
    queue, job results, admin session mirrors and every rate-limit and budget counter. Losing
    it parks every customer mid-wizard and drops every queued render; it does **not** lose money
    state, because the hourly sweep closes the open debits (db/purge.py:376-378).
+
+   > **Since `DECISIONS.md D17` it also decides whether a paid song gets made.** A settled
+   > Payme payment starts the render by reading the customer's parked draft out of Redis, so a
+   > flush between a customer paying and their payment settling turns an auto-render into an
+   > ordinary receipt with a 🎬 button. The money is untouched and the credit is granted either
+   > way — `payment_intents` is in Postgres — but the customer does the last tap themselves.
+   > The journal says so per settlement: grep `the settled payment's render was considered`
+   > for `"reason":"no_draft"`.
 4. **`BAYRAM_ADMIN_AUDIT_HMAC_KEY`.** It lives in the admin dotenv file and nowhere else — a
    `SecretStr` with `min_length=32` on `AdminSettings` (admin/settings.py:229) — and it is not
    in the database. A database-only restore comes back with an audit log nobody can verify.

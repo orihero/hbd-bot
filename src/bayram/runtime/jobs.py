@@ -104,6 +104,7 @@ from bayram.entitlements import SettlementOutcome
 from bayram.errors import BayramError, PipelineError
 from bayram.logging import correlation_scope, get_logger
 from bayram.payments import PIPELINE_ACTOR
+from bayram.pipeline import worker as pipeline_worker
 from bayram.pipeline.events import (
     PipelineStage,
     ProgressReporter,
@@ -111,6 +112,7 @@ from bayram.pipeline.events import (
     scheduled_stages,
 )
 from bayram.pipeline.outcome import PipelineOutcome
+from bayram.pipeline.worker import KIT_JOB_NAME
 from bayram.runtime.activity_job import (
     ACTIVITY_SNAPSHOT_CRON_HOUR,
     ACTIVITY_SNAPSHOT_CRON_MINUTE,
@@ -179,8 +181,13 @@ __all__ = [
 _LOG = get_logger(__name__)
 
 #: ARQ dispatches by function name, so the enqueue side and the worker side must agree
-#: on this exact string. It is asserted against the function itself at import.
-KIT_JOB_NAME: Final[str] = "generate_and_deliver"
+#: on this exact string. It is asserted against the function itself at the bottom of this
+#: module.
+#:
+#: RE-EXPORTED, not defined: it now lives in :mod:`bayram.pipeline.worker`, which imports
+#: nothing from ``bayram.runtime`` and can therefore be imported by ``runtime.submitter``
+#: while this module is still executing. See that constant's docstring for the cycle. This
+#: name stays because every existing importer — and two tests — reach for it here.
 
 CONTAINER_CTX_KEY: Final[str] = "container"
 BOT_CTX_KEY: Final[str] = "bot"
@@ -975,4 +982,8 @@ def build_kit_worker_settings(
 
 assert generate_and_deliver.__name__ == KIT_JOB_NAME, (
     "the enqueue name and the job function have drifted apart; ARQ would never dispatch"
+)
+
+assert KIT_JOB_NAME is pipeline_worker.KIT_JOB_NAME, (
+    "one spelling, two importers: the re-export above stopped being the same object"
 )

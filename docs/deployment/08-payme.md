@@ -84,6 +84,19 @@ on a host.
 > was put to the owner and decided on **2026-09-10: leave it as is**, to be switched when the
 > business says so. It is a recorded decision with a date, not an oversight; do not "fix" it.
 
+> **A THIRD switch exists now, and it is not one of those two.**
+> `BAYRAM_AUTO_RENDER_ON_PAYMENT` (default `true`) governs whether a settled REDIRECT payment
+> **starts the song** it was opened for, rather than announcing itself and leaving the customer
+> a 🎬 button (`DECISIONS.md D17`, `PAYME_INTEGRATION §9`). It is the rollback lever for that
+> decision: one restart, no deploy, no migration.
+>
+> It is **inert on the stub rail**, so it changes nothing on this host as of this writing. The
+> branch that records a render marker is only reachable when a rail answers "payment started",
+> and the stub answers "paid" — so on the shipped configuration nothing is ever marked and
+> nothing is ever resumed, whatever this variable says. It becomes live in the same edit that
+> sets `BAYRAM_CHECKOUT_PROVIDER=payme`, which is the thing to remember about it: switching
+> the rail on switches this on too.
+
 ---
 
 ## 1. What this process is, and what it must never be

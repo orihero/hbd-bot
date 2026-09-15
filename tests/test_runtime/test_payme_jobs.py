@@ -20,29 +20,41 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
+from uuid import UUID
 
 import pytest
 import sqlalchemy as sa
 from aiogram import Bot
 from aiogram.exceptions import TelegramForbiddenError
+from aiogram.fsm.storage.base import StorageKey
+from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.methods import SendMessage
 
+from bayram.bot.draft import WizardDraft
+from bayram.bot.handlers.submitting import ORDER_ID_KEY, PROGRESS_MESSAGE_ID_KEY
 from bayram.bot.i18n import translate
-from bayram.bot.keyboards import start_over_keyboard
+from bayram.bot.keyboards import paid_late_keyboard, start_over_keyboard
+from bayram.bot.order_id import order_id_for
+from bayram.bot.progress import queued_text
+from bayram.bot.states import Wizard
 from bayram.checkout import PaymentIntentState, Product
 from bayram.config import Settings
-from bayram.contracts import Language, is_ok
+from bayram.contracts import Genre, Language, Occasion, OrderState, VoiceGender, is_ok
 from bayram.db.enums import PaymeState as DbPaymeState
 from bayram.db.models import CreditLedgerRow, TopupPurchaseRow
 from bayram.db.models.payme_transaction import PaymeTransactionRow
+from bayram.db.models.payment_intent import PaymentIntentRow
 from bayram.db.payme import SqlPaymeLedger
+from bayram.pipeline.worker import KIT_JOB_NAME, job_id_for
 from bayram.runtime.container import AppContainer, build_container
 from bayram.runtime.jobs import build_kit_worker_settings
 from bayram.runtime.payme_jobs import (
     PAID_LATE_PLAN_KEY,
+    PAID_LATE_RESUMING_KEY,
     PAID_LATE_SINGLE_KEY,
     PAYME_NOTIFY_JOB_NAME,
     PAYME_NOTIFY_MAX_TRIES,
@@ -52,7 +64,8 @@ from bayram.runtime.payme_jobs import (
     run_payme_sweep,
     sweep_minutes,
 )
-from tests.test_bot.conftest import RecordingSession
+from tests.conftest import make_name
+from tests.test_bot.conftest import RecordingSession, canned_lyrics
 from tests.test_db.conftest import MovableClock
 
 #: Outside the 32-bit range, so a column that was accidentally ``Integer`` fails loudly
@@ -100,6 +113,17 @@ def clock() -> MovableClock:
 
 
 @pytest.fixture
+def storage() -> MemoryStorage:
+    """The FSM storage the WORKER reads and the bot writes.
+
+    ``MemoryStorage`` rather than a fake, because what is under test is the key shape and the
+    merge semantics of ``update_data`` — a fake dict would satisfy every assertion below while
+    a real ``StorageKey`` mismatch went unnoticed.
+    """
+    return MemoryStorage()
+
+
+@pytest.fixture
 def rail(container: AppContainer, clock: MovableClock) -> SqlPaymeLedger:
     """The SETUP ledger, on a movable clock so a test can mint an intent that expires soon.
 
@@ -130,10 +154,23 @@ class _RecordingQueue:
         self.jobs.append((name, args, _job_id))
 
 
-def _ctx(container: AppContainer, bot: Bot, queue: _RecordingQueue | None = None) -> dict[str, Any]:
+def _ctx(
+    container: AppContainer,
+    bot: Bot,
+    queue: _RecordingQueue | None = None,
+    storage: MemoryStorage | None = None,
+) -> dict[str, Any]:
+    """The worker context, with both optional handles left OUT when not supplied.
+
+    Omitting rather than passing ``None`` is what makes the two "a worker wired without it"
+    tests real: the job reads these with ``ctx.get`` and must degrade, not raise, and a ctx
+    that always carried the keys could not express the half-wired worker at all.
+    """
     ctx: dict[str, Any] = {"container": container, "bot": bot}
     if queue is not None:
         ctx["redis"] = queue
+    if storage is not None:
+        ctx["fsm_storage"] = storage
     return ctx
 
 
@@ -201,6 +238,16 @@ async def _rows(container: AppContainer, statement: sa.Select[Any]) -> list[Any]
         return list((await session.execute(statement)).scalars().all())
 
 
+async def _resumed_at(container: AppContainer, public_ref: str) -> datetime | None:
+    """The resume claim, read straight off the column. See the assertion that uses it."""
+    rows = await _rows(
+        container,
+        sa.select(PaymentIntentRow.resumed_at).where(PaymentIntentRow.public_ref == public_ref),
+    )
+    assert len(rows) == 1
+    return rows[0]
+
+
 def _sent(session: RecordingSession) -> list[SendMessage]:
     return [call for call in session.calls if isinstance(call, SendMessage)]
 
@@ -227,9 +274,10 @@ async def test_a_settled_payment_is_announced_once_in_the_language_it_was_bought
     # Arrange
     public_ref = await _open_single(rail, key="topup:1", language=Language.RU.value)
     await _settle(rail, public_ref, now=clock.now)
+    queue = _RecordingQueue()
 
     # Act
-    await notify_payment_settled(_ctx(container, bot), public_ref)
+    await notify_payment_settled(_ctx(container, bot, queue), public_ref)
 
     # Assert — one message, to the buyer, and it is not the English one.
     messages = _sent(session)
@@ -244,6 +292,11 @@ async def test_a_settled_payment_is_announced_once_in_the_language_it_was_bought
     )
     assert messages[0].reply_markup == start_over_keyboard(Language.RU)
     assert messages[0].reply_markup != start_over_keyboard(Language.EN)
+
+    # Assert — and this settlement started NO render. Written before the resume existed, and
+    # kept as the guard on the plain announcement: this job used to run with no queue handle
+    # in its ctx at all, so an enqueue it grew would have been invisible to the whole suite.
+    assert queue.jobs == []
 
     # Assert — and the stamp landed, which is what stops it being said twice.
     found = await rail.intent(public_ref=public_ref)
@@ -264,14 +317,16 @@ async def test_a_second_run_of_the_same_notification_sends_nothing(
     # Arrange
     public_ref = await _open_single(rail, key="topup:2")
     await _settle(rail, public_ref, now=clock.now)
-    await notify_payment_settled(_ctx(container, bot), public_ref)
+    queue = _RecordingQueue()
+    await notify_payment_settled(_ctx(container, bot, queue), public_ref)
     assert len(_sent(session)) == 1
 
     # Act
-    await notify_payment_settled(_ctx(container, bot), public_ref)
+    await notify_payment_settled(_ctx(container, bot, queue), public_ref)
 
     # Assert
     assert len(_sent(session)) == 1
+    assert queue.jobs == []
 
 
 async def test_an_erased_buyer_is_not_told_and_nothing_raises(
@@ -856,3 +911,533 @@ def test_the_gateway_and_the_worker_mint_the_same_notification_job_id() -> None:
     # Act / Assert — the name ARQ dispatches on, and the id ARQ deduplicates on.
     assert GATEWAY_JOB_NAME == PAYME_NOTIFY_JOB_NAME
     assert gateway_notify_job_id(public_ref) == payme_notify_job_id(public_ref)
+
+
+# ---------------------------------------------------------------------------
+# The render the payment was made for
+# ---------------------------------------------------------------------------
+# These drive the other half of ``notify_payment_settled``: a settled redirect payment does
+# not merely announce itself, it STARTS the song the customer paid for. The properties under
+# test are all properties of ORDERING and of a durable claim, so none of them is mocked —
+# a real ledger on a real database, the real FSM storage class the bot writes, and a
+# recording queue standing in for ARQ's pool.
+#
+# ``_RecordingQueue`` is now passed to the notification tests above as well, asserting
+# ``queue.jobs == []``. That assertion is not decoration: before this workstream the job ran
+# with NO queue handle in its ctx at all, so any enqueue it grew would have been invisible to
+# the entire suite.
+
+
+def _parked(draft: WizardDraft) -> dict[str, Any]:
+    return dict(draft.to_state_data())
+
+
+async def _park_confirm(storage: MemoryStorage, bot: Bot, draft: WizardDraft) -> StorageKey:
+    """Leave a complete, lyric-approved draft on the Confirm screen, as the wizard would.
+
+    Written through the same ``StorageKey`` shape ``render_resume`` builds — private chat, so
+    the user id IS the chat id — because a test that parked under a different key would prove
+    only that the job cannot find a session.
+    """
+    key = StorageKey(bot_id=bot.id, chat_id=_BUYER, user_id=_BUYER)
+    await storage.set_state(key, Wizard.confirm)
+    await storage.set_data(key, _parked(draft))
+    return key
+
+
+def _resumable_draft() -> WizardDraft:
+    """A draft one press of 🎬 away from a render: complete, with an APPROVED lyric."""
+    draft = WizardDraft(
+        ui_language=Language.RU,
+        occasion=Occasion.BIRTHDAY,
+        genre=Genre.RETRO_ESTRADA,
+        vocal_gender=VoiceGender.MALE,
+        note="Loves the mountains",
+        recipient=make_name(),
+        output_language=Language.UZ_LATN,
+        session_id="session-under-test",
+    )
+    brief = draft.to_brief()
+    assert is_ok(brief), brief
+    return draft.model_copy(update={"lyrics": canned_lyrics(brief.value, take=1)})
+
+
+async def _open_resumable(
+    rail: SqlPaymeLedger, *, key: str, draft: WizardDraft, buyer: int = _BUYER
+) -> tuple[str, UUID]:
+    """Open an intent carrying the render marker, exactly as the bot's pending branch does."""
+    order_id = order_id_for(buyer, draft)
+    opened = await rail.open_intent(
+        telegram_user_id=buyer,
+        product=Product.SINGLE,
+        amount_minor=_SINGLE_PRICE,
+        currency="UZS",
+        idempotency_key=key,
+        language=draft.ui_language.value,
+        merchant_id=_MERCHANT,
+        is_sandbox=True,
+        resume_order_id=order_id,
+    )
+    assert is_ok(opened)
+    return opened.value.public_ref, order_id
+
+
+async def test_a_settled_payment_resumes_the_render_it_was_opened_for(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+) -> None:
+    """The feature, end to end: pay, and the song starts.
+
+    **The ORDERING is asserted by index rather than trusted from the source.** The customer
+    must read "your payment landed" and THEN watch a progress frame appear; a refactor that
+    moved the resume above the announcement would still pass a test that merely checked both
+    messages exist, and would show the customer a progress bar for a payment nobody had
+    confirmed.
+    """
+    # Arrange
+    draft = _resumable_draft()
+    key = await _park_confirm(storage, bot, draft)
+    public_ref, order_id = await _open_resumable(rail, key="topup:resume:1", draft=draft)
+    await _settle(rail, public_ref, now=clock.now)
+    queue = _RecordingQueue()
+
+    # Act
+    await notify_payment_settled(_ctx(container, bot, queue, storage), public_ref)
+
+    # Assert — the sentence, with no keyboard: the progress frame lands under it.
+    messages = _sent(session)
+    assert len(messages) == 2
+    assert messages[0].text == translate(PAID_LATE_RESUMING_KEY, Language.RU)
+    assert messages[0].reply_markup is None
+    # Assert — and it came FIRST.
+    assert session.calls.index(messages[0]) < session.calls.index(messages[1])
+    assert messages[1].text == queued_text(Language.RU, name=draft.recipient.display)
+
+    # Assert — one job, addressed by the id minted at PAY time, carrying the progress message
+    # the job will report into. The id is read off the enqueue rather than off the recorded
+    # ``SendMessage`` (which is the outgoing METHOD and carries no message id) and is then
+    # cross-checked against the FSM park below, so a job and a park that disagreed about which
+    # message to draw on would fail here.
+    assert len(queue.jobs) == 1
+    name, args, job_id = queue.jobs[0]
+    progress_message_id = args[2]
+    assert (name, args[:2], job_id) == (
+        KIT_JOB_NAME,
+        (str(order_id), _BUYER),
+        job_id_for(order_id),
+    )
+
+    # Assert — the order exists and the claim is stamped.
+    order = await container.repository.get_order(order_id)
+    assert is_ok(order)
+    assert order.value.state is OrderState.AUTHORIZED
+    # ``resumed_at`` is read off the COLUMN and not off the view, because it is deliberately
+    # not on the view: its only reader is the rowcount of the conditional UPDATE that claims
+    # it, and a field on the view would invite a read-then-write where a claim belongs.
+    assert await _resumed_at(container, public_ref) is not None
+
+    # Assert — the session is parked on it, so ``jobs._release_session`` can un-park it later.
+    parked = await storage.get_data(key)
+    assert parked[ORDER_ID_KEY] == str(order_id)
+    assert parked[PROGRESS_MESSAGE_ID_KEY] == progress_message_id
+    assert await storage.get_state(key) == Wizard.submitting.state
+
+
+async def test_a_second_run_of_the_notification_queues_no_second_render(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+) -> None:
+    """The at-most-once latch, against the failure that actually happens.
+
+    ``notify_payment_settled`` is at-least-once by construction — five ARQ attempts, the
+    sweep's backstop, and two processes enqueuing the same name — so this is not a hypothetical
+    replay. A second render is a second vendor bill and a second delivered song.
+    """
+    # Arrange
+    draft = _resumable_draft()
+    await _park_confirm(storage, bot, draft)
+    public_ref, _ = await _open_resumable(rail, key="topup:resume:2", draft=draft)
+    await _settle(rail, public_ref, now=clock.now)
+    queue = _RecordingQueue()
+    ctx = _ctx(container, bot, queue, storage)
+    await notify_payment_settled(ctx, public_ref)
+    assert len(queue.jobs) == 1
+
+    # Act
+    await notify_payment_settled(ctx, public_ref)
+
+    # Assert
+    assert len(queue.jobs) == 1
+
+
+async def test_a_draft_that_moved_since_the_link_is_not_resumed(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+) -> None:
+    """The customer edited their note after paying. Render the OLD answers? No.
+
+    And they are not stranded for it: the receipt carries a live 🎬 on the draft they are
+    actually holding, which is one tap rather than none.
+    """
+    # Arrange
+    draft = _resumable_draft()
+    public_ref, _ = await _open_resumable(rail, key="topup:resume:3", draft=draft)
+    await _park_confirm(storage, bot, draft.model_copy(update={"note": "Actually, loves the sea"}))
+    await _settle(rail, public_ref, now=clock.now)
+    queue = _RecordingQueue()
+
+    # Act
+    await notify_payment_settled(_ctx(container, bot, queue, storage), public_ref)
+
+    # Assert
+    assert queue.jobs == []
+    messages = _sent(session)
+    assert len(messages) == 1
+    assert messages[0].reply_markup == paid_late_keyboard(Language.RU)
+
+
+async def test_a_draft_parked_somewhere_other_than_confirm_is_not_resumed(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+) -> None:
+    """Mid-edit is not mid-wait.
+
+    An unedited draft on the lyrics screen fingerprints EQUAL to the one that was paid for, so
+    the id comparison alone would wave this through and yank the customer into
+    ``Wizard.submitting`` while they were typing. The state check is the only thing that tells
+    "the screen they left" from "the screen they are on".
+    """
+    # Arrange
+    draft = _resumable_draft()
+    key = await _park_confirm(storage, bot, draft)
+    await storage.set_state(key, Wizard.lyrics)
+    public_ref, _ = await _open_resumable(rail, key="topup:resume:4", draft=draft)
+    await _settle(rail, public_ref, now=clock.now)
+    queue = _RecordingQueue()
+
+    # Act
+    await notify_payment_settled(_ctx(container, bot, queue, storage), public_ref)
+
+    # Assert
+    assert queue.jobs == []
+    assert await storage.get_state(key) == Wizard.lyrics.state
+
+
+async def test_a_session_already_waiting_on_a_render_is_left_alone(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+) -> None:
+    """The customer pressed 🎬 themselves while the payment was settling."""
+    # Arrange
+    draft = _resumable_draft()
+    key = await _park_confirm(storage, bot, draft)
+    await storage.set_state(key, Wizard.submitting)
+    await storage.update_data(key, {ORDER_ID_KEY: "an-order-already-in-flight"})
+    public_ref, _ = await _open_resumable(rail, key="topup:resume:5", draft=draft)
+    await _settle(rail, public_ref, now=clock.now)
+    queue = _RecordingQueue()
+
+    # Act
+    await notify_payment_settled(_ctx(container, bot, queue, storage), public_ref)
+
+    # Assert — nothing queued, and the park that was there is untouched.
+    assert queue.jobs == []
+    assert (await storage.get_data(key))[ORDER_ID_KEY] == "an-order-already-in-flight"
+
+
+async def test_a_second_wizard_run_is_left_untouched(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+) -> None:
+    """The ``_release_session`` bug class, guarded from the other direction.
+
+    ``/start`` does not refuse while a payment is open, so by the time a settlement lands the
+    customer may be three screens into a SECOND run. Writing this job's park blind would wipe
+    that run's draft, and the customer's next button press would be answered "that session
+    expired".
+    """
+    # Arrange
+    paid_for = _resumable_draft()
+    public_ref, _ = await _open_resumable(rail, key="topup:resume:6", draft=paid_for)
+    second_run = _resumable_draft().model_copy(update={"session_id": "a-completely-new-run"})
+    key = await _park_confirm(storage, bot, second_run)
+    before = await storage.get_data(key)
+    await _settle(rail, public_ref, now=clock.now)
+    queue = _RecordingQueue()
+
+    # Act
+    await notify_payment_settled(_ctx(container, bot, queue, storage), public_ref)
+
+    # Assert
+    assert queue.jobs == []
+    assert await storage.get_data(key) == before
+    assert await storage.get_state(key) == Wizard.confirm.state
+
+
+async def test_a_settlement_with_no_marker_queues_nothing_but_still_offers_the_draft(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+) -> None:
+    """A ``/balance`` purchase: no marker is ever minted, so nothing is resumed.
+
+    **But the keyboard is chosen from the SESSION rather than from the marker**, which is what
+    covers this population without the bot having to guess which wizard run a balance-screen
+    purchase belonged to. One tap, on the draft they were actually working on.
+    """
+    # Arrange
+    await _park_confirm(storage, bot, _resumable_draft())
+    public_ref = await _open_single(rail, key="topup:resume:7", language=Language.RU.value)
+    await _settle(rail, public_ref, now=clock.now)
+    queue = _RecordingQueue()
+
+    # Act
+    await notify_payment_settled(_ctx(container, bot, queue, storage), public_ref)
+
+    # Assert
+    assert queue.jobs == []
+    assert _sent(session)[0].reply_markup == paid_late_keyboard(Language.RU)
+
+
+async def test_a_settlement_with_no_draft_at_all_still_offers_a_way_back(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+) -> None:
+    """Session gone — expired, cleared, or a Redis flush. ``start_over_keyboard`` is right HERE.
+
+    The paired half of the test above: ↩️ Start over destroys a draft, which is why it is no
+    longer the default, and is exactly the right offer for somebody who has no draft to lose.
+    """
+    # Arrange
+    public_ref = await _open_single(rail, key="topup:resume:8", language=Language.RU.value)
+    await _settle(rail, public_ref, now=clock.now)
+    queue = _RecordingQueue()
+
+    # Act
+    await notify_payment_settled(_ctx(container, bot, queue, storage), public_ref)
+
+    # Assert
+    assert queue.jobs == []
+    assert _sent(session)[0].reply_markup == start_over_keyboard(Language.RU)
+
+
+async def test_a_blocked_customer_resumes_nothing(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+) -> None:
+    """**The money assertion.** A paid credit must not be spent on a kit that cannot arrive.
+
+    ``entitlements`` settles ``NOT_DELIVERED`` exactly as it settles ``DELIVERED``, so
+    rendering for a chat Telegram has told us is unreachable burns the customer's song for
+    nothing. "They paid, render it anyway" is rejected, and the ``return`` above the resume in
+    ``notify_payment_settled`` is where.
+    """
+    # Arrange
+    draft = _resumable_draft()
+    await _park_confirm(storage, bot, draft)
+    public_ref, _ = await _open_resumable(rail, key="topup:resume:9", draft=draft)
+    await _settle(rail, public_ref, now=clock.now)
+    session.failures["SendMessage"] = TelegramForbiddenError(
+        method=SendMessage(chat_id=_BUYER, text="x"),
+        message="Forbidden: bot was blocked by the user",
+    )
+    queue = _RecordingQueue()
+
+    # Act
+    await notify_payment_settled(_ctx(container, bot, queue, storage), public_ref)
+
+    # Assert
+    assert queue.jobs == []
+
+
+async def test_an_erased_buyer_resumes_nothing(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+) -> None:
+    """``/forget`` between the link and the settlement. Erasure also NULLS the marker."""
+    # Arrange
+    draft = _resumable_draft()
+    await _park_confirm(storage, bot, draft)
+    public_ref, _ = await _open_resumable(rail, key="topup:resume:10", draft=draft)
+    await _settle(rail, public_ref, now=clock.now)
+    ledger = container.credits
+    assert ledger is not None
+    assert is_ok(await ledger.forget(_BUYER))
+    queue = _RecordingQueue()
+
+    # Act
+    await notify_payment_settled(_ctx(container, bot, queue, storage), public_ref)
+
+    # Assert — nobody told, nothing rendered, and the marker is gone from the row.
+    assert queue.jobs == []
+    assert _sent(session) == []
+    found = await rail.intent(public_ref=public_ref)
+    assert is_ok(found)
+    assert found.value is not None and found.value.resume_order_id is None
+
+
+async def test_a_worker_without_fsm_storage_still_announces_and_queues_nothing(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    """The storage handle is OPTIONAL in the ctx, and a worker wired without it must still tell
+    the customer their money landed — degrading the way ``jobs._release_session`` degrades."""
+    # Arrange
+    draft = _resumable_draft()
+    public_ref, _ = await _open_resumable(rail, key="topup:resume:11", draft=draft)
+    await _settle(rail, public_ref, now=clock.now)
+    queue = _RecordingQueue()
+
+    # Act
+    await notify_payment_settled(_ctx(container, bot, queue), public_ref)
+
+    # Assert
+    assert queue.jobs == []
+    assert len(_sent(session)) == 1
+
+
+async def test_a_worker_without_a_queue_handle_announces_and_does_not_raise(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+) -> None:
+    """Raising here would re-enter the retry ladder, and every rung RE-SENDS the announcement."""
+    # Arrange
+    draft = _resumable_draft()
+    await _park_confirm(storage, bot, draft)
+    public_ref, _ = await _open_resumable(rail, key="topup:resume:12", draft=draft)
+    await _settle(rail, public_ref, now=clock.now)
+
+    # Act — no queue in the ctx at all.
+    await notify_payment_settled(_ctx(container, bot, None, storage), public_ref)
+
+    # Assert — the payment sentence landed; the progress frame did not.
+    assert [message.text for message in _sent(session)] == [
+        translate(PAID_LATE_RESUMING_KEY, Language.RU)
+    ]
+
+
+async def test_the_flag_off_announces_and_queues_nothing(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+) -> None:
+    """The rollback lever, and the thing it must NOT do on its way out.
+
+    ``BAYRAM_AUTO_RENDER_ON_PAYMENT=false`` restores the old behaviour — but the old behaviour
+    put ↩️ Start over under every receipt, which destroys the draft the customer just paid
+    for. Rolling back must not ship customers onto that button.
+    """
+    # Arrange
+    draft = _resumable_draft()
+    await _park_confirm(storage, bot, draft)
+    public_ref, _ = await _open_resumable(rail, key="topup:resume:13", draft=draft)
+    await _settle(rail, public_ref, now=clock.now)
+    queue = _RecordingQueue()
+    off = replace(
+        container, settings=container.settings.model_copy(update={"auto_render_on_payment": False})
+    )
+
+    # Act
+    await notify_payment_settled(_ctx(off, bot, queue, storage), public_ref)
+
+    # Assert
+    assert queue.jobs == []
+    messages = _sent(session)
+    assert messages[0].text != translate(PAID_LATE_RESUMING_KEY, Language.RU)
+    assert messages[0].reply_markup == paid_late_keyboard(Language.RU)
+
+
+async def test_every_settlement_says_what_it_decided_about_the_render(
+    container: AppContainer,
+    rail: SqlPaymeLedger,
+    clock: MovableClock,
+    bot: Bot,
+    session: RecordingSession,
+    storage: MemoryStorage,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A DECLINE must say why, and this is the case that shipped silent.
+
+    The decision line first landed inside the ``if assessment.plan is not None`` branch, so it
+    fired only when a render had actually been attempted — which is to say it was absent for
+    every case an operator is ever asked about. Found by running the real three processes:
+    a settlement declined with ``not_on_confirm`` and the worker log said nothing at all,
+    while ``06-troubleshooting.md`` §20.4 was telling the reader to grep for exactly this line.
+
+    Driven through the ``not_on_confirm`` path because that is the one that was observed, and
+    asserted on the REASON rather than on the mere presence of the line: a line that always
+    said ``queued`` would satisfy a presence check and answer nothing.
+    """
+    # Arrange — a draft that is complete and paid for, but the customer has gone back to an
+    # earlier step, which is what somebody who returns from a payment page and starts over
+    # actually looks like.
+    draft = _resumable_draft()
+    key = await _park_confirm(storage, bot, draft)
+    await storage.set_state(key, Wizard.occasion)
+    public_ref, _ = await _open_resumable(rail, key="topup:resume:14", draft=draft)
+    await _settle(rail, public_ref, now=clock.now)
+    queue = _RecordingQueue()
+
+    # Act
+    with caplog.at_level(logging.INFO, logger="bayram.runtime.payme_jobs"):
+        await notify_payment_settled(_ctx(container, bot, queue, storage), public_ref)
+
+    # Assert — nothing queued, and the log says which guard declined it.
+    assert queue.jobs == []
+    considered = [
+        record
+        for record in caplog.records
+        if record.message == "the settled payment's render was considered"
+    ]
+    assert len(considered) == 1
+    assert considered[0].reason == "not_on_confirm"
+    assert considered[0].is_queued is False

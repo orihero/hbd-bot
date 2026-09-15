@@ -100,6 +100,7 @@ __all__ = [
     "mark_performed",
     "mark_cancelled",
     "mark_intent_notified",
+    "claim_intent_resume",
     "anonymise_intents",
     "insert_rpc_log",
 ]
@@ -418,6 +419,7 @@ async def insert_intent(
     is_sandbox: bool,
     language: str,
     valid_until: datetime,
+    resume_order_id: UUID | None,
     now: datetime,
 ) -> bool:
     """Open one payment. ``True`` when THIS caller wrote it, ``False`` on a replayed key.
@@ -437,6 +439,10 @@ async def insert_intent(
     state change on this row is a conditional ``UPDATE`` naming both the state it expects and
     the state it writes, and a Python-side default would be the one place a payment state was
     set by omission.
+
+    ``resume_order_id`` travels with the insert and ``resumed_at`` starts NULL, for the same
+    reason: the render a payment buys is decided once, by the press that opened it, and the
+    claim on that render is taken later by a conditional ``UPDATE`` of its own.
     """
     return await insert_or_ignore(
         session,
@@ -461,6 +467,13 @@ async def insert_intent(
             "settled_at": None,
             "notified_at": None,
             "settle_note": None,
+            # Written by the WINNING insert only. A replayed key writes nothing at all here,
+            # which is the property the caller depends on: it reads the existing row back and
+            # gets the FIRST press's marker, so two presses whose drafts differ cannot leave
+            # the intent pointing at the second one's render while the first one's link is
+            # what the customer is looking at.
+            "resume_order_id": resume_order_id,
+            "resumed_at": None,
             "created_at": now,
             "updated_at": now,
         },
@@ -743,6 +756,43 @@ async def mark_intent_notified(session: AsyncSession, *, intent_id: UUID, now: d
         sa.update(PaymentIntentRow)
         .where(PaymentIntentRow.id == intent_id, PaymentIntentRow.notified_at.is_(None))
         .values(notified_at=now, updated_at=now)
+    )
+    return rowcount_of(result) == 1
+
+
+async def claim_intent_resume(session: AsyncSession, *, intent_id: UUID, now: datetime) -> bool:
+    """Claim the one resume attempt. ``False`` when somebody already claimed it.
+
+    The third conditional ``UPDATE`` in this module, and the rowcount IS the lock — the same
+    shape :func:`claim_intent` and :func:`mark_intent_notified` use, for the same reason: a
+    read-then-write would be two statements with a window between them, and this window is
+    the one where a second song gets made.
+
+    **``state == PAID`` is a conjunct and not an assumption.** ``resumed_at IS NULL`` alone
+    would let a stale read of a not-yet-settled intent take the claim and start a render for
+    money that has not arrived; the ROW should refuse that, not merely whichever caller
+    happened to read it first. Rendering against an unsettled payment is what
+    ``payme_jobs._announceable_buyer``'s docstring calls how a free song is given away.
+
+    **This is the ONLY durable at-most-once latch the render has.**
+    ``payme_jobs.notify_payment_settled`` is at-least-once by construction — five ARQ
+    attempts, the sweep's third arm as a backstop, and two processes that enqueue the same
+    job name — so a side effect placed in that job with no latch of its own fires once per
+    attempt, and this one bills a vendor and delivers a song each time. ARQ's deterministic
+    job id is not a substitute: it deduplicates only while the job is still live.
+
+    ``False`` is not an error and must not be logged as one. It is the ordinary, expected
+    answer to a redelivered job, which is to say to most of the ways this function is reached
+    a second time.
+    """
+    result = await session.execute(
+        sa.update(PaymentIntentRow)
+        .where(
+            PaymentIntentRow.id == intent_id,
+            PaymentIntentRow.state == PaymentIntentState.PAID,
+            PaymentIntentRow.resumed_at.is_(None),
+        )
+        .values(resumed_at=now, updated_at=now)
     )
     return rowcount_of(result) == 1
 

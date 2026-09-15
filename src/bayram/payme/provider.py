@@ -210,6 +210,11 @@ class PaymeCheckoutProvider:
             is_sandbox=self._is_sandbox,
             plan_songs=self._plan_songs if is_plan else None,
             plan_days=self._plan_days if is_plan else None,
+            # Straight through, and this rail forms no opinion about it: the bot decided what
+            # render — if any — this money buys, because the bot is the only process holding
+            # the draft. ``None`` here is ordinary and common: it is every purchase made from
+            # ``/balance`` and every draft that could not produce a render.
+            resume_order_id=request.resume_order_id,
         )
         if is_err(opened):
             # Straight through, unwrapped. The store already said what went wrong in the

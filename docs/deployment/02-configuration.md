@@ -717,6 +717,13 @@ The gateway was added to the fleet on 2026-09-09 and took its first real settlem
 against 20 assignments in `.env.payme.example` `[TREE 2026-09-11]`, selected by
 `BAYRAM_PAYME_ENV_FILE` — `/etc/hbd/payme.env`, `root:hbd 0640`, on this host.
 
+> **`BAYRAM_AUTO_RENDER_ON_PAYMENT` is not in this table and must not be put in it.** It is a
+> `Settings` field read by the **worker**, not a `PaymeSettings` field read by the gateway —
+> the gateway has no opinion about renders and holds no Telegram token. Default `true`; `false`
+> restores the behaviour that shipped before `DECISIONS.md D17`, with one restart and no
+> migration. It is inert while `BAYRAM_CHECKOUT_PROVIDER` is `stub`, because the branch that
+> records a render marker is unreachable when the rail reports every charge already paid.
+
 | Variable | Default | Consequence |
 | --- | --- | --- |
 | `BAYRAM_PAYME_ENABLED` | `false` (`:184`) | The lifespan refuses to boot while it is false, **unconditionally** — not gated on environment (`src/bayram/payme/app.py:233`, called at `:631`). A booted gateway therefore proves it is `true`. |

@@ -29,6 +29,7 @@ from bayram.pipeline.orchestrator import KitPipeline
 
 __all__ = [
     "JOB_NAME",
+    "KIT_JOB_NAME",
     "job_id_for",
     "generate_kit",
     "build_worker_settings",
@@ -39,6 +40,24 @@ __all__ = [
 _LOGGER = get_logger(__name__)
 
 JOB_NAME: Final[str] = "generate_kit"
+
+#: The name of the RUNTIME job that renders a kit and delivers it — ``runtime.jobs``'s
+#: ``generate_and_deliver``, which wraps :func:`generate_kit` with delivery and the session
+#: un-park. ARQ dispatches by function NAME, so every process that enqueues one and the
+#: process that runs them must agree on this exact string, and ``runtime.jobs`` asserts it
+#: against the function itself at import.
+#:
+#: **It lives HERE, in a module that imports nothing from ``bayram.runtime``, to keep an
+#: import cycle from existing.** It was defined in ``runtime.jobs`` while that module was the
+#: only producer. ``runtime.submitter`` imports it at module scope; ``runtime.jobs`` imports
+#: ``runtime.payme_jobs``, which imports ``runtime.render_resume``, which needs the submitter
+#: — so with the constant still in ``jobs``, the submitter's import would run while ``jobs``
+#: was half-executed and had not yet reached the assignment. The alternative to moving it was
+#: for ``render_resume`` to restate the name and hand-roll persist-then-enqueue, which is
+#: exactly what ``runtime.submitter``'s docstring forbids: an enqueue that races the write
+#: produces a job that cannot find its own order. **The constant moves so that the SEQUENCE
+#: is not duplicated.**
+KIT_JOB_NAME: Final[str] = "generate_and_deliver"
 PIPELINE_CTX_KEY: Final[str] = "pipeline"
 REPOSITORY_CTX_KEY: Final[str] = "repository"
 SETTINGS_CTX_KEY: Final[str] = "settings"

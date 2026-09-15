@@ -75,6 +75,7 @@ __all__ = [
     "checkout_keyboard",
     "checkout_link_keyboard",
     "start_over_keyboard",
+    "paid_late_keyboard",
     "post_delivery_keyboard",
     "main_menu_keyboard",
     "contact_request_keyboard",
@@ -681,6 +682,42 @@ def start_over_keyboard(language: Language) -> InlineKeyboardMarkup:
     """
     builder = InlineKeyboardBuilder()
     builder.row(_nav_button(NavAction.START_OVER, language))
+    builder.row(_nav_button(NavAction.TO_MENU, language))
+    return builder.as_markup()
+
+
+def paid_late_keyboard(language: Language) -> InlineKeyboardMarkup:
+    """Under "your payment landed", when a finished draft is still waiting: 🎬 and 🏠.
+
+    **This builder exists because the obvious keyboard was actively destructive.** The cold
+    settlement message used ``start_over_keyboard``, whose ↩️ routes ``NavAction.START_OVER``
+    to ``navigation.handle_start_over`` and then to ``common.reset_to_welcome`` — documented
+    there as "a clean slate, every time". So the only prominent button under "your payment
+    went through" threw away the draft the customer had just paid 15 000 soʻm to record. That
+    was true before any auto-render existed, and it stays true for every settlement the
+    resume declines and for every settlement at all when ``BAYRAM_AUTO_RENDER_ON_PAYMENT`` is
+    false — which is to say the rollback lever would have shipped customers straight onto it.
+
+    **Row 0 is the SAME ``NavCB(CONFIRM)`` the Confirm screen draws, byte for byte, and that
+    is the whole design.** It is not a second route to a render: it is the customer's own 🎬
+    press, reached from a different message. ``handlers.confirm.handle_confirm`` is registered
+    on ``Wizard.confirm`` plus that filter, and the checkout handler's ``finally`` restored
+    exactly that state when it handed the link over, so the press lands in the ordinary
+    handler, inside the dispatcher's per-chat lock, with all four ordered double-tap defences
+    intact. A button of this module's own invention would have had none of that.
+
+    **Not ``confirm_keyboard``**, which ``_with_nav`` gives ⬅️ Back and ✖️ Cancel: Back's
+    destination is a function of the FSM and this is not a wizard screen, and Cancel would
+    clear the very session holding the draft the payment was made for — the same defect as
+    Start over, wearing a politer label.
+
+    Both labels already exist in all four catalogues (``button.confirm``, ``button.to_menu``),
+    so this adds no copy and no placeholder-parity risk. One button per row satisfies
+    :data:`MAX_ROW_LABEL_CHARS` by construction, and 🎬 and 🏠 differ, which is what the
+    per-screen emoji-uniqueness sweep checks.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.row(_nav_button(NavAction.CONFIRM, language))
     builder.row(_nav_button(NavAction.TO_MENU, language))
     return builder.as_markup()
 

@@ -54,11 +54,9 @@ make the bot tell a customer their session had expired while it was singing for 
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from enum import StrEnum
 from typing import Final
-from uuid import UUID, uuid5
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramAPIError
@@ -82,6 +80,7 @@ from bayram.bot.handlers.lyrics import enter_lyrics_step
 from bayram.bot.handlers.submitting import remember_submission
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import start_over_keyboard
+from bayram.bot.order_id import order_fingerprint, order_id_for
 from bayram.bot.progress import queued_text
 from bayram.bot.screens import Screen
 from bayram.bot.states import Wizard
@@ -103,12 +102,6 @@ from bayram.logging import current_correlation_id, get_logger, new_correlation_i
 __all__ = ["build_router"]
 
 _LOG = get_logger(__name__)
-
-#: Namespace for :func:`_order_id_for`. An arbitrary constant whose only requirement is
-#: that it never changes: a new namespace would mint a second id for a draft that has
-#: already been queued under the old one, which is precisely the collision this exists to
-#: cause. Not a secret and not a key — a UUID5 namespace is public by construction.
-_ORDER_NAMESPACE: Final[UUID] = UUID("aa9941d0-85de-4c03-9e82-059b15b28fb7")
 
 #: What one render costs the account. Restated here rather than asked of the store, because
 #: the only method that knows it — ``EntitlementStore.charge`` — is a WRITE, and this side
@@ -538,39 +531,13 @@ def _refusal_text(error: BayramError, deps: BotDeps, language: Language) -> str:
     return "\n\n".join(lines)
 
 
-def _order_fingerprint(telegram_user_id: int, draft: WizardDraft) -> str:
-    """A canonical string standing for "this person's answers, exactly as they are now".
-
-    Sorted keys and no whitespace, so two dumps of one draft are byte-identical; the whole
-    draft rather than a chosen subset, so a field added to ``WizardDraft`` cannot silently
-    stop distinguishing two orders that differ only by it.
-    """
-    return json.dumps(
-        {"telegram_user_id": telegram_user_id, "draft": draft.model_dump(mode="json")},
-        sort_keys=True,
-        separators=(",", ":"),
-        ensure_ascii=False,
-    )
-
-
-def _order_id_for(telegram_user_id: int, draft: WizardDraft) -> UUID:
-    """The id this draft always gets, so a second submission of it is a duplicate.
-
-    ``uuid4()`` made every tap a new order, which is why two taps bought two songs: nothing
-    downstream could tell them apart. A UUID5 over the fingerprint pushes the decision to
-    the one place equipped to make it — the submitter derives the ARQ job id from the order
-    id, and ARQ declines an id it is already running. Changing one answer and confirming
-    again is a genuinely different draft and therefore a genuinely different order, which is
-    the behaviour a customer expects.
-
-    The fingerprint carries ``WizardDraft.session_id``, so "the same draft" means the same
-    RUN through the wizard and not the same answers for all time. Without it a customer who
-    wanted a second copy of a song — same recipient, same four answers, same lyric — minted
-    the id their first order already holds, collided with the ``orders`` primary key, and
-    was told "I could not hand this to the studio" with no reason and no way out, forever.
-    Determinism is meant to survive a double tap, not to make a purchase unrepeatable.
-    """
-    return uuid5(_ORDER_NAMESPACE, _order_fingerprint(telegram_user_id, draft))
+#: The two names this module used to define, now shared with the process that resumes a paid
+#: render. See :mod:`bayram.bot.order_id` for why they moved and what breaks if they are ever
+#: spelled twice. Aliased rather than imported-and-used-directly so that every cross-reference
+#: in this file — and ``tests/test_bot/test_submitting.py``'s double-tap tests, which name
+#: ``_order_id_for`` — keeps resolving to the same object.
+_order_fingerprint = order_fingerprint
+_order_id_for = order_id_for
 
 
 def _build_order(callback: CallbackQuery, deps: BotDeps, draft: WizardDraft, brief: Brief) -> Order:

@@ -399,6 +399,26 @@ class PaymeLedger(Protocol):
         """
         ...
 
+    async def claim_resume(self, *, public_ref: str, now: datetime) -> Result[bool]:
+        """Claim the one render this settlement may start. ``False`` when it is already claimed.
+
+        Conditional on ``state = 'paid' AND resumed_at IS NULL``, so the rowcount is the lock
+        and the row itself — not whichever caller read it first — refuses a render against
+        money that has not landed. See :func:`bayram.db.payme_sql.claim_intent_resume` for why
+        this claim is taken BEFORE the render is started, which is the reverse of the order
+        ``mark_notified`` uses and deliberately so.
+
+        **On the WIDE port only, and that is the point of there being two ports.** The bot
+        holds :class:`bayram.checkout.PaymentIntentOpener`, which declares ``open_intent`` and
+        nothing else; it does not and must not see this method. Adding the resume did not move
+        anything across that line: the bot still cannot settle, cannot cancel and now cannot
+        claim, because none of those methods exist on the object it was handed. The argument
+        in ``runtime.payme_jobs``' module docstring — that the process holding the cashbox key
+        holds no Telegram token, and the process holding the Telegram token holds no settling
+        port — is untouched by this addition.
+        """
+        ...
+
     async def force_settle(
         self, *, public_ref: str, now: datetime, note: str
     ) -> Result[PaymentIntent]:

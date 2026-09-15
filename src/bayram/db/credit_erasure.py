@@ -202,10 +202,17 @@ async def forget_account(session: AsyncSession, *, telegram_user_id: int) -> Cre
     # deliberately: the id comes off, every money column, ``public_ref``, ``settle_note`` and
     # all four clocks stay. See the module docstring on why a DELETE here would be worse
     # than useless.
+    #
+    # ``resume_order_id`` comes off TOO, and it is the only non-identity column on this table
+    # that does. It is a UUID5 taken over the customer's own answers — a recipient's name, a
+    # note they wrote, a lyric — so although it is irreversible and unguessable, it is the one
+    # value here that could re-link an anonymised payment back to a draft. The rail has never
+    # seen it and will never quote it back, so GetStatement loses nothing. ``resumed_at``
+    # STAYS: it is a clock, like the other four, and it says only that a decision was taken.
     intents = await session.execute(
         sa.update(PaymentIntentRow)
         .where(PaymentIntentRow.telegram_user_id == telegram_user_id)
-        .values(telegram_user_id=None)
+        .values(telegram_user_id=None, resume_order_id=None)
     )
     # Spelled out here rather than behind a broadcast query module for
     # :attr:`PaymentIntentRow`'s reason above: erasure must not acquire a dependency on the

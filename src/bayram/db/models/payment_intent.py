@@ -84,7 +84,19 @@ third route ``credit_ledger``, ``plan_purchases`` and ``topup_purchases`` alread
 the reason is written down there rather than left silent.** Not personal data: every column
 is a Telegram id, an integer, a three-letter ISO currency, a closed enum, a machine-built
 key, a hex token, a merchant account id, a boolean or a clock — no name, no note, no lyric,
-no free text of any kind, so nothing here is text ABOUT a person. Not erased-on-request
+no free text of any kind, so nothing here is text ABOUT a person.
+
+**``resume_order_id`` is the one column that needs that sentence qualified, and qualifying it
+is cheaper than letting a reader discover the qualification themselves.** It is a UUID5 taken
+over a JSON blob that CONTAINS a recipient's name, a free-text note and a lyric. It is a
+machine-built key like ``idempotency_key`` — irreversible, and unguessable in practice
+because the note is free text nobody else has — so it belongs in that family and not in the
+personal-data set. But it is the only value on this row that could re-link an anonymised
+payment back to a draft, so ``/forget`` NULLS it (``bayram.db.credit_erasure``) while leaving
+every clock, amount and reference intact. The rail has never seen it and will never ask for
+it, so losing it costs GetStatement nothing.
+
+Not erased-on-request
 either, because that set's semantics are "the absence of a row IS the erasure record" and
 this table is erased by ANONYMISATION: ``/forget`` nulls ``telegram_user_id`` and leaves
 ``public_ref``, the amount, the rail reference and every clock intact. **Deleting the row
@@ -305,3 +317,33 @@ class PaymentIntentRow(Base, TimestampMixin):
     #: the rail or by one of us?" is the first question of any reconciliation, and a manually
     #: settled row must stay distinguishable from an automatic one for the life of the row.
     settle_note: Mapped[str | None] = mapped_column(sa.String(SETTLE_NOTE_LENGTH), nullable=True)
+    #: The render this payment was opened FOR, or NULL when it was not opened from a wizard
+    #: draft. ``bayram.bot.order_id.order_id_for``'s UUID5 over the customer's own answers,
+    #: minted by the BOT at the instant the link was BUILT and never re-derived later — the
+    #: same argument ``merchant_id``, ``is_sandbox``, ``language`` and the plan snapshot are
+    #: stored for: the answer must be the one that was true when the link was built, not one
+    #: recomputed from a world that has moved on.
+    #:
+    #: NOT a foreign key to ``orders``, following every other column here but for a sharper
+    #: reason than the rest: the order row does not exist yet, and may never exist. This is a
+    #: FORWARD reference to a row a later process MAY write — an FK would invert the very
+    #: ordering the resume depends on, since the claim is taken before the order is created.
+    #:
+    #: NULL means one of three things and the settlement treats all three identically —
+    #: there was no draft (the ``/balance`` surface, and every intent opened before revision
+    #: 0026), the draft could not produce a render at all (incomplete, or no approved lyric),
+    #: or ``/forget`` ran. See :mod:`bayram.db.credit_erasure` for the third.
+    resume_order_id: Mapped[UUID | None] = mapped_column(sa.Uuid, nullable=True)
+    #: When the settlement took its ONE decision about the render. The third clock on this
+    #: row, on ``settled_at``/``notified_at``'s exact footing: money landed, customer told and
+    #: render decided are three events, and one column could not express "paid and told, but
+    #: nobody has looked at the render yet".
+    #:
+    #: **Claimed BEFORE the act, which is the reverse of ``notified_at`` and deliberate.** The
+    #: notification sends first and stamps second, because a duplicate "your payment went
+    #: through" is a nuisance where a missing one is an incident. The render is the other way
+    #: round: a duplicate render is a second vendor bill and a second delivered song, while a
+    #: missing one leaves the customer exactly where this product left them yesterday — told
+    #: they have a song, one 🎬 press away. So the render claims first and acts second, and
+    #: the failure it accepts is the behaviour that already ships.
+    resumed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)

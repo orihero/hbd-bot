@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Final
+from uuid import UUID
 
 import pytest
 
@@ -97,6 +98,7 @@ class FakeOpener:
         is_sandbox: bool,
         plan_songs: int | None = None,
         plan_days: int | None = None,
+        resume_order_id: UUID | None = None,
     ) -> Result[PaymentIntent]:
         self.calls += 1
         self.seen.append(
@@ -111,6 +113,7 @@ class FakeOpener:
                 "is_sandbox": is_sandbox,
                 "plan_songs": plan_songs,
                 "plan_days": plan_days,
+                "resume_order_id": resume_order_id,
             }
         )
         if self.failure is not None:
@@ -134,6 +137,10 @@ class FakeOpener:
             valid_until=_NOW + timedelta(hours=12),
             settled_at=None,
             notified_at=None,
+            # The WINNER's marker, kept: a replay above returns ``existing`` without ever
+            # reaching here, which is the real store's behaviour and the property the resume
+            # depends on when two presses in one run carry different drafts.
+            resume_order_id=resume_order_id,
         )
         self.stored[idempotency_key] = intent
         return ok(intent)

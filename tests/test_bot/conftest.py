@@ -90,6 +90,24 @@ class RecordingSession(BaseSession):
         super().__init__()
         self.calls: list[TelegramMethod[Any]] = []
         self.failures: dict[str, Exception] = {}
+        #: Failures that fire ONCE and then clear themselves, by aiogram method class name.
+        #:
+        #: :attr:`failures` raises for every call of a method name, which cannot express the
+        #: shape a redraw-then-present path actually has: the FIRST ``EditMessageText`` is
+        #: refused ("message is not modified") and the SECOND must succeed, because it is
+        #: drawing a genuinely different screen into the same message. Registered here, the
+        #: entry is popped as it is raised, so a test can say "this one edit fails" without
+        #: reaching for a counting side effect or a mid-flight mutation of :attr:`failures`.
+        self.failures_once: dict[str, Exception] = {}
+        #: The calls that were not refused — i.e. the ones that actually reached the chat.
+        #:
+        #: :attr:`calls` records a method BEFORE the injected failure is raised, which is what
+        #: makes "the handler tried this" assertable. It is the wrong list for "the customer
+        #: saw this": an ``EditMessageText`` Telegram answered 400 to changed nothing on the
+        #: customer's screen, so a test asserting over :attr:`calls` about what is on screen
+        #: reads a refused draw as a delivered one — and would, for instance, find a live
+        #: price button in a markup that was never drawn.
+        self.delivered: list[TelegramMethod[Any]] = []
         #: Canned answers by aiogram METHOD CLASS NAME — ``"GetUserProfilePhotos"``, ``"GetFile"``.
         #: Consulted before :meth:`_message_for`, which answers every method with a ``Message``
         #: and therefore hands ``get_user_profile_photos()`` an object with no ``total_count``
@@ -117,9 +135,13 @@ class RecordingSession(BaseSession):
     ) -> Any:
         self.calls.append(method)
         name = type(method).__name__
+        once = self.failures_once.pop(name, None)
+        if once is not None:
+            raise once
         failure = self.failures.get(name)
         if failure is not None:
             raise failure
+        self.delivered.append(method)
         if name in self.responses:
             return self.responses[name]
         if name == "AnswerCallbackQuery":
@@ -202,8 +224,13 @@ class RecordingSession(BaseSession):
         assert screens, f"nothing was put on screen; calls were {self.call_names}"
         return screens[-1]
 
+    def delivered_named(self, name: str) -> tuple[TelegramMethod[Any], ...]:
+        """The calls of this kind that Telegram accepted. See :attr:`delivered`."""
+        return tuple(call for call in self.delivered if type(call).__name__ == name)
+
     def clear(self) -> None:
         self.calls.clear()
+        self.delivered.clear()
 
 
 class RecordingSubmitter:
