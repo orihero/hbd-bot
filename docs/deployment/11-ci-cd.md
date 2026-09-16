@@ -241,7 +241,83 @@ waits for a human, and not with a timer.
 
 ---
 
-## 3. What this page does not cover
+## 3. The CD artifacts — written 2026-09-16, NEVER RUN
+
+Four files landed. **None has executed against the host, and the host layout they assume does
+not exist yet.** Treat them as a reviewed draft, not a tested tool.
+
+| File | What it is |
+| --- | --- |
+| `.github/workflows/release.yml` | The producer. Builds console → wheel → bundle, publishes a GitHub Release asset. |
+| `deploy/bayram-release` | The consumer. One script replacing the three per-feature ones. |
+| `deploy/sudoers.d/bayram-release` | The grant. `visudo -cf` clean. |
+| `deploy/install-bayram-backup.sh` | Installs the daily backup timer — prerequisite 2. |
+
+### The bundle contract, frozen
+
+A first attempt produced four individually-good artifacts that **did not work as a set**: the
+producer's tarball had a leading directory the consumer did not strip, eight manifest fields
+were named differently on each side, and a signature check *warned and continued* against a CI
+that never signed. The fix was to freeze one contract and regenerate against it. A reviewer
+then built a real bundle and ran the consumer's preflight over it verbatim: it round-trips.
+
+Two decisions in that contract are worth knowing:
+
+**There is no signing in v1, deliberately.** The manifest hashes the files beside it in the
+same tarball, so it proves the bundle is internally consistent and undamaged in transit. It
+proves nothing about authorship — anyone who can write the tarball can write the manifest.
+Authenticity rests entirely on who can write to `/opt/bayram/release/incoming/` (0770
+root:developer). A check that passes when the key is absent is worse than no check, because it
+reads as protection in a runbook; that is exactly how the first attempt failed. Ed25519 is v2.
+
+**No path argument is ever passed.** `deploy` scans a fixed directory and refuses on zero or
+more than one bundle. This is what makes the sudoers grant safe: `sudo` matches with
+**fnmatch, not regex**, so `deploy [A-Za-z0-9._-]*` does not mean "a token of safe characters"
+— the class matches one character and the `*` then matches anything, `/` and `..` included. The
+grant lists five fixed, fully-specified commands and nothing else.
+
+### What the adversarial pass caught, and what it revealed about the project
+
+Six blockers were found and fixed. Two were defects in the generated script; one was a fact
+about **this repository** that nothing else had surfaced:
+
+* **`pyproject.toml` pins a static `version = "0.1.0"`.** Every wheel ever built is named
+  `bayram_bot-0.1.0-py3-none-any.whl`. Keyed on that basename, the wheel store would overwrite
+  itself on every deploy and **`rollback` would reinstall the wheel it was backing out of, and
+  report success.** Worked around by keying the store on the manifest's release string
+  (`/opt/bayram/wheels/<release>/`). **The real fix is a version derived from the git tag
+  (`hatch-vcs`), and it is not done** — until it is, `pip show bayram-bot` cannot tell you what
+  is deployed and only `state.json` knows.
+* **`do_verify` imported `bayram.worker`**, whose module scope runs `_SETTINGS = _settings()`
+  and therefore needs the env file — which this script deliberately scopes to the alembic call
+  alone. Every deploy would have exited 4 *after* installing the wheel and restarting the
+  fleet. The module is out of the import list; `systemctl is-active bayram-worker` is what
+  proves the worker loads, under the environment systemd gives it.
+* **`STAGE_EXIT=0` was set with three fallible statements still to run** and the `ERR` trap
+  still armed, so a failure in the tail would have exited 0 — a failed deploy reporting
+  success. Cleared only after the last statement that can fail.
+* **A crash-looping unit passed the gate.** The live units are `Restart=on-failure`,
+  `RestartSec=5`, so a unit dying on boot reads `active` to any single sample four seconds
+  after a restart. `NRestarts` is now compared across the settle window.
+* **`plan` refused non-additive bundles**, because the refusal lived in `preflight`. A dry run
+  that will not run for the release you most need to understand is not a dry run.
+* **A real gap in all three predecessor scripts**: none asserts the result of `alembic current`.
+  The expected revision appears only in an `echo` banner, so **migrating to the wrong head is a
+  silent success today**. The manifest's `migrations.head` makes it an assertion.
+
+### Before this is run for the first time
+
+1. **`sudo -n -l` on the host.** `cutover-to-bayram.sh` writes `/etc/sudoers.d/hbd-deploy`
+   naming `hbd-*` units and nothing shows a `bayram-*` grant was installed — the live set may
+   cover none of the four running units. Until that output exists, the sudoers file is a guess.
+2. **Create the layout.** `/opt/bayram/sbin`, `release/incoming`, `release/work`, `wheels` —
+   the commands are at the foot of `deploy/sudoers.d/bayram-release`. Nothing creates them.
+3. **Run `plan` first**, on a bundle built from a commit already deployed. It changes nothing
+   and will expose every wrong path in one pass.
+4. **Decide the off-box backup.** The timer fixes "no backup exists". A dump on the same disk
+   as the database is not protection against losing that disk, and this host has one disk.
+
+## 4. What this page does not cover
 
 The release runbook itself is [`04-release.md`](04-release.md), whose STATUS header records
 that its §2, §3 and §5 cannot be run on this host. Nothing here supersedes it; this page is

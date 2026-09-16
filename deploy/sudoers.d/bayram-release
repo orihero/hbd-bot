@@ -1,0 +1,111 @@
+# /etc/sudoers.d/bayram-release — the grant for the operator-triggered release flow.
+# Install as root:root mode 0440. The filename must contain no dot and no tilde, or sudo
+# ignores the drop-in silently (sudoers(5): files in sudoers.d matching `\~` or containing `.`
+# are skipped) — "bayram-release" is fine, "bayram-release.conf" would be ignored.
+#
+# ============================================================================
+# WHY THIS FILE IS SHORT, AND WHY THAT IS THE POINT
+# ============================================================================
+# sudo matches command arguments with fnmatch(3), NOT with a regular expression. A rule like
+#
+#     developer ALL=(root) NOPASSWD: /opt/bayram/sbin/bayram-release deploy [A-Za-z0-9._-]*
+#
+# does not mean "a token of safe characters". `[A-Za-z0-9._-]` is an fnmatch character class
+# that matches exactly ONE character, and the trailing `*` then matches ANY string including
+# one with `/`, `..` and spaces in it. The rule reads like a constraint and is not one.
+#
+# The fix is not a cleverer pattern. It is to have NO VARIABLE ARGUMENT AT ALL. The release
+# contract (docs/deployment/11-ci-cd.md) fixes the calling convention for exactly this reason:
+# the operator drops a bundle into /opt/bayram/release/incoming/ and the script finds it there,
+# refusing if there is not exactly one. No path is ever passed on the command line, so there is
+# no argument for an attacker to control and nothing for a wildcard to fail to constrain.
+#
+# Every command below is therefore spelled out in full, with its arguments, and the list is
+# closed. Adding a sixth invocation means editing this file, which is the point.
+
+# --- the five invocations, defined before they are referenced -----------------
+# An alias must be DEFINED before the Defaults! line that names it, or sudo rejects the file.
+Cmnd_Alias BAYRAM_RELEASE_RO = /opt/bayram/sbin/bayram-release plan, \
+                               /opt/bayram/sbin/bayram-release verify
+
+Cmnd_Alias BAYRAM_RELEASE_RW = /opt/bayram/sbin/bayram-release deploy, \
+                               /opt/bayram/sbin/bayram-release rollback, \
+                               /opt/bayram/sbin/bayram-release backup
+
+# --- who may run them --------------------------------------------------------
+# NOPASSWD on the read-only pair. `plan` and `verify` change nothing — `plan` prints what a
+# deploy would do and exits, `verify` asserts the running system matches its state file — and a
+# password prompt on a read-only check is the kind of friction that teaches people to reach for
+# `sudo -i` instead, which grants everything.
+developer ALL=(root) NOPASSWD: BAYRAM_RELEASE_RO
+
+# PASSWORD REQUIRED on the three that change the system, and this is a deliberate departure
+# from the predecessor scripts, which ran through a NOPASSWD path. Two reasons, and the second
+# is the one that matters. A release is a considered act a human is already present for, so the
+# prompt costs one password on an operation that takes minutes. And the 2026-09-10 cutover
+# failure ran as root through the NOPASSWD deploy path and failed twice
+# (00-host-inventory.md rows 49-50) — an unattended-capable grant on the deploy verb is how a
+# half-finished operation happens with nobody watching. If CI is ever wired to trigger this,
+# that is the moment to revisit this line, not before.
+developer ALL=(root) PASSWD: BAYRAM_RELEASE_RW
+
+# --- what is deliberately NOT granted ----------------------------------------
+# NO pg_dump grant. The predecessor scripts run `sudo -u postgres pg_dump hbd`, and granting
+# that to the deploy account would be the largest standing data-exposure grant on the box: it
+# lets a non-root account dump every customer record, every payment and every recipient name,
+# to anywhere it can write, with no audit beyond the sudo log line. The release script runs the
+# dump ITSELF, as root, as part of an operation that is already privileged. The operator never
+# needs the verb.
+#
+# NO `systemctl status`. Under sudo it spawns a pager, and less has a shell escape (`!sh`) —
+# a root shell, from a grant that reads like a diagnostic. An operator who wants unit state can
+# run `systemctl status` unprivileged, or `journalctl -u <unit>` if they are in `adm`.
+#
+# NO I/O logging (`log_output`). It is tempting on a release path, but /var/log/sudo-io has no
+# rotation by default, this is a single-disk host, and that disk also holds the only database
+# backups there are. A disk filled by session transcripts would take the backups down with it.
+# Revisit if and when log rotation and an off-box backup both exist.
+
+# ============================================================================
+# VALIDATE BEFORE INSTALLING. A malformed drop-in can break sudo for everyone.
+# ============================================================================
+#   visudo -cf /path/to/this/file        # must print "parsed OK"
+#   sudo install -m 0440 -o root -g root <file> /etc/sudoers.d/bayram-release
+#   sudo -l -U developer                 # confirm the five commands appear
+#
+# Keep a root shell open in a SECOND terminal while you do this. If sudo breaks and you have no
+# root session, recovery needs console or single-user access — which on a VPS means the
+# provider's out-of-band console, not ssh.
+
+# ============================================================================
+# UNVERIFIED — READ THE LIVE GRANTS BEFORE TRUSTING ANY OF THIS
+# ============================================================================
+# deploy/cutover-to-bayram.sh writes /etc/sudoers.d/hbd-deploy naming hbd-* units, and nothing
+# in this tree shows a bayram-* grant was ever installed. The live grant set may therefore
+# cover NONE of the four units now running. One command settles it, on the host as `developer`:
+#
+#     sudo -n -l
+#
+# If it prints "a password is required", run `sudo -l` and read the list. Until that output
+# exists, this file is a proposal: it has never been installed and its assumptions about what
+# `developer` can already do are unverified.
+
+# ============================================================================
+# THE LAYOUT THIS GRANT ASSUMES — nothing in the repo creates it. Run once, as root.
+# ============================================================================
+#   install -d -m 0755 -o root -g root      /opt/bayram/sbin
+#   install -d -m 0755 -o root -g root      /opt/bayram/wheels
+#   install -d -m 0700 -o root -g root      /opt/bayram/release/work
+#   install -d -m 0700 -o root -g root      /var/backups/bayram
+#
+#   # 0770 root:developer — the operator must be able to WRITE a bundle here, and this is the
+#   # only place they can. It is also, in the absence of signing, the whole of the authenticity
+#   # boundary: anyone who can write here can hand the release script a bundle it will trust.
+#   install -d -m 0770 -o root -g developer /opt/bayram/release/incoming
+#
+#   install -m 0755 -o root -g root deploy/bayram-release /opt/bayram/sbin/bayram-release
+#
+# Note the script lives in /opt/bayram/sbin and NOT in /usr/local/sbin. systemd's default PATH
+# begins /usr/local/sbin:/usr/local/bin, and on Debian /usr/local is group-writable by `staff`
+# on some installs — a root-invoked script sitting there is a privilege hazard for anyone in
+# that group.

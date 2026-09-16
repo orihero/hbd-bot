@@ -1,0 +1,763 @@
+# The PRODUCER half of operator-triggered CD (docs/deployment/11-ci-cd.md §2).
+#
+# WHAT THIS IS. It builds one file — `bayram-<version>.tar.gz` — and publishes it as a GitHub
+# Release asset. It does NOT deploy anything, it holds no host credential, and it cannot reach
+# `abdu-test`: that host has no public IP and every byte of its public traffic arrives through a
+# Cloudflare tunnel whose ingress lives in the Zero Trust dashboard. A GitHub-hosted runner
+# cannot SSH in, and 11-ci-cd.md §2 argues at length that this is the security posture rather
+# than a gap. The other half is `/opt/bayram/sbin/bayram-release`, run by a human on the box.
+#
+# WHY A BUNDLE AND NOT JUST A WHEEL. A wheel carries no migrations — `deploy-support.sh` had to
+# scp two revision files into `/opt/bayram/migrations/versions/` by hand, and its own comment
+# says why: if a revision is absent, `alembic upgrade head` stops at the one before it, which
+# "looks exactly like success and leaves the schema short of the tables the code is about to
+# serve". Code and schema ship as ONE artefact here, or they drift again.
+#
+# INTEGRITY, STATED HONESTLY — THERE IS NO SIGNING IN v1, AND THIS IS DELIBERATE.
+# MANIFEST.json hashes the files that sit beside it in the SAME tarball. That proves the bundle
+# is internally consistent and undamaged in transit; it proves NOTHING about authorship, because
+# anyone who can write the tarball can write the manifest with it. Authenticity here rests
+# entirely on who can write to `/opt/bayram/release/incoming/` (0770 root:developer) and on the
+# operator who chooses to run the script.
+#
+# There is deliberately no "verify the signature if a key is present" step anywhere in this
+# pipeline. A check that passes when the key is absent is worse than no check at all: it reads
+# as protection in a runbook and provides none, and that is precisely how the first attempt at
+# this pipeline failed — it verified signatures against a CI that had never signed anything.
+# Ed25519 signing of the manifest is the v2 upgrade, and 11-ci-cd.md "On signing" records its
+# real cost: a signing key in GitHub Actions IS unattended root on the payment host, which is
+# why the key belongs with the operator-triggered flow and never with a timer.
+#
+# NO STEP MAY PRINT `git remote -v`, `.git/config` OR `env`, and no `set -x` in a shell step —
+# ci.yml's rule, same reason. Nothing here needs a secret except `GITHUB_TOKEN`, and only the
+# publishing job gets one that can write.
+name: Release
+
+on:
+  push:
+    # Tags only. This workflow never runs on a branch push or a pull request: it publishes, and
+    # a publish triggered by branch-authored code is a different threat model than a gate.
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: >-
+          Release string for an untagged build, WITHOUT the leading v — e.g. 1.4.0 or
+          0.0.0+g1a2b3c4. Must match ^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$; it becomes the bundle
+          filename and MANIFEST.json's "release".
+        required: true
+        type: string
+
+# Read-only at the top level, so a step added to the build job later cannot quietly acquire the
+# ability to write to the repository. ONLY `publish` widens it, and `publish` runs no code from
+# the tree — it downloads an artifact and calls `gh`.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  # NOT cancel-in-progress. ci.yml cancels because a superseded gate result is worthless; a
+  # superseded publish is a half-uploaded release asset.
+  cancel-in-progress: false
+
+env:
+  # Same reason as ci.yml: nothing in this repo pins either, and `built_at` below is a UTC
+  # timestamp that must not depend on a runner's idea of local time.
+  TZ: UTC
+  LANG: C.UTF-8
+
+jobs:
+  bundle:
+    name: Build the bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      release: ${{ steps.version.outputs.release }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      bundle: ${{ steps.assemble.outputs.bundle }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # ci.yml's reason, verbatim: this repo's own origin URL carried a plaintext PAT, and a
+          # workflow that leaves a credential in .git/config next to an `npm ci` is how that
+          # becomes somebody else's.
+          persist-credentials: false
+          # REQUIRED, not cosmetic. The additive scan below diffs against the previous v* tag to
+          # decide which revisions the host has NOT yet applied, and `git tag --merged HEAD`
+          # needs the tags and the history behind them. A shallow clone makes the scan silently
+          # fall back to "every revision", which is conservative but not what we want to ship.
+          fetch-depth: 0
+
+      # ---------------------------------------------------------------------------------
+      # The release string, resolved once and passed everywhere by output.
+      # ---------------------------------------------------------------------------------
+      - name: Resolve the release string
+        id: version
+        env:
+          # The dispatch input arrives through the environment, NEVER through `${{ }}`
+          # interpolated into the script body. `${{ inputs.version }}` spliced into a shell line
+          # is a command-injection hole that any account able to press "Run workflow" can reach.
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then
+            tag="$GITHUB_REF_NAME"
+            case "$tag" in
+              v?*) release="${tag#v}" ;;
+              *) echo "::error::tag '$tag' does not start with 'v'"; exit 1 ;;
+            esac
+          else
+            release="$INPUT_VERSION"
+            tag="v$release"
+          fi
+
+          # The contract's regex, enforced HERE rather than in the manifest writer, because this
+          # string becomes a filename, a tar member path and a git ref. `printf` without a
+          # newline so a trailing \n cannot sneak past the anchors.
+          printf '%s' "$release" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$' || {
+            echo "::error::release '$release' does not match ^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}\$"
+            exit 1
+          }
+
+          # A '+' means a PEP 440 local version (0.0.0+g1a2b3c4) — an untagged, built-from-a-
+          # branch artefact. A '-' means a pre-release suffix (1.4.0-rc1). Either way it is not
+          # the thing anyone should reach for by accident in the Releases list.
+          case "$release" in
+            *+*|*-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+
+          {
+            echo "release=$release"
+            echo "tag=$tag"
+            echo "prerelease=$prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "release=$release  tag=$tag  prerelease=$prerelease"
+
+      # ---------------------------------------------------------------------------------
+      # THE CONSOLE FIRST. This ordering is the whole reason the node half is in this file.
+      # ---------------------------------------------------------------------------------
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: admin-dashboard/package-lock.json
+
+      # Plain `npm ci`, never `--ignore-scripts`: @swc/core and esbuild both need their
+      # postinstall to fetch the right native binary, and without it vite fails in a way that
+      # reads like a code error. ci.yml says the same thing at its own node job.
+      - name: Install the console's dependencies
+        working-directory: admin-dashboard
+        run: npm ci
+
+      # `vite build` writes into `../src/bayram/admin/static` (admin-dashboard/vite.config.ts,
+      # `build.outDir`) with `emptyOutDir: true`. That directory is GITIGNORED and pyproject.toml
+      # force-includes it as a hatchling ARTIFACT — so the wheel built in the next step ships
+      # whatever is on disk here, and a wheel built without this step ships the PREVIOUS
+      # release's console: an API with a UI that predates it, failing only in a browser where no
+      # test looks. deploy-support.sh had to grep the wheel for a magic string to catch this;
+      # here it simply cannot happen, because the build runs first and the assertions below
+      # check that the bytes vite wrote are the bytes hatchling packed.
+      - name: Build the console into src/bayram/admin/static
+        working-directory: admin-dashboard
+        run: npm run build
+
+      - name: Assert vite produced a shell with the nonce placeholder
+        run: |
+          set -euo pipefail
+          index=src/bayram/admin/static/index.html
+          test -s "$index" || { echo "::error::$index is missing or empty after npm run build"; exit 1; }
+          # `src/bayram/admin/shell.py` substitutes the literal __BAYRAM_CSP_NONCE__ into
+          # `<meta name="csp-nonce">` on every shell render. A bundle built before that
+          # placeholder existed degrades to a console whose styles are blocked by CSP — it has
+          # happened on this host, and 03-provisioning.md §8 records the grep that found it.
+          # Checked twice: here against the source tree, and inside the wheel below.
+          grep -q '__BAYRAM_CSP_NONCE__' "$index" || {
+            echo "::error::$index carries no __BAYRAM_CSP_NONCE__ placeholder"
+            exit 1
+          }
+          echo "console index.html: $(wc -c <"$index") bytes, placeholder present"
+
+      # ---------------------------------------------------------------------------------
+      # The wheel.
+      # ---------------------------------------------------------------------------------
+      - uses: astral-sh/setup-uv@v5
+        with:
+          # Pinned to the same version as ci.yml, and the exact version matters: `uv.lock`
+          # declares `revision = 3`, a lockfile format older uv releases REJECT outright. An
+          # unpinned installer is one release away from a red release build that has nothing to
+          # do with the code.
+          version: "0.11.31"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # `--out-dir` into the runner temp rather than the repo's `dist/`, which is gitignored but
+      # is also where three hand-built wheels have accumulated on developer machines. An empty,
+      # single-purpose directory means "exactly one wheel" below is an assertion and not a hope.
+      - name: Build the wheel
+        run: uv build --wheel --out-dir "$RUNNER_TEMP/dist"
+
+      # ---------------------------------------------------------------------------------
+      # WHEEL PREFLIGHT. Everything that can be known about the wheel before it is 3 000 km away
+      # on a host with no compiler, no Node and 831 MiB of free memory.
+      # ---------------------------------------------------------------------------------
+      - name: Wheel preflight — console, nonce, Requires-Dist
+        id: wheel
+        env:
+          RELEASE: ${{ steps.version.outputs.release }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib, os, pathlib, sys, zipfile
+
+          dist = pathlib.Path(os.environ["RUNNER_TEMP"]) / "dist"
+          wheels = sorted(dist.glob("*.whl"))
+          if len(wheels) != 1:
+              sys.exit(f"FATAL: expected exactly one wheel in {dist}, found {len(wheels)}: "
+                       f"{[w.name for w in wheels]}")
+          wheel = wheels[0]
+          zf = zipfile.ZipFile(wheel)
+          names = set(zf.namelist())
+
+          # 1. The console is IN the wheel. `src/bayram/admin/static/` is gitignored and packaged
+          #    as a hatchling artifact (pyproject.toml, [tool.hatch.build.targets.wheel]); if
+          #    that force-include is ever removed or the path changes, the wheel builds happily
+          #    and ships an API with no UI. This is the check deploy-support.sh does on the host,
+          #    moved left to where it costs a second instead of a deploy.
+          index = "bayram/admin/static/index.html"
+          if index not in names:
+              sys.exit(f"FATAL: {wheel.name} carries no {index} — the hatchling artifact "
+                       f"force-include is broken, or `npm run build` did not run")
+          blob = zf.read(index)
+          if not blob:
+              sys.exit(f"FATAL: {index} inside the wheel is empty")
+
+          # 2. The placeholder, again, inside the packed bytes. Checking the source tree proves
+          #    vite behaved; checking here proves hatchling packed THAT build.
+          if b"__BAYRAM_CSP_NONCE__" not in blob:
+              sys.exit(f"FATAL: {index} inside the wheel carries no __BAYRAM_CSP_NONCE__ "
+                       f"placeholder — the CSP nonce cannot be substituted and the console's "
+                       f"styles will be blocked in the browser")
+
+          # 3. The bytes vite wrote ARE the bytes hatchling packed. Without this, a stale
+          #    `static/` left behind by a cached checkout would pass both checks above while
+          #    shipping last release's console — the exact failure this whole ordering exists to
+          #    prevent. Cheap, and it turns "we built it first" into an assertion.
+          on_disk = pathlib.Path("src/bayram/admin/static/index.html").read_bytes()
+          if on_disk != blob:
+              sys.exit("FATAL: the index.html in the wheel is not the one `npm run build` just "
+                       "wrote — a stale src/bayram/admin/static/ was packaged")
+
+          console_sha256 = hashlib.sha256(blob).hexdigest()
+
+          # 4. Requires-Dist, PRINTED. The host installs with
+          #    `pip install --force-reinstall --no-deps WHEEL`, which encodes an assumption — that
+          #    this release adds no new runtime dependency — and `pip check` on the next line
+          #    turns it into an assertion that fails MID-DEPLOY, after the migrations have already
+          #    run. 11-ci-cd.md §2 asks for this diff to move to build time. It cannot be a full
+          #    diff here (CI does not know what is installed in /opt/bayram/venv), so it is the
+          #    honest half: the complete list, in the job log and the summary, for a human to
+          #    compare against `pip list` before they run the deploy.
+          meta = next(n for n in names if n.endswith(".dist-info/METADATA"))
+          requires = [ln for ln in zf.read(meta).decode("utf-8").splitlines()
+                      if ln.startswith("Requires-Dist:")]
+
+          print(f"wheel: {wheel.name}")
+          print(f"console index.html: {len(blob)} bytes, sha256 {console_sha256}")
+          print(f"Requires-Dist ({len(requires)}):")
+          for line in requires:
+              print(f"  {line}")
+
+          # The wheel's own version comes from pyproject.toml's static `version = "0.1.0"`, NOT
+          # from the git tag — nothing in this repository derives one from the other. A release
+          # tagged v1.4.0 against an unbumped pyproject produces bayram_bot-0.1.0-*.whl inside
+          # bayram-1.4.0.tar.gz. That is not fatal (the manifest names the wheel by its real
+          # basename, and the consumer installs what the manifest names), but it makes
+          # `pip list` on the host useless for telling releases apart, so it is loud.
+          release = os.environ["RELEASE"]
+          wheel_version = wheel.name.split("-")[1]
+          if wheel_version != release:
+              print(f"::warning::wheel version {wheel_version} != release {release} — "
+                    f"pyproject.toml's static version was not bumped for this tag, so the "
+                    f"installed distribution will not name this release")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as fh:
+              fh.write(f"wheel_name={wheel.name}\n")
+              fh.write(f"console_sha256={console_sha256}\n")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+              fh.write(f"### `{wheel.name}`\n\n")
+              fh.write("The host installs this with `--no-deps`. Compare against "
+                       "`/opt/bayram/venv/bin/pip list` BEFORE deploying:\n\n```\n")
+              fh.write("\n".join(requires) + "\n```\n\n")
+          PY
+
+      # ---------------------------------------------------------------------------------
+      # MIGRATIONS: the head, and whether the not-yet-applied revisions are additive.
+      # ---------------------------------------------------------------------------------
+      - name: Scan the migrations — head, additive
+        id: migrations
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+
+          # WHICH REVISIONS COUNT AS "NOT YET APPLIED". CI has no database — 11-ci-cd.md §2 is
+          # explicit that whatever runs alembic has every production secret sourced into its
+          # environment, which is why the privileged half stays on the box — so the honest proxy
+          # for "what the host has not applied" is "what was added since the last release".
+          # `--merged HEAD` keeps a tag on an abandoned branch out of the answer.
+          prev="$(git tag --list 'v*' --merged HEAD --sort=-v:refname | grep -vFx "$TAG" | head -n1 || true)"
+          if [ -n "$prev" ]; then
+            scope="added since $prev"
+            mapfile -t scan < <(git diff --name-only --diff-filter=A "$prev"...HEAD -- migrations/versions/ || true)
+          else
+            # FIRST RELEASE, or a repository whose tags were never pushed. Scanning every
+            # revision is the conservative answer and the correct one: a host with an empty
+            # database is about to apply all of them.
+            scope="every revision (no previous v* tag reachable from HEAD)"
+            mapfile -t scan < <(git ls-files -- 'migrations/versions/*.py')
+          fi
+          printf 'additive scan scope: %s\n' "$scope"
+          printf '  %s\n' "${scan[@]:-(none)}"
+
+          MIGRATION_SCOPE="$scope" python3 - "${scan[@]}" <<'PY'
+          import ast, json, os, pathlib, re, sys
+
+          VERSIONS = pathlib.Path("migrations/versions")
+
+          # ---- the additive scan -------------------------------------------------------
+          # COPIED, deliberately unchanged, from .github/workflows/ci.yml's `migration-safety`
+          # job (the `Refuse destructive DDL in new revisions` step). The two MUST agree: that
+          # job fails a PR, this one sets `migrations.additive`, and the consumer refuses to
+          # migrate-first when it is false. If they drift, a PR passes the gate and the bundle
+          # tells the host something different about the same file.
+          #
+          # IT READS ONLY THE `upgrade()` BODY. Every `downgrade()` drops what its `upgrade()`
+          # created — that is what a downgrade IS — so a naive grep over the whole file flags
+          # every revision ever written, including the initial schema. That was a real defect in
+          # this workflow's sibling, found by its own first run.
+          #
+          # `alter_column` WARNS rather than fails, here as there: a widening is safe and a
+          # narrowing is not, and nothing short of reading it can tell. `drop_constraint` and
+          # `drop_index` are out of the pattern entirely — they relax or slow, and lose no data.
+          #
+          # It is a tripwire, not a proof: `op.execute("ALTER TABLE …")` passes it.
+          FATAL = re.compile(r"\b(drop_column|drop_table)\b")
+          WARN = re.compile(r"\balter_column\b")
+          fatal, warn = [], []
+
+          for path in sys.argv[1:]:
+              p = pathlib.Path(path)
+              if p.suffix != ".py" or "__pycache__" in p.parts or not p.is_file():
+                  continue
+              src = p.read_text(encoding="utf-8")
+              for node in ast.parse(src).body:
+                  if not (isinstance(node, ast.FunctionDef) and node.name == "upgrade"):
+                      continue
+                  segment = ast.get_source_segment(src, node) or ""
+                  for offset, line in enumerate(segment.splitlines()):
+                      code = line.split("#", 1)[0]
+                      where = f"{path}:{node.lineno + offset}"
+                      if FATAL.search(code):
+                          fatal.append(f"{where}: {line.strip()}")
+                      elif WARN.search(code):
+                          warn.append(f"{where}: {line.strip()}")
+
+          for line in warn:
+              print(f"::warning::alter_column in an upgrade — widening or narrowing? {line}")
+
+          additive = not fatal
+          if fatal:
+              for line in fatal:
+                  print(f"::error::{line}")
+              # NOT a build failure. This is the one place where "fail the build" would be the
+              # wrong instinct: the bundle's job is to tell the truth about itself, and
+              # `additive: false` is what makes the consumer REFUSE the migrate-first order and
+              # demand --maintenance-window. Suppressing the release would leave the operator
+              # with the old, hand-written scripts and no warning at all.
+              print("::warning::migrations.additive = false — the consumer will refuse "
+                    "migrate-first and demand --maintenance-window. See "
+                    "docs/deployment/04-release.md.")
+
+          # ---- the head ----------------------------------------------------------------
+          # Parsed, never asked of alembic: `alembic heads` imports migrations/env.py, which
+          # reaches bayram.config for a DSN, and there is no database in CI. Reading the two
+          # module-level assignments is exactly what alembic's own script directory does to
+          # build the graph, and `ast` rather than a grep because 0011's DOCSTRING contains the
+          # word "revision" at the start of a line (migrations/versions/
+          # 20260830_1200_0011_run_the_admin_retention_clocks.py:37).
+          revisions: dict[str, str | None] = {}
+          files: dict[str, str] = {}
+          for p in sorted(VERSIONS.glob("*.py")):
+              tree = ast.parse(p.read_text(encoding="utf-8"))
+              found: dict[str, object] = {}
+              for node in tree.body:
+                  target = value = None
+                  if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                      target, value = node.target.id, node.value
+                  elif (isinstance(node, ast.Assign) and len(node.targets) == 1
+                        and isinstance(node.targets[0], ast.Name)):
+                      target, value = node.targets[0].id, node.value
+                  if target in ("revision", "down_revision") and value is not None:
+                      try:
+                          found[target] = ast.literal_eval(value)
+                      except ValueError:
+                          sys.exit(f"FATAL: {p}: {target} is not a literal; this scan cannot "
+                                   f"read it and alembic's graph cannot be trusted from here")
+              rev = found.get("revision")
+              if not isinstance(rev, str):
+                  sys.exit(f"FATAL: {p} declares no string `revision`")
+              if rev in revisions:
+                  sys.exit(f"FATAL: revision id {rev!r} is declared twice")
+              revisions[rev] = found.get("down_revision")  # type: ignore[assignment]
+              files[rev] = p.name
+
+          parents: set[str] = set()
+          for down in revisions.values():
+              if down is None:
+                  continue
+              # A merge revision's down_revision is a tuple. None exist today; handling it costs
+              # three lines and its absence would make this scan silently wrong on the day one
+              # appears.
+              parents.update([down] if isinstance(down, str) else list(down))
+
+          heads = sorted(r for r in revisions if r not in parents)
+          if len(heads) != 1:
+              sys.exit(f"FATAL: {len(heads)} alembic heads: {heads}. `alembic upgrade head` is "
+                       f"ambiguous with more than one, and the consumer asserts `alembic "
+                       f"current` equals manifest.migrations.head after migrating. Merge them.")
+          head = heads[0]
+
+          print(f"alembic head: {head}  ({files[head]})")
+          print(f"revisions in the bundle: {len(revisions)}")
+          print(f"additive: {additive}")
+
+          out = {
+              "head": head,
+              "additive": additive,
+              # Basenames, sorted, as they appear under migrations/versions/. Sorted by FILENAME
+              # rather than by graph order on purpose: the file_template in migrations/alembic.ini
+              # is `%(year)...%(rev)s_%(slug)s`, so a lexical sort is chronological, and the
+              # consumer uses this list to check that every file it extracted is one the manifest
+              # names — not to decide an apply order, which is alembic's job alone.
+              "revisions": sorted(files.values()),
+          }
+          pathlib.Path(os.environ["RUNNER_TEMP"], "migrations.json").write_text(
+              json.dumps(out), encoding="utf-8")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+              fh.write(f"### migrations\n\nhead **{head}** ({files[head]}), "
+                       f"{len(revisions)} revisions, additive **{str(additive).lower()}** "
+                       f"— scanned {os.environ['MIGRATION_SCOPE']}.\n\n")
+              if not additive:
+                  fh.write("> **This bundle is NOT additive.** `bayram-release deploy` will "
+                           "refuse the migrate-first order and demand `--maintenance-window`.\n\n")
+          PY
+
+      # ---------------------------------------------------------------------------------
+      # ASSEMBLY. The frozen contract, laid out byte for byte.
+      # ---------------------------------------------------------------------------------
+      - name: Assemble the bundle
+        id: assemble
+        env:
+          RELEASE: ${{ steps.version.outputs.release }}
+          WHEEL_NAME: ${{ steps.wheel.outputs.wheel_name }}
+          CONSOLE_SHA256: ${{ steps.wheel.outputs.console_sha256 }}
+        run: |
+          set -euo pipefail
+
+          # The commit read from git, not from GITHUB_SHA: on a tag push they agree, but this way
+          # the manifest records the commit that was actually checked out and hashed.
+          COMMIT="$(git rev-parse HEAD)"
+          test "${#COMMIT}" -eq 40 || { echo "::error::git rev-parse HEAD is not 40 chars"; exit 1; }
+
+          STAGE="$RUNNER_TEMP/stage"
+          OUT="$RUNNER_TEMP/out"
+          rm -rf "$STAGE" "$OUT"
+          mkdir -p "$STAGE/migrations/versions" "$OUT"
+
+          # TAR LAYOUT, FROZEN: MANIFEST.json, the wheel and migrations/ sit at the ARCHIVE ROOT.
+          # No leading directory, no --strip-components at either end — the first attempt at this
+          # pipeline failed integration precisely because producer and consumer disagreed about
+          # one directory level, and a stripped-or-not mismatch is invisible until the consumer
+          # cannot find MANIFEST.json.
+          cp "$RUNNER_TEMP/dist/$WHEEL_NAME" "$STAGE/$WHEEL_NAME"
+          cp migrations/alembic.ini migrations/env.py migrations/script.py.mako "$STAGE/migrations/"
+
+          # `git ls-files`, not `cp -r`: it cannot pick up __pycache__ (gitignored, and present in
+          # every developer checkout including this repository's), and it cannot pick up an
+          # untracked file somebody left in versions/. A .pyc in the bundle would land in
+          # /opt/bayram/migrations/versions/ and be imported by alembic in preference to nothing
+          # at all.
+          git ls-files -z -- 'migrations/versions/*.py' \
+            | xargs -0 -I{} cp {} "$STAGE/migrations/versions/"
+
+          MANIFEST_COMMIT="$COMMIT" python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          from datetime import datetime, timezone
+
+          stage = pathlib.Path(os.environ["RUNNER_TEMP"], "stage")
+          wheel_name = os.environ["WHEEL_NAME"]
+          migrations = json.loads(
+              pathlib.Path(os.environ["RUNNER_TEMP"], "migrations.json").read_text("utf-8"))
+
+          def sha256(path: pathlib.Path) -> str:
+              h = hashlib.sha256()
+              with path.open("rb") as fh:
+                  for chunk in iter(lambda: fh.read(1 << 20), b""):
+                      h.update(chunk)
+              return h.hexdigest()
+
+          # EVERY file in the bundle except MANIFEST.json itself, sorted, with forward slashes and
+          # no "./" prefix, so the consumer can compare this list against what it extracted and
+          # find both a corrupted file AND an extra one nobody named.
+          files = sorted(
+              (p.relative_to(stage).as_posix(), p)
+              for p in stage.rglob("*") if p.is_file()
+          )
+
+          manifest = {
+              # Integer literal 1. The consumer refuses anything else rather than guessing at a
+              # schema it was not written for — a bundle from a future producer is not a bundle
+              # this script understands, and reading it optimistically is how a field silently
+              # means something new.
+              "schema": 1,
+              "release": os.environ["RELEASE"],
+              "commit": os.environ["MANIFEST_COMMIT"],
+              # RFC3339, UTC, trailing Z. Seconds resolution: this is provenance for a human
+              # reading `bayram-release plan`, not an ordering key.
+              "built_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              # The REAL basename, and the consumer must install what this names rather than
+              # reconstruct it: the distribution is `bayram-bot`, which PEP 427 normalises to
+              # `bayram_bot`, so the file is bayram_bot-0.1.0-py3-none-any.whl and not the
+              # bayram-<version>-… spelling the layout sketch uses. Renaming it to match would
+              # break `pip install` outright — pip parses the filename and rejects a wheel whose
+              # name disagrees with its METADATA Name.
+              "wheel": wheel_name,
+              "migrations": migrations,
+              "console": {
+                  # Always true by construction: the wheel preflight above EXITS if
+                  # bayram/admin/static/index.html is missing or empty, so a bundle that reaches
+                  # this line always carries a console. The field is here because the consumer
+                  # reads it, and because a v2 producer building an API-only wheel would have
+                  # somewhere honest to say so.
+                  "present": True,
+                  # sha256 of that index.html, so the host can prove the wheel carries a FRESH
+                  # console rather than last release's — the one failure that shows up only in a
+                  # browser, where no test looks.
+                  "sha256": os.environ["CONSOLE_SHA256"],
+              },
+              "files": [{"path": rel, "sha256": sha256(p)} for rel, p in files],
+          }
+
+          # Self-checks, because a manifest that disagrees with its own tarball is worse than no
+          # manifest: the consumer would trust it.
+          paths = {entry["path"] for entry in manifest["files"]}
+          assert manifest["wheel"] in paths, f"{manifest['wheel']} is not in the bundle"
+          assert "MANIFEST.json" not in paths, "MANIFEST.json must not list itself"
+          for name in ("migrations/alembic.ini", "migrations/env.py", "migrations/script.py.mako"):
+              assert name in paths, f"{name} is not in the bundle"
+          shipped = {p.rsplit("/", 1)[-1] for p in paths if p.startswith("migrations/versions/")}
+          assert shipped == set(migrations["revisions"]), (
+              f"manifest.migrations.revisions disagrees with the bundle: "
+              f"only in manifest {sorted(set(migrations['revisions']) - shipped)}, "
+              f"only in bundle {sorted(shipped - set(migrations['revisions']))}")
+
+          (stage / "MANIFEST.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+          print(json.dumps(manifest, indent=2))
+          PY
+
+          BUNDLE="bayram-$RELEASE.tar.gz"
+          # The producing command, verbatim from the contract. --sort=name and the zeroed
+          # ownership make the member order and metadata independent of the runner's filesystem;
+          # --numeric-owner keeps a 'developer' or 'staff' name from the build machine out of the
+          # archive entirely. `-C "$STAGE" .` is what puts the members at the root.
+          tar --sort=name --owner=0 --group=0 --numeric-owner -czf "$OUT/$BUNDLE" -C "$STAGE" .
+
+          # Read it back. A tarball nobody opened is a tarball nobody knows is a tarball, and the
+          # cost of learning otherwise is a trip to the host. Listed to a FILE and grepped from
+          # there, not piped: `grep -q` exits on the first match, and under `set -o pipefail` the
+          # SIGPIPE that gives tar would fail this step on a bundle that is perfectly correct.
+          LISTING="$RUNNER_TEMP/listing.txt"
+          tar -tzf "$OUT/$BUNDLE" > "$LISTING"
+          echo "--- tar -tzf $BUNDLE ---"
+          cat "$LISTING"
+          # NO LEADING DIRECTORY, asserted rather than assumed: a wrapping component is the
+          # single disagreement that killed the first attempt at this pipeline, and it is
+          # invisible until the consumer cannot find MANIFEST.json. The only top-level names
+          # permitted are MANIFEST.json, the wheel and migrations/.
+          python3 - "$LISTING" <<'PY'
+          import os, pathlib, sys
+
+          members = [ln.strip() for ln in pathlib.Path(sys.argv[1]).read_text("utf-8").splitlines()
+                     if ln.strip() and ln.strip() != "./"]
+          tops = {m.removeprefix("./").split("/", 1)[0] for m in members}
+          allowed = {"MANIFEST.json", os.environ["WHEEL_NAME"], "migrations"}
+          if "MANIFEST.json" not in tops:
+              sys.exit("FATAL: MANIFEST.json is not at the archive root")
+          if tops - allowed:
+              sys.exit(f"FATAL: unexpected top-level member(s) {sorted(tops - allowed)} — the "
+                       f"archive has a leading directory, and --strip-components is NOT the fix")
+          print(f"archive root: {sorted(tops)}")
+          PY
+
+          BUNDLE_SHA="$(sha256sum "$OUT/$BUNDLE" | cut -d' ' -f1)"
+          {
+            echo "bundle=$BUNDLE"
+            echo "bundle_sha256=$BUNDLE_SHA"
+          } >> "$GITHUB_OUTPUT"
+          ls -lh "$OUT/$BUNDLE"
+          echo "sha256  $BUNDLE_SHA"
+
+      # PRINTED IN FULL, twice: once in the log where it is greppable, once in the job summary
+      # where the operator who is about to run `bayram-release deploy` will actually look.
+      - name: Print the manifest
+        run: |
+          set -euo pipefail
+          echo "=== MANIFEST.json ==="
+          cat "$RUNNER_TEMP/stage/MANIFEST.json"
+          {
+            echo "### MANIFEST.json"
+            echo
+            echo '```json'
+            cat "$RUNNER_TEMP/stage/MANIFEST.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Write the release notes
+        env:
+          BUNDLE: ${{ steps.assemble.outputs.bundle }}
+          BUNDLE_SHA: ${{ steps.assemble.outputs.bundle_sha256 }}
+        run: |
+          set -euo pipefail
+          # The notes are the operator's instructions, not a changelog: they say the only
+          # commands there are, and they state the integrity position plainly rather than
+          # implying a guarantee this pipeline does not provide. Written by python rather than a
+          # heredoc because the text contains backticks, `$`-free but quote-heavy shell, and a
+          # fenced code block — three ways for a shell heredoc to mean something other than what
+          # it reads as.
+          python3 - <<'PY'
+          import os, pathlib, textwrap
+
+          temp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          manifest = (temp / "stage" / "MANIFEST.json").read_text("utf-8").rstrip()
+          bundle = os.environ["BUNDLE"]
+
+          # A dedented template with @@ placeholders, substituted afterwards, rather than an
+          # f-string: the manifest spliced in at the end is itself multi-line and unindented, and
+          # interpolating it BEFORE textwrap.dedent would destroy the common prefix dedent works
+          # from and silently leave the whole document indented into a Markdown code block.
+          template = textwrap.dedent("""\
+              ## Deploying this
+
+              Copy the bundle to the host and run one command. **No path is ever passed as an
+              argument** — `deploy` scans `/opt/bayram/release/incoming/` and refuses unless it
+              holds exactly one `*.tar.gz`. That is what makes the sudoers grant safe: an
+              attacker-controlled argv path handed to a root script is the hole, and sudo matches
+              arguments with fnmatch, not regex, so no wildcard could constrain it.
+
+              ```
+              scp @@BUNDLE@@ aizu:/tmp/
+              ssh -t aizu 'sudo install -m 0640 -o root -g developer /tmp/@@BUNDLE@@ /opt/bayram/release/incoming/'
+              ssh -t aizu 'sudo /opt/bayram/sbin/bayram-release plan'     # dry run: what WOULD happen
+              ssh -t aizu 'sudo /opt/bayram/sbin/bayram-release deploy'
+              ```
+
+              Bundle sha256: `@@SHA@@` — check it after the copy; nothing downstream does.
+
+              ## Integrity, stated honestly
+
+              `MANIFEST.json` hashes the files that ship beside it in the same tarball, so it
+              proves the bundle is **internally consistent and undamaged in transit**. It does
+              **not** prove authorship: anyone who can write the tarball can write the manifest
+              with it. **There is no signing in v1.** Authenticity rests on who can write to
+              `/opt/bayram/release/incoming/` (0770 root:developer) and on the operator who
+              chooses to run the script. Ed25519 signing of the manifest is the v2 upgrade — see
+              `docs/deployment/11-ci-cd.md`, which also records its real cost: a signing key in
+              GitHub Actions *is* unattended root on the payment host.
+
+              ## MANIFEST.json
+
+              ```json
+              @@MANIFEST@@
+              ```
+              """)
+          notes = (template
+                   .replace("@@BUNDLE@@", bundle)
+                   .replace("@@SHA@@", os.environ["BUNDLE_SHA"])
+                   .replace("@@MANIFEST@@", manifest))
+          (temp / "out" / "NOTES.md").write_text(notes, encoding="utf-8")
+          print(notes)
+          PY
+
+      # Handed to the publishing job as an artifact rather than published here, so that the job
+      # which runs the repository's own build steps never holds a token that can write.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bayram-release-${{ steps.version.outputs.release }}
+          path: ${{ runner.temp }}/out
+          if-no-files-found: error
+          retention-days: 30
+          # The tarball is already gzipped; re-zipping it costs time and buys nothing.
+          compression-level: 0
+
+  publish:
+    name: Publish the GitHub Release
+    needs: bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # THE ONLY WRITE GRANT IN THIS FILE, and this job deliberately runs NO code from the tree:
+    # it downloads an artifact and calls `gh`. There is no checkout, so nothing in the
+    # repository — a package.json script, a conftest, a hook — executes next to a token that can
+    # create a tag.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: bayram-release-${{ needs.bundle.outputs.release }}
+          path: out
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # REQUIRED, because this job deliberately does not check out. Outside a git working
+          # tree `gh` has no remote to infer the repository from and fails with a message about
+          # git remotes that has nothing to do with the real cause.
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.bundle.outputs.tag }}
+          RELEASE: ${{ needs.bundle.outputs.release }}
+          BUNDLE: ${{ needs.bundle.outputs.bundle }}
+          PRERELEASE: ${{ needs.bundle.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          cd out
+          test -f "$BUNDLE" || { echo "::error::$BUNDLE did not survive the artifact round-trip"; exit 1; }
+
+          # Create-or-update rather than create, because a re-run of a failed publish is a normal
+          # thing to do and `gh release create` on an existing tag exits 1 with a message that
+          # reads like a bug. `--clobber` on the upload for the same reason: the second run must
+          # replace the asset, not fail on it or leave the first attempt's half-uploaded copy.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release $TAG exists — updating notes and re-uploading the asset"
+            gh release edit "$TAG" \
+              --title "bayram $RELEASE" \
+              --notes-file NOTES.md \
+              --prerelease="$PRERELEASE"
+          else
+            # --target pins the release to the commit the bundle was built from. On a tag push
+            # the tag already exists and this is a no-op; on a workflow_dispatch it is what
+            # creates the tag, at the right commit rather than at whatever the branch has moved
+            # on to since.
+            gh release create "$TAG" \
+              --title "bayram $RELEASE" \
+              --notes-file NOTES.md \
+              --target "$GITHUB_SHA" \
+              --prerelease="$PRERELEASE"
+          fi
+
+          gh release upload "$TAG" "$BUNDLE" --clobber
+          echo "published: $(gh release view "$TAG" --json url --jq .url)"
