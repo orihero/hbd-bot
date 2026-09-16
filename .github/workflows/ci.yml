@@ -163,31 +163,68 @@ jobs:
       # WHY THIS EXISTS. All three deploy scripts in `deploy/` run migrations BEFORE
       # installing the wheel, and each says in its own comments that this is safe because
       # those particular revisions were additive — "a property of THIS revision, not a rule
-      # of the project". The first revision that drops a column or narrows a type needs a
-      # stopped-services window instead. Nothing enforced that distinction; this does, and
-      # it fails the PR rather than the production database.
+      # of the project". For the minute between the two steps, OLD code runs against the NEW
+      # schema; old code ignores columns it has never heard of, but it cannot survive a
+      # column that has gone. Nothing enforced that distinction; this does, and it fails the
+      # PR rather than the production database.
       #
-      # It is a grep, so it is a tripwire and not a proof — `op.execute("ALTER TABLE ...")`
-      # passes it. It is here to stop the ordinary mistake, not a determined one.
+      # IT READS ONLY THE `upgrade()` BODY. Every `downgrade()` drops what its `upgrade()`
+      # created — that is what a downgrade IS — so a naive grep over the whole file flags
+      # every revision ever written, including the initial schema. Parsed with `ast` rather
+      # than matched with a line range, so a decorator or a nested def cannot shift it.
+      #
+      # TWO SEVERITIES, because they are not the same risk. `drop_column` and `drop_table`
+      # break the migrate-first order outright and FAIL. `alter_column` may be a widening
+      # (safe) or a narrowing (not), and nothing short of reading it can tell — it WARNS, so
+      # a human looks. `drop_constraint` and `drop_index` are neither: they relax or slow,
+      # and lose no data.
+      #
+      # It is still a tripwire, not a proof — `op.execute("ALTER TABLE …")` passes it.
       - name: Refuse destructive DDL in new revisions
         run: |
           set -euo pipefail
           base="${{ github.event.pull_request.base.sha }}"
-          new=$(git diff --name-only --diff-filter=A "$base"...HEAD -- migrations/versions/ || true)
-          if [ -z "$new" ]; then
+          mapfile -t new < <(git diff --name-only --diff-filter=A "$base"...HEAD -- migrations/versions/ || true)
+          if [ ${#new[@]} -eq 0 ]; then
             echo "No new revisions in this PR."
             exit 0
           fi
-          echo "New revisions:"; echo "$new"
-          if grep -nE 'drop_column|drop_table|drop_constraint|drop_index|alter_column' $new; then
-            echo
-            echo "::error::A new revision contains destructive or narrowing DDL."
-            echo "The deploy order in deploy/*.sh runs migrations BEFORE the wheel, which is"
-            echo "only safe for additive changes. This one needs a maintenance window with the"
-            echo "services stopped — see docs/deployment/04-release.md."
-            exit 1
-          fi
-          echo "All new revisions look additive."
+          printf 'New revisions:\n%s\n\n' "$(printf '%s\n' "${new[@]}")"
+          python3 - "${new[@]}" <<'CHECK'
+          import ast, re, sys
+
+          FATAL = re.compile(r"\b(drop_column|drop_table)\b")
+          WARN = re.compile(r"\balter_column\b")
+          fatal, warn = [], []
+
+          for path in sys.argv[1:]:
+              src = open(path, encoding="utf-8").read()
+              for node in ast.parse(src).body:
+                  if not (isinstance(node, ast.FunctionDef) and node.name == "upgrade"):
+                      continue
+                  segment = ast.get_source_segment(src, node) or ""
+                  for offset, line in enumerate(segment.splitlines()):
+                      code = line.split("#", 1)[0]
+                      where = f"{path}:{node.lineno + offset}"
+                      if FATAL.search(code):
+                          fatal.append(f"{where}: {line.strip()}")
+                      elif WARN.search(code):
+                          warn.append(f"{where}: {line.strip()}")
+
+          for line in warn:
+              print(f"::warning::alter_column in an upgrade — widening or narrowing? {line}")
+          for line in fatal:
+              print(f"::error::{line}")
+          if fatal:
+              print()
+              print("A new revision drops a column or a table in upgrade().")
+              print("deploy/*.sh migrate BEFORE installing the wheel, which is only safe for")
+              print("additive changes: for one minute the OLD code runs against the NEW schema.")
+              print("This needs a maintenance window with the services stopped —")
+              print("see docs/deployment/04-release.md.")
+              sys.exit(1)
+          print("No destructive DDL in the upgrade() of any new revision.")
+          CHECK
 
   integration:
     name: Integration (opt-in)
