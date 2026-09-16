@@ -44,7 +44,11 @@ jobs:
   python:
     name: Python — ruff, mypy, unit suite
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    # 60, not 45. Measured on a hosted runner 2026-09-16: 32m06s, against 9m31s on a
+    # developer machine — 3.4x. 45 left thirteen minutes of headroom on a suite that grows
+    # with every commit, which is the shape of a gate that eventually fails on the clock
+    # rather than on the code and teaches everyone to re-run it.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:

@@ -109,8 +109,30 @@ where a `datetime | None` was declared).
 **Measured after the fixes, 2026-09-16, on a developer machine:** `make lint` clean;
 `make typecheck` clean over 647 files; `make cov` **8 034 passed, 56 deselected, 94.46%,
 9m31s**; the console's four scripts green (318 vitest tests, 55 locale assertions, zero
-pending). The python job's `timeout-minutes: 45` is set against that 9m31s with generous room
-for a slower hosted runner.
+pending).
+
+**Measured on a hosted runner, same day, run 35080297500 — all five jobs green:**
+
+| Job | Duration |
+| --- | --- |
+| `Python — ruff, mypy, unit suite` | **32m 06s** |
+| `Console — typecheck, lint, vitest, locales` | 1m 20s |
+| `Migrations — additive-only` | 5s |
+| `gate` | 2s |
+
+The Python job is **3.4x slower** on a hosted runner than on a developer machine, which is why
+`timeout-minutes` is 60 and not the 45 it was written with: thirteen minutes of headroom on a
+suite that grows every commit is how a gate ends up failing on the clock rather than on the
+code, and teaching everyone to re-run it. Both of the steps nothing had ever exercised held:
+`uv sync --locked` installed from the lockfile for the first time in this project's history,
+and ffmpeg-with-libopus satisfied `verify_host`.
+
+The first run of the workflow also found a defect **in the workflow** — the migration tripwire
+grepped whole revision files, so it flagged every revision ever written, because every
+`downgrade()` drops what its `upgrade()` created. Fixed to parse only the `upgrade()` body
+with `ast`, and split into two severities: `drop_column`/`drop_table` fail, `alter_column`
+warns (widening and narrowing are indistinguishable without reading it), `drop_constraint`
+and `drop_index` are out of the pattern entirely.
 
 ### Before marking `gate` required
 
