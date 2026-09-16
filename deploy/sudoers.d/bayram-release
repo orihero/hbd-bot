@@ -78,17 +78,75 @@ developer ALL=(root) PASSWD: BAYRAM_RELEASE_RW
 # provider's out-of-band console, not ssh.
 
 # ============================================================================
-# UNVERIFIED — READ THE LIVE GRANTS BEFORE TRUSTING ANY OF THIS
+# THE LIVE GRANTS, READ 2026-09-16. THIS FILE'S ORIGINAL PREMISE WAS WRONG.
 # ============================================================================
-# deploy/cutover-to-bayram.sh writes /etc/sudoers.d/hbd-deploy naming hbd-* units, and nothing
-# in this tree shows a bayram-* grant was ever installed. The live grant set may therefore
-# cover NONE of the four units now running. One command settles it, on the host as `developer`:
+# `sudo -n -l` on abdu-test was finally run, and it answers the question this file was written
+# around. Two corrections, and the second is a security finding.
 #
-#     sudo -n -l
+# CORRECTION 1 — the bayram-* units ARE granted. This file previously warned that the live set
+# might name only hbd-* units and cover none of the four now running. It does not: there is an
+# extensive NOPASSWD block covering enable/disable/start/stop/restart/status/is-active on all
+# four bayram-*.service units, alongside a stale set of hbd-* grants for units that no longer
+# exist. The stale half is clutter and should be removed; the bayram half already works.
 #
-# If it prints "a password is required", run `sudo -l` and read the list. Until that output
-# exists, this file is a proposal: it has never been installed and its assumptions about what
-# `developer` can already do are unverified.
+# CORRECTION 2 — the first line of the grant list is:
+#
+#     (ALL : ALL) ALL
+#
+# `developer` can already run any command as any user, with a password. So NOTHING BELOW THIS
+# LINE GRANTS A CAPABILITY THAT DOES NOT ALREADY EXIST. The value of a scoped drop-in here is
+# not containment — it is that the passwordless subset stays small, and that a release runs
+# through a path somebody can audit rather than through `sudo -i`.
+#
+# ----------------------------------------------------------------------------
+# A PASSWORDLESS ROOT ESCALATION EXISTS TODAY. FIX IT BEFORE ANYTHING ELSE.
+# ----------------------------------------------------------------------------
+# The live set contains:
+#
+#     (root) NOPASSWD: /usr/bin/bash /opt/hbd/deploy-payme.sh
+#
+# and on the host, verified 2026-09-16:
+#
+#     -rwxr-xr-x 1 developer developer  434  /opt/hbd/deploy-payme.sh
+#     drwxr-xr-x 5 developer developer 4096  /opt/hbd
+#
+# `developer` OWNS the file that sudo will execute as root without a password, and owns the
+# directory it sits in. Writing anything into that path and running it is root, with no
+# password and no prompt.
+#
+# Severity, stated precisely and not inflated: `developer` already has `(ALL:ALL) ALL`, so this
+# is not "no root" becoming "root" — it is PASSWORD-PROTECTED root becoming PASSWORDLESS root.
+# That still matters on a host that terminates payment callbacks. Anything running AS developer
+# — a stolen ssh key, a compromised process, any unattended automation — gets root without
+# knowing the password, and the `use_pty` audit intent in the Defaults line is bypassed.
+#
+# THE FIX, one line, no new machinery: delete that grant. It exists to run a per-feature deploy
+# script that `deploy/bayram-release` replaces. If something like it must stay in the interim,
+# the file it points at has to be root-owned and not writable by its invoker:
+#
+#     sudo chown root:root /opt/hbd/deploy-payme.sh
+#     sudo chmod 0755     /opt/hbd/deploy-payme.sh
+#
+# The same rule applies to every NOPASSWD grant naming a script path: THE TARGET MUST NOT BE
+# WRITABLE BY THE ACCOUNT BEING GRANTED. Note that `/opt/bayram` is correctly root:root, which
+# is why this file installs the release script there and not into the old `/opt/hbd` tree.
+#
+# ----------------------------------------------------------------------------
+# TWO MORE GRANTS WORTH A DECISION (neither is an escalation; both are exposure)
+# ----------------------------------------------------------------------------
+#   (root) NOPASSWD: /usr/bin/tee /etc/bayram/payme.env
+#     A root write of arbitrary content into a credential file (root:hbd 0640) read by the
+#     payme gateway. It exists so a human can install that file without a password. Consider
+#     requiring a password for it, or dropping it now that the file is installed.
+#
+#   (postgres) NOPASSWD: /usr/bin/pg_dump hbd
+#     Exactly the standing data-exposure grant the "what is deliberately NOT granted" section
+#     above argues against — and it is already live. It lets a non-root account dump every
+#     customer record, payment and recipient name to anywhere it can write. `bayram-release`
+#     does its own dump as root and does not need this. Consider removing it.
+#
+# None of the above should be changed while you are the only session on the box. Keep a second
+# root shell open, as the validation section says.
 
 # ============================================================================
 # THE LAYOUT THIS GRANT ASSUMES — nothing in the repo creates it. Run once, as root.

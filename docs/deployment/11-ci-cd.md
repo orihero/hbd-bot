@@ -307,9 +307,35 @@ about **this repository** that nothing else had surfaced:
 
 ### Before this is run for the first time
 
-1. **`sudo -n -l` on the host.** `cutover-to-bayram.sh` writes `/etc/sudoers.d/hbd-deploy`
-   naming `hbd-*` units and nothing shows a `bayram-*` grant was installed — the live set may
-   cover none of the four running units. Until that output exists, the sudoers file is a guess.
+1. ~~`sudo -n -l` on the host.~~ **DONE, 2026-09-16 — and it corrected two things.**
+
+   The `bayram-*` units **are** granted: an extensive NOPASSWD block covers
+   enable/disable/start/stop/restart/status/is-active on all four, alongside a stale set of
+   `hbd-*` grants for units that no longer exist. The worry that the live set might cover none
+   of them was wrong.
+
+   The first line of the grant list is `(ALL : ALL) ALL`, so `developer` can already run any
+   command as any user with a password. A scoped drop-in therefore buys no containment; what it
+   buys is a small passwordless subset and a release path somebody can audit.
+
+   **And it exposed a passwordless root escalation that exists today.** The live set contains
+   `(root) NOPASSWD: /usr/bin/bash /opt/hbd/deploy-payme.sh`, and that file is
+   `-rwxr-xr-x developer developer` inside a `developer`-owned directory. The account being
+   granted **owns the script sudo runs as root without a password** — write anything into it,
+   run it, you are root with no prompt. Precisely: `developer` already has `(ALL:ALL) ALL`, so
+   this turns *password-protected* root into *passwordless* root rather than creating root
+   access. On a host terminating payment callbacks that still matters — anything running as
+   `developer` (a stolen key, a compromised process, unattended automation) gets root without
+   the password, and the `use_pty` audit intent is bypassed. The fix is to delete that grant;
+   `deploy/bayram-release` replaces the script it exists for. If it must stay in the interim,
+   `chown root:root` the target. **The rule: a NOPASSWD grant naming a script path must never
+   name a file writable by the account being granted.** `/opt/bayram` is correctly `root:root`,
+   which is why the release script installs there and not into the old `/opt/hbd` tree.
+
+   Two more grants are exposure rather than escalation and want a decision:
+   `NOPASSWD: tee /etc/bayram/payme.env` (root write into a credential file) and
+   `(postgres) NOPASSWD: pg_dump hbd` — the standing data-exposure grant this page argued
+   against, already live. `bayram-release` dumps as root and does not need the latter.
 2. **Create the layout.** `/opt/bayram/sbin`, `release/incoming`, `release/work`, `wheels` —
    the commands are at the foot of `deploy/sudoers.d/bayram-release`. Nothing creates them.
 3. **Run `plan` first**, on a bundle built from a commit already deployed. It changes nothing
