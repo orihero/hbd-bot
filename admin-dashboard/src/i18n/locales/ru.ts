@@ -346,9 +346,9 @@ export const ru: TranslationSchema = {
         subtitle: "флаг блокировки администратором",
       },
       totalRevenue: {
-        label: "Оценочная выручка",
-        title: "Оценочная выручка",
-        subtitle: "доставлено × публичная цена",
+        label: "Выручка",
+        title: "Выручка",
+        subtitle: "зафиксированные поступления",
       },
       topups: {
         label: "Продано пополнений",

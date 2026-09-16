@@ -345,9 +345,9 @@ export const en: TranslationSchema = {
         subtitle: "admin block flag",
       },
       totalRevenue: {
-        label: "Est. revenue",
-        title: "Est. revenue",
-        subtitle: "delivered × published price",
+        label: "Revenue",
+        title: "Revenue",
+        subtitle: "recorded receipts",
       },
       topups: {
         label: "Top-ups sold",

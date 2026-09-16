@@ -133,11 +133,11 @@ export const CARD_ROWS: readonly CardRow[] = [
     w: 340.5,
     cards: [
       {
-        /* The delivered × published-price ESTIMATE, never the recorded receipts — which the
-           wire carries separately as `revenue` and which the server insists must never be
-           added to it. The label says "est." because the chart below plots the RECORDED
-           receipts, and two different quantities both called revenue is how a reader ends up
-           believing the one that suits them. */
+        /* The RECORDED receipts, summed over the window — the wire's `revenue`, which the
+           chart below plots and which the server insists must never be added to the
+           delivered × published-price estimate beside it. The card held that estimate until
+           the label had to say "est." to keep the two apart; it now holds the same quantity
+           the figure under it does, and the estimate keeps its own place on the wire. */
         key: "totalRevenue",
         unit: "soʻm",
         spark: true,

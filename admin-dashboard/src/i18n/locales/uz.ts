@@ -348,9 +348,9 @@ export const uz: TranslationSchema = {
         subtitle: "admin bloklash belgisi",
       },
       totalRevenue: {
-        label: "Taxminiy tushum",
-        title: "Taxminiy tushum",
-        subtitle: "joriy valyuta kursida",
+        label: "Tushum",
+        title: "Tushum",
+        subtitle: "qayd etilgan tushumlar",
       },
       topups: {
         label: "Sotilgan toʻlovlar",

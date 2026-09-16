@@ -572,24 +572,57 @@ export function boundSign(basis: BalanceEstimateBasis | null): string {
 }
 
 
+/**
+ * The window's recorded receipts as ONE figure, or the reason there cannot be one.
+ *
+ * `MoneyTotal` carries a currency per row precisely so that nobody adds across it, so this
+ * sums only when the window holds a single currency and reports `mixed currencies` otherwise
+ * — the same fence `adaptRevCost` puts on the chart, and for the same reason: a figure in an
+ * invented unit is a wrong number, which is worse than a missing one.
+ *
+ * Stub-rail rows are INCLUDED, and deliberately. `isStubRail` marks a sale the checkout rail
+ * recorded without settling it, and dropping those here would make the card disagree with the
+ * chart under it and with the Payments screen, which shows the same receipts and says which
+ * rail each rode. The rail split belongs on a figure that has room to name it, not silently
+ * inside a scalar.
+ *
+ * An EMPTY window is `0` and not a pill: both receipts tables are authoritative about their
+ * own rows, so "nothing was sold in this period" is a measurement. The exception is a
+ * deployment where neither table has ever held a row — there the absence is the
+ * instrumentation, not the period, and `capabilities` is what tells the two apart.
+ */
+function recordedRevenue(r: FinanceResponse): CardValue {
+  const rows = r.revenue;
+  const currencies = new Set(rows.map((row) => row.currency));
+  if (currencies.size > 1) {
+    return { tag: REASON_TAG.mixed_currencies, reason: "mixed_currencies" };
+  }
+  if (rows.length === 0) {
+    const everRecorded = r.capabilities.isPlanRevenue || r.capabilities.isTopupRevenue;
+    if (!everRecorded) return tag(null, "not_instrumented");
+    // No row means no currency to read off one, so the card keeps its spec unit rather than
+    // this module naming a currency the window never carried.
+    return { value: "0", delta: "" };
+  }
+  const currency = [...currencies][0] ?? "UZS";
+  const total = rows.reduce((sum, row) => sum + row.amountMinor, 0);
+  const amount = money(total, currency);
+  return { value: amount.value, unit: amount.unit, delta: "" };
+}
+
 /** The four money cards plus the run-rate pair and the two balance cards. */
 export function adaptFinance(r: FinanceResponse): CardValues {
   const out: Draft = {};
 
-  /* Total revenue is the ESTIMATE (delivered × published price), which is what the mock's
-     "delivered × 7 000 soʻm" caption describes. Recorded receipts live in `r.revenue` and
-     are never added to it. No trend on this wire, so no delta rather than a fabricated one. */
-  const derived = r.derivedRevenue;
-  if (derived.amountMinor === null || derived.currency === null || derived.unitPriceMinor === null) {
-    out["totalRevenue"] = tag(derived.unavailableReason, "no_price_published");
-  } else {
-    const amount = money(derived.amountMinor, derived.currency);
-    out["totalRevenue"] = {
-      value: amount.value,
-      unit: amount.unit,
-      delta: "",
-    };
-  }
+  /* Revenue is the RECORDED RECEIPTS — the two receipts tables, summed over the window. The
+     delivered × published-price ESTIMATE is still on the wire as `derivedRevenue` and is
+     still never added to this; it simply no longer occupies the card, because an operator
+     reading "revenue" on a finance tab is asking what came in, not what would have come in
+     if every delivered song had been paid for at today's price. The chart below plots the
+     same receipts, so the card and the figure under it now answer the same question.
+
+     No trend on this wire, so no delta rather than a fabricated one. */
+  out["totalRevenue"] = recordedRevenue(r);
 
   const topups = r.unpricedTopups;
   out["topups"] = {
@@ -1431,17 +1464,25 @@ export type Sparks = Readonly<Partial<Record<SparkKey, readonly number[]>>>;
 const SPARK_POINTS = 12;
 
 /**
- * The four card sparklines, which are series data and so cannot come from the card
- * responses. Total revenue rides the delivered curve on purpose: the estimate is delivered ×
- * a CONSTANT price, so the two curves have the same shape and multiplying would only add a
- * price to a picture that has no axis to read it against.
+ * The four card sparklines, which are series data and so cannot come from the card responses.
+ *
+ * Revenue's well rides the RECEIPTS series now, not the delivered curve. It rode delivered
+ * while the card held the estimate — delivered × a constant price has the same shape as
+ * delivered, so multiplying added a price to a picture with no axis to read it against — and
+ * that is exactly why it cannot stay: receipts and deliveries are different curves, and a
+ * well drawn from one under a number taken from the other is a picture of the wrong thing.
+ *
+ * `revenueByBucket` hands back an empty map for a mixed-currency window, which leaves fewer
+ * than two points and `mergeSparks` then draws no line — the same refusal the card makes,
+ * arrived at without a second currency check.
  */
 export function adaptSparks(r: SeriesResponse): Sparks {
   const spend = ordered(spendByBucket(r.spend)).map((p) => p.value);
   const delivered = r.delivered.map((p) => p.count);
+  const revenue = ordered(revenueByBucket(r.revenue).buckets).map((p) => p.value);
   return {
     newUsers: r.signups.map((p) => p.count).slice(-SPARK_POINTS),
-    totalRevenue: delivered.slice(-SPARK_POINTS),
+    totalRevenue: revenue.slice(-SPARK_POINTS),
     vendorSpend: spend.slice(-SPARK_POINTS),
     songsDelivered: delivered.slice(-SPARK_POINTS),
   };

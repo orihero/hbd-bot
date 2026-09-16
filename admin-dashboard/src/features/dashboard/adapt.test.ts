@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { FinanceResponse } from "@/api/dashboard";
+import type { FinanceResponse, MoneyTotal } from "@/api/dashboard";
 import {
   adaptFinance,
   formatAudio,
@@ -84,6 +84,20 @@ describe("formatAudio — rendered audio as a length", () => {
  * filled with the smallest legal value — these are the counts and flags of a quiet window, and
  * not one of them is a measurement this file asserts on.
  */
+/** One receipts row. UZS from the stub rail unless a test says otherwise — today's shape. */
+function receipt(over: Partial<MoneyTotal> = {}): MoneyTotal {
+  return {
+    source: "plan",
+    product: "starter",
+    currency: "UZS",
+    provider: "stub",
+    isStubRail: false,
+    sales: 1,
+    amountMinor: 0,
+    ...over,
+  };
+}
+
 function financeWithNoPrices(): FinanceResponse {
   const noCost = {
     amountUsd: null,
@@ -208,9 +222,8 @@ describe("unavailableKey — the reason a card has no number", () => {
  * fallback is this module's own reading of the shape it got.
  */
 describe("adaptFinance — the absent money cards name their reason", () => {
-  it("carries the server's reason onto Est. revenue, MRR and ARR", () => {
+  it("carries the server's reason onto MRR and ARR", () => {
     const out = adaptFinance(financeWithNoPrices());
-    expect(out.totalRevenue).toEqual({ tag: "no price published", reason: "no_price_published" });
     expect(out.mrr).toEqual({ tag: "no fx rate", reason: "no_fx_rate" });
     expect(out.arr).toEqual({ tag: "no fx rate", reason: "no_fx_rate" });
   });
@@ -221,26 +234,68 @@ describe("adaptFinance — the absent money cards name their reason", () => {
     const r = financeWithNoPrices();
     const out = adaptFinance({
       ...r,
-      derivedRevenue: { ...r.derivedRevenue, unavailableReason: null },
       netRunRate: { ...r.netRunRate, unavailableReason: null },
     });
-    expect(out.totalRevenue).toEqual({ tag: "no price published", reason: "no_price_published" });
     expect(out.mrr).toEqual({ tag: "not priced", reason: "not_priced" });
   });
 
   it("does not touch a card that has a figure", () => {
     const r = financeWithNoPrices();
-    const out = adaptFinance({
-      ...r,
-      derivedRevenue: {
-        ...r.derivedRevenue,
-        amountMinor: 1_500_000,
-        currency: "UZS",
-        unitPriceMinor: 1_500_000,
-        unavailableReason: null,
-      },
-    });
+    const out = adaptFinance({ ...r, revenue: [receipt({ amountMinor: 1_500_000 })] });
     expect(out.totalRevenue).toEqual({ value: "15 000", unit: "soʻm", delta: "" });
     expect(unavailableKey(out.totalRevenue)).toBeNull();
+  });
+});
+
+/**
+ * Revenue is the RECEIPTS now, not the delivered × price estimate, and the card has to answer
+ * four differently-shaped windows: money in one currency, money in two, a period nobody
+ * bought in, and a deployment where nobody ever has.
+ */
+describe("adaptFinance — Revenue is what was recorded", () => {
+  it("sums the window's rows when they share a currency", () => {
+    const out = adaptFinance({
+      ...financeWithNoPrices(),
+      revenue: [
+        receipt({ amountMinor: 1_500_000 }),
+        receipt({ source: "topup", product: "pack_5", amountMinor: 500_000 }),
+      ],
+    });
+    expect(out.totalRevenue).toEqual({ value: "20 000", unit: "soʻm", delta: "" });
+  });
+
+  it("counts a stub-rail sale, because the chart under the card counts it too", () => {
+    const out = adaptFinance({
+      ...financeWithNoPrices(),
+      revenue: [receipt({ amountMinor: 700_000, isStubRail: true })],
+    });
+    expect(out.totalRevenue).toEqual({ value: "7 000", unit: "soʻm", delta: "" });
+  });
+
+  it("refuses to add across currencies", () => {
+    const out = adaptFinance({
+      ...financeWithNoPrices(),
+      revenue: [
+        receipt({ amountMinor: 1_500_000 }),
+        receipt({ currency: "USD", amountMinor: 500 }),
+      ],
+    });
+    expect(out.totalRevenue).toEqual({ tag: "mixed currencies", reason: "mixed_currencies" });
+  });
+
+  it("reports a quiet period as zero, not as an absence", () => {
+    // Both receipts tables are authoritative about their own rows: nobody bought anything is
+    // a measurement, and a pill here would send an operator to configure a working panel.
+    const out = adaptFinance(financeWithNoPrices());
+    expect(out.totalRevenue).toEqual({ value: "0", delta: "" });
+  });
+
+  it("reports a deployment that has never recorded a receipt as untracked", () => {
+    const r = financeWithNoPrices();
+    const out = adaptFinance({
+      ...r,
+      capabilities: { ...r.capabilities, isPlanRevenue: false, isTopupRevenue: false },
+    });
+    expect(out.totalRevenue).toEqual({ tag: "not tracked", reason: "not_instrumented" });
   });
 });

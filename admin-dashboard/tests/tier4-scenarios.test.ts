@@ -97,7 +97,7 @@ export async function runTier4Tests(): Promise<TestCaseResult[]> {
 
         // 4. Metric cards
         assertEqual(mod.t("dashboard.cards.totalUsers.label"), "Всего пользователей");
-        assertEqual(mod.t("dashboard.cards.totalRevenue.label"), "Оценочная выручка");
+        assertEqual(mod.t("dashboard.cards.totalRevenue.label"), "Выручка");
         assertEqual(mod.t("dashboard.cards.costPerSong.label"), "Себестоимость песни");
 
         // 5. Chart titles
