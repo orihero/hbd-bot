@@ -22,7 +22,6 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from bayram.audio import cover as cover_module
 from bayram.audio.constants import SCRATCH_DIR_PREFIX
 from bayram.audio.cover import COVER_MAX_BYTES, COVER_SIZE, render_cover
 from bayram.contracts import Err
@@ -244,7 +243,7 @@ def test_an_unreadable_cover_resource_is_an_error_and_not_a_blank_picture(
     def explode(_package: str) -> object:
         raise FileNotFoundError("no such package")
 
-    monkeypatch.setattr(cover_module.resources, "files", explode)
+    monkeypatch.setattr(resources, "files", explode)
     destination = tmp_path / "cover.jpg"
 
     # Act
@@ -272,8 +271,8 @@ def test_the_artwork_is_not_stretched_when_the_source_is_not_square(
         def joinpath(self, _name: str) -> Path:
             return wide
 
-    monkeypatch.setattr(cover_module.resources, "files", lambda _pkg: _Stub())
-    monkeypatch.setattr(cover_module.resources, "as_file", _as_file)
+    monkeypatch.setattr(resources, "files", lambda _pkg: _Stub())
+    monkeypatch.setattr(resources, "as_file", _as_file)
     destination = tmp_path / "cover.jpg"
 
     # Act

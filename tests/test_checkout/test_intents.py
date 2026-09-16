@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 
@@ -83,6 +84,12 @@ class _RecordingOpener:
         is_sandbox: bool,
         plan_songs: int | None = None,
         plan_days: int | None = None,
+        # Added 2026-09-16 to match the protocol, which grew it with the resume path. The
+        # drift was invisible until `mypy --strict` ran over tests/ for the first time in CI:
+        # `runtime_checkable` checks member PRESENCE only, so the `isinstance` assertion
+        # below kept passing against a fake whose signature no longer matched (checkout.py's
+        # own docstring says this is what mypy is for).
+        resume_order_id: UUID | None = None,
     ) -> Result[PaymentIntent]:
         self.keys.append(idempotency_key)
         return ok(_intent())

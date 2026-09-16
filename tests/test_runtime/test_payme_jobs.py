@@ -245,7 +245,11 @@ async def _resumed_at(container: AppContainer, public_ref: str) -> datetime | No
         sa.select(PaymentIntentRow.resumed_at).where(PaymentIntentRow.public_ref == public_ref),
     )
     assert len(rows) == 1
-    return rows[0]
+    # `_rows` is list[Any] because the statements it runs return different column types;
+    # narrow here, at the one place that knows which column was selected.
+    value = rows[0]
+    assert value is None or isinstance(value, datetime)
+    return value
 
 
 def _sent(session: RecordingSession) -> list[SendMessage]:
@@ -1015,6 +1019,9 @@ async def test_a_settled_payment_resumes_the_render_it_was_opened_for(
     assert messages[0].reply_markup is None
     # Assert — and it came FIRST.
     assert session.calls.index(messages[0]) < session.calls.index(messages[1])
+    # `Brief.recipient` is optional; this draft was built with one, and saying so keeps
+    # the attribute access honest rather than relying on it.
+    assert draft.recipient is not None
     assert messages[1].text == queued_text(Language.RU, name=draft.recipient.display)
 
     # Assert — one job, addressed by the id minted at PAY time, carrying the progress message
@@ -1439,5 +1446,8 @@ async def test_every_settlement_says_what_it_decided_about_the_render(
         if record.message == "the settled payment's render was considered"
     ]
     assert len(considered) == 1
-    assert considered[0].reason == "not_on_confirm"
-    assert considered[0].is_queued is False
+    # Fields passed through logging's `extra=` land in the record's __dict__ and are not
+    # attributes `logging.LogRecord` declares, so they are read as such rather than pretended
+    # to be typed members.
+    assert considered[0].__dict__["reason"] == "not_on_confirm"
+    assert considered[0].__dict__["is_queued"] is False

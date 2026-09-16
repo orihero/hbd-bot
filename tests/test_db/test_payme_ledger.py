@@ -129,7 +129,13 @@ async def test_one_ledger_satisfies_both_ports_and_the_bots_half_cannot_settle(
     # ``SqlPurchaseLedger`` satisfies ``PurchaseFulfiller``.
     assert isinstance(ledger, PaymentIntentOpener)
     assert isinstance(ledger, PaymeLedger)
-    assert narrow is wide is ledger
+    # Compared against ``ledger`` SEPARATELY rather than as ``narrow is wide is ledger``.
+    # The chained form is the same claim at runtime, but the two ports are unrelated
+    # protocol types, so ``--strict-equality`` reads ``narrow is wide`` as an identity
+    # check that can never hold, marks it unreachable — and every assertion BELOW it
+    # silently stopped being checked, including the one that is the point of this test.
+    assert narrow is ledger
+    assert wide is ledger
     # ...and the narrow port genuinely cannot settle: the bot process holds a reference typed
     # as ``PaymentIntentOpener``, and ``perform`` is absent from it. This is the runtime shadow
     # of a compile-time guarantee — ``narrow.perform(...)`` is a mypy error, which is what
