@@ -1,0 +1,312 @@
+# The gate this repository has described in prose since TEST_INFRA.md §7.3 and never had.
+#
+# WHAT IT IS AND IS NOT. This runs the two gates the Makefile already defines — `make check`
+# (ruff, mypy --strict, the unit suite under the 80% coverage floor) and the console's four
+# scripts — on every push and pull request. It is deliberately NOT a deploy: see
+# `docs/deployment/11-ci-cd.md` for why production stays operator-triggered on this host.
+#
+# THE CORE GATE NEEDS NO SECRET. Everything below runs on a fresh clone with no credentials,
+# which is what makes it safe to run on pull requests from any branch. `permissions:` is
+# read-only and `persist-credentials: false` keeps the job's token out of .git/config on the
+# runner — this repo's own origin URL carried a plaintext PAT, and a workflow that leaves a
+# credential lying next to a `npm ci` is how that becomes somebody else's.
+#
+# NO STEP MAY PRINT `git remote -v`, `.git/config` OR `env`. Nor `set -x` in a shell step.
+# Those are how a secret reaches a public log.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    # `labeled` is listed EXPLICITLY. The default set is [opened, synchronize, reopened], so
+    # without this line the opt-in integration job below could never be triggered by adding
+    # its label to an already-open PR — the label would apply and nothing would run.
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Nothing in this repo pins either, and both halves format by system settings in places.
+  # The Python side is deliberately UTC-day-based (`src/bayram/db/admin/sql.py`, and the
+  # Asia/Tashkent traps `tests/test_db/test_activity_snapshots.py` is written around), so a
+  # runner in another zone would be testing a different program. Pinned here so the choice
+  # has a line number.
+  TZ: UTC
+  LANG: C.UTF-8
+
+jobs:
+  python:
+    name: Python — ruff, mypy, unit suite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # REQUIRED BY THE UNIT SUITE, not only by the integration one. `tests/test_runtime/
+      # test_entrypoints.py` calls `main_module.run(...)`, which reaches
+      # `bayram.audio.startup.verify_host` and probes for ffmpeg WITH libopus. It carries no
+      # `integration` marker, so it runs here. A minimal static ffmpeg build will not do —
+      # `src/bayram/audio/constants.py` needs the opus encoder.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          # Pinned, and the exact version matters: `uv.lock` declares `revision = 3`, a
+          # lockfile format older uv releases REJECT outright. This is the version the lock
+          # was verified against with `uv lock --check` on 2026-09-16. An unpinned installer
+          # is one release away from rejecting the lock or silently resolving something else.
+          version: "0.11.31"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # `uv sync --locked`, never `make install`. Makefile's `install` target is
+      # `uv pip install -e ".[dev]"`, which IGNORES uv.lock — so CI would be testing a
+      # different dependency set than the lockfile claims. `--locked` additionally fails if
+      # the lock has drifted from pyproject, which is the drift nothing has ever caught.
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      # Every Make target hardcodes `.venv/bin/python` (Makefile's PYTHON). If uv put the
+      # environment elsewhere, the targets below would fail with something far less legible
+      # than this line.
+      - name: Assert the venv the Makefile expects
+        run: test -x .venv/bin/python
+
+      - name: Cache mypy
+        uses: actions/cache@v4
+        with:
+          path: .mypy_cache
+          key: mypy-${{ runner.os }}-${{ hashFiles('pyproject.toml', 'uv.lock') }}
+          restore-keys: mypy-${{ runner.os }}-
+
+      - name: Lint
+        run: make lint
+
+      - name: Typecheck
+        run: make typecheck
+
+      # `make cov` ONCE. Not `make check` (which re-runs lint and typecheck) and never
+      # `make cov` followed by `make cov-admin` — `cov-admin: cov` is a Make PREREQUISITE, so
+      # the pair executes the ~4,800-test suite twice. The admin re-report below is the body
+      # of that target, run against the coverage data the previous step just wrote.
+      - name: Unit suite with the 80% floor
+        run: make cov
+
+      - name: Re-report against src/bayram/admin at 85%
+        run: .venv/bin/python -m coverage report --include='src/bayram/admin/*' --fail-under=85
+
+  node:
+    name: Console — typecheck, lint, vitest, locales
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: admin-dashboard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: admin-dashboard/package-lock.json
+
+      # Plain `npm ci`, never `--ignore-scripts`: @swc/core and esbuild both need their
+      # postinstall to fetch the right native binary, and without it vite and vitest fail
+      # in a way that reads like a code error.
+      - name: Install
+        run: npm ci
+
+      # FOUR SEPARATE STEPS rather than the Makefile's `&&` chain, so a lint failure and a
+      # test failure are distinguishable in the checks list — and so a failure early in the
+      # chain cannot hide the suites after it, which is exactly how this package's component
+      # tests went unguarded until 2026-09-10.
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Component tests
+        run: npm run test:unit
+
+      # The STRICT variant. Plain `npm test` exits 0 even with PENDING_IMPLEMENTATION
+      # assertions outstanding; strict fails on them. Verified 0 pending on 2026-09-16, so
+      # this is a gate rather than a nuisance — and it stays honest as new tiers are added.
+      - name: Localization key-parity suite
+        run: npm run test:e2e:strict
+
+  migration-safety:
+    name: Migrations — additive-only
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # WHY THIS EXISTS. All three deploy scripts in `deploy/` run migrations BEFORE
+      # installing the wheel, and each says in its own comments that this is safe because
+      # those particular revisions were additive — "a property of THIS revision, not a rule
+      # of the project". The first revision that drops a column or narrows a type needs a
+      # stopped-services window instead. Nothing enforced that distinction; this does, and
+      # it fails the PR rather than the production database.
+      #
+      # It is a grep, so it is a tripwire and not a proof — `op.execute("ALTER TABLE ...")`
+      # passes it. It is here to stop the ordinary mistake, not a determined one.
+      - name: Refuse destructive DDL in new revisions
+        run: |
+          set -euo pipefail
+          base="${{ github.event.pull_request.base.sha }}"
+          new=$(git diff --name-only --diff-filter=A "$base"...HEAD -- migrations/versions/ || true)
+          if [ -z "$new" ]; then
+            echo "No new revisions in this PR."
+            exit 0
+          fi
+          echo "New revisions:"; echo "$new"
+          if grep -nE 'drop_column|drop_table|drop_constraint|drop_index|alter_column' $new; then
+            echo
+            echo "::error::A new revision contains destructive or narrowing DDL."
+            echo "The deploy order in deploy/*.sh runs migrations BEFORE the wheel, which is"
+            echo "only safe for additive changes. This one needs a maintenance window with the"
+            echo "services stopped — see docs/deployment/04-release.md."
+            exit 1
+          fi
+          echo "All new revisions look additive."
+
+  integration:
+    name: Integration (opt-in)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # OPT-IN, BY LABEL. Not in the required set, because this job is new and has never been
+    # green anywhere: `hbd_test` is a database NOTHING in this repository creates, so the
+    # Postgres suites have always skipped rather than run. Label a PR `run-integration` to
+    # exercise it. Promote it to a required check only once it has been green for a while.
+    if: >-
+      github.event_name == 'pull_request' &&
+      contains(github.event.pull_request.labels.*.name, 'run-integration')
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hbd
+          POSTGRES_PASSWORD: hbd
+          POSTGRES_DB: hbd
+          # Matches docker-compose.yml. Deterministic collation, so ORDER BY in a test means
+          # the same thing here as on a developer's machine and on the host.
+          POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U hbd"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.31"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+
+      # THE DATABASE NOTHING ELSE CREATES. docker-compose.yml makes `hbd`; the integration
+      # suites want `hbd_test`, and `docker/initdb/10-two-roles.sql` grants inside `hbd`.
+      # That mismatch is why those tests have never run in this project — on a machine where
+      # they "fail on permissions", somebody created the database by hand.
+      #
+      # The two-role split is replayed here because `test_audit_purge_privileges.py` exists
+      # precisely to prove the app role CANNOT delete an audit row before its clock is up.
+      # Against a single superuser role that test would pass while proving nothing.
+      - name: Create hbd_test and the two roles
+        env:
+          PGPASSWORD: hbd
+        run: |
+          set -euo pipefail
+          psql -h 127.0.0.1 -U hbd -d postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE DATABASE hbd_test OWNER hbd;"
+          psql -h 127.0.0.1 -U hbd -d postgres -v ON_ERROR_STOP=1 \
+            -c "CREATE ROLE hbd_app LOGIN PASSWORD 'hbd_app' NOSUPERUSER NOCREATEDB NOCREATEROLE;"
+          psql -h 127.0.0.1 -U hbd -d hbd_test -v ON_ERROR_STOP=1 -f docker/initdb/10-two-roles.sql
+
+      # A SKIP FLOOR, because silence here is indistinguishable from success: every Postgres
+      # and audio module skips rather than fails when its dependency is absent, so a wrong
+      # DSN yields a green job that tested nothing. `-rs` prints the skip reasons; the
+      # assertion below is what actually catches it.
+      - name: Integration suite
+        env:
+          BAYRAM_TEST_POSTGRES_URL: postgresql+asyncpg://hbd:hbd@127.0.0.1:5432/hbd_test
+          BAYRAM_TEST_POSTGRES_APP_URL: postgresql+asyncpg://hbd_app:hbd_app@127.0.0.1:5432/hbd_test
+          BAYRAM_TEST_REDIS_URL: redis://127.0.0.1:6379/1
+        run: |
+          set -euo pipefail
+          .venv/bin/python -m pytest -m integration -rs -q --no-cov \
+            --junitxml=integration.xml
+          .venv/bin/python - <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          suite = ET.parse("integration.xml").getroot()
+          suite = suite if suite.tag == "testsuite" else suite[0]
+          total = int(suite.get("tests", 0))
+          skipped = int(suite.get("skipped", 0))
+          ran = total - skipped
+          print(f"integration: {total} collected, {skipped} skipped, {ran} actually ran")
+          # If more than half the suite skipped, the services were not reachable and this
+          # job proved nothing. Fail loudly rather than report a green that means silence.
+          if ran < total / 2:
+              sys.exit("too many skips — services were probably not reachable")
+          PY
+
+  gate:
+    # One check to mark required in branch protection, so adding a job later does not need
+    # the protection rule edited. `always()` plus an explicit result test: without it a
+    # skipped dependency counts as success and this passes when the suite never ran.
+    name: gate
+    runs-on: ubuntu-24.04
+    needs: [python, node, migration-safety]
+    if: always()
+    steps:
+      - name: Require the gates that must not be skipped
+        run: |
+          echo "python=${{ needs.python.result }}"
+          echo "node=${{ needs.node.result }}"
+          echo "migration-safety=${{ needs.migration-safety.result }}"
+          test "${{ needs.python.result }}" = "success"
+          test "${{ needs.node.result }}" = "success"
+          # Skipped is legitimate here: the job only runs on pull_request.
+          case "${{ needs.migration-safety.result }}" in
+            success|skipped) ;;
+            *) exit 1 ;;
+          esac
