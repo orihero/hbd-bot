@@ -2,25 +2,24 @@
 # `make test`, `make lint` and `make typecheck` need no Docker, no keys and no network.
 #
 # THE GATES, AND WHICH ONE COVERS WHAT. `make check` is the Python half only — ruff, mypy
-# and the coverage run. It deliberately does NOT run:
+# and the coverage run. It deliberately does NOT run `make ui-check`, the console's own gates
+# (tsc, eslint, vitest and the localization suite). Before a release, run both.
 #
-#   * `make ui-check`, the console's own gates (tsc, eslint, vitest and the localization suite)
-#   * `make ui-e2e`, the browser gate, which is the ONLY check that can see a
-#     Content-Security-Policy regression at all — jsdom implements no CSP
+# THERE IS NO BROWSER GATE. The Playwright suite lived in `admin-ui/`, the legacy console
+# removed on 2026-09-16, and it asserted on that console's own bundle and font pipeline — so
+# it could not have been pointed at $(UI) without a rewrite, and `make ui-e2e` had already
+# been unrunnable for some time (it called `npm run e2e` in $(UI), which declares no such
+# script). What went with it is worth naming, because nothing replaced it: jsdom implements no
+# CSP, so no remaining check can see a Content-Security-Policy regression in a real browser.
+# The POLICY is still covered in Python by `tests/test_admin/test_security_headers.py` and
+# `test_spa_nonce.py`; what is not covered is whether the built bundle actually complies with
+# it. Restoring that means new specs against $(UI), not resurrecting the old ones.
 #
-# EACH UI PACKAGE'S GATE RUNS THAT PACKAGE'S OWN SCRIPTS, and the two packages do not have the
-# same ones. `ui-check` targets $(UI) — the console that is actually deployed — and
-# `legacy-ui-check` targets $(LEGACY_UI), which is where `tokens:check` and the Playwright
-# specs live. Until 2026-09-10 `ui-check` ran admin-ui's script list against admin-dashboard
-# and therefore FAILED ON A GREEN TREE, at `tokens:check`, a script admin-dashboard does not
-# define — and because that line came last the target also never reached admin-dashboard's
-# `test:unit`, so its component suite was guarded by no target at all.
-#
-# `ui-e2e` is out of `check` because it needs a ~150 MB Chromium (`make ui-e2e-install`), and
-# a first `make check` on a new machine must not silently start that download. The
-# consequence is that the CSP and the SPA nonce are guarded by a gate nobody is obliged to
-# run: before a release, run `make check`, `make ui-check` and `make ui-e2e`. See the
-# "Checks" section of README.md, which lists the same split.
+# `ui-check` targets $(UI), the console that is actually deployed. Until 2026-09-10 it ran the
+# legacy console's script list against admin-dashboard and therefore FAILED ON A GREEN TREE, at
+# `tokens:check`, a script admin-dashboard does not define — and because that line came last the
+# target also never reached admin-dashboard's `test:unit`, so its component suite was guarded by
+# no target at all. Each package's gate runs that package's own scripts; there is now one package.
 
 PYTHON  := .venv/bin/python
 PIP     := uv pip install --python $(PYTHON)
@@ -31,7 +30,6 @@ SRC     := src/bayram
 # pyproject.toml and is unaffected, which is exactly what makes the gap quiet.
 TESTS   := tests
 UI      := admin-dashboard
-LEGACY_UI := admin-ui
 
 # ENV — WHICH SET OF DOTENV FILES the long-running processes read. Not the same thing as
 # BAYRAM_ENVIRONMENT, which is what the code branches on (fake providers refused, DEBUG refused,
@@ -60,11 +58,12 @@ ENV_FILES := BAYRAM_ENV_FILE=.env.$(ENV) BAYRAM_ADMIN_ENV_FILE=.env.admin.$(ENV)
 endif
 
 .DEFAULT_GOAL := help
-.PHONY: help install up down dev worker admin admin-bootstrap payme demo test test-all cov cov-admin lint format typecheck check migrate revision clean ui-install ui ui-build ui-check legacy-ui legacy-ui-build legacy-ui-check ui-e2e ui-e2e-install
+.PHONY: help install up down dev worker admin admin-bootstrap payme demo test test-all cov cov-admin lint format typecheck check migrate revision clean ui-install ui ui-build ui-check
 
-# `0-9` is in the target-name class because `ui-e2e` and `ui-e2e-install` have a digit in
-# their names and were invisible here: the two targets nobody was obliged to run were also
-# the two `make help` did not mention.
+# `0-9` stays in the target-name class even though no current target has a digit: it cost
+# nothing and the omission has already bitten once, when `ui-e2e` and `ui-e2e-install` were
+# invisible here — the two targets nobody was obliged to run were also the two `make help`
+# never mentioned.
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*## "}; {printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2}'
@@ -113,57 +112,18 @@ ui: ## Run the modern admin dashboard dev server on :5174, proxying /api to the 
 ui-build: ## Build the modern admin dashboard into src/bayram/admin/static/
 	cd $(UI) && npm run build
 
-legacy-ui: ## [DEPRECATED] Run the legacy Gogo console on :5173
-	cd $(LEGACY_UI) && npm run dev
-
-legacy-ui-build: ## [DEPRECATED] Build the legacy Gogo console
-	cd $(LEGACY_UI) && npm run build
-
 # FOUR SCRIPTS, AND NEITHER RUNNER SUBSUMES THE OTHER. admin-dashboard splits its suites:
 # `test:unit` is vitest over `src/**/*.test.tsx` (the components), and `test` is the bespoke
 # tsx harness in `tests/run-all.ts` that asserts 100% key parity and interpolation-token
 # consistency across en/ru/uz. Running only one leaves the other guarded by nobody — which is
 # exactly what this target used to do.
 #
-# `tokens:check` is NOT here and its absence is the fix rather than an omission: the annotator
-# it runs (`tools/annotate-tokens.mts`) and the stylesheet it measures both live in
-# $(LEGACY_UI), and admin-dashboard declares no such script. It is on `legacy-ui-check`, with
-# its own argument, below.
+# `tokens:check` is NOT here, and that is now simply because no such script exists: the
+# annotator (`tools/annotate-tokens.mts`) and the tokens.css it measured belonged to the legacy
+# console, removed on 2026-09-16. admin-dashboard has never declared one. If the contrast
+# contract is wanted back it has to be rebuilt against this package's stylesheet.
 ui-check: ## The deployed console's gates: typecheck, lint, vitest and the localization suite
 	cd $(UI) && npm run typecheck && npm run lint && npm run test:unit && npm test
-
-# The contrast contract is checked TWICE on purpose, in the package that has it. `vitest`
-# recomputes every annotation in admin-ui's tokens.css and fails on drift; `tokens:check`
-# additionally verifies the annotation FORM against each token's bar and runs the wider
-# `{6,8}` must-annotate scan. Neither subsumes the other, and `tokens:check` is reachable only
-# by typing it or by running this target.
-#
-# The zero-tests hazard, written down because it is deliberate and therefore easy to
-# misread: a malformed selector in tokens.css takes `tokenContrast.test.ts` to ZERO tests by
-# design — `blockRange()` throws at module load rather than measuring a plausible-but-wrong
-# block — and `vitest run` reports a file that contributed no tests as a pass. `tokens:check`
-# parses the same stylesheet through the same module and exits 1, which is what makes that
-# loud failure actually loud from this target.
-legacy-ui-check: ## [DEPRECATED] The legacy console's gates, including the tokens.css annotations
-	cd $(LEGACY_UI) && npm run typecheck && npm run lint && npm test && npm run tokens:check
-
-# KNOWN BROKEN FOR $(UI), AND NOT FIXED HERE BECAUSE THE FIX IS NOT A MAKEFILE EDIT. Both of
-# these run `npm run e2e*` in $(UI), and admin-dashboard declares neither script: the
-# Playwright config, the `e2e/` specs and the CSP assertions all live in $(LEGACY_UI), and
-# some of those specs (`font-coverage.spec.ts`) assert on admin-ui's own font pipeline. So
-# re-pointing them at $(LEGACY_UI) would run the legacy console's specs against the deployed
-# console's bundle, which is a different claim and an unverified one. Until somebody ports
-# `e2e/csp.ts` and `e2e/smoke.spec.ts` into $(UI), the CSP and the SPA nonce are guarded by
-# nothing, and the note at the top of this file overstates the cover `ui-e2e` provides.
-ui-e2e-install: ## Download the Chromium build Playwright drives (once per machine)
-	cd $(UI) && npm run e2e:install
-
-ui-e2e: ui-build ## The browser gate: the built console against the real admin API, under the production CSP
-	@echo "No Postgres, Redis, network, vendor key or ffmpeg: the harness"
-	@echo "(tests/e2e/serve_admin_e2e.py) runs the real admin app over in-memory SQLite and"
-	@echo "a dictionary Redis, and Playwright starts and stops it. Needs 'make ui-e2e-install'"
-	@echo "once. It builds the bundle first, because the gate serves the BUILT console."
-	cd $(UI) && npm run e2e
 
 demo: ## One full kit, offline: no keys, no Redis, no Postgres, no spend
 	BAYRAM_USE_FAKE_PROVIDERS=1 $(PYTHON) -m bayram.demo
@@ -190,7 +150,7 @@ format: ## ruff format + autofix
 typecheck: ## mypy --strict
 	$(PYTHON) -m mypy
 
-check: lint typecheck cov ## The Python gates. NOT ui-check, and NOT ui-e2e — see the top of this file
+check: lint typecheck cov ## The Python gates. NOT ui-check — see the top of this file
 
 migrate: ## Apply Alembic migrations.  ENV=prod reads .env.prod
 	$(ENV_FILES) $(PYTHON) -m alembic -c migrations/alembic.ini upgrade head

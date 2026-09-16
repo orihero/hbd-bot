@@ -458,6 +458,33 @@ The cost of the other choice is what makes this a decision rather than a prefere
 
 **Cost.** None beyond the section itself. `admin-dashboard`'s gates are the per-package scripts — `npm run typecheck`, `npm run lint`, `npm run test:unit` (vitest) and `npm test` (the tsx localization key-parity suite, which asserts 100% parity across `en`/`ru`/`uz` and is what makes a key added to one locale a build failure). Until 2026-09-10 `make ui-check` could not be read as a green signal for this package: it ended in `npm run tokens:check`, a script `admin-dashboard` does not declare, so the target failed on a green tree — and because that line came last it never reached `test:unit`, leaving the component suite guarded by no target at all. `ui-check` now runs exactly the four scripts above, and `tokens:check` moved to `make legacy-ui-check`, beside the `admin-ui` stylesheet and annotator it measures. **`make ui-e2e` / `make ui-e2e-install` are still `admin-ui` recipes pointed at a package with no matching scripts, and were deliberately left that way**: re-pointing them would run the legacy console's specs — one of which asserts on `admin-ui`'s own font pipeline — against the deployed console's bundle. The CSP and the SPA nonce are therefore guarded by nothing until `e2e/csp.ts` and `e2e/smoke.spec.ts` are ported into `admin-dashboard/`, which is a change of its own.
 
+**Amendment, 2026-09-16 — the fallback is void; `admin-ui/` has been deleted.** The package,
+its 298 tracked files and `tests/e2e/` were removed from the tree. D15's decision is unchanged
+and its reasoning above is left as written, because it is what led here; what is no longer
+available is the *fallback*. "Flip `UI := admin-ui`" is not a move anybody can make now —
+`LEGACY_UI`, `legacy-ui`, `legacy-ui-build` and `legacy-ui-check` are gone from the Makefile —
+so the switch trigger named above (reviving the legacy package to recover the six screens
+`admin-dashboard` lacks — orders, assets, vendors, config, retention, live) can only be
+answered by **porting those screens into `admin-dashboard/`**, or by recovering the package
+from git history first. That is a deliberate narrowing: both packages built to the same
+`src/bayram/admin/static/`, so whichever was built last won, and keeping a deprecated console
+that could silently overwrite the deployed one was itself the hazard.
+
+Two things went with it and neither was replaced. **`tokens:check`** — the annotation-FORM
+check and the `{6,8}` must-annotate scan over `tokens.css` — measured the legacy stylesheet
+through the legacy annotator; `admin-dashboard` declares no such script and never has, so the
+contrast contract now rests on that package's own tests alone. **`make ui-e2e`** and the
+Playwright suite (`e2e/csp.ts`, `e2e/smoke.spec.ts`, the font-coverage spec) are gone, so the
+paragraph above — "the CSP and the SPA nonce are guarded by nothing until they are ported" —
+is now permanent rather than pending: there is no browser gate at all, and jsdom implements no
+CSP. The CSP *policy* and the nonce's freshness remain covered in Python by
+`tests/test_admin/test_security_headers.py` and `tests/test_admin/test_spa_nonce.py`, the
+latter now asserting the placeholder against `admin-dashboard/index.html`. What is uncovered is
+whether the built bundle complies in a real browser. Restoring that means new specs written
+against `admin-dashboard/`; the old ones are recoverable from git history and are not a
+starting point worth preserving in the tree, since they asserted on the legacy bundle and its
+own font pipeline.
+
 **Confidence.** HIGH. Every claim above is a file and a line in this working tree, and the deployed-artefact claim is a byte in a built file.
 
 **Reversibility.** CHEAP IN CODE, EXPENSIVE IN ATTENTION. One line of the `Makefile` and one rebuild swaps which SPA is served. What does not reverse cheaply is the split itself: two consoles sharing an API contract and an output directory is a standing hazard, and this decision narrows it by declaring one of them closed rather than resolving it. Deleting `admin-ui` is the resolution and is a separate change.

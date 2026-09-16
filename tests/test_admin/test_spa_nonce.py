@@ -17,8 +17,8 @@ Three properties are asserted here and each of them is a way the fix could rot:
   constant an injected script can read once and reuse forever, which is the entire reason
   ``'unsafe-inline'`` is not simply written into the policy.
 * **The two spellings of the placeholder agree.** The token lives in Python and in
-  ``admin-ui/index.html``; renaming it on one side alone would substitute nothing, and the
-  only symptom would be in a browser under a policy no unit test applies.
+  ``admin-dashboard/index.html``; renaming it on one side alone would substitute nothing, and
+  the only symptom would be in a browser under a policy no unit test applies.
 """
 
 from __future__ import annotations
@@ -46,7 +46,9 @@ _SHELL: Final[str] = (
 )
 
 #: The repository's own shell, the one ``vite build`` copies into the wheel verbatim.
-_SOURCE_INDEX: Final[Path] = Path(__file__).resolve().parents[2] / "admin-ui" / "index.html"
+_SOURCE_INDEX: Final[Path] = (
+    Path(__file__).resolve().parents[2] / "admin-dashboard" / "index.html"
+)
 
 _META_NONCE: Final[re.Pattern[str]] = re.compile(
     rf'<meta name="{CSP_NONCE_META_NAME}" content="([^"]*)"'
@@ -202,7 +204,7 @@ def test_a_shell_with_no_placeholder_is_served_unchanged_and_logged(
 def test_the_checked_in_shell_carries_the_placeholder_python_substitutes() -> None:
     # Arrange - the token is spelled in two files in two languages. Renaming it on one side
     # alone substitutes nothing, and the only symptom is in a browser under a policy no unit
-    # test applies. `admin-ui/index.html` is the source `vite build` copies verbatim.
+    # test applies. `admin-dashboard/index.html` is the source `vite build` copies verbatim.
     assert _SOURCE_INDEX.is_file(), _SOURCE_INDEX
 
     # Act

@@ -174,7 +174,8 @@ _DISABLED_MESSAGE: Final[str] = (
     "The admin panel is disabled. Set BAYRAM_ADMIN_ENABLED=true in .env.admin to run it."
 )
 
-#: Where ``admin-ui``'s ``vite build`` writes (``build.outDir`` in ``admin-ui/vite.config.ts``).
+#: Where ``admin-dashboard``'s ``vite build`` writes (``build.outDir`` in
+#: ``admin-dashboard/vite.config.ts``).
 #: Gitignored source-side and force-included in the wheel through
 #: ``[tool.hatch.build.targets.wheel] artifacts``, because a committed bundle drifts from the
 #: TypeScript it was built from with nothing to notice.

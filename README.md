@@ -129,9 +129,9 @@ the usage instead of an argparse error. `--password` is accepted only so it can 
 group or anybody else read or replace it.
 
 > **Rebuild the console on every deploy.** `src/bayram/admin/static/` is gitignored — a
-> committed bundle drifts from `admin-ui/` with nothing to notice — so a fresh checkout has
+> committed bundle drifts from `admin-dashboard/` with nothing to notice — so a fresh checkout has
 > no console at all, and a stale one is whatever the last build left behind. It is not only
-> a cosmetic staleness: `admin-ui/index.html` carries a `__BAYRAM_CSP_NONCE__` placeholder that
+> a cosmetic staleness: `admin-dashboard/index.html` carries a `__BAYRAM_CSP_NONCE__` placeholder that
 > the API swaps for this response's style nonce, and a bundle built before that existed has
 > no placeholder to swap. `render_shell` serves such a shell **unchanged** and logs
 > `WARNING admin.spa.nonce_placeholder_missing` rather than returning 500 — deliberately, so
@@ -250,15 +250,15 @@ kernel as well as by the panel's own boot refusal.
 ### The admin console in development
 
 A fourth terminal, and the only one that is not part of the production shape: Vite's dev
-server, so a change to `admin-ui/` reloads without a rebuild.
+server, so a change to `admin-dashboard/` reloads without a rebuild.
 
 ```bash
-make ui-install   # npm install in admin-ui/ — the only Node in the tree
-make ui           # terminal 4: the console on :5173, proxying /api to :8080
+make ui-install   # npm install in admin-dashboard/ — the only Node in the tree
+make ui           # terminal 4: the console on :5174, proxying /api to :8080
 ```
 
 It needs `make admin` running in another shell, and
-`BAYRAM_ADMIN_PUBLIC_ORIGIN=http://localhost:5173` in `.env.admin`. The dev proxy forwards the
+`BAYRAM_ADMIN_PUBLIC_ORIGIN=http://localhost:5174` in `.env.admin`. The dev proxy forwards the
 browser's real `Origin` (`changeOrigin: false`), so the API's origin check is live in
 development too — that is deliberate. A 403 `ORIGIN_REJECTED` at sign-in means that
 variable, not the proxy flag.
@@ -281,76 +281,64 @@ make check       # lint + typecheck + cov — the Python half, and all `make che
 
 **`make check` is not the whole gate, and knowing which part it is not is the point.** It
 runs ruff, `mypy --strict` and the coverage run, and nothing that involves Node or a
-browser. Two more sets exist and neither is reachable from it:
+browser. One more set exists and it is not reachable from it:
 
 ```bash
 make ui-check        # the deployed console's gates: tsc, eslint, vitest, the locale suite
-make legacy-ui-check # the legacy console's gates, including tokens:check
-make ui-e2e          # the browser gate: Playwright, the built console, the production CSP
 ```
 
-**Each gate runs its own package's scripts, and the two packages do not have the same ones.**
-`ui-check` targets `admin-dashboard/` — the console that is actually deployed — and runs four:
-`typecheck`, `lint`, `test:unit` (Vitest, the components) and `test` (the tsx harness that
-asserts 100% key parity and interpolation-token consistency across `en`/`ru`/`uz`). Neither
-runner subsumes the other. `legacy-ui-check` targets `admin-ui/`, which is where
-`tools/annotate-tokens.mts` and the stylesheet it measures live.
+`ui-check` targets `admin-dashboard/` — the console that is actually deployed — and runs four
+scripts: `typecheck`, `lint`, `test:unit` (Vitest, the components) and `test` (the tsx harness
+that asserts 100% key parity and interpolation-token consistency across `en`/`ru`/`uz`).
+Neither runner subsumes the other, so both are on the target.
 
-`tokens:check` is in `legacy-ui-check` rather than only in that package's `vitest` because it
-checks two things the Vitest gate does not: the `on` / `at best on` FORM each `tokens.css`
-annotation must take, derived from the token's WCAG bar, and the wider `{6,8}` must-annotate
-scan. It is also what makes one deliberate failure loud: a malformed selector takes
-`admin-ui/src/styles/tokenContrast.test.ts` to *zero* tests on purpose, and `vitest run`
-reports a file that contributed no tests as a pass.
-
-Until 2026-09-10 `ui-check` ran `admin-ui`'s script list against `admin-dashboard`, so it
-**failed on a green tree** at `tokens:check` — a script `admin-dashboard` does not declare —
+Until 2026-09-10 `ui-check` ran the legacy console's script list against `admin-dashboard`, so
+it **failed on a green tree** at `tokens:check` — a script `admin-dashboard` does not declare —
 and, because that line came last, never reached `test:unit` at all: the deployed console's
 component suite was guarded by no target.
 
-`make ui-e2e` stays outside `make check` for one concrete reason: it needs a ~150 MB
-Chromium that `make ui-e2e-install` downloads, and a first `make check` on a new machine
-must not silently start that. The consequence is worth stating plainly rather than
-discovering: **the only check that can see a Content-Security-Policy regression is one
-nobody is obliged to run.** jsdom implements no CSP at all, so a `<style>` element Chrome
-refuses is accepted in silence by every one of the console's Vitest tests. Until this repo
-has CI wired to it, "before a release" means a human running all three sets — `make check`,
-`make ui-check` and `make ui-e2e` — and that is the whole of the policy.
+> **There is no browser gate, and nothing replaced the one that was removed.** Until
+> 2026-09-16 the repo carried a second console, `admin-ui/`, and the Playwright suite lived
+> inside it: `e2e/csp.ts`, `e2e/smoke.spec.ts` and a font-coverage spec, driven by
+> `make ui-e2e` through `tests/e2e/serve_admin_e2e.py`. That console was deprecated, was never
+> deployed, built into the *same* `build.outDir` as the live one, and its specs asserted on its
+> own bundle and font pipeline — so `make ui-e2e` had already been unrunnable for some time and
+> could not have been re-pointed at `admin-dashboard/` without a rewrite. Console and suite were
+> removed together, along with `tests/e2e/`.
+>
+> What that leaves uncovered is worth naming rather than discovering: **jsdom implements no
+> CSP**, so a `<style>` element Chrome refuses is accepted in silence by every one of the
+> console's Vitest tests, and no remaining check can see a Content-Security-Policy regression
+> in a real browser. The *policy* is still covered in Python — `tests/test_admin/test_security_headers.py`
+> asserts the header, and `test_spa_nonce.py` asserts the nonce is fresh per response and that
+> `admin-dashboard/index.html` still carries the `__BAYRAM_CSP_NONCE__` placeholder Python
+> substitutes. What is not covered is whether the built bundle actually complies with it.
+>
+> The font-coverage check went with it too (§14's `Oʻktam` / `Gʻulom` / `Дилноза` / `sanʼat`
+> bullet): it rasterised every character in both token font stacks and compared each bitmap
+> against an unassigned-plane codepoint, so a name drawn as `.notdef` boxes failed instead of
+> counting as "rendered". The gap it documented is still open — §12.1 T7 asks for
+> **self-hosted** Inter and JetBrains Mono and this build ships neither, so U+02BB/U+02BC and
+> Cyrillic coverage is the operator's machine's rather than the bundle's. Restoring either
+> check means new specs written against `admin-dashboard/`; the old ones are in git history.
 
-`make ui-e2e` builds the bundle, then starts `tests/e2e/serve_admin_e2e.py` (the real admin
-app over the same in-memory SQLite and dictionary Redis the Python unit suite uses, on
-`127.0.0.1:8099`) and runs two Playwright tests against the built console:
+Until this repo has CI wired to it, "before a release" means a human running both sets —
+`make check` and `make ui-check` — and that is the whole of the policy.
 
-- **the operator's first session.** Signs in as a bootstrapped OWNER, rotates the forced
-  password, and asserts Live Ops' counts, a centred ⌘K dialog with a working scroll lock, a
-  masked `Gʻulom`, an identity-purged order rendered as `🔒 purged <date>` — and **zero CSP
-  violations across the whole flow**.
-- **font coverage** (§14's `Oʻktam` / `Gʻulom` / `Дилноза` / `sanʼat` bullet). Rasterises
-  every character of those four strings in both token font stacks and compares each bitmap
-  with a codepoint from an unassigned Unicode plane, so a name drawn as `.notdef` boxes
-  fails instead of counting as "rendered". It also asserts the page fetches no font from
-  another origin. See `admin-ui/e2e/fonts.ts` for the method — and for the gap it exposes:
-  §12.1 T7 asks for **self-hosted** Inter and JetBrains Mono, and this build ships neither,
-  so U+02BB/U+02BC and Cyrillic coverage is the operator's machine's rather than the
-  bundle's.
+Measured on this machine on **2026-09-16**, with the commands above, after `admin-ui/` was
+removed and the eleven standing `mypy` errors were fixed: `make lint` clean; `make typecheck`
+clean over **647 files**; `make cov` **8034 passed, 56 deselected** at **94.46%** repo-wide in
+**9m31s**, and the admin re-report at **99%** on `src/bayram/admin/*`; `npm run test:unit` green
+over **318 tests in 24 files** and `npm run test:e2e:strict` green over **55**, zero pending.
 
-Neither needs Postgres, Redis, network, a vendor key or ffmpeg. Run `make ui-e2e-install`
-once first, to fetch the Chromium build Playwright drives.
-
-**`make ui-e2e` is currently unrunnable and the paragraph above describes what it was built
-to do rather than what it does today.** Both e2e targets run `npm run e2e*` in
-`admin-dashboard/`, which declares neither script: the Playwright config, the `e2e/` specs and
-the CSP assertions all live in `admin-ui/`, and the font-coverage spec asserts on that
-package's own font pipeline. Re-pointing the targets is not the fix — it would run the legacy
-console's specs against the deployed console's bundle — so **the CSP and the SPA nonce are
-guarded by nothing** until `e2e/csp.ts` and `e2e/smoke.spec.ts` are ported into
-`admin-dashboard/`.
-
-Measured on this machine while writing this section, with the commands above: `make lint`
-clean; `make typecheck` clean over **430 files**; `make cov` collects **4788 unit tests**
-(4785 passed, 2 skipped) at **96%** repo-wide, and `make cov-admin` re-reports the same run
-at **99%** on `src/bayram/admin/*`; `npx vitest run` green over **815 tests in 73 files**;
-`make ui-e2e` 2 passed. Those counts move with every commit that adds a test — the commands
+> The figures this paragraph carried until that date — 430 files, 4788 tests, 96%, and
+> "815 tests in 73 files" — were all stale, and two of them were not merely out of date. The
+> vitest count was the *legacy* console's and said nothing about the deployed one. And
+> `make typecheck` did not pass at all: eleven errors had accumulated in `tests/`, unnoticed
+> because nothing ever ran the gate. Two were real — a protocol fake that had drifted from
+> `PaymentIntentOpener`, and a chained identity check that `--strict-equality` had marked
+> unreachable, silently disabling the three assertions beneath it. This is what CI is for.
+Those counts move with every commit that adds a test — the commands
 print the current ones, and it is the *clean* that matters, not the number. One unit test —
 `tests/test_runtime/test_entrypoints.py` — wants ffmpeg on PATH despite the convention
 below, and is the only failure on a machine without it. The integration suite adds 49 more:
@@ -391,7 +379,7 @@ a `Protocol`. Only `bayram.runtime` knows which concrete vendor is behind which 
 | `bayram.payments` | The RENDER gate — `PaymentProvider.authorize` answers "may this order be rendered?" against a credit already owned. `NoopPaymentProvider` always authorises. |
 | `bayram.checkout` | The BUYING seam — `CheckoutProvider.charge` answers "did money change hands?", and the vendor-neutral redirect vocabulary (`PaymentIntent`, `PaymentIntentOpener`). Imports no HTTP client and **may never import `bayram.db`**. |
 | `bayram.payme` | The Payme Merchant API: the pure wire layer (protocol, errors, Basic auth, the link builder), the inbound JSON-RPC service, its ASGI app and its own composition root, and the operator CLI. Ships switched off. |
-| `bayram.admin` | The operator panel: a FastAPI JSON API (third process, `make admin`) plus the React/Vite console in `admin-ui/`. Read-only in this build. Holds no vendor credential and sends nothing to Telegram — every action that needs one is an ARQ job. |
+| `bayram.admin` | The operator panel: a FastAPI JSON API (third process, `make admin`) plus the React/Vite console in `admin-dashboard/`. Read-only in this build. Holds no vendor credential and sends nothing to Telegram — every action that needs one is an ARQ job. |
 | `bayram.runtime` | **The composition root.** Builds real or fake vendors from config, owns the container, the queue seam and the job that generates *and delivers*. |
 
 ### Entry points
@@ -404,8 +392,7 @@ a `Protocol`. Only `bayram.runtime` knows which concrete vendor is behind which 
 | `make admin` | `bayram.admin.app` | The admin API on `127.0.0.1:8080`, behind uvicorn. Reads `.env.admin`; serves the console out of `src/bayram/admin/static/`. |
 | `make payme` | `bayram.payme.app` | The Payme gateway on `127.0.0.1:8091`, behind uvicorn. Reads `.env.payme`. Refuses to start unless `BAYRAM_PAYME_ENABLED=true`, which is not the default. |
 | `make admin-bootstrap u=<username>` | `bayram.admin.bootstrap` | The first OWNER account, and the way back from losing one (`args="--reset-owner"`). Prompts for the password; never takes one in `argv`. |
-| `make ui-install` / `make ui` / `make ui-build` | `admin-dashboard/` | Install the deployed console's Node dependencies; run its dev server on `:5174`; build it into the API's static directory. `make legacy-ui` / `make legacy-ui-build` are the same three for `admin-ui/`, which is deprecated. |
-| `make ui-e2e` / `make ui-e2e-install` | `admin-ui/`, `tests/e2e/` | The browser gate — Playwright against the built console and the real API under the production CSP, plus the font-coverage check; and the one-off Chromium download it needs. Not part of `make check`, and **not runnable today**: both recipes call scripts only `admin-ui/` declares while `$(UI)` is `admin-dashboard/`. |
+| `make ui-install` / `make ui` / `make ui-build` | `admin-dashboard/` | Install the console's Node dependencies; run its dev server on `:5174`; build it into the API's static directory. It is the only Node package in the tree. |
 
 The one flag that changes everything is `BAYRAM_USE_FAKE_PROVIDERS`. It is **all-or-nothing**
 by design — a half-fake run spends money on a result nobody can trust — and it is refused

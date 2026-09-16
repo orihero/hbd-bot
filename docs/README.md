@@ -155,8 +155,9 @@ all-or-nothing operation with its own rollback.
 
 `admin-panel-mockup.html`, `dashboard-mockup.html`, `dashboard-mockup-full.html`. Open them
 in a browser; nothing builds or serves them. The real console is `admin-dashboard/`, which is
-what `make ui-build` builds and what the FastAPI app serves; `admin-ui/` is the deprecated
-predecessor and receives no new features (`DECISIONS.md` **D15**).
+what `make ui-build` builds and what the FastAPI app serves. It is now the only console in the
+tree: `admin-ui/`, the deprecated predecessor, was removed on 2026-09-16 (`DECISIONS.md`
+**D15**, and the amendment beneath it).
 
 ## Citing a document from code
 

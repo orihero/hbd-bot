@@ -17,8 +17,8 @@
 *.pem
 *.key
 
-# Node — the ROOT node_modules too, not only the SPAs'. A vitest cache file under it
-# reached `git add -A` because only `admin-ui/node_modules/` was listed below.
+# Node — the ROOT node_modules too, not only the SPA's. A vitest cache file under it
+# reached `git add -A` back when only one package's `node_modules/` was listed below.
 node_modules/
 
 # Multi-agent tooling scratch: per-run auditor/challenger transcripts, 1.4 MB and growing,
@@ -59,19 +59,9 @@ coverage.xml
 
 # Admin panel — the SPA's build output is a build artefact, not source. The API serves
 # src/bayram/admin/static/, which `npm run build` writes; committing it would let the served
-# bundle drift from admin-ui/ with nothing to notice.
-admin-ui/node_modules/
-admin-ui/dist/
+# bundle drift from admin-dashboard/ with nothing to notice.
 src/bayram/admin/static/
-admin-ui/coverage/
-
-# The browser gate (make ui-e2e). `.manifest.json` is written by the harness at boot and
-# carries that run's seeded ids and its throwaway credentials; the report directories are
-# Playwright's own output.
-admin-ui/e2e/.manifest.json
-admin-ui/test-results/
-admin-ui/playwright-report/
-admin-ui/blob-report/
+admin-dashboard/coverage/
 
 # Editors / OS
 .idea/

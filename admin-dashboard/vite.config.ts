@@ -25,7 +25,8 @@ export default defineConfig({
     sourcemap: true,
   },
   server: {
-    // 5174 so this can run beside admin-ui's 5173 without either stealing the other's port.
+    // 5174, chosen when this ran beside the legacy console on 5173. That console was removed
+    // on 2026-09-16; the port is kept because .env.admin files and docs name it.
     port: 5174,
     strictPort: true,
     proxy: Object.fromEntries(

@@ -110,7 +110,7 @@ sudoedit /etc/bayram/admin.env    # BAYRAM_ENVIRONMENT=prod, BAYRAM_ADMIN_ENABLE
 
 # 5. schema, console bundle, first operator
 sudo -u bayram BAYRAM_ENV_FILE=/etc/bayram/bot.env sh -c 'cd /srv/bayram && .venv/bin/python -m alembic -c migrations/alembic.ini upgrade head'
-sudo -u bayram sh -c 'cd /srv/bayram/admin-ui && npm ci && npm run build'
+sudo -u bayram sh -c 'cd /srv/bayram/admin-dashboard && npm ci && npm run build'
 sudo -u bayram BAYRAM_ADMIN_ENV_FILE=/etc/bayram/admin.env sh -c 'cd /srv/bayram && .venv/bin/python -m bayram.admin.bootstrap --username owner'
 
 # 6. the services
@@ -127,7 +127,7 @@ worker have no field for it and never see it.
 
 ```bash
 sudo -u bayram sh -c 'cd /srv/bayram && git pull && .venv/bin/uv pip install --python .venv/bin/python -e .'
-sudo -u bayram sh -c 'cd /srv/bayram/admin-ui && npm ci && npm run build'   # ALWAYS — see below
+sudo -u bayram sh -c 'cd /srv/bayram/admin-dashboard && npm ci && npm run build'   # ALWAYS — see below
 sudo -u bayram BAYRAM_ENV_FILE=/etc/bayram/bot.env sh -c 'cd /srv/bayram && .venv/bin/python -m alembic -c migrations/alembic.ini upgrade head'
 sudo systemctl restart bayram-bot bayram-worker bayram-admin
 ```

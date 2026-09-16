@@ -15,7 +15,7 @@ compensation. With no nonce on it the policy blocks it, the operator's backgroun
 scrolling under an open confirm dialog, and the only signal is a console violation nobody is
 watching.
 
-**The shape.** ``admin-ui/index.html`` ships a meta element whose ``content`` is the literal
+**The shape.** ``admin-dashboard/index.html`` ships a meta element whose ``content`` is the literal
 :data:`CSP_NONCE_PLACEHOLDER`; this module swaps that token for the response's nonce as the
 shell is served. The shell is already ``no-store`` (it is deliberately outside
 ``IMMUTABLE_PATH_PREFIX`` — it is the one filename that never changes), so a per-response
@@ -48,7 +48,7 @@ __all__ = [
 
 _LOGGER: Final = get_logger(__name__)
 
-#: The token ``admin-ui/index.html`` carries and this module replaces. Chosen to be
+#: The token ``admin-dashboard/index.html`` carries and this module replaces. Chosen to be
 #: impossible to type by accident and trivially greppable across both languages;
 #: ``tests/test_admin/test_spa_nonce.py`` asserts the checked-in HTML still contains it, so
 #: renaming it on one side alone fails the suite rather than a browser.

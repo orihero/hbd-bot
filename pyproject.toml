@@ -82,10 +82,10 @@ packages = ["src/bayram"]
 # skips gitignored paths, so without this line the wheel ships an API with no UI and the
 # failure appears only in production, as a 404 on every browser URL.
 #
-# `admin-ui/` itself is deliberately NOT packaged: node_modules inside `src/bayram` would break
-# mypy's `files = ["src","tests"]` walk and ruff's `src` setting, which is why Node lives
+# `admin-dashboard/` itself is deliberately NOT packaged: node_modules inside `src/bayram` would
+# break mypy's `files = ["src","tests"]` walk and ruff's `src` setting, which is why Node lives
 # outside `src/` in the first place (plan §11.1). Written to by
-# `admin-ui/vite.config.ts`'s `build.outDir`; changing one means changing both.
+# `admin-dashboard/vite.config.ts`'s `build.outDir`; changing one means changing both.
 artifacts = ["src/bayram/admin/static/**"]
 
 # ---------------------------------------------------------------------------

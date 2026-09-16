@@ -26,7 +26,7 @@ with no plaintext in it.
 second only on failure.** §9.1 classes a reveal as an external action and prescribes an
 INTENT row before it and an OUTCOME row after. §12.3 and Phase 2's acceptance both say "the
 audit row" (singular) and put ``record_count`` on it — and the panel sums ``recordCount``
-across rows (``admin-ui/src/features/audit/auditQuery.ts``), so a second row repeating it
+across rows (``admin-dashboard/src/features/audit/auditFormat.ts``), so a second row repeating it
 would double every reveal on the one chart §12.3 built the budget to feed. The reconciliation
 here: the row committed before the read *is* §9.1's INTENT row and carries the charge; the
 OUTCOME row is written only when the read failed, carries ``outcome=ERROR`` and the error
