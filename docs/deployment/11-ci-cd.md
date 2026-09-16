@@ -286,8 +286,21 @@ about **this repository** that nothing else had surfaced:
   itself on every deploy and **`rollback` would reinstall the wheel it was backing out of, and
   report success.** Worked around by keying the store on the manifest's release string
   (`/opt/bayram/wheels/<release>/`). **The real fix is a version derived from the git tag
-  (`hatch-vcs`), and it is not done** — until it is, `pip show bayram-bot` cannot tell you what
-  is deployed and only `state.json` knows.
+  (`hatch-vcs`). **DONE 2026-09-16**, in the same branch: `pyproject.toml` now declares
+  `dynamic = ["version"]` with `[tool.hatch.version] source = "vcs"`, so the version comes off
+  the git tag and an untagged build is `0.0.1.devN+g<sha>` — unique per commit, honest about
+  being untagged. `fallback_version = "0.0.0"` is load-bearing: this repository has **no tags
+  at all** yet, and without it every checkout that cannot see one fails at build time.
+
+  Two consequences worth knowing. `uv.lock` records the project's own version, so it had to be
+  regenerated — `uv sync --locked` caught that immediately, which is the drift that step exists
+  for. And ci.yml's python job now clones with `fetch-depth: 0`, because `uv sync` builds the
+  project and a shallow clone leaves setuptools_scm unable to describe.
+
+  The evidence this hurt already is in `dist/`: the wheels there carry hand-stamped build tags
+  (`0.1.0-20260914d`, `-20260915`, `-20260915b`) because somebody needed to tell two builds
+  apart and the version could not. The per-release wheel-store directory in `bayram-release`
+  stays regardless — it costs nothing and makes the store readable.
 * **`do_verify` imported `bayram.worker`**, whose module scope runs `_SETTINGS = _settings()`
   and therefore needs the env file — which this script deliberately scopes to the alembic call
   alone. Every deploy would have exited 4 *after* installing the wheel and restarting the

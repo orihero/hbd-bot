@@ -53,6 +53,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          # FULL HISTORY, because `uv sync` builds this project and the version is derived
+          # from git by hatch-vcs (pyproject's [tool.hatch.version] source = "vcs"). A shallow
+          # clone leaves setuptools_scm unable to describe, and while `fallback_version` keeps
+          # that from failing the build, it makes every CI wheel 0.0.0 and the warning noise.
+          # The repo is small; the clone costs seconds.
+          fetch-depth: 0
 
       # REQUIRED BY THE UNIT SUITE, not only by the integration one. `tests/test_runtime/
       # test_entrypoints.py` calls `main_module.run(...)`, which reaches

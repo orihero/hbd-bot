@@ -1,10 +1,19 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.25", "hatch-vcs>=0.4"]
 build-backend = "hatchling.build"
 
 [project]
 name = "bayram-bot"
-version = "0.1.0"
+# DERIVED FROM THE GIT TAG, not written here. It was a static "0.1.0" until 2026-09-16, which
+# meant every wheel ever built was named `bayram_bot-0.1.0-py3-none-any.whl` — so `pip show`
+# could not tell you which build was deployed, and a release store keyed on that filename
+# would overwrite itself every time. The workaround in `dist/` tells the story: wheels there
+# carry hand-stamped build tags (`0.1.0-20260914d`, `-20260915`, `-20260915b`) because
+# somebody needed to tell two builds apart and the version could not.
+#
+# `deploy/bayram-release`'s rollback depends on being able to name a previous artefact, so
+# this is a correctness fix and not bookkeeping.
+dynamic = ["version"]
 description = "Bayram — Tabriklar, Qoʻshiqlar: a Telegram celebration-kit bot for the Uzbekistan market — one AI song, three spoken greetings, a lyric sheet, and the recipient's name pronounced correctly."
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
@@ -74,6 +83,17 @@ dev = [
     "types-redis>=4.6",
     "aiosqlite>=0.20,<1",
 ]
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+# THE FALLBACK IS LOAD-BEARING, because this repository has NO TAGS YET and CI clones shallow
+# for the gate. Without it, `uv sync` fails at build time with "unable to detect version" on
+# any checkout that cannot see a tag — which would be every CI run until the first release is
+# cut. With it, an untagged build is 0.0.0.devN+g<sha>: honest about being untagged, and still
+# unique per commit.
+fallback_version = "0.0.0"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/bayram"]
