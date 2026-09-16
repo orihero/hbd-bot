@@ -61,7 +61,7 @@ from uuid import UUID
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
-from aiogram.types import FSInputFile
+from aiogram.types import FSInputFile, Message
 
 from bayram.bot.i18n import escape_html, translate
 from bayram.bot.keyboards import post_delivery_keyboard
@@ -279,6 +279,16 @@ class _Outbox:
     #: refused asset out of five is enough, and the four that were never attempted say
     #: nothing to the contrary.
     is_blocked_by_customer: bool = False
+    #: The ``file_id`` Telegram minted for the SONG, observed on the ``sendAudio`` response
+    #: and carried back up for ``bayram.runtime.jobs`` to store on ``assets.tg_file_id``
+    #: (SoW FIL-4). The second fact this class exists to carry, and it travels the same way
+    #: the first one does: this module reports it, the worker writes it down.
+    #:
+    #: Only the song. ``sendVoice`` mints one per greeting and ``sendAudio``'s ``thumbnail``
+    #: mints a DOWNSCALED id that is not a handle to the cover we rendered, so neither is
+    #: recorded here — a column that sometimes holds a handle to the wrong bytes is worse
+    #: than one that is null.
+    song_file_id: str | None = None
 
     def is_sent(self, key: str) -> bool:
         return self.ledger.is_sent(self.order_id, key)
@@ -300,8 +310,17 @@ async def deliver_kit(
     language: Language,
     gaps: Sequence[PipelineGap] = (),
     ledger: DeliveryLedger | None = None,
-) -> Result[None]:
+) -> Result[str | None]:
     """Send song, greetings, lyric sheet and the closing message. Never raises.
+
+    The success value is the song's Telegram ``file_id`` — the handle SoW FIL-4 wants on
+    ``assets.tg_file_id`` so a re-send costs zero bytes — or ``None`` when the song was
+    skipped as already-sent by the ledger, or arrived without one. ``Result[None]`` widened
+    to ``Result[str | None]`` rather than growing an outcome object: every existing caller
+    branches on ``Err`` alone and keeps working unchanged.
+
+    It is NOT a receipt that anything was stored. This module stores nothing; it reports the
+    handle and ``bayram.runtime.jobs`` writes it down, exactly as it does for a blocked customer.
 
     Anything ``ledger`` says already landed is skipped, so a retried job fills the holes
     the first pass left instead of sending the kit twice.
@@ -364,7 +383,7 @@ async def deliver_kit(
             "redelivery completed the parts that were still missing",
             extra={"order_id": str(kit.order_id), "already_delivered": already_sent},
         )
-    return ok(None)
+    return ok(outbox.song_file_id)
 
 
 async def _send_song(
@@ -412,19 +431,30 @@ async def _send_song(
     if missing is not None:
         return (missing,)
     branding = _song_branding(kit)
-    failure = await _send_song_once(bot, chat_id=chat_id, kit=kit, caption=caption, extra=branding)
-    if isinstance(failure, TelegramBadRequest):
+    sent = await _send_song_once(bot, chat_id=chat_id, kit=kit, caption=caption, extra=branding)
+    if isinstance(sent, TelegramBadRequest):
         _LOG.warning(
             "Telegram rejected the branded song with a 400; retrying without the branding",
             extra={
                 "order_id": str(kit.order_id),
                 "branding": sorted(branding),
-                "failure": repr(failure),
+                "failure": repr(sent),
             },
         )
-        failure = await _send_song_once(bot, chat_id=chat_id, kit=kit, caption=caption, extra={})
-    if failure is not None:
-        return (_log_failure("song", kit, failure, out=out),)
+        sent = await _send_song_once(bot, chat_id=chat_id, kit=kit, caption=caption, extra={})
+    if isinstance(sent, TelegramAPIError):
+        return (_log_failure("song", kit, sent, out=out),)
+    # Observed here and stored by nobody in this module. ``sent.audio`` is optional on the
+    # aiogram type and a test double may answer a bare Message, so this reads defensively:
+    # a missing handle is a null column, never an exception on a song that DID arrive.
+    audio = sent.audio
+    if audio is not None:
+        out.song_file_id = audio.file_id
+    else:
+        _LOG.warning(
+            "sendAudio returned a message with no audio; no file_id to record",
+            extra={"order_id": str(kit.order_id)},
+        )
     out.mark(key)
     return ()
 
@@ -461,15 +491,21 @@ def _song_branding(kit: Kit) -> dict[str, Any]:
 
 async def _send_song_once(
     bot: Bot, *, chat_id: int, kit: Kit, caption: str, extra: Mapping[str, Any]
-) -> TelegramAPIError | None:
+) -> Message | TelegramAPIError:
     """One ``sendAudio`` attempt, returning the rejection instead of raising it.
 
     Split out so the branded attempt and the plain retry are literally the same call with a
     different ``extra``, and so the retry is not a second ``try`` nested inside an ``except``
     where the original exception is still in scope and easy to log by accident.
+
+    Returns the ``Message`` rather than ``None`` because that object is the ONLY place the
+    ``file_id`` Telegram minted for these bytes ever appears, and it was previously dropped
+    on the floor. The caller distinguishes the two outcomes by type, which is why this
+    returns a union rather than a tuple: there is no success that has no message, and no
+    failure that has one.
     """
     try:
-        await bot.send_audio(
+        return await bot.send_audio(
             chat_id=chat_id,
             audio=FSInputFile(kit.song.path),
             caption=caption,
@@ -479,7 +515,6 @@ async def _send_song_once(
         )
     except TelegramAPIError as exc:
         return exc
-    return None
 
 
 async def _send_greetings(

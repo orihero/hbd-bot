@@ -20,6 +20,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.methods import EditMessageText, SendMessage
+from aiogram.types import Audio, Chat, Message
 
 from bayram.bot import i18n
 from bayram.bot.app import build_dispatcher
@@ -37,6 +38,7 @@ from bayram.pipeline.outcome import PipelineGap
 from tests.conftest import make_asset
 from tests.test_bot.conftest import (
     CHAT_ID,
+    FIXED_MOMENT,
     FakeProfiles,
     RecordingContentWriter,
     RecordingSession,
@@ -283,3 +285,55 @@ async def test_the_wizard_survives_a_second_run_in_the_same_chat(
 
     # Assert — one order queued, and the second wizard is running cleanly
     assert len(submitter.submitted) == 1
+
+
+# ---------------------------------------------------------------------------
+# SoW FIL-4: the song's Telegram handle, which was minted on every delivery and
+# dropped on the floor until `_send_song` started reading it off the response.
+# ---------------------------------------------------------------------------
+
+
+async def test_the_song_file_id_is_captured_from_the_send_response(
+    bot: Bot, session: RecordingSession, kit: Kit
+) -> None:
+    """A delivered song reports the ``file_id`` Telegram minted for it.
+
+    The whole point of the column (SoW FIL-4) is that a re-send costs zero bytes, which is
+    only true if the handle was kept. ``deliver_kit`` answering ``ok(None)`` on a successful
+    send is precisely the bug: it looks identical to success and silently costs a re-upload.
+    """
+    # Arrange: a Telegram that answers sendAudio like the real one does — with the audio.
+    session.responses["SendAudio"] = Message(
+        message_id=4242,
+        date=FIXED_MOMENT,
+        chat=Chat(id=CHAT_ID, type="private"),
+        audio=Audio(
+            file_id="AwACAgIAAxkBAAI-the-handle",
+            file_unique_id="AgAD-unique",
+            duration=int(kit.song.duration_s),
+        ),
+    )
+
+    # Act
+    result = await deliver_kit(bot, chat_id=CHAT_ID, kit=kit, language=Language.EN)
+
+    # Assert
+    assert not isinstance(result, Err)
+    assert result.value == "AwACAgIAAxkBAAI-the-handle"
+
+
+async def test_a_song_sent_without_an_audio_payload_yields_no_handle(
+    bot: Bot, session: RecordingSession, kit: Kit
+) -> None:
+    """A response carrying no ``audio`` is a null column, never an exception.
+
+    The song reached the customer; only the handle is missing. Raising here would fail a
+    job that succeeded, and the default ``RecordingSession`` answers exactly this shape —
+    so this is also what keeps every other delivery test in this file honest.
+    """
+    # Act — the default canned Message has no `audio`.
+    result = await deliver_kit(bot, chat_id=CHAT_ID, kit=kit, language=Language.EN)
+
+    # Assert
+    assert not isinstance(result, Err)
+    assert result.value is None

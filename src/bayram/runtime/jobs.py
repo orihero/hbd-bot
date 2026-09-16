@@ -99,6 +99,7 @@ from aiogram.fsm.storage.base import BaseStorage, StorageKey
 from arq.connections import RedisSettings
 from arq.cron import cron
 from arq.worker import Retry, func
+from sqlalchemy.exc import SQLAlchemyError
 
 from bayram.bot.delivery import BLOCKED_BY_CUSTOMER_KEY, deliver_kit
 from bayram.bot.handlers.submitting import ORDER_ID_KEY
@@ -107,6 +108,7 @@ from bayram.bot.keyboards import start_over_keyboard
 from bayram.bot.progress import TelegramProgressSink
 from bayram.config import Settings
 from bayram.contracts import BotBlockSource, Err, Order, is_ok
+from bayram.db.repository import record_song_file_id
 from bayram.entitlements import SettlementOutcome
 from bayram.errors import BayramError, PipelineError
 from bayram.logging import correlation_scope, get_logger
@@ -500,6 +502,40 @@ async def _release_session(
     )
 
 
+async def _record_file_id(
+    container: AppContainer, *, order_id: UUID, file_id: str | None
+) -> None:
+    """Store the song's Telegram handle, and never let that failure cost a delivered kit.
+
+    ``deliver_kit`` reports the handle; this writes it down — the same division of labour
+    the blocked-customer flag already uses. It runs only on the success path, because a
+    handle is minted only by a send that landed.
+
+    Every failure here is swallowed to a log line. The kit is ALREADY in the customer's
+    chat by the time this runs, so raising would fail a job that succeeded, and the worst
+    case of not writing it is a null column that costs a future re-send some bandwidth —
+    which is exactly the state every row has been in since the column was created.
+    """
+    if file_id is None:
+        return
+    try:
+        updated = await record_song_file_id(
+            container.require_session_factory(), order_id=order_id, file_id=file_id
+        )
+    except SQLAlchemyError:
+        _LOG.warning(
+            "could not record the song's telegram file_id; the kit was delivered anyway",
+            extra={"order_id": str(order_id)},
+            exc_info=True,
+        )
+        return
+    if updated == 0:
+        _LOG.info(
+            "no song asset row to carry the telegram file_id",
+            extra={"order_id": str(order_id)},
+        )
+
+
 async def _send_kit(
     bot: Bot,
     order: Order,
@@ -539,6 +575,7 @@ async def _send_kit(
         gaps=result.gaps,
     )
     if not isinstance(delivered, Err):
+        await _record_file_id(container, order_id=result.kit.order_id, file_id=delivered.value)
         await reporter.emit(PipelineStage.DELIVERING, ProgressStatus.SUCCEEDED, now=_utc_now())
         return True
     # The kit exists and is persisted; only the send failed. Retryable failures get

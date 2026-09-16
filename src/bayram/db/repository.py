@@ -36,6 +36,7 @@ from bayram.contracts import (
 )
 from bayram.db.attempts import name_verdicts_from_rows, verdict_row_values
 from bayram.db.base import utc_now
+from bayram.db.credit_sql import rowcount_of
 from bayram.db.enums import GenerationKind
 from bayram.db.guard import not_found, run_guarded
 from bayram.db.mapping import (
@@ -55,7 +56,7 @@ from bayram.db.retention import DEFAULT_RETENTION_POLICY, RetentionClass, Retent
 from bayram.db.users_sql import ensure_user
 from bayram.storage import archive_key
 
-__all__ = ["SqlKitRepository", "MAX_ORDER_HISTORY"]
+__all__ = ["SqlKitRepository", "MAX_ORDER_HISTORY", "record_song_file_id"]
 
 #: Hard ceiling on ``list_orders_for_user`` regardless of what the caller asks for.
 #: An unbounded query against a user's history is exactly the shape that takes a
@@ -476,3 +477,43 @@ def _build_kit(
         cover=to_generated_asset(cover_rows[0]) if cover_rows else None,
         name_verdicts=name_verdicts_from_rows(verdict_rows),
     )
+
+
+async def record_song_file_id(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    order_id: UUID,
+    file_id: str,
+) -> int:
+    """Stamp the song's Telegram handle on its asset row. Returns the rows updated.
+
+    SoW FIL-4 declared ``assets.tg_file_id`` as the cost control — "reusing it makes a
+    re-send cost zero bytes" — and until now NOTHING in ``src/`` ever wrote it:
+    ``bot.delivery`` sent the audio and dropped the ``Message`` that carries the handle, so
+    the column read NULL on every row ever written and every re-send re-uploaded megabytes
+    that Telegram was already holding.
+
+    Scoped to ``AssetKind.SONG`` because that is the only asset whose handle this system
+    observes. ``sendVoice`` mints one per greeting and the song's ``thumbnail`` mints a
+    downscaled id that does NOT address the cover we rendered, so writing either here would
+    put a handle to the wrong bytes in a column whose whole value is that it addresses the
+    right ones.
+
+    Idempotent, and deliberately last-write-wins: a redelivery sends the song again, mints a
+    NEWER handle, and the newer one is the one worth keeping — an older file_id is the more
+    likely of the two to have been invalidated. A kit whose row was already purged updates
+    nothing and returns 0; that is not an error, it is a song that outlived its retention
+    clock, and the caller logs the count rather than raising on it.
+
+    **This is a handle, never a copy.** The bytes stay archived under ``archive_key``, on
+    the FIL-7 clock, deletable by ``db.purge``. Telegram cannot be asked to delete a file,
+    so a handle is a convenience for re-sending what we still hold — it is not a substitute
+    for holding it, and must never be treated as one.
+    """
+    async with session_factory() as session, session.begin():
+        result = await session.execute(
+            sa.update(AssetRow)
+            .where(AssetRow.order_id == order_id, AssetRow.kind == AssetKind.SONG)
+            .values(tg_file_id=file_id)
+        )
+    return rowcount_of(result)
