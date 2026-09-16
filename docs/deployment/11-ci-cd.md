@@ -356,7 +356,50 @@ about **this repository** that nothing else had surfaced:
 4. **Decide the off-box backup.** The timer fixes "no backup exists". A dump on the same disk
    as the database is not protection against losing that disk, and this host has one disk.
 
-## 4. What this page does not cover
+## 4. The health signal — smaller than it looked
+
+This page previously said `/healthz` "returns a constant `ok` to any unauthenticated caller",
+and used that to argue automatic rollback has no signal to read. **The first half was wrong**,
+and it was wrong because nobody had opened the file.
+
+What is actually there, in both `admin` and `payme`:
+
+* **`/healthz` is liveness** — a bare 200 with an **empty body**, touching neither Postgres nor
+  Redis. That is the correct design and the docstring says why: an orchestrator restarts a
+  container whose liveness probe fails, so a liveness probe that depends on the database turns
+  a database blip into a restart loop across every replica at once.
+* **`/readyz` is readiness** — a constant word to an unauthenticated caller, *and it pings
+  nothing*, so it cannot be used to load the database either. The detail
+  (`database`, `redis`, `configVersion`) needs a session or an `X-Probe-Token` compared under
+  `compare_digest`. That is §6.3, deliberate: an unauthenticated detailed body is fleet
+  telemetry for anyone who can reach the port.
+
+Verified live on 2026-09-16 against the running admin API: `/healthz` → 200, 0 bytes;
+`/readyz` → `{"status":"ok"}`.
+
+So the work was not to build a health check. It was to **use** the one that exists:
+
+* `bayram-release` made **no HTTP request at all**. Its `verify` imported modules and asserted
+  `alembic current` — both of which describe the filesystem, not the four processes now
+  running. A unit can be `active` while uvicorn is still starting, while a router failed to
+  mount, or while a lazily-read dependency is unreachable. `do_readiness_probe` now does one
+  loopback GET per HTTP process (`:8080`, `:8091`) after the restart.
+* It is **not fatal by default**, deliberately: it runs after the fleet is already restarted,
+  and turning a slow-starting uvicorn into a failed release would make this less reliable than
+  what it replaces. A no-answer is reported loudly; an explicit `"status":"degraded"` **is**
+  fatal, because that is the process itself saying a backing service is down.
+* **`BAYRAM_ADMIN_PROBE_TOKEN` is empty** (`settings.py:453` defaults to `""`,
+  `.env.admin.example:343` ships blank). Empty authorises nobody, so no monitor can read
+  detailed readiness today — the capability exists and is switched off. Until it is set, the
+  probe proves reachability only, which is still more than `is-active` can tell you.
+
+One bug worth recording, found by running the probe against a dead port rather than by reading
+it: **curl reports `000` when it never received an HTTP response at all** — connection refused,
+or the timeout hit. The first version treated only an empty string as "no answer", so a refused
+connection fell through to the generic branch and told the operator the process "answered with
+HTTP 000", which is exactly backwards.
+
+## 5. What this page does not cover
 
 The release runbook itself is [`04-release.md`](04-release.md), whose STATUS header records
 that its §2, §3 and §5 cannot be run on this host. Nothing here supersedes it; this page is

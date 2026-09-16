@@ -100,6 +100,19 @@ UNITS=(bayram-admin bayram-bot bayram-worker bayram-payme)
 # `sleep 4` is what deploy-d17.sh:82 and deploy-support.sh:114 wait before is-active. Kept.
 SETTLE=4
 
+# The two HTTP processes and their loopback readiness endpoints (01-architecture.md:115-116).
+# Both bind 127.0.0.1 only; nothing here is reachable from off the box.
+READY_PROBES=("bayram-admin|http://127.0.0.1:8080/readyz" "bayram-payme|http://127.0.0.1:8091/readyz")
+
+# `/readyz` answers a CONSTANT word to an unauthenticated caller and pings nothing — that is
+# deliberate (admin/routers/health.py, §6.3): an unauthenticated detailed body is fleet
+# telemetry for anyone who can reach the port. The detail needs a session or this header,
+# compared with `compare_digest` against `admin_probe_token`. Where the token is unset — which
+# is the default, `BAYRAM_ADMIN_PROBE_TOKEN=` ships empty in .env.admin.example — the probe
+# below still proves the process answers HTTP at all, which is the thing `systemctl is-active`
+# cannot tell you.
+PROBE_TOKEN_HEADER='X-Probe-Token'
+
 RESTORE_PHRASE='RESTORE THE DATABASE AND LOSE DATA'
 
 STAMP="$(date -u +%Y%m%d-%H%M%S)"
@@ -993,6 +1006,82 @@ PY
     systemctl is-active "$unit"
     say "  $unit active"
   done
+
+  do_readiness_probe
+}
+
+# WHY THIS EXISTS, given everything above already passed. `systemctl is-active` says the
+# process has not exited. It does NOT say the process can serve: a unit can be active while
+# uvicorn is still starting, while a router failed to mount, or while a dependency it reads
+# lazily is unreachable. The imports above ran in a SEPARATE interpreter against the installed
+# files — they prove the code on disk loads, not that the four processes now running loaded it.
+# One loopback GET per HTTP process closes that gap and costs milliseconds.
+#
+# NOT FATAL BY DEFAULT, and that is a judgement worth stating. This runs AFTER the fleet has
+# been restarted and the deploy is otherwise complete; turning a slow-starting uvicorn into a
+# failed release would make the release less reliable than the thing it replaced. A probe that
+# does not answer is reported loudly and sets a flag the summary repeats. A probe that answers
+# with an explicit `"status":"degraded"` IS fatal, because that is the process telling us
+# something it depends on is down.
+do_readiness_probe() {
+  local entry unit url code body token=""
+  local degraded=no
+
+  if ! command -v curl >/dev/null 2>&1; then
+    warn "curl is not installed; skipping the readiness probe (the units are active)."
+    return 0
+  fi
+
+  # Read the token out of the admin env file in a SUBSHELL, so the rest of this script does not
+  # inherit the file's other contents — it holds the bot token and four vendor credentials.
+  if [ -r "$ENVFILE" ]; then
+    token="$( set -a; . "$ENVFILE" 2>/dev/null; set +a; printf '%s' "${BAYRAM_ADMIN_PROBE_TOKEN:-}" )" || token=""
+  fi
+  [ -n "$token" ] || say "  (no BAYRAM_ADMIN_PROBE_TOKEN set — probing for reachability only)"
+
+  for entry in "${READY_PROBES[@]}"; do
+    unit="${entry%%|*}"
+    url="${entry#*|}"
+    # --max-time bounds a hung socket; -s -o keeps the body out of the log except where we
+    # deliberately read it. The token goes in a header, never in the URL, so it cannot land in
+    # an access log.
+    if [ -n "$token" ]; then
+      body="$(curl -s --max-time 10 -H "$PROBE_TOKEN_HEADER: $token" -w '\n%{http_code}' "$url" 2>/dev/null || true)"
+    else
+      body="$(curl -s --max-time 10 -w '\n%{http_code}' "$url" 2>/dev/null || true)"
+    fi
+    code="${body##*$'\n'}"
+    body="${body%$'\n'*}"
+
+    case "$code" in
+      200)
+        if printf '%s' "$body" | grep -q '"status"[[:space:]]*:[[:space:]]*"degraded"'; then
+          say "  $unit readyz: DEGRADED — $body"
+          degraded=yes
+        else
+          say "  $unit readyz: 200"
+        fi
+        ;;
+      ""|000)
+        # curl reports 000 when it never got an HTTP response at all — connection refused,
+        # DNS failure, or the --max-time bound hit. Found by running this against a port with
+        # nothing behind it: the `*` branch below caught it first and told the operator the
+        # process "answered with HTTP 000", which is exactly backwards. It did not answer.
+        warn "$unit did not answer $url within 10s. The unit is active, so it is running —"
+        warn "  but it is not serving. Check: journalctl -u $unit -n 50 --no-pager"
+        ;;
+      *)
+        warn "$unit answered $url with HTTP $code. Active but not ready."
+        warn "  Check: journalctl -u $unit -n 50 --no-pager"
+        ;;
+    esac
+  done
+
+  if [ "$degraded" = "yes" ]; then
+    fail_verify "a process reported status=degraded: it is running and telling us a backing
+service it needs is down. This is the process's own answer, not an inference — read the body
+above, then check postgres and redis before treating the release as landed."
+  fi
 }
 
 # ============================================================================================
