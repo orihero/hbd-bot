@@ -1,0 +1,96 @@
+# GET /v1/speech-to-text/{task_id}
+# Get transcription
+
+method: GET
+path: /v1/speech-to-text/{task_id}
+group: Speech to text
+title: Get transcription
+description: |
+  Poll a transcription submitted with `POST /v1/speech-to-text`.
+
+  Poll until `status` is `completed` or `failed`. Two seconds between polls is a
+  sensible interval. On `completed`, `result` holds the transcript; on `failed`,
+  `detail_error` explains why and the credits have already been refunded in full.
+order: 2
+
+auth:
+  type: xi-api-key
+  required: true
+
+path_parameters:
+  - name: task_id
+    type: string
+    required: true
+    description: The `task_id` returned when the audio was submitted.
+
+query_parameters: []
+request_body: null
+
+examples:
+  curl: |
+    curl "https://api.vibi.pro/v1/speech-to-text/{task_id}" \
+      -H "xi-api-key: YOUR_API_KEY"
+
+  javascript: |
+    // Poll until the transcript is ready.
+    let task;
+    do {
+      await new Promise(r => setTimeout(r, 2000));
+      const res = await fetch(`https://api.vibi.pro/v1/speech-to-text/${taskId}`, {
+        headers: { 'xi-api-key': 'YOUR_API_KEY' }
+      });
+      task = await res.json();
+    } while (task.status === 'pending' || task.status === 'processing');
+
+    if (task.status === 'failed') throw new Error(task.detail_error);
+    console.log(task.result.text);
+
+  python: |
+    import requests
+    import time
+
+    while True:
+        task = requests.get(
+            f'https://api.vibi.pro/v1/speech-to-text/{task_id}',
+            headers={'xi-api-key': 'YOUR_API_KEY'},
+        ).json()
+        if task['status'] in ('completed', 'failed'):
+            break
+        time.sleep(2)
+
+    if task['status'] == 'failed':
+        raise RuntimeError(task['detail_error'])
+    print(task['result']['text'])
+
+responses:
+  - status: 200
+    description: |
+      `status` is one of `pending`, `processing`, `completed`, `failed`.
+      `result` appears only once the transcription has completed, and matches
+      the response documented on the submit endpoint.
+    example: |
+      {
+        "task_id": "f534211b-b414-4697-bb58-a2a7a688a49f",
+        "status": "completed",
+        "progress": 100,
+        "filename": "recording.mp3",
+        "audio_duration_secs": 56.145875,
+        "credits_deducted": 17,
+        "created_at": "2026-09-07T13:50:48Z",
+        "updated_at": "2026-09-07T13:50:56Z",
+        "result": {
+          "language_code": "eng",
+          "language_probability": 1.0,
+          "text": "Good morning, everyone...",
+          "words": [
+            { "text": "Good", "start": 0.119, "end": 0.319, "type": "word", "logprob": -0.002 }
+          ],
+          "transcription_id": "UhPzPRMAP6TIfBfx8BHo",
+          "audio_duration_secs": 56.145875
+        }
+      }
+
+  - status: 404
+    description: No transcription with that id belongs to your account.
+    example: |
+      { "error": "task not found" }
