@@ -1,0 +1,2163 @@
+{
+ "paths": {
+  "/api/ops/pulse": {
+   "get": {
+    "tags": [
+     "dashboard"
+    ],
+    "summary": "Pulse",
+    "description": "The whole screen in one round trip, over the whole record.\n\nFour aggregates and the capability block, because the SPA cannot render any of the\nfirst four honestly without the fifth: a failure list with no cost column beside it\nreads as a missing feature rather than as an uninstrumented one.",
+    "operationId": "pulse_api_ops_pulse_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PulseView"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/ops/capabilities": {
+   "get": {
+    "tags": [
+     "dashboard"
+    ],
+    "summary": "Capabilities",
+    "description": "What this deployment can answer, probed rather than declared.\n\nIts own route as well as a block inside the pulse: the SPA needs it before it draws\nanything at all, and a panel that has to fetch every metric to learn which panels to\ndraw is one that renders a chart of zeros for a beat first.",
+    "operationId": "capabilities_api_ops_capabilities_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CapabilitiesView"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/metrics/dashboard/audience": {
+   "get": {
+    "tags": [
+     "dashboard"
+    ],
+    "summary": "Audience",
+    "description": "The Audience section: population, sign-ups, activity, and both kinds of block.\n\nFour aggregates, five statements. ``now`` is read once and handed to\n``active_accounts`` so the three nested cutoffs are all measured from one instant \u2014\ntwo clock reads could put an account inside the daily cutoff and outside the weekly.\n\n``churn`` is dropped to ``null`` rather than published as a pair of zeroes when\nnothing has ever been recorded: \"nobody blocked the bot\" and \"we have never watched\"\nare two different sentences.",
+    "operationId": "audience_api_metrics_dashboard_audience_get",
+    "parameters": [
+     {
+      "name": "from",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "From"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "To"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AudienceResponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/metrics/dashboard/finance": {
+   "get": {
+    "tags": [
+     "dashboard"
+    ],
+    "summary": "Finance",
+    "description": "The Finance section: what came in, what went out, and what is left at each vendor.\n\nRecorded revenue is the two receipts tables concatenated at the finest grain they\ncarry; the delivered \u00d7 price ESTIMATE is a separate field with its price attached and\nis never added to it. The delivered count is taken ONCE and used as both the\ncost-per-song denominator and the estimate's multiplicand, so the two cards cannot\ndisagree about how many songs shipped.\n\nThe run-rate pair is computed over its own fixed trailing window, which the response\nechoes. Balances are read from the cached table; this process makes no outbound call.",
+    "operationId": "finance_api_metrics_dashboard_finance_get",
+    "parameters": [
+     {
+      "name": "from",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "From"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "To"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FinanceResponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/metrics/dashboard/performance": {
+   "get": {
+    "tags": [
+     "dashboard"
+    ],
+    "summary": "Performance",
+    "description": "The Performance section: how fast, how reliably, where orders stand, and what is up.\n\nBoth the delivered count and the latency percentiles are windowed on ``delivered_at``,\nso the \"Songs delivered\" card and the \"Median song time\" card beside it are counted\nover ONE population. The created-at cohort is still published, unchanged, by the pulse\nand by ``/metrics/latency``.\n\nThe status strip is assembled from capabilities and cached balance rows and from\nnothing else \u2014 no HTTP client exists in this process.",
+    "operationId": "performance_api_metrics_dashboard_performance_get",
+    "parameters": [
+     {
+      "name": "from",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "From"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "To"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PerformanceResponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/metrics/dashboard/series": {
+   "get": {
+    "tags": [
+     "dashboard"
+    ],
+    "summary": "Series",
+    "description": "Every chart on the page in one request, at the grain the caller asked for.\n\nWEEK and MONTH are queried at DAY and folded in the serializer, so a monthly series\nsums exactly to the daily one it came from \u2014 which two independent SQL expressions\ncould not guarantee, and which neither dialect agrees on anyway.\n\nCounts are zero-filled across the requested range and money is not; ``isZeroFilled``\non the response says whether the fill happened at all, which it does only when the\nrequest supplied a lower bound.",
+    "operationId": "series_api_metrics_dashboard_series_get",
+    "parameters": [
+     {
+      "name": "from",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "From"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "To"
+      }
+     },
+     {
+      "name": "bucket",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "$ref": "#/components/schemas/SeriesBucket",
+       "default": "day"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/SeriesResponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/metrics/plans": {
+   "get": {
+    "tags": [
+     "dashboard"
+    ],
+    "summary": "Plans",
+    "description": "What the running plans owe. **No window** \u2014 liability is a state, not a flow.\n\n``now`` is read ONCE and threaded into both calls: a liability count and a\nutilisation histogram taken microseconds apart could disagree about a plan that ended\nbetween them, and the response echoes the single instant they were both computed at.",
+    "operationId": "plans_api_metrics_plans_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PlanLiabilityResponse"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "AbsenceReason": {
+    "type": "string",
+    "enum": [
+     "no_fx_rate",
+     "no_price_published",
+     "mixed_currencies",
+     "not_priced",
+     "no_denominator",
+     "not_instrumented"
+    ],
+    "title": "AbsenceReason",
+    "description": "Why a number this page would otherwise show is not there.\n\nA closed vocabulary rather than free text, so the SPA can render a specific remedy for\neach and so a new absence has to be named here before it can reach a screen. Every one\nof these is a state an operator can act on \u2014 configure a rate, publish a price, narrow a\nwindow, start the poller \u2014 which is the test a member has to pass to belong here."
+   },
+   "ActiveAccountsView": {
+    "properties": {
+     "day": {
+      "type": "integer",
+      "title": "Day"
+     },
+     "week": {
+      "type": "integer",
+      "title": "Week"
+     },
+     "month": {
+      "type": "integer",
+      "title": "Month"
+     },
+     "asOf": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Asof"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "day",
+     "week",
+     "month",
+     "asOf"
+    ],
+    "title": "ActiveAccountsView",
+    "description": "DAU / WAU / MAU, nested, as of one instant.\n\nEvery account in ``day`` is also in ``week`` and in ``month``: three cutoffs against one\ncolumn, not three disjoint buckets, so a stacked bar of these three would triple-count.\n``asOf`` travels with them because all three are measured backwards from it."
+   },
+   "AudienceResponse": {
+    "properties": {
+     "window": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/WindowView"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "totalAccounts": {
+      "$ref": "#/components/schemas/TrendView"
+     },
+     "newAccounts": {
+      "$ref": "#/components/schemas/TrendView"
+     },
+     "activeAccounts": {
+      "$ref": "#/components/schemas/ActiveAccountsView"
+     },
+     "blockedAccounts": {
+      "type": "integer",
+      "title": "Blockedaccounts"
+     },
+     "botBlockedAccounts": {
+      "type": "integer",
+      "title": "Botblockedaccounts"
+     },
+     "churn": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/ChurnView"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "isChurnInstrumented": {
+      "type": "boolean",
+      "title": "Ischurninstrumented"
+     },
+     "isActivityHistory": {
+      "type": "boolean",
+      "title": "Isactivityhistory"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "window",
+     "totalAccounts",
+     "newAccounts",
+     "activeAccounts",
+     "blockedAccounts",
+     "botBlockedAccounts",
+     "churn",
+     "isChurnInstrumented",
+     "isActivityHistory"
+    ],
+    "title": "AudienceResponse",
+    "description": "``GET /api/metrics/dashboard/audience`` \u2014 the five Audience cards in one round trip."
+   },
+   "BalanceEstimateBasis": {
+    "type": "string",
+    "enum": [
+     "trailing_spend_usd",
+     "trailing_tts_characters"
+    ],
+    "title": "BalanceEstimateBasis",
+    "description": "How a \"songs remaining\" estimate was arrived at \u2014 and therefore how far to trust it.\n\nThe same discipline :class:`CostSource` applies to a dollar figure, applied to a\ndivision. ``TRAILING_SPEND_USD`` divides a measured USD balance by measured USD spend\nper delivered song. ``TRAILING_TTS_CHARACTERS`` divides a character balance by the\ncharacters TTS billed us per delivered song \u2014 and its NAME carries the bias, because\nElevenLabs music renders draw on the same credit pool while writing ``audio_ms`` rather\nthan ``billed_characters``, so that divisor undercounts and the estimate is an UPPER\nBOUND. A tile that renders the number without the basis is rendering a guess as a fact,\nwhich is why ``ck_vendor_balances_estimate_carries_its_basis`` makes the two inseparable\nin the database rather than in a convention."
+   },
+   "BalanceUnit": {
+    "type": "string",
+    "enum": [
+     "usd",
+     "characters"
+    ],
+    "title": "BalanceUnit",
+    "description": "What a ``vendor_balances`` row's quantities are counted in.\n\nA balance with no unit is unreadable in the same way a cost with no\n:class:`CostSource` is: \"4 312 remaining\" is a fortune in dollars and an afternoon in\nElevenLabs characters, and the two vendors this system polls report in one each. It\nlives beside :class:`Vendor` rather than in ``bayram.db.enums`` for that class's stated\nreason \u2014 the probe that reads a vendor's own body is a provider-shaped module, and a\nprovider must never import ``bayram.db``."
+   },
+   "CapabilitiesView": {
+    "properties": {
+     "isCostTelemetry": {
+      "type": "boolean",
+      "title": "Iscosttelemetry"
+     },
+     "isLatencyTelemetry": {
+      "type": "boolean",
+      "title": "Islatencytelemetry"
+     },
+     "isAssetStorageKeyRecorded": {
+      "type": "boolean",
+      "title": "Isassetstoragekeyrecorded"
+     },
+     "isChatCapture": {
+      "type": "boolean",
+      "title": "Ischatcapture"
+     },
+     "isPaymentLedger": {
+      "type": "boolean",
+      "title": "Ispaymentledger"
+     },
+     "isStateTransitionLog": {
+      "type": "boolean",
+      "title": "Isstatetransitionlog"
+     },
+     "isVendorUsage": {
+      "type": "boolean",
+      "title": "Isvendorusage"
+     },
+     "isVendorCost": {
+      "type": "boolean",
+      "title": "Isvendorcost"
+     },
+     "isPlanRevenue": {
+      "type": "boolean",
+      "title": "Isplanrevenue"
+     },
+     "isTopupRevenue": {
+      "type": "boolean",
+      "title": "Istopuprevenue"
+     },
+     "isChurnInstrumented": {
+      "type": "boolean",
+      "title": "Ischurninstrumented"
+     },
+     "isVendorBalance": {
+      "type": "boolean",
+      "title": "Isvendorbalance"
+     },
+     "isActivityHistory": {
+      "type": "boolean",
+      "title": "Isactivityhistory"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "isCostTelemetry",
+     "isLatencyTelemetry",
+     "isAssetStorageKeyRecorded",
+     "isChatCapture",
+     "isPaymentLedger",
+     "isStateTransitionLog",
+     "isVendorUsage",
+     "isVendorCost",
+     "isPlanRevenue",
+     "isTopupRevenue",
+     "isChurnInstrumented",
+     "isVendorBalance",
+     "isActivityHistory"
+    ],
+    "title": "CapabilitiesView",
+    "description": "What this deployment can honestly answer. Measured from the schema and the rows.\n\nNamed one-to-one with :class:`~bayram.db.admin.views.ReadCapabilities`. A capability\nrenamed on the way to the wire is one that drifts from the probe that produces it, and\nthe SPA branches on these to decide whether to draw a panel or say \"not instrumented\"."
+   },
+   "ChurnView": {
+    "properties": {
+     "blocked": {
+      "$ref": "#/components/schemas/TrendView"
+     },
+     "unblocked": {
+      "$ref": "#/components/schemas/TrendView"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "blocked",
+     "unblocked"
+    ],
+    "title": "ChurnView",
+    "description": "Blocks and unblocks in the window. A FLOW; the gauge is ``botBlockedAccounts``.\n\nCounted from membership PASSAGES, so someone who left and came back inside one window is\nin both numbers. An unblock is recorded only when a previously blocked account returns \u2014\nthe writer refuses the ``left \u2192 member`` update Telegram sends on every first\n``/start`` \u2014 so a non-zero unblock count means real returns and never new arrivals."
+   },
+   "ComponentState": {
+    "type": "string",
+    "enum": [
+     "ok",
+     "degraded",
+     "not_probed"
+    ],
+    "title": "ComponentState",
+    "description": "One dot on the system-status strip.\n\n``NOT_PROBED`` is a third state and not a quiet ``OK``. A component with no writer has\ntold us nothing, and reporting silence as health is how a strip of green dots ends up\ndescribing a subsystem nobody instrumented."
+   },
+   "ComponentStatusView": {
+    "properties": {
+     "component": {
+      "type": "string",
+      "title": "Component"
+     },
+     "state": {
+      "$ref": "#/components/schemas/ComponentState"
+     },
+     "asOf": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Asof"
+     },
+     "evidence": {
+      "type": "string",
+      "title": "Evidence"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "component",
+     "state",
+     "asOf",
+     "evidence"
+    ],
+    "title": "ComponentStatusView",
+    "description": "One dot on the System status strip, with the evidence it was derived from.\n\n**No outbound call produces any of these.** They are read from\n:func:`~bayram.db.admin.metrics.read_capabilities` and from the cached balance rows the\nARQ worker writes; the admin process holds no vendor credential and makes no HTTP\nrequest. A \"System status\" card is exactly where somebody reaches for a client, so the\nrefusal is a property of the shape: there is no field here a probe would fill.\n\n``evidence`` is a short machine-readable phrase naming what was actually observed, so a\ndot that says ``NOT_PROBED`` also says why nobody probed it."
+   },
+   "CostPerSongView": {
+    "properties": {
+     "cost": {
+      "$ref": "#/components/schemas/UsdCost"
+     },
+     "deliveredOrders": {
+      "type": "integer",
+      "title": "Deliveredorders"
+     },
+     "attributedOrders": {
+      "type": "integer",
+      "title": "Attributedorders"
+     },
+     "perSongUsd": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/RatioView"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "cost",
+     "deliveredOrders",
+     "attributedOrders",
+     "perSongUsd"
+    ],
+    "title": "CostPerSongView",
+    "description": "Vendor spend attributed to the songs delivered in the window, over their count.\n\n``perSongUsd`` is a :class:`RatioView`, so it cannot exist without the delivered count\nit was divided by, and it is ``null`` when the cost is ``null`` \u2014 calls recorded, no rate\nconfigured \u2014 rather than ``$0.00``.\n\n``attributedOrders`` beside ``deliveredOrders`` is the coverage pair: the gap between\nthem is delivered songs that carry no vendor call at all, which is what the cost figure\nis silently missing."
+   },
+   "CostSplitView": {
+    "properties": {
+     "vendor": {
+      "$ref": "#/components/schemas/Vendor"
+     },
+     "operation": {
+      "$ref": "#/components/schemas/VendorOperation"
+     },
+     "cost": {
+      "$ref": "#/components/schemas/UsdCost"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "vendor",
+     "operation",
+     "cost"
+    ],
+    "title": "CostSplitView",
+    "description": "One ``(vendor, operation)`` slice of where the money went. Ordered by calls."
+   },
+   "CountPointView": {
+    "properties": {
+     "bucket": {
+      "type": "string",
+      "title": "Bucket"
+     },
+     "startedAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Startedat"
+     },
+     "count": {
+      "type": "integer",
+      "title": "Count"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "bucket",
+     "startedAt",
+     "count"
+    ],
+    "title": "CountPointView",
+    "description": "One bucket of a pure count series. Zero-fillable, because zero orders is a fact."
+   },
+   "CurrencyAmountView": {
+    "properties": {
+     "currency": {
+      "type": "string",
+      "title": "Currency"
+     },
+     "amountMinor": {
+      "type": "integer",
+      "title": "Amountminor"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "currency",
+     "amountMinor"
+    ],
+    "title": "CurrencyAmountView",
+    "description": "A money total that carries its unit. There is no scalar money on this surface."
+   },
+   "DeliveryView": {
+    "properties": {
+     "total": {
+      "type": "integer",
+      "title": "Total"
+     },
+     "delivered": {
+      "type": "integer",
+      "title": "Delivered"
+     },
+     "failed": {
+      "type": "integer",
+      "title": "Failed"
+     },
+     "cancelled": {
+      "type": "integer",
+      "title": "Cancelled"
+     },
+     "inFlight": {
+      "type": "integer",
+      "title": "Inflight"
+     },
+     "terminalCount": {
+      "type": "integer",
+      "title": "Terminalcount"
+     },
+     "successRate": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Successrate"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "total",
+     "delivered",
+     "failed",
+     "cancelled",
+     "inFlight",
+     "terminalCount",
+     "successRate"
+    ],
+    "title": "DeliveryView",
+    "description": "Order outcomes over the whole record, and the one rate the panel leads with."
+   },
+   "DerivedRevenueView": {
+    "properties": {
+     "deliveredSongs": {
+      "type": "integer",
+      "title": "Deliveredsongs"
+     },
+     "unitPriceMinor": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unitpriceminor"
+     },
+     "currency": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Currency"
+     },
+     "amountMinor": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Amountminor"
+     },
+     "unavailableReason": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AbsenceReason"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "deliveredSongs",
+     "unitPriceMinor",
+     "currency",
+     "amountMinor",
+     "unavailableReason"
+    ],
+    "title": "DerivedRevenueView",
+    "description": "Songs delivered \u00d7 the published unit price. An ESTIMATE, and labelled as one.\n\nA separate field from ``revenue`` and never added to it. This multiplies a config value\nread at query time; ``revenue`` is money somebody recorded a receipt for. They are the\nsame class of figure as ``generation_attempts.cost_usd`` and recorded spend respectively,\nand the price and currency it multiplied by are attached so an operator can see which\nprice produced the number.\n\n``amountMinor`` is ``null`` with ``NO_PRICE_PUBLISHED`` when this deployment has not\nmirrored its price \u2014 never ``0``, and never the bot model's default, which would publish\na price this deployment may not be charging."
+   },
+   "FailureView": {
+    "properties": {
+     "errorCode": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Errorcode"
+     },
+     "count": {
+      "type": "integer",
+      "title": "Count"
+     },
+     "share": {
+      "type": "number",
+      "title": "Share"
+     },
+     "isRetryable": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Isretryable"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "errorCode",
+     "count",
+     "share",
+     "isRetryable"
+    ],
+    "title": "FailureView",
+    "description": "One error code's share of failed attempts in the window."
+   },
+   "FakeCallGuardView": {
+    "properties": {
+     "fakeCalls": {
+      "type": "integer",
+      "title": "Fakecalls"
+     },
+     "totalCalls": {
+      "type": "integer",
+      "title": "Totalcalls"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "fakeCalls",
+     "totalCalls"
+    ],
+    "title": "FakeCallGuardView",
+    "description": "How many of the window's vendor calls were a fake-provider run, and how many there were.\n\nEvery other number on this surface excludes those rows structurally. This pair is what\nmakes the exclusion visible, so a demo run goes from \"silently inflating spend\" to\n\"excluded and said so\" rather than to \"silently invisible\"."
+   },
+   "FinanceResponse": {
+    "properties": {
+     "window": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/WindowView"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "revenue": {
+      "items": {
+       "$ref": "#/components/schemas/MoneyTotal"
+      },
+      "type": "array",
+      "title": "Revenue"
+     },
+     "unpricedTopups": {
+      "$ref": "#/components/schemas/UnpricedTopupsView"
+     },
+     "derivedRevenue": {
+      "$ref": "#/components/schemas/DerivedRevenueView"
+     },
+     "vendorSpend": {
+      "$ref": "#/components/schemas/UsdCost"
+     },
+     "costPerSong": {
+      "$ref": "#/components/schemas/CostPerSongView"
+     },
+     "unattributedSpend": {
+      "$ref": "#/components/schemas/UsdCost"
+     },
+     "netRunRate": {
+      "$ref": "#/components/schemas/NetRunRateView"
+     },
+     "fx": {
+      "$ref": "#/components/schemas/FxRateView"
+     },
+     "vendorBalances": {
+      "items": {
+       "$ref": "#/components/schemas/VendorBalanceView"
+      },
+      "type": "array",
+      "title": "Vendorbalances"
+     },
+     "fakeCalls": {
+      "$ref": "#/components/schemas/FakeCallGuardView"
+     },
+     "capabilities": {
+      "$ref": "#/components/schemas/CapabilitiesView"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "window",
+     "revenue",
+     "unpricedTopups",
+     "derivedRevenue",
+     "vendorSpend",
+     "costPerSong",
+     "unattributedSpend",
+     "netRunRate",
+     "fx",
+     "vendorBalances",
+     "fakeCalls",
+     "capabilities"
+    ],
+    "title": "FinanceResponse",
+    "description": "``GET /api/metrics/dashboard/finance`` \u2014 the money half of the page, in one request."
+   },
+   "FxRateView": {
+    "properties": {
+     "uzsPerUsd": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Uzsperusd"
+     },
+     "asOf": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Asof"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "uzsPerUsd",
+     "asOf"
+    ],
+    "title": "FxRateView",
+    "description": "The operator's own so\u02bbm-per-dollar figure and the date they took it.\n\nBoth fields are ``null`` together or set together \u2014 ``AdminSettings`` refuses a boot\nwhere only one is configured \u2014 so \"a rate with no date\" cannot reach a screen. There is\nno feed behind this number: the as-of date is the only staleness signal there is, and it\nonly works if the panel renders it beside the rate.\n\nPublished on the finance response as well as on ``/api/config``, deliberately. Config is\nfetched once at SPA boot while the dashboard is polled, so a chart drawn from a rate\nfetched on a different request at a different time is not reproducible \u2014 the same\ndecision ``/metrics/name-analytics`` already made by carrying ``threshold`` in its own\nresponse."
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "type": "array",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "title": "HTTPValidationError"
+   },
+   "LatencyView": {
+    "properties": {
+     "sampleCount": {
+      "type": "integer",
+      "title": "Samplecount"
+     },
+     "p50Seconds": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P50Seconds"
+     },
+     "p95Seconds": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P95Seconds"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "sampleCount",
+     "p50Seconds",
+     "p95Seconds"
+    ],
+    "title": "LatencyView",
+    "description": "``created_at`` \u2192 ``delivered_at`` in seconds, by nearest-rank percentile.\n\nNearest rank, so both numbers are durations that were actually observed rather than\ninterpolated ones. ``sampleCount`` is first because it is what makes the other two\nreadable: ``p95 = 4.0`` over three delivered orders is a fact about three orders."
+   },
+   "MoneyPointView": {
+    "properties": {
+     "bucket": {
+      "type": "string",
+      "title": "Bucket"
+     },
+     "startedAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Startedat"
+     },
+     "source": {
+      "$ref": "#/components/schemas/RevenueSource"
+     },
+     "product": {
+      "type": "string",
+      "title": "Product"
+     },
+     "currency": {
+      "type": "string",
+      "title": "Currency"
+     },
+     "provider": {
+      "type": "string",
+      "title": "Provider"
+     },
+     "isStubRail": {
+      "type": "boolean",
+      "title": "Isstubrail"
+     },
+     "sales": {
+      "type": "integer",
+      "title": "Sales"
+     },
+     "amountMinor": {
+      "type": "integer",
+      "title": "Amountminor"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "bucket",
+     "startedAt",
+     "source",
+     "product",
+     "currency",
+     "provider",
+     "isStubRail",
+     "sales",
+     "amountMinor"
+    ],
+    "title": "MoneyPointView",
+    "description": "One bucket of a revenue series, at the receipts' own grain. NEVER zero-filled."
+   },
+   "MoneyTotal": {
+    "properties": {
+     "source": {
+      "$ref": "#/components/schemas/RevenueSource"
+     },
+     "product": {
+      "type": "string",
+      "title": "Product"
+     },
+     "currency": {
+      "type": "string",
+      "title": "Currency"
+     },
+     "provider": {
+      "type": "string",
+      "title": "Provider"
+     },
+     "isStubRail": {
+      "type": "boolean",
+      "title": "Isstubrail"
+     },
+     "sales": {
+      "type": "integer",
+      "title": "Sales"
+     },
+     "amountMinor": {
+      "type": "integer",
+      "title": "Amountminor"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "source",
+     "product",
+     "currency",
+     "provider",
+     "isStubRail",
+     "sales",
+     "amountMinor"
+    ],
+    "title": "MoneyTotal",
+    "description": "Sales recorded under one ``(source, product, currency, provider)`` key.\n\nNever a scalar and never collapsed. Summing across ``currency`` produces a figure in an\ninvented unit; collapsing ``provider`` lets a stub-rail sale be read as settled money.\nToday every row is UZS from the stub rail, so a caller usually sees one element \u2014 and\nthe shape stays a list, or the day a second currency appears the number silently becomes\nwrong rather than longer."
+   },
+   "NetRunRateView": {
+    "properties": {
+     "window": {
+      "$ref": "#/components/schemas/WindowView"
+     },
+     "revenue": {
+      "items": {
+       "$ref": "#/components/schemas/MoneyTotal"
+      },
+      "type": "array",
+      "title": "Revenue"
+     },
+     "cost": {
+      "$ref": "#/components/schemas/UsdCost"
+     },
+     "fxUsed": {
+      "$ref": "#/components/schemas/FxRateView"
+     },
+     "currency": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Currency"
+     },
+     "netMinor": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Netminor"
+     },
+     "annualisedMinor": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Annualisedminor"
+     },
+     "unavailableReason": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AbsenceReason"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "window",
+     "revenue",
+     "cost",
+     "fxUsed",
+     "currency",
+     "netMinor",
+     "annualisedMinor",
+     "unavailableReason"
+    ],
+    "title": "NetRunRateView",
+    "description": "Recorded revenue minus vendor spend over a FIXED trailing window of its own.\n\n**It does not use the caller's window, and that is a decision.** The mock labels a\nthirty-day net \"MRR\" and its twelvefold \"ARR\", while the global selector can be set to\nToday. A run rate computed over the selector would mean \"today's net\" whenever the\nselector says Today, and then be multiplied by twelve. So this carries the window it\nactually used and echoes it, and the number on the card cannot be read as belonging to\nthe picker above it.\n\n**This is the one place on this wire where a currency conversion happens**, and it is\nfenced: ``netMinor`` is non-null only when an FX rate is published AND the window's\nreceipts hold exactly one currency. Otherwise it is ``null`` with an\n:class:`AbsenceReason`, never a partial figure and never a zero. ``fxUsed`` names the\nrate the subtraction was performed at, so the number is reproducible from its own\nresponse after the operator edits the rate."
+   },
+   "OperationLatencyView": {
+    "properties": {
+     "operation": {
+      "$ref": "#/components/schemas/VendorOperation"
+     },
+     "calls": {
+      "type": "integer",
+      "title": "Calls"
+     },
+     "measuredCalls": {
+      "type": "integer",
+      "title": "Measuredcalls"
+     },
+     "sampleCount": {
+      "type": "integer",
+      "title": "Samplecount"
+     },
+     "p50Ms": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P50Ms"
+     },
+     "p95Ms": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P95Ms"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "operation",
+     "calls",
+     "measuredCalls",
+     "sampleCount",
+     "p50Ms",
+     "p95Ms"
+    ],
+    "title": "OperationLatencyView",
+    "description": "Nearest-rank p50/p95 of one vendor operation, with all three of its denominators."
+   },
+   "OrderFunnelView": {
+    "properties": {
+     "created": {
+      "type": "integer",
+      "title": "Created"
+     },
+     "paid": {
+      "type": "integer",
+      "title": "Paid"
+     },
+     "byState": {
+      "items": {
+       "$ref": "#/components/schemas/OrderStateCountView"
+      },
+      "type": "array",
+      "title": "Bystate"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "created",
+     "paid",
+     "byState"
+    ],
+    "title": "OrderFunnelView",
+    "description": "Where a created-at cohort of orders stands. Survivors, never passages.\n\nThere is no ``abandoned`` field: drafts are deleted outright at the abandoned-draft\ncutoff, so any such number would decay towards zero as the window lengthens and read as\n\"nobody abandons any more\". ``isStateTransitionLog`` on the capabilities block is what\ntells the SPA these are positions and not a flow."
+   },
+   "OrderState": {
+    "type": "string",
+    "enum": [
+     "draft",
+     "brief_ready",
+     "lyrics_ready",
+     "authorized",
+     "generating",
+     "delivered",
+     "failed",
+     "cancelled"
+    ],
+    "title": "OrderState",
+    "description": "Forward-only. ``FAILED`` and ``DELIVERED`` are terminal."
+   },
+   "OrderStateCountView": {
+    "properties": {
+     "state": {
+      "$ref": "#/components/schemas/OrderState"
+     },
+     "count": {
+      "type": "integer",
+      "title": "Count"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "state",
+     "count"
+    ],
+    "title": "OrderStateCountView",
+    "description": "How many orders of the cohort are in one state RIGHT NOW. A survivor count."
+   },
+   "PerformanceResponse": {
+    "properties": {
+     "window": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/WindowView"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "deliveredOrders": {
+      "$ref": "#/components/schemas/TrendView"
+     },
+     "deliveryLatency": {
+      "$ref": "#/components/schemas/LatencyView"
+     },
+     "musicRenderLatency": {
+      "$ref": "#/components/schemas/OperationLatencyView"
+     },
+     "failures": {
+      "items": {
+       "$ref": "#/components/schemas/FailureView"
+      },
+      "type": "array",
+      "title": "Failures"
+     },
+     "orderFunnel": {
+      "$ref": "#/components/schemas/OrderFunnelView"
+     },
+     "systemStatus": {
+      "items": {
+       "$ref": "#/components/schemas/ComponentStatusView"
+      },
+      "type": "array",
+      "title": "Systemstatus"
+     },
+     "capabilities": {
+      "$ref": "#/components/schemas/CapabilitiesView"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "window",
+     "deliveredOrders",
+     "deliveryLatency",
+     "musicRenderLatency",
+     "failures",
+     "orderFunnel",
+     "systemStatus",
+     "capabilities"
+    ],
+    "title": "PerformanceResponse",
+    "description": "``GET /api/metrics/dashboard/performance`` \u2014 how fast, how reliably, and what is up."
+   },
+   "PlanLiabilityResponse": {
+    "properties": {
+     "asOf": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Asof"
+     },
+     "livePlans": {
+      "type": "integer",
+      "title": "Liveplans"
+     },
+     "liveHolders": {
+      "type": "integer",
+      "title": "Liveholders"
+     },
+     "liveAnonymisedPlans": {
+      "type": "integer",
+      "title": "Liveanonymisedplans"
+     },
+     "livePlansWithSongsLeft": {
+      "type": "integer",
+      "title": "Liveplanswithsongsleft"
+     },
+     "unconsumedSongs": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Unconsumedsongs"
+     },
+     "liveAmounts": {
+      "items": {
+       "$ref": "#/components/schemas/CurrencyAmountView"
+      },
+      "type": "array",
+      "title": "Liveamounts"
+     },
+     "endedPlans": {
+      "type": "integer",
+      "title": "Endedplans"
+     },
+     "breakageSongs": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Breakagesongs"
+     },
+     "expiringWithinDays": {
+      "type": "integer",
+      "title": "Expiringwithindays"
+     },
+     "expiringPlans": {
+      "type": "integer",
+      "title": "Expiringplans"
+     },
+     "expiringSongsLeft": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Expiringsongsleft"
+     },
+     "utilisation": {
+      "items": {
+       "$ref": "#/components/schemas/PlanUtilisationBucketView"
+      },
+      "type": "array",
+      "title": "Utilisation"
+     },
+     "isPlanRevenue": {
+      "type": "boolean",
+      "title": "Isplanrevenue"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "asOf",
+     "livePlans",
+     "liveHolders",
+     "liveAnonymisedPlans",
+     "livePlansWithSongsLeft",
+     "unconsumedSongs",
+     "liveAmounts",
+     "endedPlans",
+     "breakageSongs",
+     "expiringWithinDays",
+     "expiringPlans",
+     "expiringSongsLeft",
+     "utilisation",
+     "isPlanRevenue"
+    ],
+    "title": "PlanLiabilityResponse",
+    "description": "``GET /api/metrics/plans`` \u2014 what the running plans owe. A STATE, so no window.\n\nLiability is not a flow: \"how much was owed during March\" is a question this table\ncannot answer. So this route takes no ``from``/``to`` \u2014 the same argument the pulse\nmakes for taking none \u2014 and echoes the ``asOf`` instant both the liability row and the\nutilisation histogram were computed at, so the number stays reproducible.\n\n**The liability is in SONGS.** There is no so\u02bbm figure for unconsumed songs anywhere\nhere, because valuing one means dividing ``amountMinor`` by ``songsIncluded``, which is\nan accounting allocation policy nobody in this codebase has chosen. ``liveAmounts`` is\nthe measured total of what the running plans were SOLD for, which is a different and\nhonest number.\n\n``liveHolders`` excludes every customer who sent ``/forget`` while their plan was\nrunning, because ``COUNT(DISTINCT)`` does not count NULLs.\n``liveAnonymisedPlans`` is what makes that undercount visible."
+   },
+   "PlanUtilisationBucketView": {
+    "properties": {
+     "from": {
+      "type": "number",
+      "title": "From"
+     },
+     "to": {
+      "type": "number",
+      "title": "To"
+     },
+     "count": {
+      "type": "integer",
+      "title": "Count"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "from",
+     "to",
+     "count"
+    ],
+    "title": "PlanUtilisationBucketView",
+    "description": "One tenth of the ENDED-plan utilisation distribution. All ten always present.\n\n``from``/``to`` rather than ``lower``/``upper`` because that is the vocabulary\n:class:`~bayram.admin.schemas.dashboard.SimilarityBucketView` already put on the wire for\nthe only other histogram in this panel, and a second spelling for the same thing is a\nsecond chart component. ``from`` is a Python keyword, so the field is ``from_`` with an\nexplicit alias \u2014 overridden towards the SPA rather than away from it."
+   },
+   "PulseView": {
+    "properties": {
+     "delivery": {
+      "$ref": "#/components/schemas/DeliveryView"
+     },
+     "latency": {
+      "$ref": "#/components/schemas/LatencyView"
+     },
+     "failures": {
+      "items": {
+       "$ref": "#/components/schemas/FailureView"
+      },
+      "type": "array",
+      "title": "Failures"
+     },
+     "capabilities": {
+      "$ref": "#/components/schemas/CapabilitiesView"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "delivery",
+     "latency",
+     "failures",
+     "capabilities"
+    ],
+    "title": "PulseView",
+    "description": "``GET /api/ops/pulse`` \u2014 the whole dashboard in one round trip.\n\n``capabilities`` travels inside the payload rather than being left to a second request,\nbecause every other block here is only readable next to it: ``failures`` with no cost\nfigure is a list an operator would otherwise assume was missing one."
+   },
+   "RatioView": {
+    "properties": {
+     "value": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Value"
+     },
+     "numerator": {
+      "type": "number",
+      "title": "Numerator"
+     },
+     "denominator": {
+      "type": "number",
+      "title": "Denominator"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "value",
+     "numerator",
+     "denominator"
+    ],
+    "title": "RatioView",
+    "description": "A quotient that cannot exist without the two numbers it was formed from.\n\n``value`` is ``null`` if and only if ``denominator`` is zero, and the validator refuses\nboth halves of the violation: a value with no denominator, and a denominator with no\nvalue. There is no bare ``float`` rate field anywhere in this module because every one\nof them would be a number a consumer could not check."
+   },
+   "RevenueSource": {
+    "type": "string",
+    "enum": [
+     "plan",
+     "topup"
+    ],
+    "title": "RevenueSource",
+    "description": "Which receipts table a revenue row came from.\n\nTwo tables and not one because a plan and a top-up are different products sold under\ndifferent terms; they share a column vocabulary so a revenue read is a clean union, and\nthis member is what keeps the union from collapsing into an unattributable total."
+   },
+   "SeriesBucket": {
+    "type": "string",
+    "enum": [
+     "hour",
+     "day",
+     "week",
+     "month"
+    ],
+    "title": "SeriesBucket",
+    "description": "The grains a CHART may ask for. Wider than the two the database groups at.\n\n``WEEK`` and ``MONTH`` are folded from ``DAY`` in this module \u2014 see\n:class:`~bayram.db.admin.sql.SeriesGrain` for why they are not SQL."
+   },
+   "SeriesResponse": {
+    "properties": {
+     "window": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/WindowView"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "bucket": {
+      "$ref": "#/components/schemas/SeriesBucket"
+     },
+     "isZeroFilled": {
+      "type": "boolean",
+      "title": "Iszerofilled"
+     },
+     "signups": {
+      "items": {
+       "$ref": "#/components/schemas/CountPointView"
+      },
+      "type": "array",
+      "title": "Signups"
+     },
+     "delivered": {
+      "items": {
+       "$ref": "#/components/schemas/CountPointView"
+      },
+      "type": "array",
+      "title": "Delivered"
+     },
+     "revenue": {
+      "items": {
+       "$ref": "#/components/schemas/MoneyPointView"
+      },
+      "type": "array",
+      "title": "Revenue"
+     },
+     "spend": {
+      "items": {
+       "$ref": "#/components/schemas/SpendPointView"
+      },
+      "type": "array",
+      "title": "Spend"
+     },
+     "unattributedSpend": {
+      "items": {
+       "$ref": "#/components/schemas/SpendPointView"
+      },
+      "type": "array",
+      "title": "Unattributedspend"
+     },
+     "costSplit": {
+      "items": {
+       "$ref": "#/components/schemas/CostSplitView"
+      },
+      "type": "array",
+      "title": "Costsplit"
+     },
+     "orderFunnel": {
+      "$ref": "#/components/schemas/OrderFunnelView"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "window",
+     "bucket",
+     "isZeroFilled",
+     "signups",
+     "delivered",
+     "revenue",
+     "spend",
+     "unattributedSpend",
+     "costSplit",
+     "orderFunnel"
+    ],
+    "title": "SeriesResponse",
+    "description": "``GET /api/metrics/dashboard/series`` \u2014 every chart on the page, in one request."
+   },
+   "SpendPointView": {
+    "properties": {
+     "bucket": {
+      "type": "string",
+      "title": "Bucket"
+     },
+     "startedAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Startedat"
+     },
+     "vendor": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Vendor"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "cost": {
+      "$ref": "#/components/schemas/UsdCost"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "bucket",
+     "startedAt",
+     "vendor",
+     "cost"
+    ],
+    "title": "SpendPointView",
+    "description": "One bucket of a spend series. ``cost`` is ``null`` for a bucket nothing priced."
+   },
+   "TrendView": {
+    "properties": {
+     "current": {
+      "type": "integer",
+      "title": "Current"
+     },
+     "previous": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Previous"
+     },
+     "change": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/RatioView"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "current",
+     "previous",
+     "change"
+    ],
+    "title": "TrendView",
+    "description": "A count and its change against the preceding equal-length window.\n\n``previous`` is ``null`` when the request gave no lower bound \u2014 an open-below range has\nno length and therefore no predecessor \u2014 and ``change`` is ``null`` whenever ``previous``\nis ``null`` or zero. The validator refuses a change in either of those cases, so \"+100%\"\nagainst a period nobody measured is not a shape this API can produce."
+   },
+   "UnpricedTopupsView": {
+    "properties": {
+     "unpriced": {
+      "type": "integer",
+      "title": "Unpriced"
+     },
+     "priced": {
+      "type": "integer",
+      "title": "Priced"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "unpriced",
+     "priced"
+    ],
+    "title": "UnpricedTopupsView",
+    "description": "Top-ups sold before amounts were recorded, and those recorded. Counted, never priced.\n\nThe first number is unrecoverable revenue: those sales left a ``credit_ledger`` GRANT\nwith no amount, and back-pricing them at today's price would reprice every prior period\nthe next time the price moves. It travels beside the money for the same reason\n``costedCalls`` travels beside ``costUsd``."
+   },
+   "UsdCost": {
+    "properties": {
+     "amountUsd": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Amountusd"
+     },
+     "costedCalls": {
+      "type": "integer",
+      "title": "Costedcalls"
+     },
+     "calls": {
+      "type": "integer",
+      "title": "Calls"
+     },
+     "costSource": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Costsource"
+     },
+     "unavailableReason": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/AbsenceReason"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "amountUsd",
+     "costedCalls",
+     "calls",
+     "costSource",
+     "unavailableReason"
+    ],
+    "title": "UsdCost",
+    "description": "A dollar figure, how many calls it covers, how many there were, and where it came from.\n\n``amountUsd`` is ``null`` if and only if ``costSource`` is ``null``: an unpriced window\nhas no cost, and a cost with no provenance is a number whose trust level is unknowable.\nThat is ``ck_vendor_usage_cost_carries_its_source`` enforced a second time, at the wire,\nwhere the SPA can see it.\n\n``costedCalls`` never exceeds ``calls``. The pair is what makes the amount readable: a\ntotal covering nine of nine hundred calls is a budget an operator would act on without\nit, and a sample they can see the size of with it."
+   },
+   "ValidationError": {
+    "properties": {
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Location"
+     },
+     "msg": {
+      "type": "string",
+      "title": "Message"
+     },
+     "type": {
+      "type": "string",
+      "title": "Error Type"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "ctx": {
+      "type": "object",
+      "title": "Context"
+     }
+    },
+    "type": "object",
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError"
+   },
+   "Vendor": {
+    "type": "string",
+    "enum": [
+     "elevenlabs",
+     "openrouter",
+     "gemini",
+     "openai_compatible",
+     "fake"
+    ],
+    "title": "Vendor",
+    "description": "Who was billed for one call, at the granularity an invoice arrives at.\n\nCoarser than the adapter name on purpose. ``vendor_usage.provider`` records which\nadapter made the call (``elevenlabs_music`` vs ``elevenlabs_tts``) and both roll up to\n``ELEVENLABS`` here, because one invoice arrives from ElevenLabs and an operator\nreconciling it needs the total, not three of them.\n\n``OPENAI_COMPATIBLE`` is the honest member for a self-hosted or third-party\nOpenAI-shaped endpoint that is not OpenRouter: the wire protocol is the same, the\nbilling relationship is not, and ``usage.cost`` is an OpenRouter extension nobody else\nreturns. ``FAKE`` exists so a ``BAYRAM_USE_FAKE_PROVIDERS`` run is RECORDED and visibly\nexcluded rather than invisible \u2014 ``vendor_usage.is_fake`` carries the same fact on the\nrow, and a demo that wrote no rows at all would be indistinguishable from a deployment\nnobody instrumented.\n\nThis lives here and not in ``bayram.db.enums`` because a provider adapter records usage\nand a provider adapter must never import ``bayram.db``."
+   },
+   "VendorBalanceView": {
+    "properties": {
+     "vendor": {
+      "$ref": "#/components/schemas/Vendor"
+     },
+     "isFallback": {
+      "type": "boolean",
+      "title": "Isfallback"
+     },
+     "provider": {
+      "type": "string",
+      "title": "Provider"
+     },
+     "unit": {
+      "$ref": "#/components/schemas/BalanceUnit"
+     },
+     "remaining": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Remaining"
+     },
+     "total": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total"
+     },
+     "used": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Used"
+     },
+     "isUnbounded": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Isunbounded"
+     },
+     "quotaResetsAt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quotaresetsat"
+     },
+     "quotaResetHint": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Quotaresethint"
+     },
+     "planTier": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Plantier"
+     },
+     "subscriptionStatus": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Subscriptionstatus"
+     },
+     "songsRemaining": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Songsremaining"
+     },
+     "perSongRate": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Persongrate"
+     },
+     "estimateBasis": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/BalanceEstimateBasis"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "fetchedAt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fetchedat"
+     },
+     "checkedAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Checkedat"
+     },
+     "isLastPollOk": {
+      "type": "boolean",
+      "title": "Islastpollok"
+     },
+     "httpStatus": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Httpstatus"
+     },
+     "errorCode": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Errorcode"
+     },
+     "consecutiveFailures": {
+      "type": "integer",
+      "title": "Consecutivefailures"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "vendor",
+     "isFallback",
+     "provider",
+     "unit",
+     "remaining",
+     "total",
+     "used",
+     "isUnbounded",
+     "quotaResetsAt",
+     "quotaResetHint",
+     "planTier",
+     "subscriptionStatus",
+     "songsRemaining",
+     "perSongRate",
+     "estimateBasis",
+     "fetchedAt",
+     "checkedAt",
+     "isLastPollOk",
+     "httpStatus",
+     "errorCode",
+     "consecutiveFailures"
+    ],
+    "title": "VendorBalanceView",
+    "description": "One vendor's remaining credit, read from cache. The admin process never asks a vendor.\n\nTwo clocks, and they are not interchangeable: ``checkedAt`` is when the poller last\nASKED and ``fetchedAt`` is when these numbers were last actually ANSWERED. They diverge\nduring an outage, because the writer's failure path leaves the last known balance\nuntouched, and ``isStale`` is computed against ``fetchedAt`` alone. A single \"as of\"\nwould render a three-hour-old figure as fresh.\n\nEvery quantity is nullable with no default: a vendor that reports an uncapped key\nanswers ``isUnbounded`` and no remaining figure, and ``0.0`` there would say the account\nis empty."
+   },
+   "VendorOperation": {
+    "type": "string",
+    "enum": [
+     "music_compose",
+     "music_inpaint",
+     "speech_synthesis",
+     "transcription",
+     "chat_completion",
+     "health"
+    ],
+    "title": "VendorOperation",
+    "description": "What the vendor was ASKED to do \u2014 the unit a rate card is quoted in.\n\nSplit finer than :class:`Vendor` because that is where the money is: ElevenLabs bills\nmusic by the rendered minute, speech by the character and transcription by the minute of\naudio, so a single \"elevenlabs\" total would mix three units and be reconcilable against\nnothing.\n\n``HEALTH`` is a member rather than an omission. A quota probe is a real call with real\nlatency and a real HTTP status, and dropping it would make the failure rate of a vendor\nthat is down look better than it is \u2014 but it is never priced, so a probe can never be\nread as spend."
+   },
+   "WindowView": {
+    "properties": {
+     "from": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "From"
+     },
+     "to": {
+      "type": "string",
+      "format": "date-time",
+      "title": "To"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "from",
+     "to"
+    ],
+    "title": "WindowView",
+    "description": "The half-open ``[from, to)`` the numbers were counted over. ``null`` for all time.\n\n**``from`` is nullable and ``to`` is not**, and the asymmetry is the whole contract of a\none-sided range. ``?to=Y`` with no lower bound counts everything ever recorded up to ``Y``\nand there is no instant to echo for the start \u2014 an epoch would be a timestamp the operator\nnever chose and the panel would render it as if they had. ``?from=X`` with no upper bound\nalways has one to echo, because the server resolved it to the moment it served the request\n(:func:`bayram.admin.window.resolve_window`), and echoing it is what keeps the chart\nreproducible: the response says what it counted over even when the request did not."
+   }
+  }
+ }
+}

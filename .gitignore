@@ -1,0 +1,72 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+!.env.admin.example
+# The Payme gateway's example dotenv. It must be negated explicitly like the other two:
+# `.env.*` on line 3 swallows it silently, so without this line the file is a deliverable
+# that never appears in `git status` and is therefore never committed.
+!.env.payme.example
+# The admin process's own environment. Separate from .env so a shared file cannot leak a
+# vendor key into a process that must not hold one.
+.env.admin
+# The gateway's own environment. Separate again, because it holds the ONE inbound
+# verification secret — the merchant key, whose theft mints credits — and no process that
+# holds a vendor key may be able to read it.
+.env.payme
+*.pem
+*.key
+
+# Node — the ROOT node_modules too, not only the SPA's. A vitest cache file under it
+# reached `git add -A` back when only one package's `node_modules/` was listed below.
+node_modules/
+
+# Multi-agent tooling scratch: per-run auditor/challenger transcripts, 1.4 MB and growing,
+# regenerated on every run and meaningful to nobody tomorrow.
+.agents/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.python-version
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Local artefacts
+/tmp/
+/media/
+# Workspace + local object storage written by bayram.runtime (see AppContainer.data_root)
+/var/
+/assets_local/
+*.mp3
+*.ogg
+*.wav
+*.opus
+!tests/**/fixtures/**
+
+# Admin panel — the SPA's build output is a build artefact, not source. The API serves
+# src/bayram/admin/static/, which `npm run build` writes; committing it would let the served
+# bundle drift from admin-dashboard/ with nothing to notice.
+src/bayram/admin/static/
+admin-dashboard/coverage/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+
+# Personal Claude Code overrides — grants production host access, never committed
+.claude/settings.local.json

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none" role="img" aria-label="Bayram Studio">
+  <rect width="512" height="512" rx="256" fill="#BD32AF"/>
+  <g transform="translate(96 96) scale(5)">
+    <rect x="13" y="35" width="9" height="22" rx="4.5" fill="#FFFFFF"/>
+    <rect x="27.5" y="21" width="9" height="36" rx="4.5" fill="#FFFFFF"/>
+    <rect x="42" y="28" width="9" height="29" rx="4.5" fill="#FFFFFF"/>
+    <path d="M17.5 19.8C20.236 25.208 21.1 28.688 21.1 30.2a3.6 3.6 0 0 1 -7.2 0C13.9 28.688 14.764 25.208 17.5 19.8Z" fill="#FFFFFF"/>
+    <path d="M32 5.8C34.736 11.208 35.6 14.688 35.6 16.2a3.6 3.6 0 0 1 -7.2 0C28.4 14.688 29.264 11.208 32 5.8Z" fill="#FFFFFF"/>
+    <path d="M46.5 12.8C49.236 18.208 50.1 21.688 50.1 23.2a3.6 3.6 0 0 1 -7.2 0C42.9 21.688 43.764 18.208 46.5 12.8Z" fill="#FFFFFF"/>
+  </g>
+</svg>

@@ -1,0 +1,116 @@
+{
+  "common.yes": "Ҳа",
+  "common.no": "Йўқ",
+  "common.cancel": "Бекор қилиш",
+  "common.back": "Орқага",
+  "common.skip": "Ўтказиб юбориш",
+  "common.retry": "Қайта уриниш",
+  "common.done": "Тайёр",
+
+  "start.welcome": "Ассалому алайкум, {user}! Мен байрам тўпламини тайёрлайман: битта қўшиқ, учта овозли табрик ва қўшиқ матни — исм эса тўғри талаффуз қилинади.",
+  "start.choose_ui_language": "Интерфейс тилини танланг.",
+  "start.language_set": "Интерфейс тили: {language}.",
+
+  "language.uz_latn": "Oʻzbekcha (lotin)",
+  "language.uz_cyrl": "Ўзбекча (кирилл)",
+  "language.ru": "Русский",
+  "language.en": "English",
+
+  "name.prompt": "Тўплам ким учун? Табрикланувчининг тўлиқ исмини юборинг.",
+  "name.empty": "Исмни кўрмадим. Илтимос, ёзиб юборинг.",
+  "name.too_long": "Исм {max} белгидан узун. Қисқароқ шаклини юборинг.",
+  "name.invalid_chars": "Бу исмга ўхшамайди. Фақат ҳарфлар, бўш жой ва чизиқча.",
+  "name.confirm": "Шундай куйлайман: {name}. Тўғрими?",
+  "name.button_confirm": "Тўғри",
+  "name.button_edit": "Исмни ўзгартириш",
+
+  "occasion.prompt": "Нимани нишонлаймиз?",
+  "occasion.birthday": "Туғилган кун",
+  "occasion.anniversary": "Юбилей",
+  "occasion.love": "Севги изҳори",
+  "occasion.support": "Далда",
+  "occasion.prank": "Ҳазил",
+  "occasion.holiday": "Байрам",
+  "occasion.wedding": "Тўй",
+  "occasion.kids": "Болалар учун",
+  "occasion.no_occasion": "Сабабсиз",
+  "occasion.custom": "Бошқа сабаб",
+  "occasion.custom_prompt": "Сабабни икки оғиз сўз билан ёзинг.",
+
+  "genre.prompt": "Оҳангни танланг.",
+  "genre.pop": "Поп",
+  "genre.retro_estrada": "Ретро эстрада",
+  "genre.hip_hop": "Хип-хоп",
+  "genre.rock": "Рок",
+  "genre.acoustic_ballad": "Акустик баллада",
+  "genre.dance_electronic": "Рақс электроникаси",
+  "genre.uzbek_pop": "Ўзбек эстрадаси",
+  "genre.uzbek_folk": "Ўзбек халқ оҳанги",
+  "genre.shashmaqom": "Шашмақом",
+  "genre.jazz_lounge": "Жаз лаунж",
+
+  "voice.prompt": "Кимнинг овозида куйлансин?",
+  "voice.female": "Аёл овози",
+  "voice.male": "Эркак овози",
+  "voice.duet": "Дуэт",
+  "voice.any": "Фарқи йўқ",
+
+  "note.prompt": "Энди энг муҳими! Жанр ҳам, сабаб ҳам бор — энди қўшиқни чинакам шахсий қиламиз. Илҳом берадиган ҳамма нарсани ёзинг: у қандай одам, кулгили воқеалар, севимли иборалари, бу трек нимани айтсин. Ёки «Ўтказиб юбориш»ни босинг.",
+  "note.too_long": "Илтимос, {max} белгидан оширманг.",
+  "note.skipped": "Яхши — илиқ ва умумий қилиб ёзаман.",
+
+  "output_language.prompt": "Қўшиқ ва табриклар қайси тилда бўлсин?",
+
+  "brief.summary": "{name} учун · {occasion} · {genre} · {voice} · {language}",
+  "brief.button_confirm": "Тўпламни тайёрлаш",
+  "brief.button_restart": "Бошидан бошлаш",
+
+  "lyrics.generating": "Қўшиқ матнини ёзяпман…",
+  "lyrics.preview": "Мана матн — «{title}».",
+  "lyrics.button_approve": "Зўр, ёзиб олинглар",
+  "lyrics.button_regenerate": "Қайтадан ёзиш",
+  "lyrics.rounds_left": {
+    "one": "Яна {count} марта қайта ёзиш мумкин.",
+    "other": "Яна {count} марта қайта ёзиш мумкин."
+  },
+  "lyrics.no_rounds_left": "Қайта ёзиш имкони тугади — шу матнни ёзиб оламиз.",
+
+  "progress.queued": "Навбатдасиз. Бу бир неча дақиқа вақт олади.",
+  "progress.writing_song": "Қўшиқ ёзиб олиняпти…",
+  "progress.recording_greetings": "Овозли табриклар ёзиб олиняпти…",
+  "progress.mastering": "Овоз созланяпти…",
+  "progress.almost_done": "Деярли тайёр…",
+
+  "delivery.kit_ready": "{name} учун тўплам тайёр. Байрамингиз билан!",
+  "delivery.song_caption": "«{title}» — қўшиқ",
+  "delivery.greeting_caption": "{persona} табриги",
+  "delivery.lyric_sheet_caption": "Қўшиқ матни",
+  "delivery.greetings_count": {
+    "one": "{count} та овозли табрик",
+    "other": "{count} та овозли табрик"
+  },
+
+  "status.no_orders": "Ҳали тўплам тайёрламагансиз. Бошлаш учун исм юборинг.",
+  "status.orders_found": {
+    "one": "{count} та тўплам тайёрланган.",
+    "other": "{count} та тўплам тайёрланган."
+  },
+
+  "payment.free_for_now": "Ҳозирча бепул — тўлов шарт эмас.",
+
+  "error.generic": "Бизнинг томонда хатолик юз берди. Қайта уриниб кўринг.",
+  "error.service_unavailable": "Хизмат ҳозир мавжуд эмас. Бироздан сўнг уриниб кўринг.",
+  "error.invalid_input": "Бу маълумот тўғри келмади. Текшириб, қайта юборинг.",
+  "error.content_not_allowed": "Бундай мазмун билан тўплам тайёрлай олмайман. Бошқача ёзиб кўринг.",
+  "error.provider_generic": "Студияда носозлик бўлди. Қайта уриниб кўринг.",
+  "error.provider_slow": "Бу одатдагидан кўпроқ вақт оляпти. Бир оздан сўнг уриниб кўринг.",
+  "error.provider_busy": "Студия ҳозир банд. Бир дақиқадан сўнг уриниб кўринг.",
+  "error.name_pronunciation_best_effort": "Талаффузни мукаммал қилиб бўлмади — энг яқин вариантини юбордим.",
+  "error.delivery_failed": "Тўплам тайёр бўлди, лекин юбориб бўлмади. Қайта уриниб кўринг.",
+  "error.payment_failed": "Тўлов амалга ошмади. Қайта уриниб кўринг.",
+  "error.unknown_command": "Бундай буйруқни билмайман. /start юборинг.",
+  "error.too_many_orders_today": {
+    "one": "Кунига {count} та тўплам тайёрлаш мумкин. Эртага уриниб кўринг.",
+    "other": "Кунига {count} та тўплам тайёрлаш мумкин. Эртага уриниб кўринг."
+  }
+}

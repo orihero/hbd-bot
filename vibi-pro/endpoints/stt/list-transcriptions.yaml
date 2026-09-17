@@ -1,0 +1,73 @@
+# GET /v1/speech-to-text
+# List transcriptions
+
+method: GET
+path: /v1/speech-to-text
+group: Speech to text
+title: List transcriptions
+description: |
+  Your transcriptions, newest first.
+
+  Transcripts are NOT included — a page of them would be megabytes. Fetch a
+  single task by id to read its `result`.
+order: 3
+
+auth:
+  type: xi-api-key
+  required: true
+
+path_parameters: []
+
+query_parameters:
+  - name: page
+    type: integer
+    required: false
+    description: "Zero-based page number. Default: 0."
+  - name: page_size
+    type: integer
+    required: false
+    description: "Items per page, maximum 100. Default: 30."
+
+request_body: null
+
+examples:
+  curl: |
+    curl "https://api.vibi.pro/v1/speech-to-text?page=0&page_size=20" \
+      -H "xi-api-key: YOUR_API_KEY"
+
+  javascript: |
+    const res = await fetch('https://api.vibi.pro/v1/speech-to-text?page_size=20', {
+      headers: { 'xi-api-key': 'YOUR_API_KEY' }
+    });
+    const { tasks, has_more } = await res.json();
+    for (const t of tasks) console.log(t.task_id, t.status, t.filename);
+
+  python: |
+    import requests
+
+    data = requests.get(
+        'https://api.vibi.pro/v1/speech-to-text',
+        headers={'xi-api-key': 'YOUR_API_KEY'},
+        params={'page_size': 20},
+    ).json()
+    for t in data['tasks']:
+        print(t['task_id'], t['status'], t.get('filename'))
+
+responses:
+  - status: 200
+    description: A page of transcriptions, without their transcripts.
+    example: |
+      {
+        "tasks": [
+          {
+            "task_id": "f534211b-b414-4697-bb58-a2a7a688a49f",
+            "status": "completed",
+            "progress": 100,
+            "filename": "recording.mp3",
+            "audio_duration_secs": 56.145875,
+            "credits_deducted": 17,
+            "created_at": "2026-09-07T13:50:48Z"
+          }
+        ],
+        "has_more": false
+      }

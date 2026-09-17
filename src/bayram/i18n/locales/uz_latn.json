@@ -1,0 +1,116 @@
+{
+  "common.yes": "Ha",
+  "common.no": "Yoʻq",
+  "common.cancel": "Bekor qilish",
+  "common.back": "Orqaga",
+  "common.skip": "Oʻtkazib yuborish",
+  "common.retry": "Qayta urinish",
+  "common.done": "Tayyor",
+
+  "start.welcome": "Assalomu alaykum, {user}! Men bayram toʻplamini tayyorlayman: bitta qoʻshiq, uchta ovozli tabrik va qoʻshiq matni — ism esa toʻgʻri talaffuz qilinadi.",
+  "start.choose_ui_language": "Interfeys tilini tanlang.",
+  "start.language_set": "Interfeys tili: {language}.",
+
+  "language.uz_latn": "Oʻzbekcha (lotin)",
+  "language.uz_cyrl": "Ўзбекча (кирилл)",
+  "language.ru": "Русский",
+  "language.en": "English",
+
+  "name.prompt": "Toʻplam kim uchun? Tabriklanuvchining toʻliq ismini yuboring.",
+  "name.empty": "Ismni koʻrmadim. Iltimos, yozib yuboring.",
+  "name.too_long": "Ism {max} belgidan uzun. Qisqaroq shaklini yuboring.",
+  "name.invalid_chars": "Bu ismga oʻxshamaydi. Faqat harflar, boʻsh joy va chiziqcha.",
+  "name.confirm": "Shunday kuylayman: {name}. Toʻgʻrimi?",
+  "name.button_confirm": "Toʻgʻri",
+  "name.button_edit": "Ismni oʻzgartirish",
+
+  "occasion.prompt": "Nimani nishonlaymiz?",
+  "occasion.birthday": "Tugʻilgan kun",
+  "occasion.anniversary": "Yubiley",
+  "occasion.love": "Sevgi izhori",
+  "occasion.support": "Dalda",
+  "occasion.prank": "Hazil",
+  "occasion.holiday": "Bayram",
+  "occasion.wedding": "Toʻy",
+  "occasion.kids": "Bolalar uchun",
+  "occasion.no_occasion": "Sababsiz",
+  "occasion.custom": "Boshqa sabab",
+  "occasion.custom_prompt": "Sababni ikki ogʻiz soʻz bilan yozing.",
+
+  "genre.prompt": "Ohangni tanlang.",
+  "genre.pop": "Pop",
+  "genre.retro_estrada": "Retro estrada",
+  "genre.hip_hop": "Hip-hop",
+  "genre.rock": "Rok",
+  "genre.acoustic_ballad": "Akustik ballada",
+  "genre.dance_electronic": "Raqs elektronikasi",
+  "genre.uzbek_pop": "Oʻzbek estradasi",
+  "genre.uzbek_folk": "Oʻzbek xalq ohangi",
+  "genre.shashmaqom": "Shashmaqom",
+  "genre.jazz_lounge": "Jaz launj",
+
+  "voice.prompt": "Kimning ovozida kuylansin?",
+  "voice.female": "Ayol ovozi",
+  "voice.male": "Erkak ovozi",
+  "voice.duet": "Duet",
+  "voice.any": "Farqi yoʻq",
+
+  "note.prompt": "Endi eng muhimi! Janr ham, sabab ham bor — endi qoʻshiqni chinakam shaxsiy qilamiz. Ilhom beradigan hamma narsani yozing: u qanday odam, kulgili voqealar, sevimli iboralari, bu trek nimani aytsin. Yoki «Oʻtkazib yuborish»ni bosing.",
+  "note.too_long": "Iltimos, {max} belgidan oshirmang.",
+  "note.skipped": "Yaxshi — iliq va umumiy qilib yozaman.",
+
+  "output_language.prompt": "Qoʻshiq va tabriklar qaysi tilda boʻlsin?",
+
+  "brief.summary": "{name} uchun · {occasion} · {genre} · {voice} · {language}",
+  "brief.button_confirm": "Toʻplamni tayyorlash",
+  "brief.button_restart": "Boshidan boshlash",
+
+  "lyrics.generating": "Qoʻshiq matnini yozyapman…",
+  "lyrics.preview": "Mana matn — «{title}».",
+  "lyrics.button_approve": "Zoʻr, yozib olinglar",
+  "lyrics.button_regenerate": "Qaytadan yozish",
+  "lyrics.rounds_left": {
+    "one": "Yana {count} marta qayta yozish mumkin.",
+    "other": "Yana {count} marta qayta yozish mumkin."
+  },
+  "lyrics.no_rounds_left": "Qayta yozish imkoni tugadi — shu matnni yozib olamiz.",
+
+  "progress.queued": "Navbatdasiz. Bu bir necha daqiqa vaqt oladi.",
+  "progress.writing_song": "Qoʻshiq yozib olinyapti…",
+  "progress.recording_greetings": "Ovozli tabriklar yozib olinyapti…",
+  "progress.mastering": "Ovoz sozlanyapti…",
+  "progress.almost_done": "Deyarli tayyor…",
+
+  "delivery.kit_ready": "{name} uchun toʻplam tayyor. Bayramingiz bilan!",
+  "delivery.song_caption": "«{title}» — qoʻshiq",
+  "delivery.greeting_caption": "{persona} tabrigi",
+  "delivery.lyric_sheet_caption": "Qoʻshiq matni",
+  "delivery.greetings_count": {
+    "one": "{count} ta ovozli tabrik",
+    "other": "{count} ta ovozli tabrik"
+  },
+
+  "status.no_orders": "Hali toʻplam tayyorlamagansiz. Boshlash uchun ism yuboring.",
+  "status.orders_found": {
+    "one": "{count} ta toʻplam tayyorlangan.",
+    "other": "{count} ta toʻplam tayyorlangan."
+  },
+
+  "payment.free_for_now": "Hozircha bepul — toʻlov shart emas.",
+
+  "error.generic": "Bizning tomonda xatolik yuz berdi. Qayta urinib koʻring.",
+  "error.service_unavailable": "Xizmat hozir mavjud emas. Birozdan soʻng urinib koʻring.",
+  "error.invalid_input": "Bu maʼlumot toʻgʻri kelmadi. Tekshirib, qayta yuboring.",
+  "error.content_not_allowed": "Bunday mazmun bilan toʻplam tayyorlay olmayman. Boshqacha yozib koʻring.",
+  "error.provider_generic": "Studiyada nosozlik boʻldi. Qayta urinib koʻring.",
+  "error.provider_slow": "Bu odatdagidan koʻproq vaqt olyapti. Bir ozdan soʻng urinib koʻring.",
+  "error.provider_busy": "Studiya hozir band. Bir daqiqadan soʻng urinib koʻring.",
+  "error.name_pronunciation_best_effort": "Talaffuzni mukammal qilib boʻlmadi — eng yaqin variantini yubordim.",
+  "error.delivery_failed": "Toʻplam tayyor boʻldi, lekin yuborib boʻlmadi. Qayta urinib koʻring.",
+  "error.payment_failed": "Toʻlov amalga oshmadi. Qayta urinib koʻring.",
+  "error.unknown_command": "Bunday buyruqni bilmayman. /start yuboring.",
+  "error.too_many_orders_today": {
+    "one": "Kuniga {count} ta toʻplam tayyorlash mumkin. Ertaga urinib koʻring.",
+    "other": "Kuniga {count} ta toʻplam tayyorlash mumkin. Ertaga urinib koʻring."
+  }
+}

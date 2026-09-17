@@ -1,0 +1,821 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bayram Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  color-scheme: light;
+  --bg:#F6F6F6; --card:#FFFFFF; --stroke:#E8E8E8;
+  --ink-900:#0D0D12; --ink-800:#000000; --ink-500:#5B5A64; --ink-400:#666D80; --ink-300:#8D8D8D;
+  --gridline:rgba(0,0,0,.06);
+  --accent:#75FC96; --accent-12:rgba(117,252,150,.12); --accent-deep:#218C3B;
+  --d0:#0D0D12; --d1:#3A3B3F; --d2:#5B5A64; --d3:#8D8D8D; --d4:#B4B4B7; --d5:#D3D3D4; --d6:#E8E8E8;
+  --r-card:15px; --r-pill:70px; --r-chip:30px; --r-seg:10px;
+  --font:'Manrope','Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--ink-900);font-family:var(--font);-webkit-font-smoothing:antialiased;
+     overflow-x:hidden}
+svg{display:block}
+
+#fitwrap{overflow:hidden}
+#stage{width:1440px;transform-origin:top left;padding:24px 0}
+.band{width:1392px;margin:0 auto}
+
+/* ── header strip ─────────────────────────────────── */
+.head{height:48px;display:flex;align-items:center;justify-content:space-between}
+.head h1{font-size:22px;font-weight:700;letter-spacing:-.9px;margin:0;line-height:1.1;color:var(--ink-800)}
+.head p{font-size:12px;font-weight:400;color:var(--ink-400);margin:2px 0 0;line-height:1.2}
+.head-r{display:flex;align-items:center;gap:8px}
+.chip{height:32px;border-radius:var(--r-chip);background:var(--card);display:flex;align-items:center;gap:8px;
+      padding:0 14px;font-size:12px;font-weight:500;color:var(--ink-900)}
+.chip.live{background:var(--accent-12);color:var(--accent-deep);font-weight:600}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--accent-deep)}
+
+/* ── segmented controls ───────────────────────────── */
+.seg{display:flex;background:var(--card);border-radius:var(--r-chip);height:32px;padding:3px;gap:2px}
+.seg button{border:0;background:transparent;border-radius:var(--r-chip);font-family:inherit;font-size:12px;
+            font-weight:600;letter-spacing:-.24px;color:var(--ink-400);padding:0 12px;cursor:pointer;line-height:1}
+.seg button.on{background:var(--accent);color:var(--ink-900)}
+
+.seg.mini{height:20px;width:96px;border-radius:var(--r-seg);background:var(--bg);padding:2px;gap:0}
+.seg.mini button{flex:1 1 0;padding:0;font-size:9px;font-weight:700;letter-spacing:.02em;border-radius:8px}
+.seg.mini button.on{background:var(--accent);color:var(--ink-900)}
+
+.seg.tog{height:22px;border-radius:var(--r-seg);background:var(--bg);padding:2px;gap:0}
+.seg.tog button{font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:0 8px;border-radius:8px}
+.seg.tog button.on{background:var(--accent);color:var(--ink-900)}
+
+/* ── group labels & rows ──────────────────────────── */
+.glabel{height:14px;line-height:14px;font-size:11px;font-weight:700;letter-spacing:.12em;
+        text-transform:uppercase;color:var(--ink-300);margin:14px 0 4px}
+.row{display:flex;gap:10px;margin-bottom:10px}
+#charts .row:last-child{margin-bottom:0}
+
+/* ── stat card ────────────────────────────────────── */
+.stat{background:var(--card);border-radius:var(--r-card);height:96px;padding:16px;position:relative;
+      flex:0 0 auto;overflow:hidden}
+.stat-top{display:flex;align-items:center;justify-content:space-between;height:20px}
+.stat-label{font-size:11px;font-weight:600;letter-spacing:-.1px;color:var(--ink-400)}
+.stat-val{display:flex;align-items:baseline;gap:6px;margin-top:4px;font-size:32px;font-weight:700;
+          letter-spacing:-1.92px;line-height:1;color:var(--ink-800);white-space:nowrap}
+.stat-val u{font-size:13px;font-weight:500;letter-spacing:-.2px;text-decoration:none;color:var(--ink-400)}
+.stat-val em{font-size:11px;font-weight:600;font-style:normal;letter-spacing:-.1px}
+.stat-val em.up{color:var(--accent-deep)}
+.stat-val em.down{color:var(--ink-400)}
+.stat-sub{font-size:11px;font-weight:400;color:var(--ink-300);margin-top:3px;line-height:1.2;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat.nil .stat-val{color:var(--ink-300)}
+.tagpill{font-size:11px;font-weight:600;letter-spacing:-.1px;color:var(--ink-900);border-radius:8px;
+         padding:3px 8px;line-height:1.2;display:inline-block;margin-top:6px;
+         background-color:var(--card);
+         background-image:repeating-linear-gradient(45deg,var(--d5) 0 1px,rgba(255,255,255,0) 1px 5px)}
+.spark{position:absolute;right:14px;bottom:12px;width:60px;height:24px}
+.dots{display:inline-flex;gap:3px;vertical-align:middle;margin-right:7px;position:relative;top:-1px}
+.dots i{width:5px;height:5px;border-radius:50%;background:var(--accent-deep);display:inline-block}
+.dots i.off{background:var(--d5)}
+
+/* ── chart card ───────────────────────────────────── */
+.chart{background:var(--card);border-radius:var(--r-card);width:691px;height:257px;padding:18px 20px;
+       flex:0 0 auto;display:flex;flex-direction:column;overflow:hidden}
+.chart-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;height:45px}
+.chart-head h2{font-size:16px;font-weight:600;letter-spacing:-.32px;color:var(--ink-900);margin:0;line-height:1.35}
+.chart-head p{font-size:12px;font-weight:400;color:var(--ink-400);margin:2px 0 0;line-height:1.3}
+.chart-head .cov{font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-300);
+                 background:var(--bg);border-radius:6px;padding:3px 6px;margin-left:6px;white-space:nowrap}
+.fig{height:176px}
+.fig>svg{width:100%;height:100%}
+</style>
+</head>
+<body>
+<div id="fitwrap">
+<div id="stage">
+  <div class="band">
+
+    <div class="head">
+      <div>
+        <h1>Bayram Dashboard</h1>
+        <p>08:04 · UTC+5 · 1 USD = 12 800 soʻm</p>
+      </div>
+      <div class="head-r">
+        <div class="seg" id="globalseg"></div>
+        <div class="chip">to 07 Sep</div>
+        <div class="chip live"><span class="dot"></span> LIVE · 5s</div>
+      </div>
+    </div>
+
+    <div id="stats"></div>
+
+    <div class="glabel">Charts</div>
+    <div id="charts"></div>
+
+  </div>
+</div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── palette ──────────────────────────────────────── */
+  var D0 = '#0D0D12', D1 = '#3A3B3F', D2 = '#5B5A64', D3 = '#8D8D8D',
+      D4 = '#B4B4B7', D5 = '#D3D3D4', D6 = '#E8E8E8',
+      PAPER = '#FFFFFF', GRID = 'rgba(0,0,0,.06)',
+      ACCENT = '#75FC96', DEEP = '#218C3B', MUT = '#666D80';
+
+  /* ── svg helpers (from the shipped mockup) ────────── */
+  var NS = 'http://www.w3.org/2000/svg';
+  function el(tag, attrs, parent) {
+    var n = document.createElementNS(NS, tag);
+    for (var k in attrs) {
+      if (!Object.prototype.hasOwnProperty.call(attrs, k)) continue;
+      var v = attrs[k];
+      if (v === null || v === undefined || v === false) continue;
+      if (k === 'text') n.textContent = v; else n.setAttribute(k, v);
+    }
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function root(host, w, h) {
+    host.innerHTML = '';
+    return el('svg', {
+      viewBox: '0 0 ' + w + ' ' + h,
+      preserveAspectRatio: 'xMidYMid meet',
+      'font-family': 'Manrope, sans-serif'
+    }, host);
+  }
+  function grid(p, x1, y1, x2, y2) {
+    return el('line', { x1: x1, y1: y1, x2: x2, y2: y2, stroke: GRID,
+      'stroke-width': 1, 'stroke-dasharray': '2 2' }, p);
+  }
+  function txt(p, a, s) { a.text = s; return el('text', a, p); }
+  function rnd(i, k) { return Math.abs(((i * 73856093) ^ (k * 19349663)) % 1000) / 1000; }
+  function tip(n, s) { var t = document.createElementNS(NS, 'title'); t.textContent = s; n.appendChild(t); }
+
+  function uzs(v) {
+    if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+    if (v >= 1e3) return Math.round(v / 1e3) + 'k';
+    return String(v);
+  }
+
+  /* ══════════════════════════════════════════════════
+     STAT CARDS
+     ══════════════════════════════════════════════════ */
+  var PERIODS = ['today', 'week', 'month', 'year'];
+  var PERIOD_LABEL = { today: 'Today', week: 'Week', month: 'Month', year: 'Year' };
+  var MINI = { today: 'D', week: 'W', month: 'M', year: 'Y' };
+
+  var ROWS = [
+    { label: 'Audience', w: 270.4, cards: [
+      { label: 'Total users', value: '1 842', unit: '', sub: 'ever contacted the bot',
+        delta: '+1.3%' },
+      { label: 'New users', value: '23', unit: '', sub: 'first contact in period',
+        delta: '+15%', spark: true, sel: true, pv: {
+          today: { value: '23', delta: '+15%', spark: [14,17,22,19,13,25,20,16,28,21,17,23] },
+          week:  { value: '150', delta: '+6%', spark: [58,83,92,77,88,101,95,110,118,127,141,150] },
+          month: { value: '526', delta: '+10%', spark: [42,88,131,180,224,266,310,357,401,447,489,526] },
+          year:  { value: '1 842', delta: '+64%', spark: [0,0,0,0,0,0,96,178,254,318,470,526] } } },
+      { label: 'Active users', value: '186', unit: '', sub: 'rolling window, not calendar',
+        delta: '', sel: true, pv: {
+          today: { value: '186', delta: '', spark: [] },
+          week:  { value: '604', delta: '', spark: [] },
+          month: { value: '1 121', delta: '', spark: [] },
+          year:  { value: '1 780', delta: '', spark: [] } } },
+      { label: 'Churn', value: '—', unit: '', sub: '', delta: '', tag: 'not tracked' },
+      { label: 'Barred by operator', value: '6', unit: '', sub: 'admin block flag',
+        delta: '' }
+    ] },
+    { label: 'Finances', w: 340.5, cards: [
+      { label: 'Total revenue', value: '98 000', unit: 'soʻm', sub: 'delivered × 7 000 soʻm',
+        delta: '+12%', spark: true, sel: true, pv: {
+          today: { value: '98 000', delta: '+12%', spark: [77,98,119,105,70,140,112,91,154,119,98,98] },
+          week:  { value: '812 000', delta: '+5%', spark: [294,357,329,441,497,462,546,595,637,686,770,812] },
+          month: { value: '2.83M', delta: '+22%', spark: [238,476,714,973,1204,1442,1687,1925,2163,2394,2611,2828] },
+          year:  { value: '9.87M', delta: '+31%', spark: [0,0,0,0,0,0,427,994,1456,1848,2317,2828] } } },
+      { label: 'Top-ups sold', value: '5', unit: '', sub: 'amount never recorded',
+        delta: '+25%', sel: true, pv: {
+          today: { value: '5', delta: '+25%', spark: [] },
+          week:  { value: '31', delta: '+11%', spark: [] },
+          month: { value: '118', delta: '+14%', spark: [] },
+          year:  { value: '402', delta: '+18%', spark: [] } } },
+      { label: 'Vendor spend', value: '$3.47', unit: '', sub: 'measured vendor calls',
+        delta: '+9%', invert: true, spark: true, sel: true, pv: {
+          today: { value: '$3.47', delta: '+9%', spark: [2.1,2.6,3.3,1.8,4.1,2.9,3.5,2.4,3.0,3.2,2.8,3.47] },
+          week:  { value: '$23.10', delta: '+6%', spark: [9.4,11.2,12.8,14.2,15.6,16.8,18.9,19.7,20.4,21.7,22.3,23.1] },
+          month: { value: '$91.40', delta: '+9%', spark: [8.1,16.4,24.8,33.0,41.5,49.8,58.2,66.4,74.1,80.3,86.2,91.4] },
+          year:  { value: '$358.20', delta: '+22%', spark: [0,0,0,0,0,0,18.4,42.6,63.1,68.7,74.0,91.4] } } },
+      { label: 'Cost per song', value: '$0.25', unit: '', sub: 'all vendors, per song',
+        delta: '+25%', invert: true, sel: true, pv: {
+          today: { value: '$0.25', delta: '+25%', spark: [] },
+          week:  { value: '$0.20', delta: '-9%', spark: [] },
+          month: { value: '$0.23', delta: '+5%', spark: [] },
+          year:  { value: '$0.25', delta: '-4%', spark: [] } } }
+    ] },
+    { label: '', w: 340.5, cards: [
+      { label: 'MRR', value: '1.66M', unit: 'soʻm', sub: 'revenue − cost, 30 days', delta: '+27%' },
+      { label: 'ARR', value: '19.9M', unit: 'soʻm', sub: 'MRR × 12', delta: '' },
+      { label: 'Vendor balance', value: '—', unit: '', sub: '', delta: '', tag: 'not polled' },
+      { label: 'Songs remaining', value: '—', unit: '', sub: '', delta: '', tag: 'needs balances' }
+    ] },
+    { label: 'Performance', w: 270.4, cards: [
+      { label: 'Median song time', value: '4m 12s', unit: '', sub: 'p95 11m',
+        delta: '-6%', invert: true, sel: true, pv: {
+          today: { value: '4m 12s', delta: '-6%', spark: [], sub: 'p95 11m' },
+          week:  { value: '3m 58s', delta: '-4%', spark: [], sub: 'p95 10m' },
+          month: { value: '4m 05s', delta: '+2%', spark: [], sub: 'p95 11m' },
+          year:  { value: '4m 22s', delta: '+4%', spark: [], sub: 'p95 12m' } } },
+      { label: 'Songs delivered', value: '14', unit: '', sub: 'delivered kits, one song each',
+        delta: '+12%', spark: true, sel: true, pv: {
+          today: { value: '14', delta: '+12%', spark: [11,14,17,15,10,20,16,13,22,17,14,14] },
+          week:  { value: '116', delta: '+5%', spark: [42,51,47,63,71,66,78,85,91,98,110,116] },
+          month: { value: '404', delta: '+22%', spark: [34,68,102,139,172,206,241,275,309,342,373,404] },
+          year:  { value: '1 410', delta: '+31%', spark: [0,0,0,0,0,0,61,142,208,264,331,404] } } },
+      { label: 'Music renders', value: '17', unit: '', sub: 'vendor calls, includes retries',
+        delta: '+13%', sel: true, pv: {
+          today: { value: '17', delta: '+13%', spark: [] },
+          week:  { value: '131', delta: '+7%', spark: [] },
+          month: { value: '447', delta: '+19%', spark: [] },
+          year:  { value: '1 583', delta: '+29%', spark: [] } } },
+      { label: 'Music render time', value: '2m 51s', unit: '', sub: 'ElevenLabs compose call only',
+        delta: '+3%', invert: true, sel: true, pv: {
+          today: { value: '2m 51s', delta: '+3%', spark: [] },
+          week:  { value: '2m 44s', delta: '-2%', spark: [] },
+          month: { value: '2m 47s', delta: '+1%', spark: [] },
+          year:  { value: '2m 52s', delta: '+2%', spark: [] } } },
+      { label: 'System status', value: '7 / 8', unit: 'OK', sub: 'storage not probed',
+        delta: '', dots: [
+          ['API', 1], ['Worker', 1], ['Database', 1], ['Telegram', 1],
+          ['OpenRouter', 1], ['ElevenLabs', 1], ['Gemini', 1], ['Asset storage', 0] ] }
+    ] }
+  ];
+
+  function dirOf(d, invert) {
+    if (!d) return '';
+    var neg = d.charAt(0) === '-';
+    return (invert ? neg : !neg) ? 'up' : 'down';
+  }
+
+  function drawSpark(svgHost, series) {
+    var W = 60, H = 24;
+    if (!series || series.length < 2) { svgHost.innerHTML = ''; return; }
+    var s = root(svgHost, W, H);
+    var lo = Math.min.apply(null, series), hi = Math.max.apply(null, series);
+    var span = (hi - lo) || 1;
+    var x = function (i) { return 1 + (W - 4) * i / (series.length - 1); };
+    var y = function (v) { return H - 3 - (H - 8) * (v - lo) / span; };
+    var d = series.map(function (v, i) { return (i ? 'L' : 'M') + x(i).toFixed(2) + ' ' + y(v).toFixed(2); }).join(' ');
+    el('path', { d: d, fill: 'none', stroke: D0, 'stroke-width': 1.8,
+      'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, s);
+    el('circle', { cx: x(series.length - 1), cy: y(series[series.length - 1]), r: 2.4, fill: ACCENT,
+      stroke: D0, 'stroke-width': 1 }, s);
+  }
+
+  var statCards = [];
+  var setGlobal = null;   /* assigned by the global selector; mini segs are shortcuts to it */
+
+  function buildStat(spec, width) {
+    var a = document.createElement('article');
+    a.className = 'stat' + (spec.tag ? ' nil' : '');
+    a.style.width = width + 'px';
+
+    var top = document.createElement('div'); top.className = 'stat-top';
+    var lab = document.createElement('span'); lab.className = 'stat-label'; lab.textContent = spec.label;
+    top.appendChild(lab);
+
+    var segEl = null, segBtns = {};
+    if (spec.sel) {
+      segEl = document.createElement('div'); segEl.className = 'seg mini';
+      PERIODS.forEach(function (p) {
+        var b = document.createElement('button');
+        b.type = 'button'; b.textContent = MINI[p]; b.setAttribute('data-p', p);
+        b.addEventListener('click', function () { if (setGlobal) setGlobal(p); else apply(p); });
+        segBtns[p] = b; segEl.appendChild(b);
+      });
+      top.appendChild(segEl);
+    }
+    a.appendChild(top);
+
+    var val = document.createElement('div'); val.className = 'stat-val';
+    var num = document.createElement('span'); val.appendChild(num);
+    var unit = null;
+    if (spec.unit) { unit = document.createElement('u'); unit.textContent = spec.unit; val.appendChild(unit); }
+    var dEl = document.createElement('em'); val.appendChild(dEl);
+    a.appendChild(val);
+
+    var subEl = document.createElement('div'); subEl.className = 'stat-sub';
+    var subTxt = subEl;
+    if (spec.dots) {
+      var strip = document.createElement('span'); strip.className = 'dots';
+      spec.dots.forEach(function (d) {
+        var i = document.createElement('i');
+        if (!d[1]) i.className = 'off';
+        i.title = d[0] + (d[1] ? ' — OK' : ' — not probed');
+        strip.appendChild(i);
+      });
+      subEl.appendChild(strip);
+      subTxt = document.createElement('span'); subEl.appendChild(subTxt);
+    }
+    a.appendChild(subEl);
+
+    var tagEl = null;
+    if (spec.tag) {
+      tagEl = document.createElement('span'); tagEl.className = 'tagpill'; tagEl.textContent = spec.tag;
+      subEl.style.display = 'none';
+      a.appendChild(tagEl);
+    }
+
+    var sparkHost = null;
+    if (spec.spark) {
+      sparkHost = document.createElement('div'); sparkHost.className = 'spark';
+      a.appendChild(sparkHost);
+    }
+
+    var current = 'today';
+    function apply(p) {
+      current = p;
+      var pv = (spec.pv && spec.pv[p]) || null;
+      num.textContent = pv ? pv.value : spec.value;
+      var d = pv ? pv.delta : spec.delta;
+      dEl.textContent = d || '';
+      dEl.className = dirOf(d, spec.invert);
+      subTxt.textContent = (pv && pv.sub) ? pv.sub : spec.sub;
+      if (sparkHost) drawSpark(sparkHost, pv ? pv.spark : null);
+      if (segEl) {
+        PERIODS.forEach(function (q) { segBtns[q].classList.toggle('on', q === p); });
+      }
+    }
+    apply('today');
+
+    return { node: a, apply: apply, selectable: !!spec.sel, get period() { return current; } };
+  }
+
+  (function renderStats() {
+    var host = document.getElementById('stats');
+    ROWS.forEach(function (r) {
+      if (r.label) {
+        var g = document.createElement('div'); g.className = 'glabel'; g.textContent = r.label;
+        host.appendChild(g);
+      }
+      var row = document.createElement('div'); row.className = 'row';
+      r.cards.forEach(function (c) {
+        var made = buildStat(c, r.w);
+        statCards.push(made);
+        row.appendChild(made.node);
+      });
+      host.appendChild(row);
+    });
+  })();
+
+  /* ══════════════════════════════════════════════════
+     CHART DATA
+     ══════════════════════════════════════════════════ */
+  var CW = 651, CH = 176;
+
+  var SIGNUPS = {
+    hourly:  [0,0,0,0,0,1,0,2,1,3,2,1,2,0,1,3,2,1,0,2,1,0,1,0],
+    daily:   [12,15,11,18,14,9,13,16,21,17,12,19,24,15,11,20,18,26,14,17,22,19,13,25,20,16,28,21,17,23],
+    weekly:  [64,71,58,83,92,77,88,101,95,110,118,127,150],
+    monthly: [0,0,0,0,0,0,89,178,254,318,477,526]
+  };
+  var SIGNUP_TICKS = {
+    hourly:  ['00:00', '12:00', '23:00'],
+    daily:   ['−30D', '−15D', 'TODAY'],
+    weekly:  ['−12W', '−6W', 'THIS WK'],
+    monthly: ['−11M', '−6M', 'THIS MO']
+  };
+
+  /* revenue = songs delivered in the bucket × 7 000 soʻm (config.single_song_price_minor).
+     cost = vendor_usage USD × 12 800 (the rate stated once in the page header). */
+  var REVCOST = {
+    fx: 12800,
+    unit: { daily: 10000, weekly: 50000, monthly: 100000 },
+    daily:   { revenue: [112000,91000,154000,119000,98000,98000],
+               cost:    [26880,33280,42240,23040,52480,44416] },
+    weekly:  { revenue: [546000,595000,637000,686000,770000,812000],
+               cost:    [181760,215040,241920,261120,277760,295680] },
+    monthly: { revenue: [427000,994000,1456000,1848000,2317000,2828000],
+               cost:    [670720,791040,898560,1009920,1076480,1169920] }
+  };
+  var REVCOST_TICKS = {
+    daily:   ['D−5','D−4','D−3','D−2','D−1','TODAY'],
+    weekly:  ['W−5','W−4','W−3','W−2','W−1','NOW'],
+    monthly: ['M−5','M−4','M−3','M−2','M−1','NOW']
+  };
+
+  var DELIVERED = {
+    hourly:  [0,0,0,0,0,0,0,1,0,2,1,0,1,2,0,1,0,2,1,1,0,1,1,0],
+    daily:   [9,11,8,13,10,7,12,14,16,11,9,15,18,12,8,16,13,19,11,14,17,15,10,20,16,13,22,17,14,14],
+    weekly:  [42,51,47,63,71,66,78,85,91,98,104,110,116],
+    monthly: [0,0,0,0,0,0,61,142,208,264,331,404]
+  };
+  var DELIVERED_TICKS = {
+    hourly:  ['00:00','12:00','23:00'],
+    daily:   ['−30D','−15D','TODAY'],
+    weekly:  ['−12W','−6W','THIS WK'],
+    monthly: ['−11M','−6M','THIS MO']
+  };
+
+  /* vendor spend ÷ songs delivered, per bucket. Today: 3.47 / 14 = 0.25. */
+  var CPS = {
+    daily:   [0.13,0.20,0.15,0.11,0.29,0.25],
+    weekly:  [0.18,0.19,0.21,0.22,0.23,0.20],
+    monthly: [0.17,0.19,0.21,0.22,0.23,0.23],
+    priceLine: 0.55
+  };
+  var CPS_TICKS = {
+    daily:   ['D−5','D−4','D−3','D−2','D−1','TODAY'],
+    weekly:  ['W−5','W−4','W−3','W−2','W−1','NOW'],
+    monthly: ['M−5','M−4','M−3','M−2','M−1','NOW']
+  };
+
+  var COSTSPLIT = [
+    { vendor: 'ELEVENLABS MUSIC', usd: 74.20, ticks: 30 },
+    { vendor: 'ELEVENLABS TTS',   usd: 9.80,  ticks: 4 },
+    { vendor: 'OPENROUTER',       usd: 5.60,  ticks: 2 },
+    { vendor: 'GEMINI',           usd: 1.80,  ticks: 1 }
+  ];
+
+  var FUNNEL = {
+    unit: 25,
+    steps: [
+      { label: 'BRIEFS',    delta: 812,  total: true },
+      { label: 'ABANDONED', delta: -326 },
+      { label: 'UNPAID',    delta: -45 },
+      { label: 'FAILED',    delta: -37 },
+      { label: 'DELIVERED', delta: 404, total: true }
+    ]
+  };
+
+  /* ══════════════════════════════════════════════════
+     CHART RENDERERS
+     ══════════════════════════════════════════════════ */
+
+  /* ── F2 · hairline line — sign-ups ────────────────── */
+  function drawSignups(host, gran) {
+    var vs = SIGNUPS[gran], N = vs.length;
+    var s = root(host, CW, CH);
+    var L = 14, R = 14, base = 140, top = 16;
+    var x = function (i) { return N < 2 ? L : L + (CW - L - R) * i / (N - 1); };
+    var max = Math.max.apply(null, vs) || 1;
+    var map = function (v) { return base - (base - top) * v / max; };
+
+    for (var i = 0; i < N; i++) {
+      el('line', { x1: x(i), y1: base, x2: x(i), y2: base - 6, stroke: D5, 'stroke-width': .8 }, s);
+    }
+    el('line', { x1: L - 6, y1: base, x2: CW - R + 6, y2: base, stroke: D6, 'stroke-width': 1 }, s);
+    grid(s, L - 6, map(max), CW - R + 6, map(max));
+
+    var d = vs.map(function (v, k) { return (k ? 'L' : 'M') + x(k).toFixed(1) + ' ' + map(v).toFixed(1); }).join(' ');
+    el('path', { d: d, fill: 'none', stroke: D0, 'stroke-width': 1.1,
+      'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, s);
+
+    vs.forEach(function (v, k) {
+      var last = k === N - 1;
+      var hollow = gran === 'daily' ? (k % 7 === 5 || k % 7 === 6) : last;
+      var c = el('circle', { cx: x(k), cy: map(v), r: last ? 4.2 : 2.1,
+        fill: last ? ACCENT : (hollow ? PAPER : D0),
+        stroke: (last || hollow) ? D0 : 'none', 'stroke-width': (last || hollow) ? 1.1 : 0 }, s);
+      tip(c, v + ' sign-ups');
+    });
+    txt(s, { x: x(N - 1), y: Math.max(12, map(vs[N - 1]) - 11), 'font-size': 10, 'font-weight': 700,
+      fill: DEEP, 'text-anchor': 'end' }, vs[N - 1]);
+
+    var tk = SIGNUP_TICKS[gran];
+    [[0, tk[0], 'start'], [Math.floor((N - 1) / 2), tk[1], 'middle'], [N - 1, tk[2], 'end']]
+      .forEach(function (t) {
+        txt(s, { x: x(t[0]), y: base + 16, 'font-size': 8, 'font-weight': 600, fill: MUT,
+          'text-anchor': t[2], 'letter-spacing': '.1em' }, t[1]);
+      });
+  }
+
+  /* ── F6 · paired rungs — revenue against cost ─────── */
+  function drawRevCost(host, gran) {
+    var d = REVCOST[gran], unit = REVCOST.unit[gran];
+    var rev = d.revenue.map(function (v) { return Math.round(v / unit); });
+    var cost = d.cost.map(function (v) { return Math.max(1, Math.round(v / unit)); });
+    var N = rev.length;
+    var s = root(host, CW, CH);
+    var base = 140, top = 22;
+    var maxR = Math.max.apply(null, rev.concat(cost));
+    var step = Math.min(5.4, (base - top) / maxR);
+    var colW = (CW - 30) / N;
+    var x0 = function (i) { return 15 + colW * (i + 0.5); };
+    var HW = 11;
+
+    el('line', { x1: 10, y1: base + 4, x2: CW - 10, y2: base + 4, stroke: D6, 'stroke-width': 1 }, s);
+
+    function ladder(cx, n, ink, seed, hero) {
+      for (var k = 0; k < n; k++) {
+        var y = base - k * step, w = HW - 1.2 + rnd(k + 1, seed) * 2.4;
+        el('line', { x1: cx - w, y1: y, x2: cx + w, y2: y,
+          stroke: (hero && k === n - 1) ? DEEP : ink, 'stroke-width': 1,
+          opacity: ink === D0 ? (.6 + rnd(k + 2, seed + 3) * .4) : (.5 + rnd(k + 2, seed + 5) * .4) }, s);
+      }
+      return base - (n - 1) * step;
+    }
+
+    for (var i = 0; i < N; i++) {
+      var cx = x0(i), xa = cx - 13, xb = cx + 13, hero = i === N - 1;
+      var topA = ladder(xa, rev[i], D0, i + 2, hero);
+      var topB = ladder(xb, cost[i], D4, i + 7, false);
+      var na = txt(s, { x: xa, y: topA - 8, 'font-size': 9.5, 'font-weight': 700,
+        fill: hero ? DEEP : D0, 'text-anchor': 'middle' }, uzs(d.revenue[i]));
+      tip(na, d.revenue[i] + ' soʻm revenue');
+      var nb = txt(s, { x: xb, y: topB - 8, 'font-size': 8.5, 'font-weight': 700, fill: D3,
+        'text-anchor': 'middle' }, uzs(d.cost[i]));
+      tip(nb, d.cost[i] + ' soʻm cost');
+      txt(s, { x: cx, y: base + 18, 'font-size': 8, 'font-weight': 700, fill: MUT,
+        'text-anchor': 'middle', 'letter-spacing': '.08em' }, REVCOST_TICKS[gran][i]);
+    }
+  }
+
+  /* ── F3 · hairline area — songs delivered ─────────── */
+  function drawDelivered(host, gran) {
+    var vs = DELIVERED[gran], N = vs.length;
+    var s = root(host, CW, CH);
+    var L = 16, R = 16, base = 140, top = 18;
+    var x = function (i) { return N < 2 ? L : L + (CW - L - R) * i / (N - 1); };
+    var max = Math.max.apply(null, vs) || 1;
+    var map = function (v) { return base - (base - top) * v / max; };
+
+    el('line', { x1: L - 8, y1: base, x2: CW - R + 8, y2: base, stroke: D6, 'stroke-width': 1 }, s);
+    var peak = vs.indexOf(max);
+
+    vs.forEach(function (v, k) {
+      var last = k === N - 1, isPeak = k === peak;
+      el('line', { x1: x(k), y1: base, x2: x(k), y2: map(v),
+        stroke: last ? D0 : (isPeak ? D0 : D2),
+        'stroke-width': (isPeak || last) ? 1.2 : .6,
+        'stroke-dasharray': last ? '2 2' : null,
+        opacity: (isPeak || last) ? 1 : (.5 + rnd(k + 1, 7) * .45) }, s);
+    });
+
+    var d = vs.map(function (v, k) { return (k ? 'L' : 'M') + x(k).toFixed(1) + ' ' + map(v).toFixed(1); }).join(' ');
+    el('path', { d: d, fill: 'none', stroke: D0, 'stroke-width': 1.2,
+      'stroke-linejoin': 'round', 'stroke-linecap': 'round' }, s);
+
+    if (peak !== N - 1) {
+      var pk = el('circle', { cx: x(peak), cy: map(vs[peak]), r: 3.6, fill: D0 }, s);
+      tip(pk, vs[peak] + ' delivered');
+      txt(s, { x: x(peak), y: Math.max(12, map(vs[peak]) - 9), 'font-size': 9.5, 'font-weight': 700,
+        fill: D0, 'text-anchor': 'middle' }, vs[peak]);
+    }
+    var lastPt = el('circle', { cx: x(N - 1), cy: map(vs[N - 1]), r: 4.2, fill: ACCENT, stroke: D0,
+      'stroke-width': 1.1 }, s);
+    tip(lastPt, vs[N - 1] + ' delivered');
+    txt(s, { x: x(N - 1), y: Math.max(12, map(vs[N - 1]) - 11), 'font-size': 10, 'font-weight': 700,
+      fill: DEEP, 'text-anchor': 'end' }, vs[N - 1]);
+
+    var tk = DELIVERED_TICKS[gran];
+    [[0, tk[0], 'start'], [Math.floor((N - 1) / 2), tk[1], 'middle'], [N - 1, tk[2], 'end']]
+      .forEach(function (t) {
+        txt(s, { x: x(t[0]), y: base + 16, 'font-size': 8, 'font-weight': 600, fill: MUT,
+          'text-anchor': t[2], 'letter-spacing': '.1em' }, t[1]);
+      });
+  }
+
+  /* ── F1 · rung bars — cost per song ───────────────── */
+  function drawCostPerSong(host, gran) {
+    var vs = CPS[gran], N = vs.length;
+    var s = root(host, CW, CH);
+    var base = 140, top = 20;
+    var priceRungs = Math.round(CPS.priceLine * 100);
+    var step = (base - top) / (priceRungs + 3);
+    var colW = (CW - 60) / N;
+    var x0 = function (i) { return 30 + colW * (i + 0.5); };
+    var HW = 16;
+
+    el('line', { x1: 14, y1: base + 4, x2: CW - 14, y2: base + 4, stroke: D6, 'stroke-width': 1 }, s);
+
+    var py = base - priceRungs * step;
+    el('line', { x1: 14, y1: py, x2: CW - 90, y2: py, stroke: D3, 'stroke-width': 1,
+      'stroke-dasharray': '4 4' }, s);
+    txt(s, { x: CW - 84, y: py + 3, 'font-size': 8, 'font-weight': 700, fill: D3,
+      'letter-spacing': '.06em' }, '$0.55 PRICE');
+
+    vs.forEach(function (v, i) {
+      var cx = x0(i), n = Math.round(v * 100), hero = i === N - 1;
+      for (var k = 0; k < n; k++) {
+        var y = base - k * step, w = HW - 2 + rnd(k + 1, i + 2) * 3;
+        el('line', { x1: cx - w, y1: y, x2: cx + w, y2: y,
+          stroke: (hero && k === n - 1) ? DEEP : D0, 'stroke-width': 1,
+          opacity: .5 + rnd(k + 2, i + 4) * .5 }, s);
+        if (k % 5 === 4) el('circle', { cx: cx + HW + 4, cy: y, r: .8, fill: D5 }, s);
+      }
+      var num = txt(s, { x: cx, y: base - (n - 1) * step - 9, 'font-size': 10, 'font-weight': 700,
+        fill: hero ? DEEP : D0, 'text-anchor': 'middle' }, '$' + v.toFixed(2));
+      tip(num, '$' + v.toFixed(2) + ' per song');
+      txt(s, { x: cx, y: base + 18, 'font-size': 8, 'font-weight': 700, fill: MUT,
+        'text-anchor': 'middle', 'letter-spacing': '.08em' }, CPS_TICKS[gran][i]);
+    });
+  }
+
+  /* ── F5 · tick rows — where the cost goes ─────────── */
+  function drawCostSplit(host) {
+    var s = root(host, CW, CH);
+    var X0 = 158, PX = 13, pitch = 32, y0 = 30;
+    var shades = [D0, D1, D2, D3];
+    COSTSPLIT.forEach(function (r, i) {
+      var y = y0 + i * pitch, hero = i === 0;
+      txt(s, { x: X0 - 12, y: y + 3, 'font-size': 8, 'font-weight': 700,
+        fill: hero ? DEEP : MUT, 'text-anchor': 'end', 'letter-spacing': '.08em' }, r.vendor);
+      el('line', { x1: X0, y1: y + 9, x2: X0 + 30 * PX, y2: y + 9, stroke: GRID, 'stroke-width': .8 }, s);
+      for (var k = 0; k < r.ticks; k++) {
+        var x = X0 + k * PX + PX / 2, h = 10 + rnd(k + 1, i + 2) * 6;
+        el('line', { x1: x, y1: y + 9, x2: x, y2: y + 9 - h, stroke: shades[i], 'stroke-width': hero ? 1.4 : 1,
+          opacity: .55 + rnd(k + 3, i + 5) * .45 }, s);
+        if (k % 5 === 4) el('circle', { cx: x, cy: y + 13, r: .8, fill: D5 }, s);
+      }
+      var lab = txt(s, { x: X0 + r.ticks * PX + 12, y: y + 4, 'font-size': 11, 'font-weight': 700,
+        fill: hero ? DEEP : D0 }, '$' + r.usd.toFixed(2));
+      tip(lab, r.vendor + ' — $' + r.usd.toFixed(2) + ' over 30 days');
+    });
+  }
+
+  /* ── F9 · rung waterfall — where orders drop off ──── */
+  function drawFunnel(host) {
+    var s = root(host, CW, CH);
+    var unit = FUNNEL.unit, steps = FUNNEL.steps;
+    var base = 140, top = 24, HW = 16;
+    var lv = 0, rows = [];
+    steps.forEach(function (st) {
+      if (st.total && rows.length === 0) { rows.push({ label: st.label, v: st.delta, from: 0, to: st.delta / unit }); lv = st.delta / unit; }
+      else if (st.total) { rows.push({ label: st.label, v: st.delta, from: 0, to: lv }); }
+      else { var nxt = lv + st.delta / unit; rows.push({ label: st.label, v: st.delta, from: nxt, to: lv }); lv = nxt; }
+    });
+    var maxR = 0;
+    rows.forEach(function (r) { maxR = Math.max(maxR, r.from, r.to); });
+    var step = (base - top) / (maxR + 1);
+    var colW = (CW - 40) / rows.length;
+    var x0 = function (i) { return 20 + colW * (i + 0.5); };
+    var yOf = function (k) { return base - k * step; };
+
+    el('line', { x1: 14, y1: base + 4, x2: CW - 14, y2: base + 4, stroke: D6, 'stroke-width': 1 }, s);
+
+    rows.forEach(function (r, i) {
+      var cx = x0(i), neg = r.v < 0, hero = i === rows.length - 1;
+      var lo = Math.min(r.from, r.to), n = Math.max(1, Math.round(Math.abs(r.to - r.from)));
+      for (var k = 0; k < n; k++) {
+        var y = yOf(lo + k), w = HW - 1.2 + rnd(k + 1, i + 2) * 2.4;
+        if (neg) {
+          el('line', { x1: cx - w, y1: y, x2: cx + w, y2: y, stroke: D3, 'stroke-width': 1,
+            'stroke-dasharray': '2.5 2.5', opacity: .75 }, s);
+        } else {
+          el('line', { x1: cx - w, y1: y, x2: cx + w, y2: y,
+            stroke: (hero && k === n - 1) ? DEEP : D0, 'stroke-width': 1,
+            opacity: .6 + rnd(k + 2, i + 4) * .4 }, s);
+        }
+      }
+      if (i < rows.length - 1) {
+        // hand-off sits at the level the next column starts from
+        var yl = yOf(i === 0 ? r.to : Math.min(r.from, r.to));
+        el('line', { x1: cx + HW + 3, y1: yl, x2: x0(i + 1) - HW - 3, y2: yl, stroke: D5,
+          'stroke-width': .8, 'stroke-dasharray': '2 3' }, s);
+      }
+      var topY = yOf(Math.max(r.from, r.to));
+      var num = txt(s, { x: cx, y: topY - 9, 'font-size': 10, 'font-weight': 700,
+        fill: neg ? D3 : (hero ? DEEP : D0), 'text-anchor': 'middle' },
+        (neg ? '−' : '') + Math.abs(r.v));
+      tip(num, r.label + ' — ' + (neg ? '−' : '') + Math.abs(r.v) + ' orders');
+      txt(s, { x: cx, y: base + 18, 'font-size': 8, 'font-weight': 700, fill: MUT,
+        'text-anchor': 'middle', 'letter-spacing': '.08em' }, r.label);
+    });
+  }
+
+  /* ══════════════════════════════════════════════════
+     CHART CARDS
+     ══════════════════════════════════════════════════ */
+  var CHARTS = [
+    { title: 'Sign-ups', sub: 'one dot = one bucket · hollow = weekend',
+      toggles: [['Hourly','hourly'],['Daily','daily'],['Weekly','weekly'],['Monthly','monthly']],
+      draw: drawSignups },
+    { title: 'Revenue against cost', sub: 'ink = revenue · faint = cost',
+      toggles: [['Daily','daily'],['Weekly','weekly'],['Monthly','monthly']],
+      draw: drawRevCost },
+    { title: 'Songs delivered', sub: 'one hairline = one bucket',
+      toggles: [['Hourly','hourly'],['Daily','daily'],['Weekly','weekly'],['Monthly','monthly']],
+      draw: drawDelivered },
+    { title: 'Cost per song', sub: 'one rung = one cent', cov: '68% priced',
+      toggles: [['Daily','daily'],['Weekly','weekly'],['Monthly','monthly']],
+      draw: drawCostPerSong },
+    { title: 'Where the cost goes', sub: 'one tick = $2.50', cov: 'last 30d',
+      toggles: [], draw: drawCostSplit },
+    { title: 'Where orders drop off', sub: 'one rung = 25 orders · dashed drops', cov: 'last 30d',
+      toggles: [], draw: drawFunnel }
+  ];
+
+  var chartRefs = [];
+
+  function buildChart(spec) {
+    var a = document.createElement('article');
+    a.className = 'chart';
+
+    var head = document.createElement('div'); head.className = 'chart-head';
+    var lhs = document.createElement('div');
+    var h2 = document.createElement('h2'); h2.textContent = spec.title;
+    if (spec.cov) {
+      var cov = document.createElement('span'); cov.className = 'cov'; cov.textContent = spec.cov;
+      h2.appendChild(cov);
+    }
+    var p = document.createElement('p'); p.textContent = spec.sub;
+    lhs.appendChild(h2); lhs.appendChild(p);
+    head.appendChild(lhs);
+
+    var btns = {};
+    if (spec.toggles.length) {
+      var seg = document.createElement('div'); seg.className = 'seg tog';
+      spec.toggles.forEach(function (t) {
+        var b = document.createElement('button');
+        b.type = 'button'; b.textContent = t[0];
+        b.addEventListener('click', function () { apply(t[1]); });
+        btns[t[1]] = b; seg.appendChild(b);
+      });
+      head.appendChild(seg);
+    }
+    a.appendChild(head);
+
+    var fig = document.createElement('div'); fig.className = 'fig';
+    a.appendChild(fig);
+
+    function apply(gran) {
+      spec.draw(fig, gran);
+      Object.keys(btns).forEach(function (g) { btns[g].classList.toggle('on', g === gran); });
+    }
+    apply(spec.toggles.length ? spec.toggles[0][1] : null);
+
+    return { node: a, apply: apply, grans: spec.toggles.map(function (t) { return t[1]; }) };
+  }
+
+  (function renderCharts() {
+    var host = document.getElementById('charts');
+    var row = null;
+    CHARTS.forEach(function (spec, i) {
+      if (i % 2 === 0) { row = document.createElement('div'); row.className = 'row'; host.appendChild(row); }
+      var made = buildChart(spec);
+      chartRefs.push(made);
+      row.appendChild(made.node);
+    });
+  })();
+
+  /* ══════════════════════════════════════════════════
+     GLOBAL TIME SELECTOR
+     ══════════════════════════════════════════════════ */
+  /* Finest bucket a chart can honestly draw for the chosen window; falls back to the
+     FINEST it has, never the coarsest. Charts with an hourly bucket carry 30-point daily
+     series, so a month window is drawn daily; the six-column rung charts have no sub-month
+     bucket, so month and year both land on their six-month view. */
+  function granFor(grans, period) {
+    if (!grans.length) return null;
+    var fine = grans.indexOf('hourly') !== -1;
+    var want = { today: ['hourly', 'daily'],
+                 week:  ['weekly', 'daily'],
+                 month: fine ? ['daily', 'monthly'] : ['monthly', 'weekly'],
+                 year:  ['monthly', 'weekly', 'daily'] }[period];
+    for (var i = 0; i < want.length; i++) {
+      if (grans.indexOf(want[i]) !== -1) return want[i];
+    }
+    return grans[0];
+  }
+
+  (function renderGlobal() {
+    var host = document.getElementById('globalseg');
+    var btns = {};
+    function set(p) {
+      PERIODS.forEach(function (q) { btns[q].classList.toggle('on', q === p); });
+      statCards.forEach(function (c) { if (c.selectable) c.apply(p); });
+      chartRefs.forEach(function (c) {
+        var g = granFor(c.grans, p);
+        if (g) c.apply(g);
+      });
+    }
+    PERIODS.forEach(function (p) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.textContent = PERIOD_LABEL[p];
+      b.addEventListener('click', function () { set(p); });
+      btns[p] = b; host.appendChild(b);
+    });
+    setGlobal = set;
+    set('today');
+  })();
+
+  /* ── scale-to-fit (fixed 1440 mockup) ─────────────── */
+  function fit() {
+    var stage = document.getElementById('stage'), wrap = document.getElementById('fitwrap');
+    var s = Math.min(1, window.innerWidth / 1440);
+    stage.style.transform = 'scale(' + s + ')';
+    wrap.style.width = Math.ceil(1440 * s) + 'px';
+    wrap.style.height = Math.ceil(stage.offsetHeight * s) + 'px';
+  }
+  window.addEventListener('resize', fit);
+  window.addEventListener('load', fit);
+  fit();
+})();
+</script>
+</body>
+</html>

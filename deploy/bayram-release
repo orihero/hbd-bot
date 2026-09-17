@@ -1,0 +1,1474 @@
+#!/usr/bin/env bash
+# bayram-release — the CONSUMER half of operator-triggered CD. Runs as root on abdu-test.
+#
+#   Install at:  /opt/bayram/sbin/bayram-release      0755 root:root
+#
+#   sudo /opt/bayram/sbin/bayram-release plan        # dry run: say what WOULD happen
+#   sudo /opt/bayram/sbin/bayram-release deploy
+#   sudo /opt/bayram/sbin/bayram-release verify
+#   sudo /opt/bayram/sbin/bayram-release rollback
+#   sudo /opt/bayram/sbin/bayram-release backup
+#
+# NO PATH ARGUMENT IS EVER PASSED, and that is the point. `deploy` and `plan` scan
+# /opt/bayram/release/incoming/ for exactly one *.tar.gz and refuse on zero or many. An
+# attacker-controlled argv path handed to a root script is the hole; sudo matches command
+# arguments with fnmatch, not regex, so no wildcard in a sudoers rule can be trusted to
+# constrain a path. The grant therefore lists five FIXED, ARGUMENT-FULL commands and nothing
+# else. `--maintenance-window` and `--restore-db` are deliberately NOT in that grant: both are
+# destructive, and a password prompt in front of them is the intended friction.
+#
+# WHAT IT REPLACES. deploy-d17.sh, deploy-payme.sh and deploy-support.sh are the same seven
+# beats in the same order with the same constants block (11-ci-cd.md §2, "One idempotent,
+# versioned bayram-release script replaces all three"). Nothing feature-specific lives in the
+# beats; what was feature-specific now arrives in MANIFEST.json.
+#
+# ------------------------------------------------------------------------------------------
+# INTEGRITY, STATED HONESTLY — THERE IS NO SIGNING IN v1.
+#
+# MANIFEST.json hashes the files that ship beside it inside the same tarball. That proves the
+# bundle is INTERNALLY CONSISTENT and undamaged in transit. It does NOT prove authorship:
+# anyone who can write the tarball can write the manifest to match it. The authenticity of a
+# release therefore rests entirely on WHO CAN WRITE TO /opt/bayram/release/incoming/ — mode
+# 0770 root:developer — and on nothing else. Treat membership of group `developer` as
+# equivalent to root on this host.
+#
+# There is no signature check in this script ON PURPOSE. A verification that warns and
+# continues when no key is present is worse than no verification at all, because it reads as
+# protection in the log and provides none. Ed25519 signing of the manifest, with the public key
+# on the host and a HARD failure when the signature is absent or wrong, is the v2 upgrade
+# (11-ci-cd.md §2, "On signing"). Note what it will imply: a signing key in GitHub Actions IS
+# unattended root on the payment host, which is why the key belongs with this operator-
+# triggered flow — where a poisoned bundle still waits for a human — and never with a timer.
+# ------------------------------------------------------------------------------------------
+#
+# THE MIGRATE-FIRST ORDER, AND WHY THE MANIFEST DECIDES IT. Migrations run BEFORE the wheel is
+# installed, so for about a minute the OLD code runs against the NEW schema. Old code ignores
+# columns and tables it has never heard of; it cannot survive a column that has gone. That
+# order is only safe for ADDITIVE revisions — "a property of THIS revision, not a rule of the
+# project" (deploy/deploy-d17.sh:17-20, deploy/deploy-support.sh:18-20). CI computes
+# `migrations.additive` with the same `ast` scan as ci.yml's migration-safety job
+# (.github/workflows/ci.yml:186-230) over the revisions not yet applied. When it is false this
+# script REFUSES the normal order and demands --maintenance-window, which stops the fleet
+# first and is a different, slower, outage-taking procedure.
+#
+# THE GAP THIS CLOSES. None of the three existing scripts asserts the RESULT of
+# `alembic current`: the expected revision appears only in an echo banner
+# (deploy-d17.sh:65, deploy-support.sh:99). Migrating to the wrong head — because a revision
+# file never landed in versions/, so `upgrade head` stopped early and exited 0 — is a silent
+# success today, and it leaves the schema short of what the code about to be installed needs.
+# `migrations.head` in the manifest turns that banner into an assertion.
+
+set -euo pipefail
+# -E so the ERR trap below is inherited by functions, command substitutions and subshells.
+# It is what lets `systemctl is-active` stay a bare, unwrapped command (never inside `if`,
+# never followed by `|| true`, so it remains a real gate under set -e) while this script still
+# exits with the contract's code rather than systemd's.
+set -E
+
+# ============================================================================================
+# Constants. Identical to the three deploy scripts they replace; do not drift from them.
+# ============================================================================================
+VENV=/opt/bayram/venv
+MIGRATIONS_DIR=/opt/bayram/migrations
+ALEMBIC=/opt/bayram/migrations/alembic.ini
+VERSIONS=/opt/bayram/migrations/versions
+ENVFILE=/etc/bayram/bayram.env
+BACKUP_DIR=/var/backups/bayram
+
+# THE DATABASE IS STILL NAMED `hbd`. The hbd -> bayram rename cut over the units, the paths and
+# the package; it did not rename the database, and all three predecessor scripts dump `hbd`
+# (deploy-d17.sh:55, deploy-support.sh:89). Renaming it is its own change with its own
+# rollback, and guessing here would mean dumping a database that does not exist — which, piped
+# into gzip, still produces a valid empty file.
+PGDATABASE_NAME=hbd
+
+RELEASE_ROOT=/opt/bayram/release
+INCOMING="$RELEASE_ROOT/incoming"
+WORK_ROOT="$RELEASE_ROOT/work"
+STATE="$RELEASE_ROOT/state.json"
+WHEEL_STORE=/opt/bayram/wheels
+
+# Restart order is 04-release.md §6's: admin FIRST, then bot, worker, payme, as four separate
+# calls. The predecessor scripts do one `systemctl restart bayram-bot bayram-worker
+# bayram-admin bayram-payme` (deploy-d17.sh:81, deploy-support.sh:113) — that is ONE systemd
+# transaction and the argument order guarantees nothing about sequencing. The runbook wins:
+# the admin API holds no queue, no vendor client and no in-flight customer work, so its boot
+# refusals (a disabled panel, a vendor credential in reach, an AdminSettings validator) fire
+# while the operator is still watching and BEFORE a customer-facing process is disturbed.
+UNITS=(bayram-admin bayram-bot bayram-worker bayram-payme)
+
+# `sleep 4` is what deploy-d17.sh:82 and deploy-support.sh:114 wait before is-active. Kept.
+SETTLE=4
+
+# The two HTTP processes and their loopback readiness endpoints (01-architecture.md:115-116).
+# Both bind 127.0.0.1 only; nothing here is reachable from off the box.
+READY_PROBES=("bayram-admin|http://127.0.0.1:8080/readyz" "bayram-payme|http://127.0.0.1:8091/readyz")
+
+# `/readyz` answers a CONSTANT word to an unauthenticated caller and pings nothing — that is
+# deliberate (admin/routers/health.py, §6.3): an unauthenticated detailed body is fleet
+# telemetry for anyone who can reach the port. The detail needs a session or this header,
+# compared with `compare_digest` against `admin_probe_token`. Where the token is unset — which
+# is the default, `BAYRAM_ADMIN_PROBE_TOKEN=` ships empty in .env.admin.example — the probe
+# below still proves the process answers HTTP at all, which is the thing `systemctl is-active`
+# cannot tell you.
+PROBE_TOKEN_HEADER='X-Probe-Token'
+
+RESTORE_PHRASE='RESTORE THE DATABASE AND LOSE DATA'
+
+STAMP="$(date -u +%Y%m%d-%H%M%S)"
+WORK=""          # set by stage_bundle(); the EXIT trap removes it
+BUNDLE=""        # the single *.tar.gz found in incoming/
+
+# ============================================================================================
+# Exit codes — FIXED by the contract.
+#   0 success
+#   1 usage/config error
+#   2 preflight refused (NOTHING was changed)
+#   3 failed during deploy, system may be mid-change — READ THE OUTPUT
+#   4 verify failed
+# STAGE_EXIT is what an unexpected failure exits with, and it is moved forward as the script
+# crosses from "nothing changed yet" into "the host is being modified".
+# ============================================================================================
+STAGE_EXIT=1
+STAGE_NAME="startup"
+
+say()  { printf '%s\n' "$*"; }
+step() { printf '\n=== %s ===\n' "$*"; }
+warn() { printf 'WARNING: %s\n' "$*" >&2; }
+
+die_usage()  { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
+refuse()     { printf '\nREFUSED: %s\n' "$*" >&2
+               printf 'Nothing was changed on this host.\n' >&2; exit 2; }
+fail_mid()   { printf '\nFAILED DURING DEPLOY: %s\n' "$*" >&2
+               printf 'THE SYSTEM MAY BE MID-CHANGE. Read the output above before retrying.\n' >&2
+               printf 'State: %s\n' "$STATE" >&2; exit 3; }
+fail_verify(){ printf '\nVERIFY FAILED: %s\n' "$*" >&2; exit 4; }
+
+on_err() {
+  local code=$?
+  printf '\n%s\n' "-----------------------------------------------------------------" >&2
+  printf 'ABORTED in stage "%s": command failed with status %s at line %s.\n' \
+    "$STAGE_NAME" "$code" "${BASH_LINENO[0]:-?}" >&2
+  case "$STAGE_EXIT" in
+    2) printf 'Nothing was changed on this host.\n' >&2 ;;
+    3) printf 'THE SYSTEM MAY BE MID-CHANGE. Read the output above.\nState: %s\n' "$STATE" >&2 ;;
+    4) printf 'The release IS installed and the fleet was restarted; VERIFICATION of it failed.\nState: %s\n' "$STATE" >&2 ;;
+  esac
+  exit "$STAGE_EXIT"
+}
+trap on_err ERR
+
+cleanup() {
+  # The staging directory is never reused and never kept: it holds an extracted copy of a
+  # bundle written by anyone in group `developer`.
+  if [ -n "$WORK" ] && [ -d "$WORK" ]; then
+    rm -rf -- "$WORK"
+  fi
+}
+trap cleanup EXIT
+
+usage() {
+  cat <<'USAGE'
+bayram-release — deploy a CI-built bundle that an operator has dropped on this host.
+
+  bayram-release plan                              dry run: say what deploy WOULD do
+  bayram-release deploy  [--maintenance-window]    the seven beats
+  bayram-release verify                            prove what is running is what was deployed
+  bayram-release rollback [--restore-db]           reinstall the previous wheel
+  bayram-release backup                            pg_dump now, and check it is not empty
+
+The bundle is NOT named on the command line. Drop exactly one bayram-<version>.tar.gz in
+/opt/bayram/release/incoming/ and run `deploy`; zero or more than one is a refusal.
+
+  --maintenance-window   stop the fleet, then migrate, then install, then start. Required when
+                         the manifest says migrations.additive is false, because the ordinary
+                         order runs OLD code against the NEW schema for about a minute.
+  --restore-db           rollback only. Restore the pre-deploy pg_dump over the live database.
+                         Requires typing a phrase. Loses every row written since the dump.
+
+Exit codes: 0 ok · 1 usage/config · 2 preflight refused (nothing changed) · 3 failed
+mid-deploy (READ THE OUTPUT) · 4 verify failed.
+USAGE
+}
+
+# ============================================================================================
+# Preconditions
+# ============================================================================================
+require_root() {
+  # Refuse as non-root rather than half-running: every beat below writes under /opt/bayram,
+  # /var/backups or systemd, and a partial run is harder to reason about than no run.
+  if [ "$(id -u)" -ne 0 ]; then
+    die_usage "must run as root: sudo /opt/bayram/sbin/bayram-release $*"
+  fi
+}
+
+# The interpreter used for JSON, hashing and zip inspection. Prefer the venv's — it is the one
+# python this host is guaranteed to have, and it is the same interpreter alembic runs under.
+# Only the standard library is used (json, hashlib, zipfile, tarfile), so this works before the
+# new wheel is installed as well as after.
+pybin() {
+  if [ -x "$VENV/bin/python" ]; then
+    printf '%s\n' "$VENV/bin/python"
+  elif command -v python3 >/dev/null 2>&1; then
+    command -v python3
+  else
+    die_usage "no python found: neither $VENV/bin/python nor python3"
+  fi
+}
+
+require_host_layout() {
+  test -x "$VENV/bin/python" || die_usage "venv missing or not executable: $VENV/bin/python"
+  test -x "$VENV/bin/pip"    || die_usage "pip missing in the venv: $VENV/bin/pip"
+  test -f "$ENVFILE"         || die_usage "env file missing: $ENVFILE"
+  test -f "$ALEMBIC"         || die_usage "alembic.ini missing: $ALEMBIC"
+  test -d "$VERSIONS"        || die_usage "migrations versions dir missing: $VERSIONS"
+}
+
+ensure_dirs() {
+  # Modes are the contract's. `install -d` re-asserts them on every run, so a directory that
+  # was loosened by hand is tightened again by the next release rather than at the next audit.
+  install -d -m 0755 -o root -g root /opt/bayram
+  install -d -m 0755 -o root -g root "$RELEASE_ROOT"
+  install -d -m 0700 -o root -g root "$WORK_ROOT"
+  install -d -m 0755 -o root -g root "$WHEEL_STORE"
+  install -d -m 0700 -o root -g root "$BACKUP_DIR"
+  if getent group developer >/dev/null 2>&1; then
+    install -d -m 0770 -o root -g developer "$INCOMING"
+  else
+    install -d -m 0750 -o root -g root "$INCOMING"
+    warn "group 'developer' does not exist; $INCOMING is root-only. The operator account cannot"
+    warn "drop a bundle until the group exists. Confirm with: getent group developer"
+  fi
+}
+
+# ============================================================================================
+# Finding the bundle — no path argument, ever
+# ============================================================================================
+find_bundle() {
+  local -a found=()
+  local line
+  # -type f, not -type l: incoming/ is group-writable by `developer`, and a symlink named
+  # something.tar.gz pointing at a file this root script would otherwise read is the obvious
+  # trick. find does not follow symlinks without -L, so -type f excludes them outright.
+  while IFS= read -r line; do
+    found+=("$line")
+  done < <(find "$INCOMING" -maxdepth 1 -type f -name '*.tar.gz' -print | LC_ALL=C sort)
+
+  case "${#found[@]}" in
+    0) refuse "no *.tar.gz in $INCOMING. Copy exactly one bundle there and run this again." ;;
+    1) BUNDLE="${found[0]}" ;;
+    *) printf 'Found %s bundles in %s:\n' "${#found[@]}" "$INCOMING" >&2
+       printf '  %s\n' "${found[@]}" >&2
+       refuse "more than one bundle in $INCOMING. Leave exactly one and run this again — this
+script never guesses which release you meant." ;;
+  esac
+  say "bundle: $BUNDLE"
+}
+
+# ============================================================================================
+# Extraction into a fresh, never-reused staging directory
+# ============================================================================================
+stage_bundle() {
+  WORK="$(mktemp -d "$WORK_ROOT/rel-XXXXXXXX")"
+  chmod 0700 "$WORK"
+  local staging="$WORK/staging"
+  mkdir -p "$staging" "$WORK/fields"
+
+  # Copy the bundle into root-only storage BEFORE reading it. The audit below and the
+  # extraction that follows must see the same bytes; incoming/ is writable by group
+  # `developer`, so auditing the original and then extracting the original is a
+  # time-of-check/time-of-use race that a copy removes for the price of one cp.
+  cp -- "$BUNDLE" "$WORK/bundle.tar.gz"
+
+  # MEMBER AUDIT. Refuse any member whose name is absolute or contains a '..' component.
+  #
+  # NAME CHECKING DOES NOT COVER MEMBER TYPE. A tarball can carry symlinks, hardlinks, device
+  # nodes and FIFOs whose names are perfectly innocent — the classic escape is a symlink member
+  # `migrations` -> `/etc`, followed by a regular member `migrations/x` that lands outside the
+  # staging directory entirely. So the audit checks TYPE as well, with tarfile, and accepts only
+  # regular files and directories.
+  #
+  # tar's own restrictions are used where available but NOT relied on: GNU tar strips a leading
+  # '/' and skips members containing '..' by default, and bsdtar refuses absolute paths unless
+  # -P is given — but the two behave differently enough that the gate has to be ours. Extraction
+  # itself uses exactly the contract's command, with --no-same-owner --no-same-permissions so a
+  # bundle cannot choose the uid, gid or mode of anything it lands.
+  "$(pybin)" - "$WORK/bundle.tar.gz" <<'PY' || refuse "the bundle failed its member audit (see above)"
+import sys, tarfile
+
+path = sys.argv[1]
+bad = []
+try:
+    tf = tarfile.open(path, "r:gz")
+except Exception as exc:                       # noqa: BLE001 — any failure here is a refusal
+    sys.exit(f"cannot open {path} as a gzip tar: {exc}")
+
+with tf:
+    members = tf.getmembers()
+
+if not members:
+    sys.exit("the bundle is empty")
+
+for m in members:
+    name = m.name
+    if name.startswith("/") or name.startswith("../"):
+        bad.append(f"absolute or escaping name: {name!r}")
+        continue
+    parts = name.split("/")
+    if ".." in parts:
+        bad.append(f"'..' component in name: {name!r}")
+        continue
+    if m.islnk() or m.issym():
+        bad.append(f"link member (a link can point outside the staging dir): {name!r}")
+        continue
+    if m.isdev() or m.ischr() or m.isblk() or m.isfifo():
+        bad.append(f"device or fifo member: {name!r}")
+        continue
+    if not (m.isreg() or m.isdir()):
+        bad.append(f"member is neither a regular file nor a directory: {name!r}")
+
+if bad:
+    for line in bad:
+        print(f"  unsafe tar member: {line}", file=sys.stderr)
+    sys.exit(f"{len(bad)} unsafe member(s)")
+
+print(f"member audit: {len(members)} members, all regular files or directories, no escapes")
+PY
+
+  # NO --strip-components ANYWHERE. The producer writes the archive with
+  #   tar --sort=name --owner=0 --group=0 --numeric-owner -czf <out> -C <dir> .
+  # so members sit at the archive root (spelled './MANIFEST.json' by that '.' argument) and the
+  # manifest lands at <staging>/MANIFEST.json directly. A --strip-components here is what broke
+  # the first integration attempt; it is not a knob, it is a bug.
+  tar -xzf "$WORK/bundle.tar.gz" -C "$staging" --no-same-owner --no-same-permissions
+
+  test -f "$staging/MANIFEST.json" || refuse \
+    "no MANIFEST.json at the root of the bundle. The archive must be produced with
+'tar -C <dir> .' so that members sit at the archive root — no leading directory, and no
+--strip-components on this side."
+}
+
+# ============================================================================================
+# PREFLIGHT — exit 2 on any refusal, having changed nothing
+# ============================================================================================
+preflight() {
+  local staging="$WORK/staging" fields="$WORK/fields"
+
+  step "preflight — validate the manifest and every hash in it"
+  "$(pybin)" - "$staging" "$fields" "$VENV" <<'PY' || refuse "the bundle failed preflight (see above)"
+import hashlib, json, os, re, sys, zipfile
+
+staging, fields, venv = sys.argv[1], sys.argv[2], sys.argv[3]
+MANIFEST = os.path.join(staging, "MANIFEST.json")
+
+problems = []
+def bad(msg):
+    problems.append(msg)
+
+def sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for chunk in iter(lambda: fh.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+try:
+    with open(MANIFEST, encoding="utf-8") as fh:
+        man = json.load(fh)
+except Exception as exc:                       # noqa: BLE001
+    sys.exit(f"MANIFEST.json does not parse as JSON: {exc}")
+
+if not isinstance(man, dict):
+    sys.exit("MANIFEST.json is not a JSON object")
+
+# --- schema: the integer literal 1, and nothing else. `True == 1` in Python, so the bool is
+# --- excluded explicitly; a manifest that says `"schema": true` is not a schema-1 manifest.
+schema = man.get("schema")
+if isinstance(schema, bool) or schema != 1:
+    sys.exit(f"MANIFEST.json schema is {schema!r}, expected the integer 1. This consumer "
+             f"refuses anything else rather than guessing at a newer layout.")
+
+RELEASE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$")
+SHA_RE = re.compile(r"^[0-9a-f]{64}$")
+COMMIT_RE = re.compile(r"^[0-9a-fA-F]{40}$")
+BUILT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$")
+
+release = man.get("release")
+if not isinstance(release, str) or not RELEASE_RE.match(release):
+    bad(f"release is {release!r}; expected ^[A-Za-z0-9][A-Za-z0-9._+-]{{0,63}}$")
+
+commit = man.get("commit")
+if not isinstance(commit, str) or not COMMIT_RE.match(commit):
+    bad(f"commit is {commit!r}; expected a full 40-character git sha")
+
+built_at = man.get("built_at")
+if not isinstance(built_at, str) or not BUILT_RE.match(built_at):
+    bad(f"built_at is {built_at!r}; expected RFC3339 UTC with a trailing Z")
+
+wheel = man.get("wheel")
+if not isinstance(wheel, str) or not wheel or "/" in wheel or wheel.startswith("."):
+    bad(f"wheel is {wheel!r}; expected a bare basename")
+    wheel = None
+elif not wheel.endswith(".whl"):
+    bad(f"wheel is {wheel!r}; expected a .whl basename")
+
+# --- migrations ---------------------------------------------------------------------------
+migs = man.get("migrations")
+head = None
+additive = None
+revisions = []
+if not isinstance(migs, dict):
+    bad("migrations is missing or is not an object")
+else:
+    head = migs.get("head")
+    if not isinstance(head, str) or not head.strip():
+        bad(f"migrations.head is {head!r}; expected the single alembic head this bundle "
+            f"upgrades TO")
+        head = None
+    additive = migs.get("additive")
+    if not isinstance(additive, bool):
+        bad(f"migrations.additive is {additive!r}; expected a literal true or false. It is "
+            f"computed by CI with the same ast scan as ci.yml's migration-safety job, and a "
+            f"string or a null here means the producer did not compute it at all.")
+        additive = None
+    revisions = migs.get("revisions")
+    if not isinstance(revisions, list) or not all(isinstance(r, str) for r in revisions):
+        bad(f"migrations.revisions is {revisions!r}; expected a list of basenames")
+        revisions = []
+    for r in revisions:
+        if "/" in r or r in (".", "..") or not r.endswith(".py"):
+            bad(f"migrations.revisions entry {r!r} is not a plain .py basename")
+
+# --- console ------------------------------------------------------------------------------
+console = man.get("console")
+console_sha = None
+if not isinstance(console, dict):
+    bad("console is missing or is not an object")
+else:
+    present = console.get("present")
+    if present is not True:
+        bad(f"console.present is {present!r}. The wheel must carry "
+            f"bayram/admin/static/index.html: that directory is gitignored and force-included "
+            f"as a hatchling artifact, so a wheel built without `make ui-build` ships THIS "
+            f"release's API behind LAST release's console — a mismatch that fails only in a "
+            f"browser, where no test looks.")
+    console_sha = console.get("sha256")
+    if not isinstance(console_sha, str) or not SHA_RE.match(console_sha):
+        bad(f"console.sha256 is {console_sha!r}; expected 64 lowercase hex characters")
+        console_sha = None
+
+# --- files[]: every file in the bundle EXCEPT MANIFEST.json itself --------------------------
+files = man.get("files")
+listed = {}
+if not isinstance(files, list):
+    bad("files is missing or is not an array")
+    files = []
+for entry in files:
+    if not isinstance(entry, dict):
+        bad(f"files entry {entry!r} is not an object")
+        continue
+    p, s = entry.get("path"), entry.get("sha256")
+    if not isinstance(p, str) or not p or p.startswith("/") or ".." in p.split("/"):
+        bad(f"files entry has an unusable path: {p!r}")
+        continue
+    if not isinstance(s, str) or not SHA_RE.match(s):
+        bad(f"files entry {p!r} has sha256 {s!r}; expected 64 lowercase hex characters")
+        continue
+    if p in listed:
+        bad(f"files lists {p!r} twice")
+    listed[p] = s
+
+# What is actually on disk after extraction.
+on_disk = set()
+for root, _dirs, names in os.walk(staging):
+    for n in names:
+        rel = os.path.relpath(os.path.join(root, n), staging)
+        on_disk.add(rel.replace(os.sep, "/"))
+on_disk.discard("MANIFEST.json")
+
+missing = sorted(set(listed) - on_disk)
+extra = sorted(on_disk - set(listed))
+for p in missing:
+    bad(f"the manifest lists {p!r} but it is not in the bundle")
+for p in extra:
+    # An unlisted file is a refusal, not a curiosity: a bundle carrying something the manifest
+    # does not describe is a bundle whose manifest does not describe the bundle.
+    bad(f"the bundle carries {p!r} but the manifest does not list it")
+
+# Hash every listed file that is present.
+mismatched = 0
+for p in sorted(set(listed) & on_disk):
+    actual = sha256_file(os.path.join(staging, p))
+    if actual != listed[p]:
+        mismatched += 1
+        bad(f"sha256 mismatch for {p}:\n"
+            f"        manifest says {listed[p]}\n"
+            f"        on disk it is {actual}")
+
+# --- the wheel named must exist, and must be listed ----------------------------------------
+wheel_path = None
+if wheel:
+    wheel_path = os.path.join(staging, wheel)
+    if not os.path.isfile(wheel_path):
+        bad(f"MANIFEST.json names wheel {wheel!r}, which is not in the bundle")
+        wheel_path = None
+    elif wheel not in listed:
+        bad(f"the wheel {wheel!r} is not listed in files[]; every file except MANIFEST.json "
+            f"must be")
+
+# --- the revision files named are the ones present -----------------------------------------
+vers_prefix = "migrations/versions/"
+in_bundle = sorted(
+    p[len(vers_prefix):] for p in on_disk
+    if p.startswith(vers_prefix) and p.endswith(".py") and "/" not in p[len(vers_prefix):]
+)
+named = sorted(revisions)
+if named != in_bundle:
+    only_manifest = sorted(set(named) - set(in_bundle))
+    only_bundle = sorted(set(in_bundle) - set(named))
+    for r in only_manifest:
+        bad(f"migrations.revisions names {r!r}, which is not under {vers_prefix} in the bundle")
+    for r in only_bundle:
+        bad(f"{vers_prefix}{r} is in the bundle but not named in migrations.revisions")
+
+# The three alembic scaffolding files the contract puts in the bundle.
+for scaffold in ("migrations/alembic.ini", "migrations/env.py", "migrations/script.py.mako"):
+    if scaffold not in on_disk:
+        bad(f"the bundle is missing {scaffold}")
+
+# --- prove the wheel really carries the console the manifest claims -------------------------
+# The manifest asserting console.present is the producer's word. The wheel is right here, so
+# this reads it: the digest of bayram/admin/static/index.html INSIDE the wheel must equal
+# console.sha256. That is what makes "a fresh console" checkable on this side rather than
+# taken on trust.
+INDEX = "bayram/admin/static/index.html"
+wheel_console_sha = None
+if wheel_path:
+    try:
+        with zipfile.ZipFile(wheel_path) as zf:
+            names = zf.namelist()
+            assets = [n for n in names if n.startswith("bayram/admin/static/")]
+            if not assets:
+                bad("the wheel carries no bayram/admin/static/ at all — it was built without "
+                    "`make ui-build`, so it ships last release's UI")
+            elif INDEX not in names:
+                bad(f"the wheel carries {len(assets)} console files but no {INDEX}")
+            else:
+                wheel_console_sha = hashlib.sha256(zf.read(INDEX)).hexdigest()
+                if console_sha and wheel_console_sha != console_sha:
+                    bad(f"console.sha256 does not match the wheel:\n"
+                        f"        manifest says {console_sha}\n"
+                        f"        the wheel has {wheel_console_sha}")
+    except zipfile.BadZipFile as exc:
+        bad(f"the wheel is not a readable zip: {exc}")
+
+if problems:
+    print(f"\n{len(problems)} preflight problem(s):", file=sys.stderr)
+    for p in problems:
+        print(f"  - {p}", file=sys.stderr)
+    sys.exit(1)
+
+print(f"manifest      schema 1, release {release}, commit {commit[:12]}, built {built_at}")
+print(f"files         {len(listed)} listed, {len(listed)} hashed, 0 mismatched "
+      f"({mismatched} would be a refusal)")
+print(f"wheel         {wheel}")
+print(f"migrations    head {head}, additive={str(additive).lower()}, "
+      f"{len(revisions)} revision file(s) in the bundle")
+print(f"console       present, index.html {wheel_console_sha}")
+
+# --- report, do not fail on, the console digest already installed ---------------------------
+# "if the installed wheel can be inspected": the installed console is a real file in the venv,
+# not a wheel, so this reads it there. It is a REPORT — a digest that differs is the normal
+# case for a release that changed the UI, and an identical digest on a release that was
+# supposed to change it is the interesting one.
+installed = None
+import glob
+for cand in glob.glob(os.path.join(venv, "lib", "python*", "site-packages", INDEX)):
+    installed = cand
+    break
+if installed is None:
+    print("console (installed)  cannot be inspected — no "
+          f"{INDEX} under {venv}/lib/python*/site-packages/. "
+          "This is the first install, or the venv layout differs.")
+elif wheel_console_sha is None:
+    print("console (installed)  not compared: the bundle's digest could not be read")
+else:
+    cur = sha256_file(installed)
+    if cur == wheel_console_sha:
+        print(f"console (installed)  IDENTICAL to the bundle's ({cur[:16]}…). If this release "
+              f"was meant to change the panel, the console in this wheel is stale.")
+    else:
+        print(f"console (installed)  differs — {cur[:16]}… -> {wheel_console_sha[:16]}…, "
+              f"i.e. this deploy does change the panel.")
+
+# Field files for the shell. Written one value per file rather than as shell assignments so
+# nothing from the manifest is ever eval'd.
+os.makedirs(fields, exist_ok=True)
+def put(name, value):
+    with open(os.path.join(fields, name), "w", encoding="utf-8") as fh:
+        fh.write(str(value))
+
+put("release", release)
+put("commit", commit)
+put("built_at", built_at)
+put("wheel", wheel)
+put("head", head)
+put("additive", "true" if additive else "false")
+put("revision_count", len(revisions))
+put("console_sha256", wheel_console_sha or "")
+PY
+
+  M_RELEASE="$(cat "$fields/release")"
+  M_COMMIT="$(cat "$fields/commit")"
+  M_BUILT_AT="$(cat "$fields/built_at")"
+  M_WHEEL="$(cat "$fields/wheel")"
+  M_HEAD="$(cat "$fields/head")"
+  M_ADDITIVE="$(cat "$fields/additive")"
+  M_REVCOUNT="$(cat "$fields/revision_count")"
+
+  # --- the additive gate ---------------------------------------------------------------
+  # `plan` REPORTS this instead of refusing on it. Refusing would mean the operator could not
+  # get a plan for precisely the release that most needs one — the destructive one they are
+  # trying to understand before taking an outage for it. `deploy` still refuses, below.
+  if [ "$M_ADDITIVE" != "true" ] && [ "$PLAN_ONLY" = "yes" ]; then
+    warn "migrations.additive is false: deploying this bundle will require --maintenance-window."
+  elif [ "$M_ADDITIVE" != "true" ] && [ "$MAINTENANCE_WINDOW" != "yes" ]; then
+    refuse "this bundle's migrations are NOT additive, so the normal order would run the OLD
+code against the NEW schema for about a minute and the old code would hit a column or table
+that has gone. Take an outage instead:
+  sudo /opt/bayram/sbin/bayram-release deploy --maintenance-window
+which stops all four units BEFORE migrating and starts them after the wheel is installed."
+  fi
+  if [ "$M_ADDITIVE" != "true" ] && [ "$MAINTENANCE_WINDOW" = "yes" ]; then
+    warn "migrations.additive is false; proceeding only because --maintenance-window was given."
+  fi
+
+  say "preflight OK"
+}
+
+# ============================================================================================
+# state.json — 0600 root:root, written BEFORE the risky beats and updated as they pass
+#
+# WHY IT IS UPDATED IN PLACE AND NOT ONLY AT THE END. `previous_wheel` is captured from the
+# state as it stood when this deploy STARTED, and `wheel` is moved forward only once the new
+# wheel is actually installed. A deploy that gets as far as the wheel and then fails at verify
+# therefore leaves previous_wheel = the release before it, so `rollback` goes back exactly one
+# release and not two. Writing the whole file at the end would lose that distinction precisely
+# in the case where it matters.
+# ============================================================================================
+state_get() {
+  local key="$1"
+  [ -f "$STATE" ] || { printf '' ; return 0; }
+  "$(pybin)" - "$STATE" "$key" <<'PY'
+import json, sys
+try:
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        data = json.load(fh)
+except Exception:                              # noqa: BLE001 — a damaged state file reads empty
+    sys.exit(0)
+value = data.get(sys.argv[2], "")
+sys.stdout.write("" if value is None else str(value))
+PY
+}
+
+state_set() {
+  # state_set key value [key value ...]
+  "$(pybin)" - "$STATE" "$@" <<'PY'
+import json, os, sys, tempfile, datetime
+
+path, pairs = sys.argv[1], sys.argv[2:]
+if len(pairs) % 2:
+    sys.exit("state_set: odd number of key/value arguments")
+try:
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data, dict):
+        data = {}
+except Exception:                              # noqa: BLE001
+    data = {}
+
+data["schema"] = 1
+for key, value in zip(pairs[::2], pairs[1::2]):
+    data[key] = value
+data["updated_at"] = datetime.datetime.now(datetime.timezone.utc).strftime(
+    "%Y-%m-%dT%H:%M:%SZ")
+
+directory = os.path.dirname(path) or "."
+fd, tmp = tempfile.mkstemp(dir=directory, prefix=".state-")
+try:
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump(data, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)                      # atomic: no reader ever sees a half-written file
+except BaseException:
+    if os.path.exists(tmp):
+        os.unlink(tmp)
+    raise
+PY
+  chown root:root "$STATE"
+  chmod 0600 "$STATE"
+}
+
+# ============================================================================================
+# Beats
+# ============================================================================================
+
+# Beat 1 — the backup. First, because it is the only step here that cannot be undone by
+# running something again.
+do_backup() {
+  local label="$1"
+  BACKUP="$BACKUP_DIR/pre-$label-$STAMP.sql.gz"
+  step "back up the database ($PGDATABASE_NAME -> $BACKUP)"
+  mkdir -p "$BACKUP_DIR"
+  sudo -u postgres pg_dump "$PGDATABASE_NAME" | gzip > "$BACKUP"
+  ls -lh "$BACKUP"
+  # A pg_dump that failed on permissions still leaves a valid, empty gzip. A backup you did not
+  # check is a backup you do not have. Verbatim from deploy-d17.sh:59 and deploy-support.sh:93,
+  # including the exit status: an empty dump means the postgres side is misconfigured, which is
+  # a config error (1), and it fires before anything on this host has been changed.
+  test -s "$BACKUP" || { echo "FATAL: backup is empty, refusing to migrate"; exit 1; }
+}
+
+# Alembic, and ONLY alembic, runs with the environment file sourced.
+#
+# The predecessor scripts do `set -a; . "$ENVFILE"; set +a` at top level (deploy-d17.sh:62,
+# deploy-support.sh:96), which exports the bot token and four vendor credentials into every
+# later beat — the pip install, the systemctl calls, the verification python — none of which
+# has any use for them. Here it happens inside a subshell, so beats 4 to 7 never carry them.
+# env.py is what needs them: it reads BAYRAM_DATABASE_URL and BAYRAM_DB_MIGRATION_URL through
+# bayram.config, and on this host the migration DSN is the owner role while the application DSN
+# is not (deploy/fix-table-ownership.sql).
+alembic_run() {
+  (
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENVFILE"
+    set +a
+    exec "$VENV/bin/python" -m alembic -c "$ALEMBIC" "$@"
+  )
+}
+
+# `alembic current` prints the revision on stdout; its INFO logging goes to stderr
+# (migrations/alembic.ini:39-47, handler_console writes to sys.stderr), so stdout is the
+# revision and nothing else. An unstamped database prints nothing at all — reported as "none"
+# rather than as an empty string that would compare equal to a typo.
+alembic_current_revision() {
+  local out
+  # NOT wrapped in `|| true`, and stderr is NOT sent to /dev/null. If alembic cannot run at all
+  # this must abort loudly rather than quietly report "none": the failure mode on this host is a
+  # `ModuleNotFoundError: No module named 'bayram'` out of env.py (04-release.md §0.4 warning 1),
+  # and a swallowed one would read as "the database is unstamped" and invite a rerun.
+  out="$(alembic_run current)"
+  # The parenthesised decorations go first, whole — alembic prints "0028 (head)" and can print
+  # "0028 (effective head)", and stripping them token by token would leave the word "head)"
+  # behind as if it were a revision.
+  #
+  # `awk`, not `grep -v`, because grep exits 1 on no match and pipefail would turn an unstamped
+  # database — which prints nothing and is a legitimate state — into an abort.
+  #
+  # Several revisions are joined with a comma rather than reduced to the first. A database with
+  # two heads is a real problem, and a comparison against migrations.head SHOULD fail on it
+  # instead of quietly picking one.
+  printf '%s\n' "$out" \
+    | sed -e 's/([^)]*)//g' \
+    | tr -s '[:space:]' '\n' \
+    | awk '
+        $0 == "" { next }
+        { revs = revs (revs == "" ? "" : ",") $0 }
+        END { print (revs == "" ? "none" : revs) }'
+}
+
+# Beat 0.5 — stage the revision files the bundle carries.
+#
+# A WHEEL CARRIES NO MIGRATIONS. If a revision file is not under $VERSIONS, `upgrade head`
+# stops at the revision before it and exits 0 — which looks exactly like success and leaves the
+# schema short of what the code about to be installed needs (deploy-d17.sh:46-49,
+# deploy-support.sh:58-65). This is also the drift 04-release.md §0.4 warning 1 describes from
+# the other side: the wheel does not carry migrations/, so migrations/ drifted on its own and
+# nothing noticed. Shipping alembic.ini, env.py and script.py.mako in the bundle is the fix,
+# and the previous copies are kept beside them so a rollback is not stranded.
+stage_migrations() {
+  local staging="$WORK/staging" f base
+  step "stage migrations into $MIGRATIONS_DIR"
+  install -d -m 0755 -o root -g root "$MIGRATIONS_DIR" "$VERSIONS"
+
+  for base in alembic.ini env.py script.py.mako; do
+    f="$staging/migrations/$base"
+    if [ -f "$MIGRATIONS_DIR/$base" ] && ! cmp -s "$f" "$MIGRATIONS_DIR/$base"; then
+      cp -p -- "$MIGRATIONS_DIR/$base" "$MIGRATIONS_DIR/$base.prev-$STAMP"
+      say "  $base changed; previous copy kept as $base.prev-$STAMP"
+    fi
+    install -m 0644 -o root -g root "$f" "$MIGRATIONS_DIR/$base"
+  done
+
+  # nullglob so a bundle with no revision files (a code-only release) leaves the loop body
+  # unrun instead of trying to install a file literally named '*.py'. Preflight has already
+  # proved the set on disk equals migrations.revisions, so there is nothing to second-guess.
+  local had_nullglob=1
+  shopt -q nullglob || had_nullglob=0
+  shopt -s nullglob
+  for f in "$staging/migrations/versions/"*.py; do
+    base="$(basename "$f")"
+    install -m 0644 -o root -g root "$f" "$VERSIONS/$base"
+    test -f "$VERSIONS/$base" || { echo "FATAL: $base did not land in $VERSIONS"; exit 1; }
+  done
+  [ "$had_nullglob" -eq 1 ] || shopt -u nullglob
+  say "  $M_REVCOUNT revision file(s) staged"
+}
+
+# Beats 2 and 3 — the revision before, the upgrade, and the assertion the old scripts lacked.
+do_migrate() {
+  step "revision before"
+  REV_BEFORE="$(alembic_current_revision)"
+  say "current: $REV_BEFORE"
+  state_set revision_before "$REV_BEFORE"
+
+  step "migrate -> head (expect $REV_BEFORE -> $M_HEAD)"
+  alembic_run upgrade head
+
+  REV_AFTER="$(alembic_current_revision)"
+  say "current: $REV_AFTER"
+  if [ "$REV_AFTER" != "$M_HEAD" ]; then
+    state_set phase "migrate-wrong-head" revision_after "$REV_AFTER"
+    fail_mid "the database is at revision '$REV_AFTER' but this bundle expects '$M_HEAD'.
+THE MIGRATION DID NOT LAND WHERE IT SAID IT WOULD and the wheel has NOT been installed, so the
+code running now is still the old code. Usual cause: a revision file that never reached
+$VERSIONS, so 'upgrade head' stopped early and still exited 0 — which is exactly the silent
+success this assertion exists to catch. Check '$VENV/bin/python -m alembic -c $ALEMBIC heads'
+and the contents of $VERSIONS before retrying.
+Backup for this attempt: ${BACKUP:-none}"
+  fi
+  say "revision assertion OK: $REV_AFTER == manifest migrations.head"
+  state_set revision_after "$REV_AFTER"
+}
+
+# Beat 4 — install, and `pip check` on the very next line. ONE INDIVISIBLE STEP.
+#
+# --no-deps states an assumption: this release adds no new runtime dependency. `pip check`
+# immediately afterwards, in the same script, before any restart, is what turns that assumption
+# into an assertion that fails the deploy instead of a hope that fails a customer (08-payme.md
+# §11.5, and the pillow lesson). Keep the two together; never put a restart between them.
+do_install() {
+  local staging="$WORK/staging"
+  # PER-RELEASE DIRECTORY, and this is not tidiness. `pyproject.toml` pins a STATIC
+  # `version = "0.1.0"`, so EVERY release builds a wheel named identically —
+  # `bayram_bot-0.1.0-py3-none-any.whl`. Keyed on the basename alone, each deploy would
+  # overwrite the previous wheel in the store and `rollback` would reinstall the very wheel it
+  # was trying to back out of, reporting success. Keyed on the manifest's release string, the
+  # store holds one directory per release and rollback has something real to install.
+  # The proper fix is a version derived from the git tag (hatch-vcs); until then, this.
+  install -d -m 0755 -o root -g root "$WHEEL_STORE/$M_RELEASE"
+  WHEEL="$WHEEL_STORE/$M_RELEASE/$M_WHEEL"
+  step "install the wheel"
+  # The wheel is kept in $WHEEL_STORE and never deleted, because that store IS the rollback:
+  # `rollback` reinstalls the previous release's wheel from here, so pruning it would remove
+  # the only artefact the rollback path needs. It is also why the wheel is installed from the
+  # store and not from the staging directory — the staging directory is gone by the time
+  # anybody wants it back.
+  install -m 0644 -o root -g root "$staging/$M_WHEEL" "$WHEEL"
+  say "kept: $WHEEL"
+  "$VENV/bin/pip" install --force-reinstall --no-deps "$WHEEL"
+  "$VENV/bin/pip" check
+  state_set wheel "$WHEEL" phase "installed"
+}
+
+# Beat 5 — restart, in 04-release.md §6's order, as FOUR separate calls.
+restart_unit() {
+  local unit="$1"
+  local before after
+  step "restart $unit"
+  # NRestarts BEFORE and AFTER, because `is-active` alone cannot see a crash loop. The live
+  # units are written with `Restart=on-failure` and `RestartSec=5` (cutover-to-bayram.sh:148),
+  # so a unit that dies on boot is restarted every five seconds and will read `active` or
+  # `activating` to any single sample. A deploy that ships a wheel which cannot start would
+  # print DEPLOYED. Comparing the restart counter across the settle window is what catches it.
+  before="$(systemctl show -p NRestarts --value "$unit" 2>/dev/null || echo 0)"
+  systemctl restart "$unit"
+  sleep "$SETTLE"
+  # BARE, AND IT STAYS BARE. `systemctl is-active` exits non-zero if the unit is not active, so
+  # under set -e it is a real gate. Wrapping it in `if` or appending `|| true` turns the gate
+  # into a comment. The ERR trap above is what maps its exit status onto the contract's codes;
+  # it does not swallow the failure.
+  systemctl is-active "$unit"
+  after="$(systemctl show -p NRestarts --value "$unit" 2>/dev/null || echo 0)"
+  if [ "${after:-0}" -gt "${before:-0}" ]; then
+    say "FATAL: $unit restarted $((after - before)) time(s) during the settle window."
+    say "It is crash-looping, not running. Read: journalctl -u $unit -n 50 --no-pager"
+    return 1
+  fi
+}
+
+restart_fleet() {
+  local unit
+  for unit in "${UNITS[@]}"; do
+    restart_unit "$unit"
+  done
+}
+
+start_unit() {
+  local unit="$1"
+  step "start $unit"
+  systemctl start "$unit"
+  sleep "$SETTLE"
+  systemctl is-active "$unit"
+}
+
+stop_fleet() {
+  step "stop the fleet"
+  # Reverse of the start order, written out rather than computed: the customer-facing processes
+  # go down first and the admin API last, so the operator keeps their window on the system for
+  # as long as possible. Stopping the worker sends SIGTERM, which CANCELS running renders — arq
+  # requeues them, and the customer sees a timed-out frame followed by a song that arrives on
+  # the next attempt, at the cost of a second vendor render (04-release.md §6). Stop the fleet
+  # when the queue is quiet if you have the choice.
+  local unit
+  for unit in bayram-payme bayram-worker bayram-bot bayram-admin; do
+    say "stopping $unit"
+    systemctl stop "$unit"
+  done
+}
+
+# Beat 6 — verify. Importable modules, the alembic revision, and every unit active.
+do_verify() {
+  local expect_head="$1" expect_wheel="$2"
+
+  step "verify — the code that is running is the code that was deployed"
+  "$(pybin)" - "$expect_wheel" <<'PY' || fail_verify "the installed code did not import cleanly"
+import importlib, sys, os
+
+# The four modules the four units actually start (04-release.md §6 records the command lines).
+# Importing them here is what turns "the wheel installed without error" into "the wheel
+# installed something that loads".
+# `bayram.worker` is NOT in this list, and its absence is deliberate. `src/bayram/worker.py`
+# runs `_SETTINGS = _settings()` at MODULE SCOPE, so importing it calls `load_settings()` and
+# fails without the environment — and this script scopes the env file to the alembic
+# invocation alone, so beats 4-7 never carry the bot token. Importing it here would make every
+# deploy exit 4 AFTER the wheel was installed and the fleet restarted, which is the worst place
+# to fail. `systemctl is-active bayram-worker` is what proves the worker loads; it starts with
+# the environment systemd gives it, which is the only environment that matters.
+mods = ["bayram", "bayram.config", "bayram.main",
+        "bayram.admin.app", "bayram.payme.app"]
+failed = []
+for name in mods:
+    try:
+        mod = importlib.import_module(name)
+    except Exception as exc:                   # noqa: BLE001
+        failed.append(f"{name}: {type(exc).__name__}: {exc}")
+    else:
+        print(f"  import {name:<20} {getattr(mod, '__file__', '(namespace)')}")
+
+if failed:
+    print("\nmodules that did not import:", file=sys.stderr)
+    for line in failed:
+        print(f"  - {line}", file=sys.stderr)
+    sys.exit(1)
+
+# The installed distribution version must equal the version in the wheel's filename. A wheel
+# whose filename says one thing and whose metadata says another means pip installed something
+# other than what this script handed it.
+wheel = os.path.basename(sys.argv[1])
+parts = wheel[:-4].split("-") if wheel.endswith(".whl") else []
+if len(parts) >= 2:
+    dist_name, dist_version = parts[0], parts[1]
+    from importlib.metadata import version, PackageNotFoundError
+    found = None
+    for candidate in (dist_name, dist_name.replace("_", "-"), "bayram-bot", "bayram"):
+        try:
+            found = (candidate, version(candidate))
+            break
+        except PackageNotFoundError:
+            continue
+    if found is None:
+        # A warning, not a failure: the distribution NAME is a packaging fact this script does
+        # not get to assert, and the imports above already proved the code is present.
+        print(f"  WARNING: no installed distribution found for '{dist_name}' — version not "
+              f"asserted")
+    else:
+        name, got = found
+        print(f"  installed {name} {got} (wheel filename says {dist_version})")
+        if got != dist_version:
+            sys.exit(f"installed {name} is {got}, but the wheel installed was {wheel}")
+PY
+
+  local rev
+  rev="$(alembic_current_revision)"
+  say "  alembic current: $rev"
+  if [ -n "$expect_head" ] && [ "$rev" != "$expect_head" ]; then
+    fail_verify "the database is at '$rev'; the deployed release expects '$expect_head'."
+  fi
+  say "  revision assertion OK"
+
+  local unit
+  for unit in "${UNITS[@]}"; do
+    # Bare again, for the same reason. Under the `verify` subcommand the ERR trap maps a
+    # failure here to exit 4.
+    systemctl is-active "$unit"
+    say "  $unit active"
+  done
+
+  do_readiness_probe
+}
+
+# WHY THIS EXISTS, given everything above already passed. `systemctl is-active` says the
+# process has not exited. It does NOT say the process can serve: a unit can be active while
+# uvicorn is still starting, while a router failed to mount, or while a dependency it reads
+# lazily is unreachable. The imports above ran in a SEPARATE interpreter against the installed
+# files — they prove the code on disk loads, not that the four processes now running loaded it.
+# One loopback GET per HTTP process closes that gap and costs milliseconds.
+#
+# NOT FATAL BY DEFAULT, and that is a judgement worth stating. This runs AFTER the fleet has
+# been restarted and the deploy is otherwise complete; turning a slow-starting uvicorn into a
+# failed release would make the release less reliable than the thing it replaced. A probe that
+# does not answer is reported loudly and sets a flag the summary repeats. A probe that answers
+# with an explicit `"status":"degraded"` IS fatal, because that is the process telling us
+# something it depends on is down.
+do_readiness_probe() {
+  local entry unit url code body token=""
+  local degraded=no
+
+  if ! command -v curl >/dev/null 2>&1; then
+    warn "curl is not installed; skipping the readiness probe (the units are active)."
+    return 0
+  fi
+
+  # Read the token out of the admin env file in a SUBSHELL, so the rest of this script does not
+  # inherit the file's other contents — it holds the bot token and four vendor credentials.
+  if [ -r "$ENVFILE" ]; then
+    token="$( set -a; . "$ENVFILE" 2>/dev/null; set +a; printf '%s' "${BAYRAM_ADMIN_PROBE_TOKEN:-}" )" || token=""
+  fi
+  [ -n "$token" ] || say "  (no BAYRAM_ADMIN_PROBE_TOKEN set — probing for reachability only)"
+
+  for entry in "${READY_PROBES[@]}"; do
+    unit="${entry%%|*}"
+    url="${entry#*|}"
+    # --max-time bounds a hung socket; -s -o keeps the body out of the log except where we
+    # deliberately read it. The token goes in a header, never in the URL, so it cannot land in
+    # an access log.
+    if [ -n "$token" ]; then
+      body="$(curl -s --max-time 10 -H "$PROBE_TOKEN_HEADER: $token" -w '\n%{http_code}' "$url" 2>/dev/null || true)"
+    else
+      body="$(curl -s --max-time 10 -w '\n%{http_code}' "$url" 2>/dev/null || true)"
+    fi
+    code="${body##*$'\n'}"
+    body="${body%$'\n'*}"
+
+    case "$code" in
+      200)
+        if printf '%s' "$body" | grep -q '"status"[[:space:]]*:[[:space:]]*"degraded"'; then
+          say "  $unit readyz: DEGRADED — $body"
+          degraded=yes
+        else
+          say "  $unit readyz: 200"
+        fi
+        ;;
+      ""|000)
+        # curl reports 000 when it never got an HTTP response at all — connection refused,
+        # DNS failure, or the --max-time bound hit. Found by running this against a port with
+        # nothing behind it: the `*` branch below caught it first and told the operator the
+        # process "answered with HTTP 000", which is exactly backwards. It did not answer.
+        warn "$unit did not answer $url within 10s. The unit is active, so it is running —"
+        warn "  but it is not serving. Check: journalctl -u $unit -n 50 --no-pager"
+        ;;
+      *)
+        warn "$unit answered $url with HTTP $code. Active but not ready."
+        warn "  Check: journalctl -u $unit -n 50 --no-pager"
+        ;;
+    esac
+  done
+
+  if [ "$degraded" = "yes" ]; then
+    fail_verify "a process reported status=degraded: it is running and telling us a backing
+service it needs is down. This is the process's own answer, not an inference — read the body
+above, then check postgres and redis before treating the release as landed."
+  fi
+}
+
+# ============================================================================================
+# Subcommands
+# ============================================================================================
+
+cmd_plan() {
+  STAGE_EXIT=2; STAGE_NAME="plan"
+  PLAN_ONLY=yes
+  require_host_layout
+  ensure_dirs
+  find_bundle
+  stage_bundle
+  preflight
+
+  local cur_wheel cur_rev
+  cur_wheel="$(state_get wheel)"
+  cur_rev="$(alembic_current_revision)"
+
+  cat <<PLAN
+
+=========================== PLAN — NOTHING HAS BEEN CHANGED ===========================
+bundle              $BUNDLE
+release             $M_RELEASE
+commit              $M_COMMIT
+built at            $M_BUILT_AT
+wheel               $M_WHEEL
+console             carried in the wheel; digest checked against the manifest above
+
+database            $PGDATABASE_NAME   (still named 'hbd'; the rename did not touch it)
+revision now        $cur_rev
+revision after      $M_HEAD
+additive            $M_ADDITIVE
+revision files      $M_REVCOUNT, to be staged into $VERSIONS
+
+installed wheel now ${cur_wheel:-(state.json records none — this would be the first deploy
+                    through bayram-release)}
+
+WHAT deploy WOULD DO, in order:
+  1  pg_dump $PGDATABASE_NAME | gzip  ->  $BACKUP_DIR/pre-$M_RELEASE-<stamp>.sql.gz, then
+     'test -s' it, because a pg_dump that failed on permissions still leaves a valid EMPTY gzip
+  2  stage $M_REVCOUNT revision file(s) plus alembic.ini, env.py and script.py.mako
+  3  alembic current, then 'alembic upgrade head', then ASSERT the result is $M_HEAD
+  4  pip install --force-reinstall --no-deps $M_WHEEL   &&   pip check
+  5  restart, as four separate calls with an is-active after each:
+       ${UNITS[0]} -> ${UNITS[1]} -> ${UNITS[2]} -> ${UNITS[3]}
+  6  verify: import the four units' modules, assert the revision, assert each unit is active
+
+PLAN
+  if [ "$M_ADDITIVE" = "true" ]; then
+    say "ORDER            migrate-first. Safe here because migrations.additive is true: for the"
+    say "                 minute between beat 3 and beat 4 the OLD code runs against the NEW"
+    say "                 schema, and old code ignores columns it has never heard of."
+  else
+    say "ORDER            MAINTENANCE WINDOW. migrations.additive is false, so the fleet is"
+    say "                 STOPPED before beat 3 and started after beat 4. There is a real"
+    say "                 outage; customers see the bot stop answering."
+  fi
+  cat <<'PLAN'
+
+NOT DONE BY deploy, and still a person's job:
+  * nothing is stopped, restored or rolled back automatically. Read the output.
+  * the customer-visible side effects of a release are not reversible by rollback at all —
+    04-release.md §8. A message already sent is sent.
+=======================================================================================
+PLAN
+  say "plan complete. Nothing on this host was changed."
+}
+
+cmd_deploy() {
+  STAGE_EXIT=2; STAGE_NAME="preflight"
+  require_host_layout
+  ensure_dirs
+  find_bundle
+  stage_bundle
+  preflight
+
+  # ---- everything above here changed nothing; everything below can ----
+  local prev_wheel
+  prev_wheel="$(state_get wheel)"
+
+  STAGE_EXIT=3; STAGE_NAME="state"
+  # Written BEFORE the risky beats. previous_wheel is captured from the state as it stood when
+  # this deploy started, so a failure later on still leaves rollback one release back and not
+  # two.
+  state_set \
+    phase "starting" \
+    release "$M_RELEASE" \
+    commit "$M_COMMIT" \
+    built_at "$M_BUILT_AT" \
+    bundle "$(basename "$BUNDLE")" \
+    expected_head "$M_HEAD" \
+    additive "$M_ADDITIVE" \
+    maintenance_window "$MAINTENANCE_WINDOW" \
+    previous_wheel "$prev_wheel" \
+    started_at "$STAMP"
+  say "state: $STATE"
+
+  STAGE_NAME="backup"
+  do_backup "$M_RELEASE"
+  state_set backup "$BACKUP" phase "backed-up"
+
+  STAGE_NAME="stage-migrations"
+  stage_migrations
+
+  if [ "$MAINTENANCE_WINDOW" = "yes" ]; then
+    STAGE_NAME="stop"
+    say ""
+    say "MAINTENANCE WINDOW: the fleet goes down now and stays down until the wheel is in."
+    stop_fleet
+    state_set phase "fleet-stopped"
+  fi
+
+  STAGE_NAME="migrate"
+  do_migrate
+
+  STAGE_NAME="install"
+  do_install
+
+  STAGE_NAME="restart"
+  if [ "$MAINTENANCE_WINDOW" = "yes" ]; then
+    local unit
+    for unit in "${UNITS[@]}"; do
+      start_unit "$unit"
+    done
+  else
+    restart_fleet
+  fi
+  state_set phase "restarted"
+
+  STAGE_EXIT=4; STAGE_NAME="verify"
+  do_verify "$M_HEAD" "$WHEEL_STORE/$M_RELEASE/$M_WHEEL"
+
+  # STAGE_EXIT stays at 3 until the very last statement of this function. It was previously
+  # cleared here, with the ERR trap still armed and three statements left to run — so a failure
+  # in `state_set`, in the `mv`, or in the report below would have run `on_err` and exited 0:
+  # a failed deploy reporting success, which is the single worst thing this script could do.
+  state_set phase "deployed" deployed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  # The consumed bundle is renamed out of the *.tar.gz glob rather than deleted: the next
+  # `deploy` must not find two bundles, and an operator who needs to know what shipped should
+  # still be able to open this one.
+  local applied="$BUNDLE.applied-$STAMP"
+  mv -- "$BUNDLE" "$applied"
+  # Everything that can still fail has now succeeded. From here the function only prints.
+  STAGE_EXIT=0
+
+  cat <<DONE
+
+=================================== DEPLOYED ==========================================
+release        $M_RELEASE  (commit $M_COMMIT)
+revision       $REV_BEFORE  ->  $REV_AFTER
+wheel          $WHEEL_STORE/$M_RELEASE/$M_WHEEL
+backup         $BACKUP
+state          $STATE
+bundle         consumed, kept as $applied
+
+Rollback is the wheel, never the schema:
+    sudo /opt/bayram/sbin/bayram-release rollback
+=======================================================================================
+DONE
+}
+
+cmd_verify() {
+  STAGE_EXIT=4; STAGE_NAME="verify"
+  require_host_layout
+  local head wheel
+  head="$(state_get expected_head)"
+  wheel="$(state_get wheel)"
+  if [ -z "$head" ] || [ -z "$wheel" ]; then
+    die_usage "no deploy recorded in $STATE, so there is nothing to verify AGAINST. Run
+'bayram-release deploy' first, or read the file yourself: the revision this host should be at
+is not something this script is willing to guess."
+  fi
+  say "verifying release $(state_get release), expecting revision $head"
+  do_verify "$head" "$wheel"
+  say ""
+  say "VERIFY OK — release $(state_get release), revision $head, all four units active."
+}
+
+cmd_backup() {
+  STAGE_EXIT=1; STAGE_NAME="backup"
+  require_host_layout
+  ensure_dirs
+  do_backup "manual"
+  state_set last_manual_backup "$BACKUP"
+  say ""
+  say "Backup taken: $BACKUP"
+  say "It is a plain SQL dump, gzipped, of database '$PGDATABASE_NAME'."
+}
+
+cmd_rollback() {
+  STAGE_EXIT=1; STAGE_NAME="rollback-preflight"
+  require_host_layout
+
+  local prev cur backup release
+  prev="$(state_get previous_wheel)"
+  cur="$(state_get wheel)"
+  release="$(state_get release)"
+  backup="$(state_get backup)"
+
+  if [ -z "$prev" ]; then
+    die_usage "state.json records no previous_wheel, so this script has nothing to roll back TO.
+Kept wheels are in $WHEEL_STORE, one directory per release — list them and reinstall by hand
+if you know which you want (the directory name is the release; the wheel inside is named the
+same for every release, because pyproject.toml pins a static version):
+    ls -lt $WHEEL_STORE
+    $VENV/bin/pip install --force-reinstall --no-deps $WHEEL_STORE/<release>/<wheel>
+    $VENV/bin/pip check
+then restart ${UNITS[0]}, ${UNITS[1]}, ${UNITS[2]}, ${UNITS[3]} one at a time."
+  fi
+  test -f "$prev" || die_usage "state.json names previous_wheel '$prev', which is not on disk.
+Something removed it from $WHEEL_STORE. List what is left: ls -lt $WHEEL_STORE"
+
+  cat <<ROLLBACK
+
+================================ ROLLBACK — READ THIS =================================
+currently deployed   ${cur:-unknown}   (release ${release:-unknown})
+rolling back to      $prev
+
+THE CODE ROLLS BACK. THE SCHEMA DOES NOT, AND THAT IS DELIBERATE.
+A migration is not reversible in general: there is no rule that a revision has a downgrade at
+all, and where one exists it is a DROP of what the upgrade created. Rolling the schema back
+past a release that added a table would take the rows customers have written into that table
+with it. On this host 'alembic downgrade' does not even run — 04-release.md §0.4 warning 1.
+
+The additive shape that makes migrate-first safe is exactly what makes this safe in reverse:
+the old code ignores the columns and tables the new revision added. They stay behind, unused,
+costing nothing.
+
+WHAT ROLLING BACK DOES NOT UNDO: anything already sent. A song delivered, a Telegram message,
+a Payme settlement, an email. 04-release.md §8 calls these not reversible at all, and it
+is right.
+=======================================================================================
+ROLLBACK
+
+  if [ "$RESTORE_DB" = "yes" ]; then
+    cat <<RESTORE
+
+--restore-db WAS PASSED. THIS IS THE DESTRUCTIVE PATH.
+
+It will restore this dump over the LIVE database '$PGDATABASE_NAME':
+    ${backup:-(no backup recorded in state.json)}
+
+EVERYTHING WRITTEN SINCE THAT DUMP WAS TAKEN IS LOST. Every order placed, every payment
+recorded, every support ticket filed, every audit row appended, since:
+    ${backup:-unknown}
+There is no partial restore and no merge. The database is dropped to the dump's contents.
+
+It also drops and recreates schema 'public' first, because the dump is a plain pg_dump without
+--clean and will not load over existing tables. And it does NOT restore table ownership: this
+host runs a two-role split (role '$PGDATABASE_NAME' owns, role '${PGDATABASE_NAME}_app' holds
+DML), and a restore run as postgres can leave objects owned by the wrong role — the same
+failure that stopped the cutover on 2026-09-11. deploy/fix-table-ownership.sql is what puts it
+back, and you will probably have to run it afterwards.
+
+RESTORE
+    if [ -z "$backup" ]; then
+      die_usage "--restore-db was passed but state.json records no backup path. Nothing to
+restore. Dumps are in $BACKUP_DIR; pick one and restore it by hand, deliberately."
+    fi
+    test -f "$backup" || die_usage "the recorded backup '$backup' is not on disk."
+    test -s "$backup" || die_usage "the recorded backup '$backup' is EMPTY. It is not a backup."
+
+    if [ ! -t 0 ]; then
+      refuse "--restore-db needs a terminal: it requires a typed confirmation, and this
+invocation has no stdin to type into. Run it from an interactive shell."
+    fi
+    printf '\nType this phrase exactly to proceed, or anything else to abort:\n  %s\n> ' \
+      "$RESTORE_PHRASE"
+    local typed=""
+    IFS= read -r typed || true
+    if [ "$typed" != "$RESTORE_PHRASE" ]; then
+      refuse "the phrase did not match. The database was not touched."
+    fi
+    say "phrase accepted."
+  fi
+
+  STAGE_EXIT=3; STAGE_NAME="rollback"
+  state_set phase "rolling-back" rolled_back_from "${cur:-unknown}"
+
+  if [ "$RESTORE_DB" = "yes" ]; then
+    # The fleet goes down for a database restore, and only for a database restore. A code-only
+    # rollback does NOT stop anything: reinstall-and-restart is beats 4 to 6 run with the older
+    # wheel, and stopping first would turn a one-minute rollback into a real outage for no gain.
+    stop_fleet
+  fi
+
+  step "reinstall the previous wheel"
+  "$VENV/bin/pip" install --force-reinstall --no-deps "$prev"
+  "$VENV/bin/pip" check
+
+  if [ "$RESTORE_DB" = "yes" ]; then
+    step "restore $backup over database $PGDATABASE_NAME"
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$PGDATABASE_NAME" \
+      -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+    gunzip -c -- "$backup" | sudo -u postgres psql -v ON_ERROR_STOP=1 -d "$PGDATABASE_NAME"
+    say "restored. Table ownership is very likely wrong now — see deploy/fix-table-ownership.sql."
+    local unit
+    for unit in "${UNITS[@]}"; do
+      start_unit "$unit"
+    done
+  else
+    restart_fleet
+  fi
+
+  # previous_wheel is cleared rather than set to the wheel just rolled off. A second `rollback`
+  # would otherwise put the broken release straight back on — a ping-pong that reads as a
+  # working rollback twice and leaves the host on the bad code.
+  state_set \
+    wheel "$prev" \
+    previous_wheel "" \
+    phase "rolled-back" \
+    rolled_back_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  STAGE_EXIT=0
+  say ""
+  say "ROLLED BACK to $prev."
+  say "A further rollback is not automatic: kept wheels are in $WHEEL_STORE."
+  if [ "$RESTORE_DB" = "yes" ]; then
+    say "The database was RESTORED from $backup. Everything written after that dump is gone."
+    say "Table ownership almost certainly needs deploy/fix-table-ownership.sql."
+  else
+    say "The schema was NOT rolled back. The tables and columns the migration added are still"
+    say "there, unused by the older code, costing nothing."
+  fi
+  say "Run 'sudo /opt/bayram/sbin/bayram-release verify' once you know which revision to expect."
+}
+
+# ============================================================================================
+# Argument handling. One subcommand, and at most the two documented flags.
+# ============================================================================================
+MAINTENANCE_WINDOW=no
+# Set by `plan`, which must be able to describe ANY bundle, including one preflight would
+# refuse to deploy. A dry run that refuses to run is not a dry run.
+PLAN_ONLY=no
+RESTORE_DB=no
+BACKUP=""
+REV_BEFORE=""
+REV_AFTER=""
+WHEEL=""
+M_RELEASE=""; M_COMMIT=""; M_BUILT_AT=""; M_WHEEL=""; M_HEAD=""; M_ADDITIVE=""; M_REVCOUNT=""
+
+main() {
+  local cmd="${1:-}"
+  [ $# -gt 0 ] && shift || true
+
+  case "$cmd" in
+    ""|-h|--help|help) usage; exit 0 ;;
+    deploy|verify|rollback|backup|plan) ;;
+    # The subcommand is checked BEFORE the root check so a typo gets the message it needs
+    # rather than "must run as root", which sends the operator off to fetch sudo for a command
+    # that was never going to run.
+    *) usage >&2; die_usage "unknown subcommand: $cmd" ;;
+  esac
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --maintenance-window) MAINTENANCE_WINDOW=yes ;;
+      --restore-db)         RESTORE_DB=yes ;;
+      *) usage >&2; die_usage "unknown argument: $1
+This script takes NO path argument, for any subcommand. Drop the bundle in $INCOMING
+instead — a root script that accepts a caller's path is the hole the fixed sudoers grant
+exists to close." ;;
+    esac
+    shift
+  done
+
+  # Each flag belongs to exactly one subcommand. Accepting --restore-db on `deploy` because it
+  # happens to be ignored there would teach an operator a habit that does something else the
+  # day they type it on `rollback`.
+  if [ "$RESTORE_DB" = yes ] && [ "$cmd" != rollback ]; then
+    die_usage "--restore-db is a rollback flag; '$cmd' does not take it."
+  fi
+  if [ "$MAINTENANCE_WINDOW" = yes ] && [ "$cmd" != deploy ] && [ "$cmd" != plan ]; then
+    die_usage "--maintenance-window is a deploy/plan flag; '$cmd' does not take it."
+  fi
+
+  require_root "$cmd"
+
+  case "$cmd" in
+    deploy)   cmd_deploy ;;
+    plan)     cmd_plan ;;
+    verify)   cmd_verify ;;
+    rollback) cmd_rollback ;;
+    backup)   cmd_backup ;;
+  esac
+}
+
+main "$@"

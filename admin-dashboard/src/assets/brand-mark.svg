@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Exported verbatim from the OpenPencil "PlanIQ UI Kit" document, page 0:2853, node 0:2971
+     ("Group 2085665212", the 72px brand mark on the Log In frame's right panel).
+     src/components/icons.tsx inlines this geometry; this file is the provenance copy. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72">
+  <path d="M0 36A36 36 0 1 1 72 36A36 36 0 1 1 0 36Z" fill="#75FC96"/>
+  <g transform="translate(0, 23.4)">
+    <path transform="translate(16.72, 18.17)" d="M22.18 14.25L7 29.43L0 26.87L26.79 0L26.79 18.85L22.18 14.25Z" fill="#000000"/>
+    <path transform="translate(5.03, 0)" d="M31.05 5.89L0 36.77L7.76 42.82L37.88 12.71L43.59 18.43L43.59 0L25.17 0L31.05 5.89Z" fill="#000000"/>
+    <path transform="translate(0, 5.12)" d="M30.88 0L3.41 27.47L0 20.99L16.29 4.69L11.6 0L30.88 0Z" fill="#000000"/>
+  </g>
+</svg>

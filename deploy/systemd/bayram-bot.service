@@ -1,0 +1,56 @@
+# The Telegram bot. Long polling, so it needs outbound HTTPS and nothing inbound.
+#
+#   sudo cp deploy/systemd/*.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now bayram-bot
+#
+# SECRETS COME FROM BAYRAM_ENV_FILE, NOT FROM EnvironmentFile=. That is deliberate, and it is
+# the one thing in this file worth reading twice. `EnvironmentFile=` loads every value into
+# the process environment, where it shows up in `systemctl show bayram-bot` and in
+# /proc/<pid>/environ — readable by root and by anything that later runs as this user. The
+# variable below names a 0640 root:bayram file that pydantic-settings reads directly, so the
+# bot token and the two vendor keys never enter the process environment at all.
+#
+# Pointing at an absolute path outside /srv/bayram also means a `.env` left behind in the
+# checkout by a hurried deploy cannot be read by accident: BAYRAM_ENV_FILE wins over it.
+
+[Unit]
+Description=Bayram — Telegram long polling
+Documentation=file:///srv/bayram/deploy/README.md
+After=network-online.target postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bayram
+Group=bayram
+WorkingDirectory=/srv/bayram
+Environment=BAYRAM_ENV_FILE=/etc/bayram/bot.env
+ExecStart=/srv/bayram/.venv/bin/python -m bayram.main
+Restart=always
+RestartSec=5s
+
+# Journal only. The app logs JSON when BAYRAM_IS_DEBUG is false, which is what prod wants.
+StandardOutput=journal
+StandardError=journal
+
+# --- hardening ---------------------------------------------------------------
+# ReadWritePaths is /srv/bayram/var because that is AppContainer.data_root — the workspace and
+# the local object store. Everything else under ProtectSystem=strict is read-only.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/srv/bayram/var
+
+[Install]
+WantedBy=multi-user.target

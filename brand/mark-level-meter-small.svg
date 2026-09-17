@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-label="Bayram Studio">
+  <rect x="11" y="32.5" width="11" height="24" rx="5.5" fill="#1C1620"/>
+  <rect x="26.5" y="20.5" width="11" height="36" rx="5.5" fill="#1C1620"/>
+  <rect x="42" y="26.5" width="11" height="30" rx="5.5" fill="#1C1620"/>
+  <path d="M16.5 19.5C19.844 23.972 20.9 26.252 20.9 28.1a4.4 4.4 0 0 1 -8.8 0C12.1 26.252 13.156 23.972 16.5 19.5Z" fill="#BD32AF"/>
+  <path d="M32 7.5C35.344 11.972 36.4 14.252 36.4 16.1a4.4 4.4 0 0 1 -8.8 0C27.6 14.252 28.656 11.972 32 7.5Z" fill="#BD32AF"/>
+  <path d="M47.5 13.5C50.844 17.972 51.9 20.252 51.9 22.1a4.4 4.4 0 0 1 -8.8 0C43.1 20.252 44.156 17.972 47.5 13.5Z" fill="#BD32AF"/>
+</svg>

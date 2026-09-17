@@ -1,0 +1,63 @@
+# The Payme merchant endpoint, as deployed. Appended to /etc/caddy/Caddyfile on the host —
+# that file is a single file with no `import`, so this is appended rather than dropped into a
+# sites directory that does not exist.
+#
+# READ THIS FIRST: CADDY IS NOT REACHED FROM THE INTERNET DIRECTLY. Ports 80 and 443 at the
+# origin are filtered; every public request arrives through a remotely-managed Cloudflare
+# Tunnel (`cloudflared tunnel run --token-file`, tunnel `aizu-vds`), whose ingress lives in
+# the Cloudflare Zero Trust dashboard and NOT in any file on this machine. The published
+# application route `pay.bayrambot.uz -> http://127.0.0.1:80` is what delivers traffic here.
+# Verified on the host 2026-09-10. `docs/deployment/08-payme.md` §4 has the full topology.
+#
+# `http://` ON THE SITE ADDRESS IS LOAD-BEARING AND IS NOT A TYPO.
+# The tunnel speaks PLAIN HTTP to 127.0.0.1:80. Written as a bare `pay.bayrambot.uz { ... }`,
+# Caddy enables automatic HTTPS and answers every tunnelled request with a 308 redirect to
+# itself. That was OBSERVED here before this line existed. Payme reads ANY non-200 as RPC
+# -32400 and retries, so the symptom is not an error page a human would notice: it is an
+# endpoint that looks healthy to us and is permanently unusable to them. Public TLS is
+# terminated by Cloudflare, which is why serving plain HTTP behind the tunnel is correct.
+#
+# WHY THERE IS NO GREY CLOUD AND NO ORIGIN ALLOWLIST, though an earlier draft of this file
+# argued for both. A hostname routed through a tunnel gets a DNS record of type `Tunnel` and
+# is ALWAYS proxied — grey cloud is not available, and a plain A record on the same name
+# blocks the route from being saved at all. An origin firewall allowlist is equally moot,
+# because nothing reaches the origin directly to be filtered. The consequence is that
+# Cloudflare's proxy is unavoidable on the money path, so the -32400 risk it introduces —
+# its own 5xx pages, a 1020 access denial, a managed challenge against exactly this traffic
+# shape (server-to-server POST, no browser, no JavaScript) — has to be managed with
+# Cloudflare settings for this hostname rather than by bypassing the proxy. See
+# `docs/deployment/09-payme-go-live.md`; that configuration is NOT yet applied.
+#
+# WHY THE HOSTNAME IS NOT PROXIED STRAIGHT TO 127.0.0.1:8091, which would remove this hop.
+# Routing through Caddy is what keeps exactly one path public. The gateway also serves
+# /healthz and /readyz for the local monitor, and the tunnel has no path matching of its own
+# on a route this simple; `handle /payme` plus a 404 for everything else is the narrowest
+# public surface available without teaching the tunnel about paths.
+
+http://pay.bayrambot.uz {
+	handle /payme {
+		# Payme's client reconnects frequently, so the upstream keepalive is worth stating
+		# rather than left to chance.
+		reverse_proxy 127.0.0.1:8091 {
+			transport http {
+				keepalive 10m
+			}
+		}
+	}
+
+	# Nothing else on this hostname is reachable. /healthz and /readyz stay on the loopback,
+	# where the monitor reaches them.
+	handle {
+		respond 404
+	}
+
+	# To the journal, not a file. `caddy validate` run under sudo CREATES
+	# /var/log/caddy/payme.log owned by root:root, after which the `caddy` user cannot open
+	# it and `systemctl reload caddy` fails with "permission denied" — observed here, and it
+	# fails the whole reload, not just this site. `journalctl -u caddy` is where these lines
+	# land. The peer IP that actually matters is logged by the application itself, which
+	# records one on every request: `journalctl -u bayram-payme`.
+	log {
+		output stderr
+	}
+}

@@ -1,0 +1,2037 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-palette="planiq">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bayram Admin Ops Console — PlanIQ Design System</title>
+
+  <!-- Google Fonts: Manrope -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: ['class', '[data-theme="dark"]'],
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Manrope', 'Inter', '-apple-system', 'BlinkMacSystemFont', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            brand: {
+              DEFAULT: 'var(--brand-solid, #75FC96)',
+              edge: 'var(--brand-solid-edge, #218C3B)',
+              tint: 'var(--brand-tint, rgba(117,252,150,0.12))',
+              deep: '#218C3B',
+            },
+            surface: {
+              page: 'var(--bg, #F6F6F6)',
+              card: 'var(--card, #FFFFFF)',
+              sunken: 'var(--surface-sunken, #EFEFEF)',
+              control: 'var(--surface-control, #F0F0F3)',
+            },
+            ink: {
+              900: 'var(--ink-900, #0D0D12)',
+              800: 'var(--ink-800, #000000)',
+              700: 'var(--ink-700, #161618)',
+              500: 'var(--ink-500, #5B5A64)',
+              400: 'var(--ink-400, #666D80)',
+              300: 'var(--ink-300, #8D8D8D)',
+            },
+            alarm: {
+              DEFAULT: '#E93544',
+              tint: 'rgba(233,53,68,0.12)',
+            },
+            online: '#0AB552',
+            stroke: 'var(--stroke, #E8E8E8)',
+            divider: 'var(--divider, #ECECEC)',
+          },
+          borderRadius: {
+            card: '16px',
+            pill: '70px',
+            nav: '26px',
+            chip: '30px',
+            delta: '40px',
+          },
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* CSS Variables for Dynamic Palette & Theme */
+    :root {
+      color-scheme: light;
+      --bg: #F6F6F6;
+      --card: #FFFFFF;
+      --surface-sunken: #EFEFEF;
+      --surface-control: #F0F0F3;
+      --stroke: #E8E8E8;
+      --divider: #ECECEC;
+      --ink-900: #0D0D12;
+      --ink-800: #000000;
+      --ink-700: #161618;
+      --ink-500: #5B5A64;
+      --ink-400: #666D80;
+      --ink-300: #8D8D8D;
+      --brand-solid: #75FC96;
+      --brand-solid-edge: #218C3B;
+      --brand-tint: rgba(117,252,150,0.12);
+      --ink-on-brand: #000000;
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.03), 0 2px 8px rgba(0,0,0,0.02);
+    }
+
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #111111;
+      --card: #1B1B1B;
+      --surface-sunken: #141416;
+      --surface-control: #26262A;
+      --stroke: #2E2E32;
+      --divider: #262629;
+      --ink-900: #F6F6F6;
+      --ink-800: #FFFFFF;
+      --ink-700: #E0E0E0;
+      --ink-500: #A2A2A8;
+      --ink-400: #888890;
+      --ink-300: #64646C;
+      --brand-solid: #75FC96;
+      --brand-solid-edge: #218C3B;
+      --brand-tint: rgba(117,252,150,0.15);
+      --ink-on-brand: #000000;
+      --shadow-card: 0 2px 8px rgba(0,0,0,0.4);
+    }
+
+    /* Gogo palette override */
+    [data-palette="gogo"] {
+      --brand-solid: #BD32AF;
+      --brand-solid-edge: #8A1F7F;
+      --brand-tint: rgba(189,50,175,0.12);
+      --ink-on-brand: #FFFFFF;
+    }
+
+    [data-palette="gogo"][data-theme="dark"] {
+      --brand-solid: #BD32AF;
+      --brand-solid-edge: #E052D1;
+      --brand-tint: rgba(189,50,175,0.20);
+      --ink-on-brand: #FFFFFF;
+    }
+
+    /* Diagonal hatching for NULL / Uninstrumented data state */
+    .null-hatch {
+      background-image: repeating-linear-gradient(45deg, rgba(0,0,0,0.07) 0, rgba(0,0,0,0.07) 2px, transparent 2px, transparent 6px);
+    }
+    [data-theme="dark"] .null-hatch {
+      background-image: repeating-linear-gradient(45deg, rgba(255,255,255,0.08) 0, rgba(255,255,255,0.08) 2px, transparent 2px, transparent 6px);
+    }
+
+    /* Keyframe animations */
+    @keyframes pulse-ring {
+      0% { transform: scale(0.9); opacity: 1; }
+      70% { transform: scale(2.2); opacity: 0; }
+      100% { transform: scale(2.2); opacity: 0; }
+    }
+    .pulse-radar::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: 9999px;
+      background: #0AB552;
+      animation: pulse-ring 2s cubic-bezier(0.24, 0, 0.38, 1) infinite;
+    }
+
+    /* Custom scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(100, 100, 110, 0.25);
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(100, 100, 110, 0.45);
+    }
+
+    /* SVG chart element styles */
+    .chart-tick { stroke-width: 1.5; stroke-linecap: round; }
+    .chart-grid { stroke: var(--divider); stroke-dasharray: 2 2; }
+  </style>
+</head>
+
+<body class="bg-[var(--bg)] text-[var(--ink-900)] font-sans antialiased selection:bg-[var(--brand-solid)] selection:text-black transition-colors duration-200 min-h-screen">
+
+  <!-- ========================================================================= -->
+  <!-- 1. STAGE CONTAINER (Responsive Wrapper with 1440px Grid Alignment)        -->
+  <!-- ========================================================================= -->
+  <div class="w-full max-w-[1440px] mx-auto px-4 md:px-6 py-6 transition-all duration-150">
+
+    <!-- ======================================================================= -->
+    <!-- 2. HEADER CHROME (Navpill + Search + Quick Controls + Profile)           -->
+    <!-- ======================================================================= -->
+    <header class="flex flex-wrap items-center justify-between gap-4 h-auto md:h-[54px] mb-6">
+      
+      <!-- Left Navigation Pill -->
+      <div class="flex items-center gap-3 bg-[var(--card)] shadow-[var(--shadow-card)] rounded-pill px-3 py-1.5 h-[54px] w-full lg:w-auto overflow-x-auto border border-[var(--stroke)]">
+        
+        <!-- Logo Lockup -->
+        <div class="flex items-center gap-2.5 pr-2 shrink-0 select-none">
+          <div class="w-10 h-10 rounded-[14px] bg-[var(--ink-900)] text-[var(--brand-solid)] flex items-center justify-center font-extrabold text-sm tracking-tight shadow-sm">
+            Bayram
+          </div>
+          <div class="flex flex-col leading-none">
+            <span class="text-[14px] font-bold tracking-tight text-[var(--ink-900)]">Bayram Admin</span>
+            <span class="text-[10px] font-medium text-[var(--ink-400)]">ops console · planiq</span>
+          </div>
+        </div>
+
+        <div class="h-6 w-px bg-[var(--divider)] shrink-0 mx-1"></div>
+
+        <!-- Section Navigation Tabs -->
+        <nav class="flex items-center gap-1 shrink-0" id="mainNav">
+          <button data-sec="1" class="nav-btn active px-3.5 h-[36px] rounded-nav text-[12px] font-semibold tracking-tight transition-all duration-150 bg-[var(--brand-solid)] text-[var(--ink-on-brand)] ring-1 ring-[var(--brand-solid-edge)]">
+            Fire
+          </button>
+          <button data-sec="2" class="nav-btn px-3.5 h-[36px] rounded-nav text-[12px] font-medium tracking-tight text-[var(--ink-400)] hover:text-[var(--ink-900)] transition-all duration-150 hover:bg-[var(--surface-sunken)]">
+            Money
+          </button>
+          <button data-sec="3" class="nav-btn px-3.5 h-[36px] rounded-nav text-[12px] font-medium tracking-tight text-[var(--ink-400)] hover:text-[var(--ink-900)] transition-all duration-150 hover:bg-[var(--surface-sunken)]">
+            Credits
+          </button>
+          <button data-sec="4" class="nav-btn px-3.5 h-[36px] rounded-nav text-[12px] font-medium tracking-tight text-[var(--ink-400)] hover:text-[var(--ink-900)] transition-all duration-150 hover:bg-[var(--surface-sunken)]">
+            Vendors
+          </button>
+          <button data-sec="5" class="nav-btn px-3.5 h-[36px] rounded-nav text-[12px] font-medium tracking-tight text-[var(--ink-400)] hover:text-[var(--ink-900)] transition-all duration-150 hover:bg-[var(--surface-sunken)]">
+            The Name
+          </button>
+          <button data-sec="6" class="nav-btn px-3.5 h-[36px] rounded-nav text-[12px] font-medium tracking-tight text-[var(--ink-400)] hover:text-[var(--ink-900)] transition-all duration-150 hover:bg-[var(--surface-sunken)]">
+            Funnel
+          </button>
+          <button data-sec="7" class="nav-btn px-3.5 h-[36px] rounded-nav text-[12px] font-medium tracking-tight text-[var(--ink-400)] hover:text-[var(--ink-900)] transition-all duration-150 hover:bg-[var(--surface-sunken)]">
+            Privacy
+          </button>
+          <button data-sec="8" class="nav-btn px-3.5 h-[36px] rounded-nav text-[12px] font-semibold tracking-tight text-[#0AB552] bg-[rgba(10,181,82,0.1)] hover:bg-[rgba(10,181,82,0.18)] transition-all duration-150 flex items-center gap-1.5 ml-1">
+            <span class="w-2 h-2 rounded-full bg-[#0AB552]"></span>
+            <span>⚡ Subagents</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Right Chrome Controls -->
+      <div class="flex items-center gap-2.5 shrink-0 ml-auto">
+        
+        <!-- Jumpbox / Search -->
+        <button onclick="toggleModal('searchModal')" class="h-[54px] px-4 rounded-pill bg-[var(--card)] shadow-[var(--shadow-card)] border border-[var(--stroke)] flex items-center gap-2.5 text-[12px] text-[var(--ink-400)] hover:text-[var(--ink-900)] hover:border-[var(--ink-300)] transition-all duration-150 group">
+          <svg class="w-4 h-4 text-[var(--ink-400)] group-hover:text-[var(--ink-900)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+          </svg>
+          <span class="hidden sm:inline">Jump to correlation or order...</span>
+          <kbd class="px-1.5 py-0.5 text-[10px] font-semibold bg-[var(--surface-sunken)] text-[var(--ink-500)] rounded-md border border-[var(--stroke)]">⌘K</kbd>
+        </button>
+
+        <!-- Palette Switcher Pill (PlanIQ / Gogo) -->
+        <div class="flex items-center bg-[var(--card)] shadow-[var(--shadow-card)] border border-[var(--stroke)] rounded-pill p-1 h-[54px]">
+          <button onclick="setPalette('planiq')" id="btnPalPlaniq" class="px-3 h-full rounded-pill text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 bg-[var(--surface-sunken)] text-[var(--ink-900)] transition-all">
+            <span class="w-2.5 h-2.5 rounded-full bg-[#75FC96] ring-1 ring-[#218C3B]"></span>
+            <span class="hidden xl:inline">PlanIQ</span>
+          </button>
+          <button onclick="setPalette('gogo')" id="btnPalGogo" class="px-3 h-full rounded-pill text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 text-[var(--ink-400)] hover:text-[var(--ink-900)] transition-all">
+            <span class="w-2.5 h-2.5 rounded-full bg-[#BD32AF]"></span>
+            <span class="hidden xl:inline">Gogo</span>
+          </button>
+        </div>
+
+        <!-- Dark/Light Theme Toggle Circle -->
+        <button onclick="toggleTheme()" id="themeBtn" title="Toggle Light / Dark theme" class="w-[54px] h-[54px] rounded-full bg-[var(--card)] shadow-[var(--shadow-card)] border border-[var(--stroke)] flex items-center justify-center text-[var(--ink-500)] hover:text-[var(--ink-900)] transition-colors">
+          <svg id="sunIcon" class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"></path>
+          </svg>
+          <svg id="moonIcon" class="w-5 h-5 block dark:hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"></path>
+          </svg>
+        </button>
+
+        <!-- Profile / Operator Pill -->
+        <div class="h-[54px] px-2 rounded-pill bg-[var(--card)] shadow-[var(--shadow-card)] border border-[var(--stroke)] flex items-center gap-3">
+          <div class="w-10 h-10 rounded-full bg-[var(--brand-solid)] text-[var(--ink-on-brand)] font-bold text-sm flex items-center justify-center ring-1 ring-[var(--brand-solid-edge)]">
+            AZ
+          </div>
+          <div class="flex flex-col pr-3 leading-tight">
+            <span class="text-[13px] font-semibold text-[var(--ink-900)]">aziz</span>
+            <span class="text-[11px] font-normal text-[var(--ink-400)]">owner · ops</span>
+          </div>
+        </div>
+
+      </div>
+    </header>
+
+    <!-- ======================================================================= -->
+    <!-- 3. GREETING & SYNCHRONIZED TIME STATUS BANNER                            -->
+    <!-- ======================================================================= -->
+    <section class="flex flex-wrap items-end justify-between gap-4 mb-6">
+      <div class="flex flex-col">
+        <div class="text-[16px] md:text-[20px] font-normal text-[var(--ink-500)] tracking-tight flex items-center gap-2">
+          <span id="localClock">Tashkent 17:35</span>
+          <span class="text-[var(--ink-300)]">·</span>
+          <span id="utcClock" class="font-mono text-[13px] md:text-[14px]">data in 12:35Z</span>
+        </div>
+        <h1 class="text-[28px] md:text-[38px] font-extrabold tracking-[-0.04em] text-[var(--ink-800)] m-0 leading-tight">
+          Good afternoon, aziz
+        </h1>
+      </div>
+
+      <!-- Time Window & Live Pulse Chips -->
+      <div class="flex items-center gap-2.5">
+        <!-- Time Window Dropdown -->
+        <div class="relative">
+          <select id="timeWindowSelect" onchange="changeTimeWindow(this.value)" class="appearance-none bg-[var(--card)] border border-[var(--stroke)] text-[var(--ink-900)] text-[12px] font-semibold rounded-chip px-4 py-2 pr-8 shadow-[var(--shadow-card)] cursor-pointer focus:outline-none focus:ring-2 focus:ring-[var(--brand-solid)]">
+            <option value="24h" selected>Last 24 hours</option>
+            <option value="7d">Last 7 days</option>
+            <option value="30d">Last 30 days</option>
+            <option value="90d">Last 90 days</option>
+          </select>
+          <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-[var(--ink-400)]">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+          </div>
+        </div>
+
+        <!-- Quantized Window Chip -->
+        <span class="bg-[var(--card)] border border-[var(--stroke)] text-[var(--ink-500)] text-[12px] font-mono px-3.5 py-2 rounded-chip shadow-[var(--shadow-card)] hidden sm:inline-block" title="Window quantised to server retention cadence">
+          to 12:00Z
+        </span>
+
+        <!-- Live Pulse Badge -->
+        <button onclick="togglePolling()" id="livePill" class="flex items-center gap-2.5 bg-[var(--brand-tint)] text-[var(--brand-deep)] text-[12px] font-bold px-3.5 py-2 rounded-chip shadow-sm ring-1 ring-[var(--brand-solid-edge)] transition-all">
+          <span class="relative flex h-2.5 w-2.5">
+            <span class="pulse-radar relative inline-flex rounded-full h-2.5 w-2.5 bg-[#0AB552]"></span>
+          </span>
+          <span id="liveText">LIVE · 5s</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ======================================================================= -->
+    <!-- 4. SECTION TOOLBAR (Dynamic Title, Purpose & Filter Chips)               -->
+    <!-- ======================================================================= -->
+    <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card px-5 py-3.5 mb-6 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-baseline gap-3">
+        <h2 id="sectionTitle" class="text-[16px] font-bold tracking-tight text-[var(--ink-900)]">Is it on fire</h2>
+        <p id="sectionPurpose" class="text-[12px] text-[var(--ink-400)] max-w-2xl hidden md:block">
+          The first thirty seconds — live delivery health, what is wedged, and which numbers here are absences rather than zeros.
+        </p>
+      </div>
+
+      <div class="flex items-center gap-2" id="toolbarChips">
+        <button class="bg-[var(--surface-sunken)] hover:bg-[var(--surface-control)] text-[var(--ink-900)] text-[12px] font-semibold px-3 py-1.5 rounded-chip transition-colors flex items-center gap-1.5">
+          <span>All vendors</span>
+          <span class="text-[9px] text-[var(--ink-400)]">▾</span>
+        </button>
+        <button class="bg-[var(--surface-sunken)] hover:bg-[var(--surface-control)] text-[var(--ink-900)] text-[12px] font-semibold px-3 py-1.5 rounded-chip transition-colors flex items-center gap-1.5">
+          <span>All languages</span>
+          <span class="text-[9px] text-[var(--ink-400)]">▾</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ======================================================================= -->
+    <!-- 5. PANELS AREA (Sections 1 through 8)                                    -->
+    <!-- ======================================================================= -->
+    <main id="panelContainer" class="space-y-6">
+
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <!-- SECTION 1: IS IT ON FIRE (Template A: Main 986px + Rail 396px)      -->
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <section id="sec-1" class="panel-section block">
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+          
+          <!-- Main Left Zone (8 Cols / ~986px) -->
+          <div class="xl:col-span-8 space-y-5">
+            
+            <!-- Row A: 3 × KPI Cards (h: 143px) -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              
+              <!-- Card 1: Delivered 24h -->
+              <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 flex flex-col justify-between h-[155px]">
+                <div class="flex items-start justify-between">
+                  <div>
+                    <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Delivered, last 24h</h3>
+                    <p class="text-[11px] text-[var(--ink-400)]">5 of 6 terminated</p>
+                  </div>
+                  <button onclick="quickInspect('/orders?window=24h')" class="w-8 h-8 rounded-full bg-[var(--surface-sunken)] hover:bg-[var(--brand-solid)] hover:text-black flex items-center justify-center text-xs transition-colors" title="Drill into 24h orders">↗</button>
+                </div>
+                <div class="flex items-baseline justify-between mt-2">
+                  <div class="flex items-baseline gap-2">
+                    <span class="text-[32px] font-extrabold tracking-tight text-[var(--ink-800)]">83.3%</span>
+                    <span class="text-[10px] font-bold px-2 py-0.5 rounded-delta bg-alarm-tint text-alarm flex items-center gap-0.5">
+                      ▼ 2.4pp
+                    </span>
+                  </div>
+                  <span class="text-[10px] text-[var(--ink-400)]">prior 85.7%</span>
+                </div>
+                <!-- Linear Tick Gauge SVG -->
+                <div class="w-full mt-1">
+                  <svg class="w-full h-4" viewBox="0 0 250 14">
+                    <line x1="0" y1="7" x2="250" y2="7" stroke="var(--stroke)" stroke-width="4" stroke-linecap="round"/>
+                    <line x1="0" y1="7" x2="208" y2="7" stroke="var(--brand-solid-edge)" stroke-width="4" stroke-linecap="round"/>
+                    <circle cx="208" cy="7" r="4.5" fill="var(--brand-solid)" stroke="var(--brand-solid-edge)" stroke-width="1.5"/>
+                    <line x1="214" y1="1" x2="214" y2="13" stroke="var(--ink-400)" stroke-width="1.5" stroke-dasharray="2 2"/>
+                  </svg>
+                </div>
+              </div>
+
+              <!-- Card 2: In Flight Orders -->
+              <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 flex flex-col justify-between h-[155px]">
+                <div class="flex items-start justify-between">
+                  <div>
+                    <h3 class="text-[14px] font-bold text-[var(--ink-900)]">In flight</h3>
+                    <span class="text-[9px] font-bold uppercase tracking-wider text-[var(--ink-400)] bg-[var(--surface-sunken)] px-2 py-0.5 rounded-delta">ONE SHARED PULSE</span>
+                  </div>
+                  <button onclick="quickInspect('/orders?status=non-terminal')" class="w-8 h-8 rounded-full bg-[var(--surface-sunken)] hover:bg-[var(--brand-solid)] hover:text-black flex items-center justify-center text-xs transition-colors">↗</button>
+                </div>
+                <div class="flex items-baseline gap-2 mt-1">
+                  <span class="text-[32px] font-extrabold tracking-tight text-[var(--ink-800)]">70</span>
+                  <span class="text-[11px] text-[var(--ink-400)]">orders in pipeline</span>
+                </div>
+                <!-- In flight proportional strip -->
+                <div class="w-full">
+                  <div class="flex h-3 w-full rounded-md overflow-hidden bg-[var(--stroke)]">
+                    <div class="bg-[var(--ink-300)] h-full" style="width: 87%" title="61 abandoned drafts"></div>
+                    <div class="bg-[var(--brand-solid-edge)] h-full" style="width: 13%" title="9 active moving"></div>
+                  </div>
+                  <div class="flex justify-between text-[10px] text-[var(--ink-400)] mt-1">
+                    <span>61 drafts (38 past 14d)</span>
+                    <span class="font-bold text-[var(--brand-deep)]">9 moving</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Card 3: Oldest Wedged Order -->
+              <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 flex flex-col justify-between h-[155px]">
+                <div class="flex items-start justify-between">
+                  <div>
+                    <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Oldest wedged</h3>
+                    <p class="text-[11px] text-alarm font-semibold">3 wedged past SLA</p>
+                  </div>
+                  <button onclick="quickInspect('/orders?status=wedged')" class="w-8 h-8 rounded-full bg-[var(--surface-sunken)] hover:bg-[var(--brand-solid)] hover:text-black flex items-center justify-center text-xs transition-colors">↗</button>
+                </div>
+                <div class="flex items-baseline gap-2 mt-1">
+                  <span class="text-[32px] font-extrabold tracking-tight text-alarm">1h 13m</span>
+                  <span class="text-[11px] text-[var(--ink-400)]">last touched</span>
+                </div>
+                <!-- Log scale age strip -->
+                <div class="w-full">
+                  <div class="relative h-4 bg-[var(--surface-sunken)] rounded-md border border-[var(--stroke)] overflow-hidden">
+                    <div class="absolute top-0 bottom-0 left-[35%] w-0.5 bg-[var(--ink-400)] dashed" title="SEV-2 (5m)"></div>
+                    <div class="absolute top-0 bottom-0 left-[60%] w-0.5 bg-alarm" title="SEV-1 (10m)"></div>
+                    <div class="absolute top-1 bottom-1 left-[20%] w-1.5 bg-[#0AB552] rounded-full" title="3m 10s"></div>
+                    <div class="absolute top-1 bottom-1 left-[32%] w-1.5 bg-[#0AB552] rounded-full" title="4m 20s"></div>
+                    <div class="absolute top-1 bottom-1 left-[92%] w-2 bg-alarm rounded-full" title="1h 13m wedged"></div>
+                  </div>
+                  <div class="flex justify-between text-[9px] text-[var(--ink-400)] mt-1 font-mono">
+                    <span>0m</span>
+                    <span>5m SEV-2</span>
+                    <span>10m SEV-1</span>
+                    <span>2h+</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Row B: Orders Per Day Line + Delivery Latency & Clocks -->
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+              
+              <!-- Orders per day chart (7 Cols) -->
+              <div class="md:col-span-7 bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 flex flex-col justify-between">
+                <div class="flex items-start justify-between">
+                  <div>
+                    <h3 class="text-[15px] font-bold text-[var(--ink-900)]">Orders per day · 14-day history</h3>
+                    <p class="text-[11px] text-[var(--ink-400)]">Gaps represent absent calendar dates (null, not zero)</p>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="flex items-center gap-1 text-[11px] text-[var(--ink-500)]"><span class="w-2.5 h-2.5 rounded-full bg-[var(--ink-900)]"></span> Total</span>
+                    <span class="flex items-center gap-1 text-[11px] text-[var(--ink-500)]"><span class="w-2.5 h-2.5 rounded-full bg-[#8CB4B9]"></span> Delivered</span>
+                  </div>
+                </div>
+                <!-- Line Chart SVG -->
+                <div class="w-full h-44 my-2">
+                  <svg class="w-full h-full" viewBox="0 0 450 160">
+                    <!-- Gridlines -->
+                    <line x1="30" y1="20" x2="440" y2="20" class="chart-grid"/>
+                    <line x1="30" y1="60" x2="440" y2="60" class="chart-grid"/>
+                    <line x1="30" y1="100" x2="440" y2="100" class="chart-grid"/>
+                    <line x1="30" y1="140" x2="440" y2="140" stroke="var(--stroke)" stroke-width="1"/>
+                    
+                    <!-- Absent Day Hatching Area (Aug 31-Sep 3) -->
+                    <rect x="180" y="20" width="80" height="120" fill="url(#hatchPattern)" opacity="0.6"/>
+                    <text x="220" y="75" font-size="8" fill="var(--ink-400)" text-anchor="middle" font-weight="600">NO ROW · ABSENT</text>
+
+                    <!-- Series 1: Total Orders Path -->
+                    <path d="M 40 110 L 70 85 L 100 130 L 130 50 L 160 80 L 180 140 M 260 140 L 290 90 L 330 30 L 370 70 L 420 55" fill="none" stroke="var(--ink-900)" stroke-width="2.5" stroke-linecap="round"/>
+                    
+                    <!-- Series 2: Delivered Orders Path -->
+                    <path d="M 40 115 L 70 95 L 100 135 L 130 65 L 160 90 L 180 140 M 260 140 L 290 100 L 330 45 L 370 80 L 420 65" fill="none" stroke="#8CB4B9" stroke-width="2" stroke-linecap="round"/>
+
+                    <!-- Data Points -->
+                    <circle cx="130" cy="50" r="3.5" fill="var(--ink-900)"/>
+                    <text x="130" y="42" font-size="9" font-weight="bold" fill="var(--ink-900)" text-anchor="middle">9</text>
+                    <circle cx="330" cy="30" r="4" fill="var(--brand-solid)" stroke="var(--brand-solid-edge)" stroke-width="1.5"/>
+                    <text x="330" y="22" font-size="9" font-weight="bold" fill="var(--brand-deep)" text-anchor="middle">12 (Peak)</text>
+                    <circle cx="420" cy="55" r="3.5" fill="var(--ink-900)"/>
+                    <text x="420" y="47" font-size="9" font-weight="bold" fill="var(--ink-900)" text-anchor="middle">7 today</text>
+
+                    <!-- Axis X Labels -->
+                    <text x="40" y="153" font-size="8" fill="var(--ink-400)">25 Aug</text>
+                    <text x="130" y="153" font-size="8" fill="var(--ink-400)">29 Aug</text>
+                    <text x="290" y="153" font-size="8" fill="var(--ink-400)">04 Sep</text>
+                    <text x="420" y="153" font-size="8" fill="var(--ink-400)">07 Sep</text>
+                  </svg>
+                </div>
+                <div class="flex items-center justify-between text-[11px] text-[var(--ink-400)] border-t border-[var(--divider)] pt-2 mt-1">
+                  <span>Cancellation rate: <b class="text-[var(--ink-900)]">2.6%</b> (11 of 427 all-time)</span>
+                  <span class="text-[10px]">Quantized: UTC midnight</span>
+                </div>
+              </div>
+
+              <!-- Latency & Clocks (5 Cols) -->
+              <div class="md:col-span-5 space-y-4">
+                
+                <!-- Latency Card -->
+                <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+                  <div class="flex items-start justify-between">
+                    <div>
+                      <h4 class="text-[13px] font-bold text-[var(--ink-900)]">Delivery latency</h4>
+                      <p class="text-[11px] text-[var(--ink-400)]">Target: p50 ≤ 3m · p95 ≤ 6m</p>
+                    </div>
+                    <span class="text-[8px] font-bold px-1.5 py-0.5 rounded-delta bg-[var(--surface-sunken)] text-[var(--ink-500)] uppercase">24h window</span>
+                  </div>
+                  <div class="space-y-2.5 mt-3">
+                    <div>
+                      <div class="flex justify-between text-[11px] font-semibold mb-1">
+                        <span>p50 median</span>
+                        <span class="text-alarm font-bold">3m 34s (over rule)</span>
+                      </div>
+                      <div class="w-full h-2 bg-[var(--surface-sunken)] rounded-full overflow-hidden">
+                        <div class="bg-alarm h-full" style="width: 59%"></div>
+                      </div>
+                    </div>
+                    <div>
+                      <div class="flex justify-between text-[11px] font-semibold mb-1">
+                        <span>p95 tail</span>
+                        <span class="text-alarm font-bold">8m 06s (over rule)</span>
+                      </div>
+                      <div class="w-full h-2 bg-[var(--surface-sunken)] rounded-full overflow-hidden">
+                        <div class="bg-alarm h-full" style="width: 81%"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Clock & Capabilities Subgrid -->
+                <div class="grid grid-cols-2 gap-3">
+                  <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-3">
+                    <span class="text-[11px] font-semibold text-[var(--ink-400)]">Overdue Clocks</span>
+                    <div class="text-[26px] font-extrabold text-[var(--ink-800)] my-1">75</div>
+                    <p class="text-[10px] text-[var(--ink-400)] leading-tight">38 abandoned drafts, 23 notes</p>
+                  </div>
+                  <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-3">
+                    <span class="text-[11px] font-semibold text-[var(--ink-400)]">Telemetry</span>
+                    <div class="text-[26px] font-extrabold text-[var(--brand-deep)] my-1">2 / 8</div>
+                    <p class="text-[10px] text-[var(--ink-400)] leading-tight">Vendor usage & cost active</p>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+            <!-- Row C: Rung Bars (Whole Book) + Failure Codes -->
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+              
+              <!-- State Distribution Rung Bar (8 Cols) -->
+              <div class="md:col-span-8 bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+                <div class="flex items-start justify-between mb-3">
+                  <div>
+                    <h3 class="text-[15px] font-bold text-[var(--ink-900)]">Where the whole book sits</h3>
+                    <p class="text-[11px] text-[var(--ink-400)]">497 total records · 1 rung = 20 orders</p>
+                  </div>
+                  <span class="text-[11px] font-bold text-[var(--brand-deep)] bg-[var(--brand-tint)] px-2.5 py-1 rounded-delta">387 Delivered</span>
+                </div>
+                
+                <div class="space-y-2">
+                  <div class="flex items-center gap-3 text-[11px]">
+                    <span class="w-24 text-[var(--ink-500)] shrink-0">delivered (387)</span>
+                    <div class="flex-1 h-3.5 bg-[var(--surface-sunken)] rounded-sm overflow-hidden">
+                      <div class="bg-[var(--brand-solid)] h-full ring-1 ring-[var(--brand-solid-edge)]" style="width: 78%"></div>
+                    </div>
+                    <span class="w-12 text-right font-mono font-semibold">77.8%</span>
+                  </div>
+                  <div class="flex items-center gap-3 text-[11px]">
+                    <span class="w-24 text-[var(--ink-500)] shrink-0">draft (61)</span>
+                    <div class="flex-1 h-3.5 bg-[var(--surface-sunken)] rounded-sm overflow-hidden">
+                      <div class="bg-[var(--ink-400)] h-full" style="width: 12.2%"></div>
+                    </div>
+                    <span class="w-12 text-right font-mono font-semibold">12.2%</span>
+                  </div>
+                  <div class="flex items-center gap-3 text-[11px]">
+                    <span class="w-24 text-[var(--ink-500)] shrink-0">failed (29)</span>
+                    <div class="flex-1 h-3.5 bg-[var(--surface-sunken)] rounded-sm overflow-hidden">
+                      <div class="bg-alarm h-full" style="width: 5.8%"></div>
+                    </div>
+                    <span class="w-12 text-right font-mono font-bold text-alarm">5.8%</span>
+                  </div>
+                  <div class="flex items-center gap-3 text-[11px]">
+                    <span class="w-24 text-[var(--ink-500)] shrink-0">cancelled (11)</span>
+                    <div class="flex-1 h-3.5 bg-[var(--surface-sunken)] rounded-sm overflow-hidden">
+                      <div class="bg-[var(--ink-300)] h-full" style="width: 2.2%"></div>
+                    </div>
+                    <span class="w-12 text-right font-mono font-semibold">2.2%</span>
+                  </div>
+                  <div class="flex items-center gap-3 text-[11px]">
+                    <span class="w-24 text-[var(--ink-500)] shrink-0">in pipeline (9)</span>
+                    <div class="flex-1 h-3.5 bg-[var(--surface-sunken)] rounded-sm overflow-hidden">
+                      <div class="bg-[#8CB4B9] h-full" style="width: 1.8%"></div>
+                    </div>
+                    <span class="w-12 text-right font-mono font-semibold">1.8%</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Failure Codes Diverging Bar (4 Cols) -->
+              <div class="md:col-span-4 bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+                <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">Failure codes vs 7d</h3>
+                <p class="text-[11px] text-[var(--ink-400)] mb-3">Divergence from trailing average</p>
+                
+                <div class="space-y-2 text-[11px]">
+                  <div>
+                    <div class="flex justify-between">
+                      <span class="text-[var(--ink-700)]">music_render_timeout</span>
+                      <span class="text-alarm font-bold">+4.6</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-[var(--surface-sunken)] rounded-full mt-1">
+                      <div class="bg-alarm h-full rounded-full" style="width: 75%"></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="flex justify-between">
+                      <span class="text-[var(--ink-700)]">vendor_unavailable</span>
+                      <span class="text-[var(--ink-500)] font-semibold">+0.1</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-[var(--surface-sunken)] rounded-full mt-1">
+                      <div class="bg-[var(--ink-400)] h-full rounded-full" style="width: 20%"></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div class="flex justify-between">
+                      <span class="text-[var(--ink-700)]">lyrics_parse_failed</span>
+                      <span class="text-[#0AB552] font-bold">-1.7</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-[var(--surface-sunken)] rounded-full mt-1">
+                      <div class="bg-[#0AB552] h-full rounded-full" style="width: 40%"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+
+          <!-- Right Rail Zone (4 Cols / ~396px) -->
+          <div class="xl:col-span-4 space-y-5">
+            
+            <!-- Live Pipeline Board -->
+            <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+              <div class="flex items-start justify-between mb-3">
+                <div>
+                  <h3 class="text-[15px] font-bold text-[var(--ink-900)]">Live pipeline board</h3>
+                  <p class="text-[11px] text-[var(--ink-400)]">Real-time status queue (9 active)</p>
+                </div>
+                <span class="w-2.5 h-2.5 rounded-full bg-[#0AB552] animate-ping"></span>
+              </div>
+
+              <!-- Pipeline Stages -->
+              <div class="space-y-3">
+                <div class="p-2.5 rounded-xl bg-[var(--surface-sunken)] border border-[var(--stroke)]">
+                  <div class="flex justify-between text-[12px] font-bold mb-1">
+                    <span class="text-[var(--ink-900)] flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full bg-[var(--brand-solid-edge)]"></span>
+                      Generating
+                    </span>
+                    <span class="font-mono text-[var(--brand-deep)]">2 orders</span>
+                  </div>
+                  <div class="text-[10px] text-[var(--ink-400)]">Oldest: 4m 20s · Suno music_compose #a8f1</div>
+                </div>
+
+                <div class="p-2.5 rounded-xl bg-[var(--surface-sunken)] border border-[var(--stroke)]">
+                  <div class="flex justify-between text-[12px] font-bold mb-1">
+                    <span class="text-[var(--ink-900)] flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full bg-alarm"></span>
+                      Authorized
+                    </span>
+                    <span class="font-mono text-alarm">1 order</span>
+                  </div>
+                  <div class="text-[10px] text-alarm font-medium">Wedged 1h 13m · awaiting worker pickup</div>
+                </div>
+
+                <div class="p-2.5 rounded-xl bg-[var(--surface-sunken)] border border-[var(--stroke)]">
+                  <div class="flex justify-between text-[12px] font-bold mb-1">
+                    <span class="text-[var(--ink-900)] flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full bg-[#8CB4B9]"></span>
+                      Lyrics Ready
+                    </span>
+                    <span class="font-mono text-[var(--ink-700)]">2 orders</span>
+                  </div>
+                  <div class="text-[10px] text-[var(--ink-400)]">Oldest: 35m · awaiting user preview tap</div>
+                </div>
+
+                <div class="p-2.5 rounded-xl bg-[var(--surface-sunken)] border border-[var(--stroke)]">
+                  <div class="flex justify-between text-[12px] font-bold mb-1">
+                    <span class="text-[var(--ink-900)] flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full bg-[var(--ink-400)]"></span>
+                      Brief Ready
+                    </span>
+                    <span class="font-mono text-[var(--ink-700)]">4 orders</span>
+                  </div>
+                  <div class="text-[10px] text-[var(--ink-400)]">Oldest: 2h 36m · Uzbek Latin lyric prompt</div>
+                </div>
+              </div>
+
+              <!-- Concurrency ceiling note -->
+              <div class="mt-4 p-2.5 rounded-xl null-hatch border border-[var(--stroke)] text-[11px] text-[var(--ink-400)]">
+                <span class="font-bold text-[var(--ink-700)]">Concurrency ceiling:</span> — ceiling not published (not measured)
+              </div>
+            </div>
+
+            <!-- Ops Footnotes & System Health -->
+            <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+              <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-3">Ops Footnotes & Health</h3>
+              <div class="divide-y divide-[var(--divider)] text-[12px]">
+                <div class="py-2 flex justify-between">
+                  <span class="text-[var(--ink-500)]">Delivered but unconfirmed (24h)</span>
+                  <span class="font-bold font-mono text-[var(--ink-900)]">1</span>
+                </div>
+                <div class="py-2 flex justify-between">
+                  <span class="text-[var(--ink-500)]">Abandoned drafts (&gt;14d)</span>
+                  <span class="font-bold font-mono text-[var(--ink-900)]">38</span>
+                </div>
+                <div class="py-2 flex justify-between">
+                  <span class="text-[var(--ink-500)]">Postgres / Redis Connection</span>
+                  <span class="font-bold text-[#0AB552] flex items-center gap-1">
+                    <span class="w-2 h-2 rounded-full bg-[#0AB552]"></span> ok / ok
+                  </span>
+                </div>
+                <div class="py-2 flex justify-between">
+                  <span class="text-[var(--ink-500)]">HMAC Tamper Check</span>
+                  <span class="font-bold text-[#0AB552]">verified (8,412 rows)</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <!-- SECTION 2: UNIT ECONOMICS AND REVENUE (Template A)                  -->
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <section id="sec-2" class="panel-section hidden">
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
+          
+          <div class="xl:col-span-8 space-y-5">
+            <!-- Row A: Spend, Cost per Song, Margin -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[155px] flex flex-col justify-between">
+                <div>
+                  <div class="flex justify-between items-start">
+                    <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Vendor spend, 30d</h3>
+                    <span class="text-[9px] font-bold bg-[var(--surface-sunken)] px-1.5 py-0.5 rounded text-[var(--ink-400)] uppercase">estimated</span>
+                  </div>
+                  <div class="text-[32px] font-extrabold text-[var(--ink-800)] mt-1">$103.50</div>
+                </div>
+                <p class="text-[11px] text-[var(--ink-400)]">388 of 2,841 calls priced (14%)</p>
+              </div>
+
+              <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[155px] flex flex-col justify-between">
+                <div>
+                  <div class="flex justify-between items-start">
+                    <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Cost per song</h3>
+                    <span class="text-[9px] font-bold bg-alarm-tint text-alarm px-1.5 py-0.5 rounded uppercase">OVER CEILING</span>
+                  </div>
+                  <div class="text-[32px] font-extrabold text-alarm mt-1">$1.10</div>
+                </div>
+                <p class="text-[11px] text-[var(--ink-400)]">Ceiling: $0.45 · Target: $0.28</p>
+              </div>
+
+              <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[155px] flex flex-col justify-between">
+                <div>
+                  <div class="flex justify-between items-start">
+                    <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Shipped price vs cost</h3>
+                    <span class="text-[9px] font-bold bg-[var(--surface-sunken)] px-1.5 py-0.5 rounded text-[var(--ink-400)]">CONFIG</span>
+                  </div>
+                  <div class="text-[26px] font-extrabold text-[var(--ink-800)] mt-1">7 000 UZS</div>
+                </div>
+                <div class="null-hatch p-1.5 rounded text-[10px] text-[var(--ink-400)]">
+                  — contribution margin not computable
+                </div>
+              </div>
+            </div>
+
+            <!-- Row B: 30-Day Spend Line + Free-Tier Spend -->
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-4">
+              <div class="md:col-span-7 bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+                <div class="flex justify-between items-center mb-3">
+                  <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Spend per day vs trailing mean</h3>
+                  <span class="text-[11px] text-[var(--ink-400)]">Mean: $4.33 · Max: $8.77</span>
+                </div>
+                <div class="w-full h-44">
+                  <!-- 30-Day Spend Bars SVG -->
+                  <svg class="w-full h-full" viewBox="0 0 440 160">
+                    <line x1="20" y1="30" x2="430" y2="30" class="chart-grid"/>
+                    <line x1="20" y1="80" x2="430" y2="80" class="chart-grid"/>
+                    <line x1="20" y1="130" x2="430" y2="130" stroke="var(--stroke)" stroke-width="1"/>
+                    
+                    <!-- Trailing Mean Rule ($4.33) -->
+                    <line x1="20" y1="80" x2="430" y2="80" stroke="var(--ink-400)" stroke-width="1.5" stroke-dasharray="3 3"/>
+                    <text x="400" y="75" font-size="8" fill="var(--ink-400)">$4.33</text>
+
+                    <!-- 30 Days of Bars -->
+                    <g fill="var(--ink-900)">
+                      <rect x="30" y="85" width="8" height="45" rx="1"/>
+                      <rect x="44" y="92" width="8" height="38" rx="1"/>
+                      <rect x="58" y="78" width="8" height="52" rx="1"/>
+                      <rect x="72" y="55" width="8" height="75" rx="1"/>
+                      <rect x="86" y="88" width="8" height="42" rx="1"/>
+                      <rect x="100" y="95" width="8" height="35" rx="1"/>
+                      <rect x="114" y="82" width="8" height="48" rx="1"/>
+                      <rect x="128" y="52" width="8" height="78" rx="1"/>
+                      <rect x="142" y="90" width="8" height="40" rx="1"/>
+                      <rect x="156" y="76" width="8" height="54" rx="1"/>
+                      <rect x="170" y="72" width="8" height="58" rx="1"/>
+                      <rect x="184" y="84" width="8" height="46" rx="1"/>
+                      <rect x="198" y="91" width="8" height="39" rx="1"/>
+                      <rect x="212" y="79" width="8" height="51" rx="1"/>
+                      <rect x="226" y="70" width="8" height="60" rx="1"/>
+                      <rect x="240" y="50" width="8" height="80" rx="1"/>
+                      <rect x="254" y="65" width="8" height="65" rx="1"/>
+                      <rect x="268" y="47" width="8" height="83" rx="1"/>
+                      <rect x="282" y="85" width="8" height="45" rx="1"/>
+                      <rect x="296" y="93" width="8" height="37" rx="1"/>
+                      <rect x="310" y="73" width="8" height="57" rx="1"/>
+                      <!-- Absent day indicator -->
+                      <line x1="330" y1="126" x2="338" y2="126" stroke="var(--ink-400)" stroke-width="2"/>
+                      <rect x="344" y="75" width="8" height="55" rx="1"/>
+                      <!-- Peak day Sep 5 ($8.77) in hero green -->
+                      <rect x="358" y="22" width="9" height="108" rx="2" fill="var(--brand-solid)" stroke="var(--brand-solid-edge)" stroke-width="1.5"/>
+                      <text x="362" y="15" font-size="8" font-weight="bold" fill="var(--brand-deep)" text-anchor="middle">$8.77</text>
+                      <rect x="372" y="53" width="8" height="77" rx="1"/>
+                      <rect x="386" y="82" width="8" height="48" rx="1"/>
+                    </g>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="md:col-span-5 bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 flex flex-col justify-between">
+                <div>
+                  <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Free-tier spend</h3>
+                  <p class="text-[11px] text-[var(--ink-400)]">Unbilled generation volume</p>
+                  <div class="text-[32px] font-extrabold text-[var(--ink-800)] mt-2">1,418</div>
+                  <p class="text-[11px] text-[var(--ink-500)] mt-1">11.7 free calls per paid order · 261 accounts</p>
+                </div>
+                <div class="p-3 rounded-xl bg-[var(--surface-sunken)] border border-[var(--stroke)] mt-3">
+                  <div class="flex justify-between text-[11px] font-semibold">
+                    <span>Plan liability:</span>
+                    <span>194 unconsumed songs</span>
+                  </div>
+                  <div class="flex justify-between text-[10px] text-[var(--ink-400)] mt-1">
+                    <span>21 live plans · 4 expiring ≤7d</span>
+                    <span class="font-mono">1,054,000 UZS amortised</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Table: Vendor x Operation x Model -->
+            <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 overflow-x-auto">
+              <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-3">Vendor × Operation × Model Rollup</h3>
+              <table class="w-full text-left text-[12px] border-collapse">
+                <thead>
+                  <tr class="border-b border-[var(--divider)] text-[10px] uppercase font-bold text-[var(--ink-400)]">
+                    <th class="pb-2">Operation</th>
+                    <th class="pb-2">Provider & Model</th>
+                    <th class="pb-2">Calls</th>
+                    <th class="pb-2">Success</th>
+                    <th class="pb-2">Units</th>
+                    <th class="pb-2">Priced</th>
+                    <th class="pb-2 text-right">Cost (USD)</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-[var(--divider)]">
+                  <tr>
+                    <td class="py-2.5 font-semibold text-[var(--ink-900)]">music_compose</td>
+                    <td class="py-2.5 text-[var(--ink-500)]">ElevenLabs (music-v1)</td>
+                    <td class="py-2.5 font-mono">388</td>
+                    <td class="py-2.5 text-[#0AB552] font-semibold">94.1%</td>
+                    <td class="py-2.5">690 min</td>
+                    <td class="py-2.5"><span class="px-1.5 py-0.5 rounded bg-[var(--brand-tint)] text-[var(--brand-deep)] font-bold text-[10px]">388/388</span></td>
+                    <td class="py-2.5 text-right font-mono font-bold">$103.50</td>
+                  </tr>
+                  <tr>
+                    <td class="py-2.5 font-semibold text-[var(--ink-900)]">chat_completion</td>
+                    <td class="py-2.5 text-[var(--ink-500)]">OpenAI-compat (llama-3.3-70b)</td>
+                    <td class="py-2.5 font-mono">1,622</td>
+                    <td class="py-2.5 text-[#0AB552] font-semibold">97.3%</td>
+                    <td class="py-2.5">1.84M tok</td>
+                    <td class="py-2.5 text-[var(--ink-400)]">0/1,622</td>
+                    <td class="py-2.5 text-right font-mono text-[var(--ink-400)]">— not priced</td>
+                  </tr>
+                  <tr>
+                    <td class="py-2.5 font-semibold text-[var(--ink-900)]">speech_synthesis</td>
+                    <td class="py-2.5 text-[var(--ink-500)]">ElevenLabs (tts-multi)</td>
+                    <td class="py-2.5 font-mono">404</td>
+                    <td class="py-2.5 text-[#0AB552] font-semibold">98.8%</td>
+                    <td class="py-2.5">211.4k ch</td>
+                    <td class="py-2.5 text-[var(--ink-400)]">0/404</td>
+                    <td class="py-2.5 text-right font-mono text-[var(--ink-400)]">— not priced</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+
+          <!-- Rail: Bookings & Breakage -->
+          <div class="xl:col-span-4 space-y-5">
+            <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+              <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">Bookings, last 8 weeks</h3>
+              <p class="text-[11px] text-[var(--ink-400)] mb-3">36 purchases · 2,348,000 UZS</p>
+              <div class="space-y-2">
+                <div class="flex justify-between text-[11px]">
+                  <span>Week 35</span>
+                  <span class="font-mono font-semibold">4 orders · 280,000 UZS</span>
+                </div>
+                <div class="flex justify-between text-[11px]">
+                  <span>Week 36 (Peak)</span>
+                  <span class="font-mono font-bold text-[var(--brand-deep)]">11 orders · 770,000 UZS</span>
+                </div>
+                <div class="flex justify-between text-[11px]">
+                  <span>Week 37 (Current)</span>
+                  <span class="font-mono font-semibold">6 orders · 420,000 UZS</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+              <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">Plan utilisation & breakage</h3>
+              <p class="text-[11px] text-[var(--ink-400)] mb-3">Mean use 22.7% (2.7 of 12 songs)</p>
+              <div class="p-3 bg-[var(--surface-sunken)] rounded-xl border border-[var(--stroke)] text-[12px]">
+                <div class="flex justify-between mb-1">
+                  <span>Breakage songs retained:</span>
+                  <span class="font-bold">204</span>
+                </div>
+                <div class="flex justify-between">
+                  <span>Break-even line:</span>
+                  <span class="font-bold">9 songs</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <!-- SECTION 3: THE CREDIT ECONOMY (Template B: Wide 3-Row Grid)         -->
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <section id="sec-3" class="panel-section hidden space-y-5">
+        
+        <!-- Row 1: 3 x Equal KPI Cards (457px each) -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <div>
+              <div class="flex justify-between items-start">
+                <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Dark renders, 30d</h3>
+                <span class="text-[9px] font-bold bg-[var(--surface-sunken)] px-2 py-0.5 rounded text-[var(--ink-400)]">ENFORCEMENT OFF</span>
+              </div>
+              <div class="text-[32px] font-extrabold text-[var(--ink-800)] mt-1">214</div>
+            </div>
+            <p class="text-[11px] text-[var(--ink-400)]">Comped renders (~1.5 per order)</p>
+          </div>
+
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <div>
+              <div class="flex justify-between items-start">
+                <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Credit liability</h3>
+                <span class="text-[9px] font-bold bg-[var(--brand-tint)] text-[var(--brand-deep)] px-2 py-0.5 rounded">SYSTEM OWES</span>
+              </div>
+              <div class="text-[32px] font-extrabold text-[var(--brand-deep)] mt-1">63</div>
+            </div>
+            <p class="text-[11px] text-[var(--ink-400)]">539 redeemed · 63 outstanding</p>
+          </div>
+
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <div>
+              <div class="flex justify-between items-start">
+                <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Open debits</h3>
+                <span class="text-[9px] font-bold bg-[var(--surface-sunken)] px-2 py-0.5 rounded text-[var(--ink-400)]">IN FLIGHT</span>
+              </div>
+              <div class="text-[32px] font-extrabold text-[var(--ink-800)] mt-1">3</div>
+            </div>
+            <p class="text-[11px] text-[var(--ink-400)]">2 &lt;15m · 1 15m-1h · 0 &gt;24h</p>
+          </div>
+        </div>
+
+        <!-- Row 2: Waterfall & Sources (691px each) -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">Minted vs burned waterfall</h3>
+            <p class="text-[11px] text-[var(--ink-400)] mb-3">1 rung = 10 credits · Refunds 3.1% of charges</p>
+            <div class="space-y-2.5 text-[12px]">
+              <div class="flex justify-between items-center">
+                <span class="font-semibold text-[var(--ink-700)]">Grants (Minted)</span>
+                <span class="font-mono font-bold text-[#0AB552]">+312</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="font-semibold text-[var(--ink-700)]">Refunds</span>
+                <span class="font-mono font-bold text-[var(--brand-deep)]">+9</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <span class="font-semibold text-[var(--ink-700)]">Debits (Burned)</span>
+                <span class="font-mono font-bold text-alarm">-288</span>
+              </div>
+              <div class="pt-2 border-t border-[var(--divider)] flex justify-between items-center font-bold">
+                <span>Net Circulation</span>
+                <span class="font-mono text-[var(--brand-deep)]">+33</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">Where credits come from</h3>
+            <p class="text-[11px] text-[var(--ink-400)] mb-3">1 tick = 4 credits</p>
+            <div class="space-y-2 text-[12px]">
+              <div class="flex justify-between">
+                <span>Unenforced render comp</span>
+                <span class="font-mono font-bold">214 (68%)</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Signup allowance</span>
+                <span class="font-mono font-semibold">54 (17%)</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Plan song allowance</span>
+                <span class="font-mono font-semibold">31 (10%)</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Admin goodwill grant</span>
+                <span class="font-mono font-semibold">4 (1.3%)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Row 3: Wide Full-Width Card (1392px) -->
+        <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+          <div class="flex justify-between items-center mb-3">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)]">How charges close · Weekly cohort resolution</h3>
+            <span class="text-[11px] text-[var(--ink-400)]">Aug 24 to Sep 7</span>
+          </div>
+          <div class="grid grid-cols-3 gap-4">
+            <div class="p-3 bg-[var(--surface-sunken)] rounded-xl">
+              <span class="text-[11px] font-bold text-[var(--ink-500)]">Week Aug 24</span>
+              <div class="text-[20px] font-extrabold mt-1">28 charges</div>
+              <p class="text-[10px] text-[var(--ink-400)]">26 delivered · 2 stale refunds</p>
+            </div>
+            <div class="p-3 bg-[var(--surface-sunken)] rounded-xl">
+              <span class="text-[11px] font-bold text-[var(--ink-500)]">Week Aug 31</span>
+              <div class="text-[20px] font-extrabold mt-1">33 charges</div>
+              <p class="text-[10px] text-[var(--ink-400)]">31 delivered · 1 stale consume</p>
+            </div>
+            <div class="p-3 bg-[var(--brand-tint)] border border-[var(--brand-solid-edge)] rounded-xl">
+              <span class="text-[11px] font-bold text-[var(--brand-deep)]">Week Sep 7 (Active)</span>
+              <div class="text-[20px] font-extrabold text-[var(--brand-deep)] mt-1">21 charges</div>
+              <p class="text-[10px] text-[var(--ink-500)]">19 delivered · 2 pending resolution</p>
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <!-- SECTION 4: VENDORS AND AI SUPPLY CHAIN                              -->
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <section id="sec-4" class="panel-section hidden space-y-5">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Vendor error rate (24h)</h3>
+            <div class="text-[32px] font-extrabold text-[var(--ink-800)]">3.1%</div>
+            <p class="text-[11px] text-[var(--ink-400)]">3 failed of 96 calls · threshold 10%</p>
+          </div>
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Silent fallback share</h3>
+            <div class="null-hatch p-2 rounded text-[14px] font-bold text-[var(--ink-400)]">— not on wire</div>
+            <p class="text-[11px] text-[#0AB552] font-semibold">14 of 14 health probes clean</p>
+          </div>
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Music minutes MTD</h3>
+            <div class="text-[32px] font-extrabold text-[var(--ink-800)]">690 min</div>
+            <p class="text-[11px] text-[var(--ink-400)]">388 calls · 100% of priced spend</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Latency Dumbbell Queue -->
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">Latency: mean to p95</h3>
+            <p class="text-[11px] text-[var(--ink-400)] mb-3">Response latency distribution across AI providers</p>
+            <div class="space-y-3 text-[12px]">
+              <div>
+                <div class="flex justify-between font-semibold">
+                  <span>Suno / ElevenLabs compose</span>
+                  <span class="font-mono">mean 42s · p95 118s</span>
+                </div>
+                <div class="w-full h-2 bg-[var(--surface-sunken)] rounded-full mt-1">
+                  <div class="bg-alarm h-full rounded-full" style="width: 85%"></div>
+                </div>
+              </div>
+              <div>
+                <div class="flex justify-between font-semibold">
+                  <span>ElevenLabs speech_synthesis</span>
+                  <span class="font-mono">mean 820ms · p95 2.1s</span>
+                </div>
+                <div class="w-full h-2 bg-[var(--surface-sunken)] rounded-full mt-1">
+                  <div class="bg-[#0AB552] h-full rounded-full" style="width: 25%"></div>
+                </div>
+              </div>
+              <div>
+                <div class="flex justify-between font-semibold">
+                  <span>OpenAI-compat chat_completion</span>
+                  <span class="font-mono">mean 1.4s · p95 3.8s</span>
+                </div>
+                <div class="w-full h-2 bg-[var(--surface-sunken)] rounded-full mt-1">
+                  <div class="bg-[#8CB4B9] h-full rounded-full" style="width: 35%"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Error Breakdown Matrix -->
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">Errors by vendor & code</h3>
+            <p class="text-[11px] text-[var(--ink-400)] mb-3">Top render failures in current window</p>
+            <div class="space-y-2 text-[12px]">
+              <div class="p-2 rounded bg-[var(--surface-sunken)] flex justify-between items-center">
+                <span>openai-compat · PARSE_FAILED</span>
+                <span class="font-mono font-bold text-alarm">8 failures</span>
+              </div>
+              <div class="p-2 rounded bg-[var(--surface-sunken)] flex justify-between items-center">
+                <span>elevenlabs · RENDER_TIMEOUT</span>
+                <span class="font-mono font-bold text-alarm">7 failures</span>
+              </div>
+              <div class="p-2 rounded bg-[var(--surface-sunken)] flex justify-between items-center">
+                <span>gemini · RATE_LIMITED</span>
+                <span class="font-mono text-[#0AB552]">0 failures</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 90 Days Spend Stream Ribbon -->
+        <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+          <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">90 days of vendor spend</h3>
+          <p class="text-[11px] text-[var(--ink-400)] mb-2">Continuous trailing priced usage stream</p>
+          <div class="w-full h-24 bg-[var(--surface-sunken)] rounded-xl flex items-end p-2 gap-1 overflow-x-auto">
+            <!-- Simulated micro-bars for 90 days -->
+            <div class="w-2 h-6 bg-[var(--ink-400)] rounded-t"></div>
+            <div class="w-2 h-8 bg-[var(--ink-400)] rounded-t"></div>
+            <div class="w-2 h-5 bg-[var(--ink-400)] rounded-t"></div>
+            <div class="w-2 h-10 bg-[var(--ink-400)] rounded-t"></div>
+            <div class="w-2 h-7 bg-[var(--ink-400)] rounded-t"></div>
+            <div class="w-2 h-12 bg-[var(--ink-900)] rounded-t"></div>
+            <div class="w-2 h-16 bg-[var(--brand-solid)] rounded-t"></div>
+            <div class="w-2 h-14 bg-[var(--brand-solid)] rounded-t"></div>
+            <div class="w-2 h-9 bg-[var(--ink-400)] rounded-t"></div>
+            <div class="w-2 h-11 bg-[var(--ink-900)] rounded-t"></div>
+            <div class="w-2 h-20 bg-[var(--brand-solid)] rounded-t"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <!-- SECTION 5: DOES IT SING THE NAME                                    -->
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <section id="sec-5" class="panel-section hidden space-y-5">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Name pass rate, 30d</h3>
+            <div class="text-[32px] font-extrabold text-[var(--brand-deep)]">81.8%</div>
+            <p class="text-[11px] text-[var(--ink-400)]">CI95 lower · 186 of 214 scored</p>
+          </div>
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Scraping threshold</h3>
+            <div class="text-[32px] font-extrabold text-[var(--ink-800)]">54</div>
+            <p class="text-[11px] text-[var(--ink-400)]">25.2% within ±0.05 of 0.70 line</p>
+          </div>
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Bring-your-own-lyrics</h3>
+            <div class="text-[32px] font-extrabold text-[var(--ink-800)]">16.3%</div>
+            <p class="text-[11px] text-[var(--ink-400)]">21 of 129 briefs had custom lyrics</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Strategy Bake-Off -->
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">Phonetic strategy bake-off</h3>
+            <p class="text-[11px] text-[var(--ink-400)] mb-3">Verification breakdown by name adaptation method</p>
+            <div class="space-y-2 text-[12px]">
+              <div class="flex justify-between items-center">
+                <span>transliterated (Latin ⇄ Cyrillic)</span>
+                <span class="font-mono font-bold text-[var(--brand-deep)]">90 verified</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <span>as_written (verbatim)</span>
+                <span class="font-mono font-semibold">49 verified</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <span>phonetic (IPA syllables)</span>
+                <span class="font-mono font-semibold">26 verified</span>
+              </div>
+              <div class="flex justify-between items-center">
+                <span>accented (stress-marked)</span>
+                <span class="font-mono font-semibold">16 verified</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Language Pass Rates -->
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">Pass rate by language</h3>
+            <p class="text-[11px] text-[var(--ink-400)] mb-3">Accuracy across target phoneme profiles</p>
+            <div class="space-y-2.5 text-[12px]">
+              <div class="flex justify-between">
+                <span>Russian (ru)</span>
+                <span class="font-mono font-bold text-[#0AB552]">91.9% (68/74)</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Uzbek Latin (uz-Latn)</span>
+                <span class="font-mono font-bold text-[var(--brand-deep)]">83.9% (99/118)</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Uzbek Cyrillic (uz-Cyrl)</span>
+                <span class="font-mono font-bold text-[var(--ink-700)]">77.8% (7/9)</span>
+              </div>
+              <div class="flex justify-between">
+                <span>English (en)</span>
+                <span class="font-mono font-bold text-[#0AB552]">92.3% (12/13)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Wide Matrix Heatmap -->
+        <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+          <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-2">Genre × Language Pronunciation Matrix</h3>
+          <div class="grid grid-cols-5 gap-2 text-center text-[11px]">
+            <div class="p-2.5 bg-[var(--brand-tint)] text-[var(--brand-deep)] font-bold rounded-lg">Pop · uz (88%)</div>
+            <div class="p-2.5 bg-[var(--brand-tint)] text-[var(--brand-deep)] font-bold rounded-lg">Folk · uz (82%)</div>
+            <div class="p-2.5 bg-[var(--brand-tint)] text-[var(--brand-deep)] font-bold rounded-lg">Rock · ru (94%)</div>
+            <div class="p-2.5 bg-[var(--surface-sunken)] font-semibold rounded-lg">Electro · en (92%)</div>
+            <div class="p-2.5 null-hatch text-[var(--ink-400)] rounded-lg">Jazz (&lt;5 sample)</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <!-- SECTION 6: FUNNEL, DEMAND AND CUSTOMERS                             -->
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <section id="sec-6" class="panel-section hidden space-y-5">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Active accounts</h3>
+            <div class="flex items-baseline gap-3">
+              <span class="text-[32px] font-extrabold text-[var(--brand-deep)]">63</span>
+              <span class="text-[14px] text-[var(--ink-400)]">1d · 218 7d · 486 30d</span>
+            </div>
+            <p class="text-[11px] text-[var(--ink-400)]">1,412 total registered users</p>
+          </div>
+
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Signups per day</h3>
+            <div class="text-[32px] font-extrabold text-[var(--ink-800)]">Peak 22</div>
+            <p class="text-[11px] text-[var(--ink-400)]">103 signups across 7 active days</p>
+          </div>
+
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Authorized conversion</h3>
+            <div class="text-[32px] font-extrabold text-[var(--ink-800)]">85%</div>
+            <p class="text-[11px] text-[var(--ink-400)]">121 of 143 reached authorization</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Hourglass Funnel -->
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">Where people fall out</h3>
+            <p class="text-[11px] text-[var(--ink-400)] mb-3">Cohort progression (97 accounts)</p>
+            <div class="space-y-2 text-[12px]">
+              <div class="flex justify-between p-2 bg-[var(--surface-sunken)] rounded">
+                <span>1. Account Created</span>
+                <span class="font-mono font-bold">97 (100%)</span>
+              </div>
+              <div class="flex justify-between p-2 bg-[var(--surface-sunken)] rounded">
+                <span>2. Brief Completed</span>
+                <span class="font-mono font-bold">68 (70%)</span>
+              </div>
+              <div class="flex justify-between p-2 bg-[var(--surface-sunken)] rounded">
+                <span>3. Lyrics Previewed</span>
+                <span class="font-mono font-bold">49 (51%)</span>
+              </div>
+              <div class="flex justify-between p-2 bg-[var(--brand-tint)] text-[var(--brand-deep)] font-bold rounded">
+                <span>4. Order Created & Authorized</span>
+                <span class="font-mono">31 (32% activation)</span>
+              </div>
+              <div class="flex justify-between p-2 bg-[var(--surface-sunken)] rounded">
+                <span>5. Song Delivered</span>
+                <span class="font-mono font-bold">26 (27%)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Occasions & Vocals Breakdown -->
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">What people order</h3>
+            <p class="text-[11px] text-[var(--ink-400)] mb-3">Distribution across event types & voice profiles</p>
+            <div class="space-y-2 text-[12px]">
+              <div class="flex justify-between">
+                <span>Birthday song (Tug'ilgan kun)</span>
+                <span class="font-mono font-bold">77 orders</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Wedding / To'y</span>
+                <span class="font-mono font-semibold">28 orders</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Anniversary</span>
+                <span class="font-mono font-semibold">15 orders</span>
+              </div>
+              <div class="pt-2 border-t border-[var(--divider)] flex justify-between">
+                <span>Vocal: Female / Male / Duet</span>
+                <span class="font-mono font-semibold">72 / 51 / 14</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Occasion Calendar Heatmap -->
+        <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+          <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">The Occasion Calendar</h3>
+          <p class="text-[11px] text-[var(--ink-400)] mb-2">41 calendar dates with ≥5 customer celebrations</p>
+          <div class="p-3 bg-[var(--surface-sunken)] rounded-xl text-[12px] flex items-center justify-between">
+            <span>Peak cluster: September 15–24 (Autumn wedding and birthday season in Uzbekistan)</span>
+            <span class="font-bold text-[var(--brand-deep)]">High demand window</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <!-- SECTION 7: PRIVACY, RETENTION AND PANEL GOVERNANCE                  -->
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <section id="sec-7" class="panel-section hidden space-y-5">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Rows past clock</h3>
+            <div class="text-[32px] font-extrabold text-alarm">75</div>
+            <p class="text-[11px] text-[var(--ink-400)]">6 audio assets overdue for purge</p>
+          </div>
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Last sweep</h3>
+            <div class="text-[32px] font-extrabold text-[var(--ink-800)]">14 rows</div>
+            <p class="text-[11px] text-[var(--ink-400)]">Duration: 1.8s · batch not full</p>
+          </div>
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 h-[150px] flex flex-col justify-between">
+            <div class="flex justify-between items-start">
+              <h3 class="text-[14px] font-bold text-[var(--ink-900)]">Audit chain</h3>
+              <button onclick="verifyHmacChain()" id="verifyBtn" class="px-2 py-1 rounded-md bg-[var(--surface-sunken)] hover:bg-[var(--brand-solid)] text-[10px] font-bold flex items-center gap-1 transition-colors">
+                <span>↻</span> Verify
+              </button>
+            </div>
+            <div class="text-[32px] font-extrabold text-[#0AB552]" id="hmacStatus">8,412</div>
+            <p class="text-[11px] text-[var(--ink-400)]">HMAC SHA-256 chain intact</p>
+          </div>
+        </div>
+
+        <!-- Backlog Clocks & Operator Reveals -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">Backlog by clock</h3>
+            <p class="text-[11px] text-[var(--ink-400)] mb-3">Targeted purge queues awaiting execution</p>
+            <div class="space-y-2 text-[12px]">
+              <div class="flex justify-between">
+                <span>abandoned_orders_deleted</span>
+                <span class="font-mono font-bold">38 rows</span>
+              </div>
+              <div class="flex justify-between">
+                <span>brief_notes_purged</span>
+                <span class="font-mono font-bold">23 rows</span>
+              </div>
+              <div class="flex justify-between text-alarm font-bold">
+                <span>assets_deleted (customer audio)</span>
+                <span class="font-mono">6 rows</span>
+              </div>
+              <div class="flex justify-between">
+                <span>brief_identities_purged</span>
+                <span class="font-mono">4 rows</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4">
+            <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-1">Reveals by operator</h3>
+            <p class="text-[11px] text-[var(--ink-400)] mb-3">Step-up authorization unmask log (7d)</p>
+            <div class="space-y-2.5 text-[12px]">
+              <div class="flex justify-between items-center p-2 rounded bg-[var(--surface-sunken)]">
+                <span class="font-bold">aziz (owner)</span>
+                <span class="font-mono text-[var(--brand-deep)] font-semibold">41 records · 9 reveals</span>
+              </div>
+              <div class="flex justify-between items-center p-2 rounded bg-[var(--surface-sunken)]">
+                <span class="font-bold">nodira (support)</span>
+                <span class="font-mono">12 records · 4 reveals</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Sweep History Table -->
+        <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-4 overflow-x-auto">
+          <h3 class="text-[14px] font-bold text-[var(--ink-900)] mb-3">Sweep history, last 24 runs</h3>
+          <table class="w-full text-left text-[12px]">
+            <thead>
+              <tr class="border-b border-[var(--divider)] text-[10px] uppercase font-bold text-[var(--ink-400)]">
+                <th class="pb-2">Ran at</th>
+                <th class="pb-2">Trigger</th>
+                <th class="pb-2">Triggered by</th>
+                <th class="pb-2">Duration</th>
+                <th class="pb-2">Deleted</th>
+                <th class="pb-2 text-right">Result</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-[var(--divider)]">
+              <tr>
+                <td class="py-2 font-mono">09-07 12:00Z</td>
+                <td class="py-2">cron</td>
+                <td class="py-2">retention_worker</td>
+                <td class="py-2">1.8s</td>
+                <td class="py-2 font-bold">14 rows</td>
+                <td class="py-2 text-right text-[#0AB552] font-semibold">SUCCESS</td>
+              </tr>
+              <tr>
+                <td class="py-2 font-mono">09-06 12:00Z</td>
+                <td class="py-2">cron</td>
+                <td class="py-2">retention_worker</td>
+                <td class="py-2">2.1s</td>
+                <td class="py-2 font-bold">28 rows</td>
+                <td class="py-2 text-right text-[#0AB552] font-semibold">SUCCESS</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <!-- SECTION 8: DYNAMIC MULTI-AGENT WORKFLOW & SUBAGENTS CENTER          -->
+      <!-- ─────────────────────────────────────────────────────────────────── -->
+      <section id="sec-8" class="panel-section hidden space-y-6">
+        
+        <!-- Workflow Top Bar & Interactive Actions -->
+        <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-5 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-[#0AB552] animate-pulse"></span>
+              <h3 class="text-[18px] font-extrabold text-[var(--ink-900)]">Multi-Agent Song Pipeline Engine</h3>
+            </div>
+            <p class="text-[12px] text-[var(--ink-400)] mt-0.5">
+              Live orchestration of autonomous subagents executing birthday song generation, phonetics, audio synthesis, and delivery.
+            </p>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button onclick="triggerWorkflowSimulation()" id="runPipelineBtn" class="bg-[var(--brand-solid)] text-[var(--ink-on-brand)] font-bold text-[12px] px-4 py-2.5 rounded-chip ring-1 ring-[var(--brand-solid-edge)] shadow-sm hover:brightness-105 transition-all flex items-center gap-2">
+              <span>▶</span>
+              <span>Trigger Test Workflow</span>
+            </button>
+            <button onclick="resetWorkflowSimulation()" class="bg-[var(--surface-sunken)] hover:bg-[var(--surface-control)] text-[var(--ink-900)] font-semibold text-[12px] px-3.5 py-2.5 rounded-chip transition-colors">
+              ⟳ Reset
+            </button>
+          </div>
+        </div>
+
+        <!-- Visual Multi-Agent DAG / Pipeline Flow -->
+        <div class="bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-5">
+          <h4 class="text-[13px] font-bold text-[var(--ink-900)] uppercase tracking-wider mb-4 text-[var(--ink-400)]">
+            Execution DAG & Step States
+          </h4>
+
+          <div class="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-7 gap-3" id="agentPipelineGrid">
+            
+            <!-- Agent Step 1 -->
+            <div id="step-1" class="agent-step-card p-3 rounded-xl border border-[var(--stroke)] bg-[var(--surface-sunken)] flex flex-col justify-between transition-all duration-300">
+              <div>
+                <div class="flex justify-between items-center mb-1.5">
+                  <span class="text-[10px] font-bold uppercase text-[var(--ink-400)]">01 · Policy</span>
+                  <span class="step-status text-[9px] font-bold px-1.5 py-0.5 rounded bg-[var(--stroke)] text-[var(--ink-400)]">IDLE</span>
+                </div>
+                <h5 class="text-[12px] font-bold text-[var(--ink-900)]">Policy Gate</h5>
+                <p class="text-[10px] text-[var(--ink-400)] mt-0.5">Input & safety audit</p>
+              </div>
+              <div class="text-[9px] font-mono text-[var(--ink-400)] mt-3">flash_lite · 42ms</div>
+            </div>
+
+            <!-- Agent Step 2 -->
+            <div id="step-2" class="agent-step-card p-3 rounded-xl border border-[var(--stroke)] bg-[var(--surface-sunken)] flex flex-col justify-between transition-all duration-300">
+              <div>
+                <div class="flex justify-between items-center mb-1.5">
+                  <span class="text-[10px] font-bold uppercase text-[var(--ink-400)]">02 · Phonetics</span>
+                  <span class="step-status text-[9px] font-bold px-1.5 py-0.5 rounded bg-[var(--stroke)] text-[var(--ink-400)]">IDLE</span>
+                </div>
+                <h5 class="text-[12px] font-bold text-[var(--ink-900)]">Uzbek IPA Agent</h5>
+                <p class="text-[10px] text-[var(--ink-400)] mt-0.5">Syllables & stress</p>
+              </div>
+              <div class="text-[9px] font-mono text-[var(--ink-400)] mt-3">flash · 85ms</div>
+            </div>
+
+            <!-- Agent Step 3 -->
+            <div id="step-3" class="agent-step-card p-3 rounded-xl border border-[var(--stroke)] bg-[var(--surface-sunken)] flex flex-col justify-between transition-all duration-300">
+              <div>
+                <div class="flex justify-between items-center mb-1.5">
+                  <span class="text-[10px] font-bold uppercase text-[var(--ink-400)]">03 · Lyrics</span>
+                  <span class="step-status text-[9px] font-bold px-1.5 py-0.5 rounded bg-[var(--stroke)] text-[var(--ink-400)]">IDLE</span>
+                </div>
+                <h5 class="text-[12px] font-bold text-[var(--ink-900)]">Rhyme Synthesizer</h5>
+                <p class="text-[10px] text-[var(--ink-400)] mt-0.5">Custom verse creation</p>
+              </div>
+              <div class="text-[9px] font-mono text-[var(--ink-400)] mt-3">pro · 1,420ms</div>
+            </div>
+
+            <!-- Agent Step 4 -->
+            <div id="step-4" class="agent-step-card p-3 rounded-xl border border-[var(--stroke)] bg-[var(--surface-sunken)] flex flex-col justify-between transition-all duration-300">
+              <div>
+                <div class="flex justify-between items-center mb-1.5">
+                  <span class="text-[10px] font-bold uppercase text-[var(--ink-400)]">04 · Audio</span>
+                  <span class="step-status text-[9px] font-bold px-1.5 py-0.5 rounded bg-[var(--stroke)] text-[var(--ink-400)]">IDLE</span>
+                </div>
+                <h5 class="text-[12px] font-bold text-[var(--ink-900)]">Suno Stem Generator</h5>
+                <p class="text-[10px] text-[var(--ink-400)] mt-0.5">Vocal & arrangement</p>
+              </div>
+              <div class="text-[9px] font-mono text-[var(--ink-400)] mt-3">suno-api · 24.2s</div>
+            </div>
+
+            <!-- Agent Step 5 -->
+            <div id="step-5" class="agent-step-card p-3 rounded-xl border border-[var(--stroke)] bg-[var(--surface-sunken)] flex flex-col justify-between transition-all duration-300">
+              <div>
+                <div class="flex justify-between items-center mb-1.5">
+                  <span class="text-[10px] font-bold uppercase text-[var(--ink-400)]">05 · Master</span>
+                  <span class="step-status text-[9px] font-bold px-1.5 py-0.5 rounded bg-[var(--stroke)] text-[var(--ink-400)]">IDLE</span>
+                </div>
+                <h5 class="text-[12px] font-bold text-[var(--ink-900)]">Audio Watermarker</h5>
+                <p class="text-[10px] text-[var(--ink-400)] mt-0.5">LUFS normalization</p>
+              </div>
+              <div class="text-[9px] font-mono text-[var(--ink-400)] mt-3">ffmpeg · 310ms</div>
+            </div>
+
+            <!-- Agent Step 6 -->
+            <div id="step-6" class="agent-step-card p-3 rounded-xl border border-[var(--stroke)] bg-[var(--surface-sunken)] flex flex-col justify-between transition-all duration-300">
+              <div>
+                <div class="flex justify-between items-center mb-1.5">
+                  <span class="text-[10px] font-bold uppercase text-[var(--ink-400)]">06 · Art</span>
+                  <span class="step-status text-[9px] font-bold px-1.5 py-0.5 rounded bg-[var(--stroke)] text-[var(--ink-400)]">IDLE</span>
+                </div>
+                <h5 class="text-[12px] font-bold text-[var(--ink-900)]">Cover Generator</h5>
+                <p class="text-[10px] text-[var(--ink-400)] mt-0.5">Birthday illustration</p>
+              </div>
+              <div class="text-[9px] font-mono text-[var(--ink-400)] mt-3">flux-schnell · 1.8s</div>
+            </div>
+
+            <!-- Agent Step 7 -->
+            <div id="step-7" class="agent-step-card p-3 rounded-xl border border-[var(--stroke)] bg-[var(--surface-sunken)] flex flex-col justify-between transition-all duration-300">
+              <div>
+                <div class="flex justify-between items-center mb-1.5">
+                  <span class="text-[10px] font-bold uppercase text-[var(--ink-400)]">07 · Delivery</span>
+                  <span class="step-status text-[9px] font-bold px-1.5 py-0.5 rounded bg-[var(--stroke)] text-[var(--ink-400)]">IDLE</span>
+                </div>
+                <h5 class="text-[12px] font-bold text-[var(--ink-900)]">Telegram Delivery</h5>
+                <p class="text-[10px] text-[var(--ink-400)] mt-0.5">Push notification kit</p>
+              </div>
+              <div class="text-[9px] font-mono text-[var(--ink-400)] mt-3">aiogram · 120ms</div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Telemetry Matrix & Live Trace Log -->
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-5">
+          
+          <!-- Subagent Metrics Matrix (7 Cols) -->
+          <div class="xl:col-span-7 bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-5">
+            <h4 class="text-[14px] font-bold text-[var(--ink-900)] mb-3">Subagent Performance & Resource Ledger</h4>
+            
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-[12px]">
+                <thead>
+                  <tr class="border-b border-[var(--divider)] text-[10px] uppercase font-bold text-[var(--ink-400)]">
+                    <th class="pb-2">Subagent Role</th>
+                    <th class="pb-2">Model</th>
+                    <th class="pb-2">Latency</th>
+                    <th class="pb-2">Tokens</th>
+                    <th class="pb-2">Est. Cost</th>
+                    <th class="pb-2 text-right">Success Rate</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-[var(--divider)]">
+                  <tr>
+                    <td class="py-2.5 font-bold text-[var(--ink-900)] flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full bg-[#0AB552]"></span> Policy Gatekeeper
+                    </td>
+                    <td class="py-2.5 font-mono text-[var(--ink-500)]">flash_lite</td>
+                    <td class="py-2.5 font-mono">42ms</td>
+                    <td class="py-2.5 font-mono">310</td>
+                    <td class="py-2.5 font-mono">$0.0001</td>
+                    <td class="py-2.5 text-right font-bold text-[#0AB552]">99.9%</td>
+                  </tr>
+                  <tr>
+                    <td class="py-2.5 font-bold text-[var(--ink-900)] flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full bg-[#0AB552]"></span> Uzbek Phonetic IPA
+                    </td>
+                    <td class="py-2.5 font-mono text-[var(--ink-500)]">flash</td>
+                    <td class="py-2.5 font-mono">85ms</td>
+                    <td class="py-2.5 font-mono">540</td>
+                    <td class="py-2.5 font-mono">$0.0003</td>
+                    <td class="py-2.5 text-right font-bold text-[#0AB552]">98.2%</td>
+                  </tr>
+                  <tr>
+                    <td class="py-2.5 font-bold text-[var(--ink-900)] flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full bg-[#0AB552]"></span> Lyric Synthesizer
+                    </td>
+                    <td class="py-2.5 font-mono text-[var(--ink-500)]">pro</td>
+                    <td class="py-2.5 font-mono">1.42s</td>
+                    <td class="py-2.5 font-mono">2,180</td>
+                    <td class="py-2.5 font-mono">$0.0044</td>
+                    <td class="py-2.5 text-right font-bold text-[#0AB552]">97.4%</td>
+                  </tr>
+                  <tr>
+                    <td class="py-2.5 font-bold text-[var(--ink-900)] flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full bg-[#0AB552]"></span> Music & Vocal (Suno)
+                    </td>
+                    <td class="py-2.5 font-mono text-[var(--ink-500)]">suno-v3.5</td>
+                    <td class="py-2.5 font-mono">24.2s</td>
+                    <td class="py-2.5 font-mono">—</td>
+                    <td class="py-2.5 font-mono text-alarm font-bold">$0.0500</td>
+                    <td class="py-2.5 text-right font-bold text-[#0AB552]">94.1%</td>
+                  </tr>
+                  <tr>
+                    <td class="py-2.5 font-bold text-[var(--ink-900)] flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full bg-[#0AB552]"></span> Audio Watermark
+                    </td>
+                    <td class="py-2.5 font-mono text-[var(--ink-500)]">ffmpeg-native</td>
+                    <td class="py-2.5 font-mono">310ms</td>
+                    <td class="py-2.5 font-mono">—</td>
+                    <td class="py-2.5 font-mono">$0.0000</td>
+                    <td class="py-2.5 text-right font-bold text-[#0AB552]">100%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Live Event Trace Log (5 Cols) -->
+          <div class="xl:col-span-5 bg-[var(--card)] border border-[var(--stroke)] shadow-[var(--shadow-card)] rounded-card p-5 flex flex-col justify-between">
+            <div>
+              <div class="flex justify-between items-center mb-3">
+                <h4 class="text-[14px] font-bold text-[var(--ink-900)]">Real-Time Trace Stream</h4>
+                <span class="text-[10px] font-mono text-[var(--ink-400)]">trace_id: bayram_9f1a7b</span>
+              </div>
+              
+              <div id="traceLog" class="h-64 overflow-y-auto bg-[var(--surface-sunken)] p-3 rounded-xl border border-[var(--stroke)] font-mono text-[11px] space-y-2 text-[var(--ink-500)]">
+                <div class="text-[10px] text-[var(--ink-400)]">[12:35:01Z] System ready. Dynamic workflow listener attached.</div>
+                <div class="text-[10px] text-[var(--ink-400)]">[12:35:02Z] 7 subagent workers registered in pool.</div>
+                <div class="text-[10px] text-[var(--ink-400)]">[12:35:05Z] Ready to trigger test workflow execution.</div>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between mt-3 pt-3 border-t border-[var(--divider)] text-[11px] text-[var(--ink-400)]">
+              <span>Auto-scroll enabled</span>
+              <button onclick="clearTraceLog()" class="hover:text-[var(--ink-900)] text-[10px] font-semibold">Clear log</button>
+            </div>
+          </div>
+
+        </div>
+
+      </section>
+
+    </main>
+
+    <!-- ======================================================================= -->
+    <!-- 6. CAPABILITY TELEMETRY FOOTER                                           -->
+    <!-- ======================================================================= -->
+    <footer class="mt-8 pt-4 border-t border-[var(--stroke)] flex flex-wrap items-center gap-2.5 text-[11px]">
+      <span class="font-bold uppercase tracking-wider text-[10px] text-[var(--ink-400)] mr-2">System Telemetry:</span>
+      
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-delta bg-[var(--card)] border border-[var(--stroke)] text-[var(--ink-900)] shadow-xs">
+        <span class="w-1.5 h-1.5 rounded-full bg-[#0AB552]"></span> vendor usage
+      </span>
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-delta bg-[var(--card)] border border-[var(--stroke)] text-[var(--ink-900)] shadow-xs">
+        <span class="w-1.5 h-1.5 rounded-full bg-[#0AB552]"></span> vendor cost
+      </span>
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-delta bg-[var(--card)] border border-[var(--stroke)] text-[var(--ink-400)] line-through shadow-xs">
+        <span class="w-1.5 h-1.5 rounded-full bg-[var(--ink-300)]"></span> cost telemetry
+      </span>
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-delta bg-[var(--card)] border border-[var(--stroke)] text-[var(--ink-400)] line-through shadow-xs">
+        <span class="w-1.5 h-1.5 rounded-full bg-[var(--ink-300)]"></span> latency telemetry
+      </span>
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-delta bg-[var(--card)] border border-[var(--stroke)] text-[var(--ink-400)] line-through shadow-xs">
+        <span class="w-1.5 h-1.5 rounded-full bg-[var(--ink-300)]"></span> storage keys
+      </span>
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-delta bg-[var(--card)] border border-[var(--stroke)] text-[var(--ink-400)] line-through shadow-xs">
+        <span class="w-1.5 h-1.5 rounded-full bg-[var(--ink-300)]"></span> chat capture
+      </span>
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-delta bg-[var(--card)] border border-[var(--stroke)] text-[var(--ink-400)] line-through shadow-xs">
+        <span class="w-1.5 h-1.5 rounded-full bg-[var(--ink-300)]"></span> payment ledger
+      </span>
+      <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-delta bg-[var(--card)] border border-[var(--stroke)] text-[var(--ink-400)] line-through shadow-xs">
+        <span class="w-1.5 h-1.5 rounded-full bg-[var(--ink-300)]"></span> state transition log
+      </span>
+    </footer>
+
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- 7. INTERACTIVE MODALS & DRAWERS                                           -->
+  <!-- ========================================================================= -->
+
+  <!-- Search & Quick Jump Modal -->
+  <div id="searchModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+    <div class="bg-[var(--card)] border border-[var(--stroke)] rounded-card shadow-2xl max-w-lg w-full p-5 overflow-hidden">
+      <div class="flex items-center gap-3 border-b border-[var(--divider)] pb-3">
+        <svg class="w-5 h-5 text-[var(--ink-400)]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+        <input type="text" id="jumpInput" placeholder="Enter order ID (e.g. ord_742) or correlation ID..." class="w-full text-sm bg-transparent outline-none text-[var(--ink-900)] placeholder-[var(--ink-400)]">
+        <button onclick="toggleModal('searchModal')" class="text-[var(--ink-400)] hover:text-[var(--ink-900)] text-sm">✕</button>
+      </div>
+      <div class="mt-4 space-y-2 max-h-60 overflow-y-auto text-xs">
+        <div class="p-2.5 rounded-lg hover:bg-[var(--surface-sunken)] cursor-pointer flex justify-between items-center" onclick="quickInspect('/orders/ord_742')">
+          <div>
+            <div class="font-bold text-[var(--ink-900)]">ord_74289a · Nodira Birthday Song</div>
+            <div class="text-[10px] text-[var(--ink-400)]">Uzbek Latin · GENERATING · 4m 20s</div>
+          </div>
+          <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-[var(--brand-tint)] text-[var(--brand-deep)]">ACTIVE</span>
+        </div>
+        <div class="p-2.5 rounded-lg hover:bg-[var(--surface-sunken)] cursor-pointer flex justify-between items-center" onclick="quickInspect('/orders/ord_631')">
+          <div>
+            <div class="font-bold text-[var(--ink-900)]">ord_63102c · Temur Wedding Kit</div>
+            <div class="text-[10px] text-[var(--ink-400)]">Russian Pop · DELIVERED · 3m 12s</div>
+          </div>
+          <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-[#0AB552]/10 text-[#0AB552]">DELIVERED</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step-Up Reveal Authorization Modal -->
+  <div id="revealModal" class="fixed inset-0 bg-black/50 backdrop-blur-xs z-50 hidden items-center justify-center p-4">
+    <div class="bg-[var(--card)] border border-[var(--stroke)] rounded-card shadow-2xl max-w-md w-full p-6">
+      <h3 class="text-base font-extrabold text-[var(--ink-900)] mb-1">Authorization Required: PII Reveal</h3>
+      <p class="text-xs text-[var(--ink-400)] mb-4">
+        Unmasking raw customer lyrics and recipient names is step-up authorized, rate-limited, and appended to the immutable HMAC audit chain.
+      </p>
+      <div class="space-y-3 mb-5">
+        <label class="block text-xs font-semibold text-[var(--ink-700)]">Reason for unmasking:</label>
+        <select class="w-full text-xs bg-[var(--surface-sunken)] border border-[var(--stroke)] rounded-lg p-2.5 text-[var(--ink-900)] outline-none">
+          <option value="support_investigation">SUPPORT_INVESTIGATION (Customer opened ticket)</option>
+          <option value="incident_triage">INCIDENT_TRIAGE (Audio rendering artifact)</option>
+          <option value="customer_request">CUSTOMER_REQUEST (Data export inquiry)</option>
+        </select>
+      </div>
+      <div class="flex justify-end gap-2">
+        <button onclick="toggleModal('revealModal')" class="px-3.5 py-2 text-xs font-semibold rounded-chip bg-[var(--surface-sunken)] hover:bg-[var(--surface-control)] text-[var(--ink-900)] transition-colors">
+          Cancel
+        </button>
+        <button onclick="confirmReveal()" class="px-4 py-2 text-xs font-bold rounded-chip bg-[var(--brand-solid)] text-[var(--ink-on-brand)] ring-1 ring-[var(--brand-solid-edge)] transition-all">
+          Authorize & Reveal
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SVG Hatching Patterns -->
+  <svg class="hidden">
+    <defs>
+      <pattern id="hatchPattern" width="6" height="6" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+        <line x1="0" y1="0" x2="0" y2="6" stroke="var(--ink-400)" stroke-width="1.5" opacity="0.3"/>
+      </pattern>
+    </defs>
+  </svg>
+
+  <!-- ========================================================================= -->
+  <!-- 8. APPLICATION CONTROLLER SCRIPT                                          -->
+  <!-- ========================================================================= -->
+  <script>
+    // Section metadata dictionary
+    const SECTION_DATA = {
+      1: { title: "Is it on fire", purpose: "The first thirty seconds — live delivery health, what is wedged, and which numbers here are absences rather than zeros.", chips: ["All vendors", "All languages"] },
+      2: { title: "Unit economics and revenue", purpose: "Cost per delivered kit against the 7 000 UZS price actually in config, with the trustworthiness of every figure stated on the tile.", chips: ["UZS · USD hint", "Last 30 days"] },
+      3: { title: "The credit economy", purpose: "With Payme stubbed and credits_enforced False, the credit ledger IS the economy — the entitlement P&L and the go/no-go for enforcement.", chips: ["All plans", "Ledger v1"] },
+      4: { title: "Vendors and the AI supply chain", purpose: "Where the money goes and where the failures start. vendor_usage is the only honest render-failure signal in the build.", chips: ["All vendors", "Last 90 days"] },
+      5: { title: "Does it sing the name", purpose: "The single differentiator and its own health metric. Aggregates over verdicts and scores only — candidate text is reveal-gated and absent.", chips: ["uz · ru · en", "All strategies"] },
+      6: { title: "Funnel, demand and customers", purpose: "Who arrives, converts and returns. With no order_events table the funnel counts survivors, not passages — said on the tile, not papered over.", chips: ["Last 30 days", "New · returning"] },
+      7: { title: "Privacy, retention and panel governance", purpose: "Reveal is step-up gated, budgeted and HMAC-chained. This is how an operator sees a scheduler that quietly stopped.", chips: ["All admins", "Last 7 days"] },
+      8: { title: "⚡ Dynamic Workflow & Subagents Command Hub", purpose: "Real-time orchestration, task telemetry, and multi-agent execution pipeline for AI song generation.", chips: ["7 Active Subagents", "Execution: Standby"] }
+    };
+
+    let activeSection = 1;
+    let livePolling = true;
+
+    // Navigation Tab Switching
+    document.querySelectorAll('#mainNav .nav-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const secId = parseInt(btn.getAttribute('data-sec'));
+        switchSection(secId);
+      });
+    });
+
+    function switchSection(secId) {
+      activeSection = secId;
+      
+      // Update Navigation styling
+      document.querySelectorAll('#mainNav .nav-btn').forEach(b => {
+        const id = parseInt(b.getAttribute('data-sec'));
+        if (id === secId) {
+          b.className = 'nav-btn active px-3.5 h-[36px] rounded-nav text-[12px] font-bold tracking-tight transition-all duration-150 bg-[var(--brand-solid)] text-[var(--ink-on-brand)] ring-1 ring-[var(--brand-solid-edge)]';
+        } else {
+          b.className = 'nav-btn px-3.5 h-[36px] rounded-nav text-[12px] font-medium tracking-tight text-[var(--ink-400)] hover:text-[var(--ink-900)] transition-all duration-150 hover:bg-[var(--surface-sunken)]';
+        }
+      });
+
+      // Update Section Header and Purpose
+      const meta = SECTION_DATA[secId] || SECTION_DATA[1];
+      document.getElementById('sectionTitle').textContent = meta.title;
+      document.getElementById('sectionPurpose').textContent = meta.purpose;
+
+      // Update Toolbar Chips
+      const chipContainer = document.getElementById('toolbarChips');
+      chipContainer.innerHTML = '';
+      meta.chips.forEach(chip => {
+        const cBtn = document.createElement('button');
+        cBtn.className = 'bg-[var(--surface-sunken)] hover:bg-[var(--surface-control)] text-[var(--ink-900)] text-[12px] font-semibold px-3 py-1.5 rounded-chip transition-colors flex items-center gap-1.5';
+        cBtn.innerHTML = `<span>${chip}</span><span class="text-[9px] text-[var(--ink-400)]">▾</span>`;
+        chipContainer.appendChild(cBtn);
+      });
+
+      // Show Selected Section
+      document.querySelectorAll('.panel-section').forEach(sec => {
+        sec.classList.add('hidden');
+        sec.classList.remove('block');
+      });
+      const targetSec = document.getElementById(`sec-${secId}`);
+      if (targetSec) {
+        targetSec.classList.remove('hidden');
+        targetSec.classList.add('block');
+      }
+    }
+
+    // Theme Switcher (Light / Dark)
+    function toggleTheme() {
+      const html = document.documentElement;
+      const current = html.getAttribute('data-theme') || 'light';
+      const next = current === 'light' ? 'dark' : 'light';
+      html.setAttribute('data-theme', next);
+      localStorage.setItem('bayram-theme', next);
+    }
+
+    // Palette Switcher (PlanIQ vs Gogo)
+    function setPalette(pal) {
+      const html = document.documentElement;
+      html.setAttribute('data-palette', pal);
+      localStorage.setItem('bayram-palette', pal);
+      
+      const pBtn = document.getElementById('btnPalPlaniq');
+      const gBtn = document.getElementById('btnPalGogo');
+      if (pal === 'planiq') {
+        pBtn.className = 'px-3 h-full rounded-pill text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 bg-[var(--surface-sunken)] text-[var(--ink-900)] transition-all';
+        gBtn.className = 'px-3 h-full rounded-pill text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 text-[var(--ink-400)] hover:text-[var(--ink-900)] transition-all';
+      } else {
+        gBtn.className = 'px-3 h-full rounded-pill text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 bg-[var(--surface-sunken)] text-[var(--ink-900)] transition-all';
+        pBtn.className = 'px-3 h-full rounded-pill text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5 text-[var(--ink-400)] hover:text-[var(--ink-900)] transition-all';
+      }
+    }
+
+    // Modals
+    function toggleModal(id) {
+      const el = document.getElementById(id);
+      if (el) {
+        el.classList.toggle('hidden');
+        el.classList.toggle('flex');
+      }
+    }
+
+    // Quick Inspect Drilldown Simulator
+    function quickInspect(route) {
+      alert(`Navigating to deep operational view: ${route}`);
+    }
+
+    // HMAC Verification Simulator
+    function verifyHmacChain() {
+      const btn = document.getElementById('verifyBtn');
+      const status = document.getElementById('hmacStatus');
+      btn.innerHTML = '↻ Verifying...';
+      btn.disabled = true;
+      setTimeout(() => {
+        btn.innerHTML = '✓ Verified';
+        status.textContent = '8,412 (100% intact)';
+        setTimeout(() => {
+          btn.innerHTML = '↻ Verify';
+          btn.disabled = false;
+        }, 2000);
+      }, 900);
+    }
+
+    // Polling Toggle
+    function togglePolling() {
+      livePolling = !livePolling;
+      const pill = document.getElementById('livePill');
+      const text = document.getElementById('liveText');
+      if (livePolling) {
+        pill.className = 'flex items-center gap-2.5 bg-[var(--brand-tint)] text-[var(--brand-deep)] text-[12px] font-bold px-3.5 py-2 rounded-chip shadow-sm ring-1 ring-[var(--brand-solid-edge)] transition-all';
+        text.textContent = 'LIVE · 5s';
+      } else {
+        pill.className = 'flex items-center gap-2.5 bg-[var(--surface-sunken)] text-[var(--ink-400)] text-[12px] font-bold px-3.5 py-2 rounded-chip transition-all';
+        text.textContent = 'PAUSED';
+      }
+    }
+
+    // Live Clocks
+    function updateClocks() {
+      const now = new Date();
+      const utcHours = String(now.getUTCHours()).padStart(2, '0');
+      const utcMins = String(now.getUTCMinutes()).padStart(2, '0');
+      document.getElementById('utcClock').textContent = `data in ${utcHours}:${utcMins}Z`;
+
+      // Tashkent is UTC+5
+      const tashkentTime = new Date(now.getTime() + (5 * 60 * 60 * 1000));
+      const tHours = String(tashkentTime.getUTCHours()).padStart(2, '0');
+      const tMins = String(tashkentTime.getUTCMinutes()).padStart(2, '0');
+      document.getElementById('localClock').textContent = `Tashkent ${tHours}:${tMins}`;
+    }
+    setInterval(updateClocks, 1000);
+    updateClocks();
+
+    // ── Dynamic Multi-Agent Workflow Simulation ──
+    const workflowSteps = [
+      { id: 'step-1', name: 'Policy Gatekeeper', desc: 'Running safety check...', delay: 600 },
+      { id: 'step-2', name: 'Uzbek Phonetic IPA', desc: 'Validating syllables & phonemes...', delay: 900 },
+      { id: 'step-3', name: 'Lyric Synthesizer', desc: 'Generating tailored rhyming verses...', delay: 1400 },
+      { id: 'step-4', name: 'Suno Stem Generator', desc: 'Synthesizing vocals and arrangement...', delay: 2200 },
+      { id: 'step-5', name: 'Audio Watermarker', desc: 'Applying LUFS master & audio tag...', delay: 800 },
+      { id: 'step-6', name: 'Cover Art Generator', desc: 'Generating personalized card visual...', delay: 1100 },
+      { id: 'step-7', name: 'Telegram Delivery', desc: 'Pushing song package to recipient...', delay: 700 },
+    ];
+
+    let currentStepIndex = 0;
+    let simulationTimer = null;
+
+    function appendTraceLog(msg, isHighlight = false) {
+      const log = document.getElementById('traceLog');
+      const div = document.createElement('div');
+      const now = new Date().toISOString().substring(11, 19) + 'Z';
+      div.className = isHighlight ? 'text-[var(--brand-deep)] font-bold' : 'text-[var(--ink-500)]';
+      div.innerHTML = `<span class="text-[var(--ink-400)]">[${now}]</span> ${msg}`;
+      log.appendChild(div);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    function clearTraceLog() {
+      document.getElementById('traceLog').innerHTML = '';
+    }
+
+    function resetWorkflowSimulation() {
+      clearTimeout(simulationTimer);
+      currentStepIndex = 0;
+      workflowSteps.forEach(step => {
+        const el = document.getElementById(step.id);
+        if (el) {
+          el.className = 'agent-step-card p-3 rounded-xl border border-[var(--stroke)] bg-[var(--surface-sunken)] flex flex-col justify-between transition-all duration-300';
+          const status = el.querySelector('.step-status');
+          status.className = 'step-status text-[9px] font-bold px-1.5 py-0.5 rounded bg-[var(--stroke)] text-[var(--ink-400)]';
+          status.textContent = 'IDLE';
+        }
+      });
+      appendTraceLog('Workflow state reset to standby.');
+      document.getElementById('runPipelineBtn').disabled = false;
+    }
+
+    function executeNextStep() {
+      if (currentStepIndex >= workflowSteps.length) {
+        appendTraceLog('✨ Workflow Completed! Order successfully delivered to Telegram user.', true);
+        document.getElementById('runPipelineBtn').disabled = false;
+        return;
+      }
+
+      const step = workflowSteps[currentStepIndex];
+      const el = document.getElementById(step.id);
+      
+      // Mark as RUNNING
+      if (el) {
+        el.className = 'agent-step-card p-3 rounded-xl border border-[var(--brand-solid-edge)] bg-[var(--brand-tint)] flex flex-col justify-between transition-all duration-300 ring-2 ring-[var(--brand-solid)]';
+        const status = el.querySelector('.step-status');
+        status.className = 'step-status text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#0AB552] text-white animate-pulse';
+        status.textContent = 'RUNNING';
+      }
+
+      appendTraceLog(`Starting Subagent [${step.name}]: ${step.desc}`);
+
+      simulationTimer = setTimeout(() => {
+        // Mark as DONE
+        if (el) {
+          el.className = 'agent-step-card p-3 rounded-xl border border-[#0AB552]/40 bg-[var(--card)] flex flex-col justify-between transition-all duration-300';
+          const status = el.querySelector('.step-status');
+          status.className = 'step-status text-[9px] font-bold px-1.5 py-0.5 rounded bg-[#0AB552]/20 text-[#0AB552]';
+          status.textContent = 'DONE';
+        }
+
+        appendTraceLog(`Subagent [${step.name}] finished successfully. Result verified.`);
+        currentStepIndex++;
+        executeNextStep();
+      }, step.delay);
+    }
+
+    function triggerWorkflowSimulation() {
+      resetWorkflowSimulation();
+      document.getElementById('runPipelineBtn').disabled = true;
+      appendTraceLog('🚀 Order #ord_8921 initiated! Dispatching execution to multi-agent workflow DAG...', true);
+      executeNextStep();
+    }
+
+    // Keyboard shortcut: ⌘K to open Jumpbox
+    window.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        toggleModal('searchModal');
+        setTimeout(() => document.getElementById('jumpInput')?.focus(), 50);
+      }
+    });
+
+    // Boot theme from localStorage
+    const savedTheme = localStorage.getItem('bayram-theme');
+    if (savedTheme) document.documentElement.setAttribute('data-theme', savedTheme);
+    const savedPalette = localStorage.getItem('bayram-palette');
+    if (savedPalette) setPalette(savedPalette);
+  </script>
+
+</body>
+</html>

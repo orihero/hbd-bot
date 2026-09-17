@@ -1,0 +1,1327 @@
+"""The application's route table, asserted whole — §12.1 T8, §14 Slice 1c.
+
+This file exists because of a specific failure mode: a router that is written, unit-tested
+against a locally-mounted copy, and then never included in ``create_app``. Every test in
+``tests/test_admin/test_*_router.py`` passes; the endpoint 404s in production. Nothing else
+in the suite notices, because a router test that mounts its own router is testing the router,
+not the application.
+
+So the assertions here are deliberately about ``create_app()`` and nothing else:
+
+* **The table is frozen.** :data:`MOUNTED_ROUTES` spells out every method, path and
+  router-level permission the application serves. A route that appears, disappears, moves or
+  changes its guard fails here — including the one that was never mounted at all.
+* **Every exported builder is reachable.** :data:`bayram.admin.routers.__all__` is walked and
+  each builder's own paths are required to be present in the application. This is the half
+  that catches the *next* router: adding it to the package's ``__all__`` without adding the
+  ``include_router`` line is a failure, not a silence.
+* **Exactly one guard, and it is on the router.** ``APIRoute.dependencies`` answers the
+  first half and cannot answer the second: FastAPI builds that attribute by concatenating
+  the router's ``dependencies=`` list with the decorator's own
+  (``APIRouter.add_api_route``: ``current_dependencies = self.dependencies.copy()``, then
+  ``extend(dependencies)``), so a guard moved off the router and onto the handler reads
+  back through it identically — which is the exact substitution §12.1 T3 forbids.
+  ``route.dependant`` is worse still, since it flattens the whole tree. So the guard is
+  attributed instead by rebuilding every router ``bayram.admin.routers.__all__`` exports and
+  reading ``APIRouter.dependencies`` — the router's own list, before FastAPI has copied it
+  anywhere. Anything a route carries beyond what its router declares is a handler guard,
+  and :func:`test_no_route_carries_a_guard_its_router_did_not_declare` requires that
+  difference to be empty.
+* **Every non-GET carries CSRF, and no GET writes.** Neither is a property of a route
+  object: CSRF is enforced inside ``get_current_admin`` and "does not write" is not
+  declared anywhere at all. So both are asserted twice — structurally, by freezing the set
+  of mutations, and behaviourally, by sending the requests and by snapshotting every domain
+  table around every GET the application serves. ``/users/{id}/avatar`` is in that sweep and
+  belongs there: it is the first GET in this table that streams bytes off a volume rather
+  than returning JSON, and a streaming read is exactly the shape somebody later hangs a
+  "record that this was viewed" write on. PD-1 refused that write, so the snapshot around it
+  must keep coming back unchanged.
+* **The SPA mount changes none of it.** ``create_app()`` is only half the story since Slice
+  1d: the static mount and the SPA fallback are installed by the *lifespan*, so the frozen
+  table above describes an application nobody runs. The last section re-asserts it against
+  the one they do, names the two SPA routes as the only exemption (:data:`SPA_ROUTE_NAMES`),
+  closes that exemption so a third non-``APIRoute`` cannot slip in unnoticed, and then checks
+  behaviourally that the catch-all answers for none of the table's paths.
+
+Paths are built from ``API_PREFIX``/``AUTH_PREFIX`` and the routers' own path constants
+rather than written as literals: §6.8's tables in the plan predate ``API_PREFIX = "/api"``
+and spell every path without it, so a literal here would encode the doc's stale form.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Callable, Iterable, Sequence
+from functools import cache
+from pathlib import Path
+from typing import Any, Final
+from uuid import UUID
+
+import httpx
+import pytest
+import sqlalchemy as sa
+from fastapi import APIRouter, params
+from fastapi.routing import APIRoute
+
+from bayram.admin import app as app_module
+from bayram.admin import routers as routers_package
+from bayram.admin.app import create_app
+from bayram.admin.container import AdminContainer
+from bayram.admin.deps import API_PREFIX, AUTH_PREFIX, RequirePermission
+from bayram.admin.errors import AdminErrorCode
+from bayram.admin.middleware.security_headers import IMMUTABLE_PATH_PREFIX
+from bayram.admin.routers.admins import ADMINS_PATH
+from bayram.admin.routers.assets import (
+    ASSET_PATH,
+    ASSET_STREAM_PATH,
+    ASSET_TEXT_PATH,
+    ASSETS_PATH,
+)
+from bayram.admin.routers.audit import AUDIT_PATH, VERIFY_PATH
+from bayram.admin.routers.billing import (
+    ATTENTION_PATH,
+    CALLS_PATH,
+    FAULTS_PATH,
+    FUNNEL_PATH,
+    INTENT_NOTIFY_PATH,
+    INTENT_PATH,
+    INTENTS_PATH,
+    LOOKUP_PATH,
+    RAIL_PATH,
+    RAIL_PAUSE_PATH,
+    RAIL_RESUME_PATH,
+    SETTLEMENT_PATH,
+)
+from bayram.admin.routers.broadcasts import (
+    BROADCAST_CANCEL_PATH,
+    BROADCAST_PATH,
+    BROADCAST_PAUSE_PATH,
+    BROADCAST_RECIPIENTS_PATH,
+    BROADCAST_RESUME_PATH,
+    BROADCAST_REVISE_PATH,
+    BROADCAST_SEND_PATH,
+    BROADCAST_STATS_PATH,
+    BROADCAST_TEST_SEND_PATH,
+    BROADCASTS_PATH,
+)
+from bayram.admin.routers.chats import CHAT_MESSAGES_PATH_TEMPLATE, CHATS_PATH
+from bayram.admin.routers.config import CONFIG_PATH
+from bayram.admin.routers.credits import USER_CREDITS_GRANT_PATH, USER_CREDITS_PATH
+from bayram.admin.routers.dashboard import (
+    AUDIENCE_LISTS_PATH,
+    AUDIENCE_PATH,
+    CAPABILITIES_PATH,
+    FAILURES_PATH,
+    FINANCE_PATH,
+    LATENCY_PATH,
+    NAME_ANALYTICS_PATH,
+    NAME_STRATEGIES_PATH,
+    ORDERS_BY_DAY_PATH,
+    PERFORMANCE_PATH,
+    PLAN_LIABILITY_PATH,
+    PULSE_PATH,
+    SERIES_PATH,
+    VENDOR_PATH,
+)
+from bayram.admin.routers.generations import ATTEMPT_PATH, GENERATIONS_PATH
+from bayram.admin.routers.health import STATUS_OK
+from bayram.admin.routers.orders import (
+    ORDER_ASSETS_PATH,
+    ORDER_ATTEMPTS_PATH,
+    ORDER_PATH,
+    ORDER_STATE_COUNTS_PATH,
+    ORDER_TIMELINE_PATH,
+    ORDERS_PATH,
+)
+from bayram.admin.routers.retention import RETENTION_PATH
+from bayram.admin.routers.reveal import REVEAL_PATH
+from bayram.admin.routers.segments import SEGMENT_FIELDS_PATH, SEGMENT_PREVIEW_PATH
+from bayram.admin.routers.support import (
+    SUPPORT_BOARD_PATH,
+    SUPPORT_TICKET_ASSIGN_PATH,
+    SUPPORT_TICKET_NOTES_PATH,
+    SUPPORT_TICKET_PATH,
+    SUPPORT_TICKET_REPLY_PATH,
+    SUPPORT_TICKET_STATUS_PATH,
+    SUPPORT_TICKETS_PATH,
+)
+from bayram.admin.routers.support_groups import (
+    SUPPORT_GROUP_CLEAR_PATH,
+    SUPPORT_GROUP_SELECT_PATH,
+    SUPPORT_GROUPS_PATH,
+)
+from bayram.admin.routers.users import (
+    USER_AVATAR_PATH,
+    USER_BLOCK_PATH,
+    USER_ORDERS_PATH,
+    USER_PATH,
+    USER_STATS_PATH,
+    USER_UNBLOCK_PATH,
+    USERS_PATH,
+    WIZARD_STATE_PATH,
+)
+from bayram.admin.routers.vendors import (
+    VENDOR_ERRORS_PATH,
+    VENDOR_USAGE_BY_DAY_PATH,
+    VENDOR_USAGE_PATH,
+)
+from bayram.admin.security.permissions import RBAC_MATRIX, Permission, StepUpAction
+from bayram.contracts import BroadcastKind, Language, SupportTicketStatus
+from bayram.db.base import Base
+from bayram.db.enums import AdminRole, AuditReasonCode
+from bayram.db.models.asset import AssetRow
+from bayram.db.models.generation_attempt import GenerationAttemptRow
+from tests.test_admin.conftest import (
+    ORIGIN,
+    PASSWORD,
+    USERNAME,
+    api_routes,
+    create_account,
+    csrf_headers,
+    sign_in,
+)
+from tests.test_admin.test_orders_router import TELEGRAM_ID, seed_named_order
+
+#: The three routes reachable without a session: the two probes and the login itself.
+#: ``/api/auth/login`` — never the doc's ``/auth/login``; see the module docstring.
+EXEMPT_PATHS: Final[frozenset[str]] = frozenset({"/healthz", "/readyz", f"{AUTH_PREFIX}/login"})
+
+#: Every route the application serves, as ``(method, path, permission)``. ``None`` in the
+#: third position means the route carries no router-level guard, which only the exempt three
+#: are allowed to do.
+#:
+#: Written out in full rather than derived: derivation from the routers would pass whether or
+#: not ``app.py`` includes them, which is the exact bug this file is here to prevent. Adding
+#: an endpoint means adding a line here, and that is the point.
+MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset(
+    {
+        # Probes and login — no session, no guard.
+        ("GET", "/healthz", None),
+        ("GET", "/readyz", None),
+        ("POST", f"{AUTH_PREFIX}/login", None),
+        # Own session.
+        ("GET", f"{AUTH_PREFIX}/me", Permission.SESSION_SELF),
+        ("POST", f"{AUTH_PREFIX}/logout", Permission.SESSION_SELF),
+        ("POST", f"{AUTH_PREFIX}/password", Permission.SESSION_SELF),
+        ("POST", f"{AUTH_PREFIX}/step-up", Permission.SESSION_SELF),
+        # Dashboard and metrics.
+        ("GET", PULSE_PATH, Permission.DASHBOARD_READ),
+        ("GET", CAPABILITIES_PATH, Permission.DASHBOARD_READ),
+        ("GET", ORDERS_BY_DAY_PATH, Permission.DASHBOARD_READ),
+        ("GET", FAILURES_PATH, Permission.DASHBOARD_READ),
+        ("GET", LATENCY_PATH, Permission.DASHBOARD_READ),
+        ("GET", NAME_STRATEGIES_PATH, Permission.DASHBOARD_READ),
+        # The name bake-off's full shape — same window, same population, same guard as the
+        # bare series above. Aggregate counts only: no name, no candidate text, no
+        # transcript, so it belongs to DASHBOARD_READ rather than to RECORDS_READ.
+        ("GET", NAME_ANALYTICS_PATH, Permission.DASHBOARD_READ),
+        # The redesigned dashboard: one route per section of the page, plus the plan book.
+        # All five are aggregate counts, enum members, UTC buckets, currencies, provider
+        # names and money — no telegram id, no name, no note, no transcript, no receipt
+        # reference — so they sit on the same cell as the six above and need no masking
+        # branch. The plan route is the only DASHBOARD_READ route that takes NO window:
+        # liability is a state, not a flow.
+        ("GET", AUDIENCE_PATH, Permission.DASHBOARD_READ),
+        ("GET", FINANCE_PATH, Permission.DASHBOARD_READ),
+        ("GET", PERFORMANCE_PATH, Permission.DASHBOARD_READ),
+        ("GET", SERIES_PATH, Permission.DASHBOARD_READ),
+        # The Vendor section, added with the second dashboard cut. Vendor names, closed enums,
+        # call counts, token and character totals, milliseconds and money — the same class of
+        # data as the three vendor-usage routes below, and the same cell.
+        ("GET", VENDOR_PATH, Permission.DASHBOARD_READ),
+        ("GET", PLAN_LIABILITY_PATH, Permission.DASHBOARD_READ),
+        # Vendor spend. DASHBOARD_READ and not a member of its own: §12.3 classes costs and
+        # latencies as always-visible non-personal data, and every column behind these three
+        # is a closed enum, an integer, a machine id or a bounded error code. A VENDOR_READ
+        # member would be a five-file change across two languages for a distinction no
+        # operator could act on.
+        ("GET", VENDOR_USAGE_PATH, Permission.DASHBOARD_READ),
+        ("GET", VENDOR_USAGE_BY_DAY_PATH, Permission.DASHBOARD_READ),
+        ("GET", VENDOR_ERRORS_PATH, Permission.DASHBOARD_READ),
+        # The payment rail's own state and the five aggregates over it. DASHBOARD_READ for the
+        # same reason the vendor trio above carries it: counts, closed enum members, provider
+        # and cashbox names, JSON-RPC reply codes, UTC instants and probe booleans — no
+        # telegram id, no name, no note. ``/api/ops/rail`` sits beside ``/api/ops/pulse``
+        # because it describes the MACHINE rather than a metric over it, and it is the only
+        # route in this table that reads Redis: the pause key is the one of the rail's three
+        # switches this process can actually see.
+        ("GET", RAIL_PATH, Permission.DASHBOARD_READ),
+        ("GET", SETTLEMENT_PATH, Permission.DASHBOARD_READ),
+        ("GET", FUNNEL_PATH, Permission.DASHBOARD_READ),
+        ("GET", ATTENTION_PATH, Permission.DASHBOARD_READ),
+        ("GET", FAULTS_PATH, Permission.DASHBOARD_READ),
+        # The inbound journal, and the one line in this table whose prefix and whose cell
+        # disagree. It is served under ``/api/billing`` because that is where an operator
+        # following an incident from the board looks for it, and it stands on DASHBOARD_READ
+        # because ``payme_rpc_log`` holds no telegram id, no request body and no header at all
+        # — ``peerIp`` is Payme's data centre. ``AUDIENCE_LISTS_PATH`` below is the mirror
+        # image (a RECORDS_READ route under ``/api/metrics/``), so a prefix in this API has
+        # never implied a cell.
+        ("GET", CALLS_PATH, Permission.DASHBOARD_READ),
+        # Records.
+        ("GET", ORDERS_PATH, Permission.RECORDS_READ),
+        # The Orders hub's distribution bar, over the whole filter set rather than over the
+        # fifty rows the browser happens to hold. A sibling of the list rather than a field on
+        # its ``meta`` so that paging does not re-run the aggregate — the argument is in
+        # ``routers.orders.order_state_counts`` — and a literal segment, so it must stay
+        # declared ahead of ``ORDER_PATH`` for route matching to reach it.
+        ("GET", ORDER_STATE_COUNTS_PATH, Permission.RECORDS_READ),
+        ("GET", ORDER_PATH, Permission.RECORDS_READ),
+        ("GET", ORDER_ATTEMPTS_PATH, Permission.RECORDS_READ),
+        ("GET", ORDER_ASSETS_PATH, Permission.RECORDS_READ),
+        ("GET", ORDER_TIMELINE_PATH, Permission.RECORDS_READ),
+        ("GET", USERS_PATH, Permission.RECORDS_READ),
+        # The Users hub's stat strip, over the whole filter set rather than over the fifty rows
+        # the browser happens to hold — the same shape, the same argument and the same cell as
+        # ``ORDER_STATE_COUNTS_PATH`` eleven lines above. It publishes the four counts of
+        # ``SegmentBreakdown`` and nothing else: no telegram id, no handle, no name, not even
+        # the language split ``/segments/preview`` carries, so it is an aggregate surface and
+        # this line is what puts it into the plaintext sweep that says so. It sits on
+        # RECORDS_READ rather than DASHBOARD_READ because it is a caption for a records list
+        # and answers for exactly the population that list is showing; an operator who may
+        # page those rows may certainly be told how many there are.
+        #
+        # A literal segment in a namespace whose detail route takes an ``int``, so it must stay
+        # registered ahead of ``USER_PATH`` or ``/users/stats`` is a 422 about a malformed
+        # ``telegramUserId``. ``ORDER_STATE_COUNTS_PATH`` and ``SUPPORT_BOARD_PATH`` carry the
+        # identical warning.
+        ("GET", USER_STATS_PATH, Permission.RECORDS_READ),
+        ("GET", USER_PATH, Permission.RECORDS_READ),
+        ("GET", USER_ORDERS_PATH, Permission.RECORDS_READ),
+        # The ONE identified route on the dashboard surface, and the only reason it is a
+        # RECORDS_READ row three lines below five DASHBOARD_READ ones: it returns the ACCOUNT
+        # HOLDER's Telegram id, handle and first name UNMASKED, by the owner's explicit
+        # decision, with an audit row on every call standing in for the reveal gate. It is a
+        # second router in ``dashboard.py`` for exactly that reason — the guard is per-router
+        # (§12.1 T3) — and this line is what puts it into every sweep that reads this table.
+        # The recipient's name is not on it and must not be added: that decision covers the
+        # person who pays, not the third party a song is about.
+        ("GET", AUDIENCE_LISTS_PATH, Permission.RECORDS_READ),
+        ("GET", CHATS_PATH, Permission.CHAT_INDEX_READ),
+        ("GET", CHAT_MESSAGES_PATH_TEMPLATE, Permission.CHAT_INDEX_READ),
+        # PD-1: an ordinary records read, not a reveal surface. The product owner rejected
+        # the step-up/audit-row trade explicitly, so there is no REVEAL_MEDIA_READ split row
+        # here the way there is for the two asset streams below, and no
+        # ``authorise_media_reveal``: a face in the operator's own list is the same class of
+        # read as the masked name beside it. This single line is also what puts the route
+        # into every sweep that reads this table — the RBAC matrix's, the plaintext sweep's,
+        # the no-GET-writes snapshot's — which is why it is the only edit the route needs
+        # here and why working around it instead would silently drop it from all three.
+        ("GET", USER_AVATAR_PATH, Permission.RECORDS_READ),
+        # The entitlement ledger, on the same cell as the ``/users`` row it explains.
+        # ``credit_accounts`` and ``credit_ledger`` hold a Telegram id, closed enums,
+        # integers and machine-built keys — no free text, no name — so there is nothing here
+        # a reveal would gate and no reason for a stricter row than the record itself.
+        ("GET", USER_CREDITS_PATH, Permission.RECORDS_READ),
+        # Payments, on the same cell as every other record this panel lists, because that is
+        # what they are: a row with a MASKED buyer on it. Nothing here has a plaintext
+        # ``telegramUserId`` field to unmask — the wire models carry the mask plus an explicit
+        # ``isBuyerErased`` and nothing else — so there is no reveal to gate, no masking branch
+        # and no audit row, exactly as on ``/api/orders``. ``/lookup`` is a literal sibling of
+        # ``/intents`` rather than of ``{intent_id}``, so no declaration order matters here:
+        # every literal in this namespace differs from the parameterised route in segment
+        # COUNT, which is a reason to nest the dossier under ``/intents/`` rather than an
+        # accident of it.
+        ("GET", INTENTS_PATH, Permission.RECORDS_READ),
+        ("GET", LOOKUP_PATH, Permission.RECORDS_READ),
+        ("GET", INTENT_PATH, Permission.RECORDS_READ),
+        # The audience preview counts exactly the population ``/users?segment=`` pages, with
+        # the same document and the same compiler, so it carries the same cell: an operator
+        # who may read the rows one screen at a time may read how many there are. It puts no
+        # customer row on the wire at all — see ``routers/segments.py`` on the sample the
+        # blueprint sketched and this route does not have.
+        ("GET", SEGMENT_PREVIEW_PATH, Permission.RECORDS_READ),
+        ("GET", GENERATIONS_PATH, Permission.RECORDS_READ),
+        ("GET", ATTEMPT_PATH, Permission.RECORDS_READ),
+        ("GET", ASSETS_PATH, Permission.RECORDS_READ),
+        ("GET", ASSET_PATH, Permission.RECORDS_READ),
+        # The two audited media reveals, and the reason they carry a different cell from
+        # the two metadata routes directly above. §12.2 row 10 is ``A+S``; a router-level
+        # guard resolves to ``check_role``, which holds no subject and therefore no grant,
+        # so guarding these with REVEAL_MEDIA would answer STEP_UP_REQUIRED to an operator
+        # holding a live, correctly-scoped grant, for ever. The row is split exactly the way
+        # §12.2 split the admin roster: REVEAL_MEDIA_READ is the role half and lives here,
+        # and REVEAL_MEDIA's ``A+S`` cell is enforced inside the handler on the asset id it
+        # has read. Both run on every request; neither is sufficient alone.
+        ("GET", ASSET_STREAM_PATH, Permission.REVEAL_MEDIA_READ),
+        ("GET", ASSET_TEXT_PATH, Permission.REVEAL_MEDIA_READ),
+        # The wizard-state projection is a second router precisely so it can carry a
+        # different cell from the records around it (§12.2 row 5).
+        ("GET", WIZARD_STATE_PATH, Permission.WIZARD_STATE_READ),
+        # The segment vocabulary, on the campaign cell rather than the records one: it is the
+        # broadcast builder's schema — no customer data, one row per FIELD — and it is what
+        # keeps the SPA's rule editor generated from the server's allowlist instead of from a
+        # copy that would keep offering a field after the compiler withdrew it.
+        ("GET", SEGMENT_FIELDS_PATH, Permission.BROADCAST_READ),
+        # Campaigns. The read side is BROADCAST_READ — M in all four cells — because a
+        # campaign record is operator copy, closed enums and counters, and the one list that
+        # touches people at all (the recipient ledger) publishes a mask and never an id.
+        ("GET", BROADCASTS_PATH, Permission.BROADCAST_READ),
+        # The Campaigns strip: one count per campaign state, the reach those campaigns had as
+        # a numerator and a denominator, and the last send as a UTC instant or a null. The
+        # same cell as the list because it is the same rows counted — and an aggregate over
+        # them holds strictly less than the list does: no title, no body, no recipient.
+        #
+        # A literal single segment under ``/broadcasts``, exactly like ``{broadcast_id}``, so
+        # it must stay declared ahead of ``BROADCAST_PATH`` or an operator's strip is answered
+        # with a 422 about a malformed UUID. ``ORDER_STATE_COUNTS_PATH`` and
+        # ``SUPPORT_BOARD_PATH`` are the same case; the seven verb paths below are not, being
+        # two segments to the parameterised route's one.
+        ("GET", BROADCAST_STATS_PATH, Permission.BROADCAST_READ),
+        ("GET", BROADCAST_RECIPIENTS_PATH, Permission.BROADCAST_READ),
+        ("GET", BROADCAST_PATH, Permission.BROADCAST_READ),
+        # The support queue. SUPPORT_READ is ``M`` in all four cells for BROADCAST_READ's
+        # reason one domain along — the queue is what the panel exists to show, and a VIEWER
+        # who can see that eleven people are waiting is the reader this panel was built for.
+        #
+        # ``/board`` is declared and listed BEFORE ``{ticket_id}`` and, unlike the broadcast
+        # verb paths above, the ordering is genuinely load-bearing: both are ONE segment under
+        # ``/support/tickets``, so a ``{ticket_id}`` registered first would answer an
+        # operator's board with a 422 about a malformed UUID. ``ORDER_STATE_COUNTS_PATH``
+        # carries the same warning.
+        #
+        # All three are reads with no audit row and no write of any kind — the board in
+        # particular is the one route on this surface a "mark the queue as seen" feature would
+        # naturally attach itself to, and this line is what puts it into the no-GET-writes
+        # snapshot below.
+        ("GET", SUPPORT_BOARD_PATH, Permission.SUPPORT_READ),
+        ("GET", SUPPORT_TICKETS_PATH, Permission.SUPPORT_READ),
+        ("GET", SUPPORT_TICKET_PATH, Permission.SUPPORT_READ),
+        # The support GROUP directory, on the same read cell as the queue: every role may
+        # answer "where do my tickets go?" without being able to change the answer, which is
+        # why the two POSTs below stand on a different permission entirely.
+        #
+        # Unlike ``/board`` above, nothing here is order-sensitive — this namespace declares no
+        # path parameter at all, so ``/select`` and ``/clear`` have no parameterised sibling to
+        # be shadowed by. That is the reason the chat id travels in the BODY: it is a 64-bit
+        # negative integer somebody may have typed, and a path converter that knows only "int"
+        # would let a pasted PERSON's id through to be refused two statements deeper.
+        #
+        # A read with no audit row and no write of any kind, which is what puts it into the
+        # no-GET-writes snapshot below — this is the route a "last checked" stamp would
+        # naturally attach itself to on a screen the panel polls.
+        ("GET", SUPPORT_GROUPS_PATH, Permission.SUPPORT_READ),
+        # Operations.
+        ("GET", CONFIG_PATH, Permission.CONFIG_READ),
+        ("GET", RETENTION_PATH, Permission.RETENTION_READ),
+        ("GET", AUDIT_PATH, Permission.AUDIT_READ),
+        ("GET", VERIFY_PATH, Permission.AUDIT_READ),
+        # ADMIN_READ, not ADMIN_MANAGE: §6.8 line 949 lists this GET as a bare owner ``W``
+        # and gives the four account writes below it an explicit ``W +S``.
+        ("GET", ADMINS_PATH, Permission.ADMIN_READ),
+        # The first of those four writes, and the same path under a different method — so
+        # this is the second entry in this table (after ``POST /api/broadcasts``) whose path
+        # carries both, and the method sweep below is what keeps that from being an
+        # assumption. ADMIN_MANAGE_WRITE is the ROLE half of ``ADMIN_MANAGE``'s ``W+S``
+        # cell: the router guard is ``check_role``, which holds no subject and would answer
+        # STEP_UP_REQUIRED to that cell for ever, so the step-up is enforced by the handler
+        # on the username in the body.
+        ("POST", ADMINS_PATH, Permission.ADMIN_MANAGE_WRITE),
+        # The one path by which masked data becomes plaintext (§12.2 line 1886: "every ``A``
+        # cell routes through the same ``POST /reveal`` endpoint"). Its row is split like the
+        # two media routes above and for the same ``check_role`` reason —
+        # REVEAL_PERSONAL_DATA_READ is the role half declared here, and
+        # REVEAL_PERSONAL_DATA's ``A+S`` cell is enforced by the handler on the subject in
+        # the body. It is the only POST in this table that is not an auth route.
+        ("POST", REVEAL_PATH, Permission.REVEAL_PERSONAL_DATA_READ),
+        # The three operator actions. Each declares the ROLE half of a ``W+S`` row and
+        # enforces the step-up half inside the handler, on the Telegram id in the path —
+        # the same split the two media routes and ``POST /reveal`` above take, and for the
+        # identical reason: a router guard resolves to ``check_role``, which holds no
+        # subject and therefore no grant, so a ``W+S`` cell declared here would answer
+        # STEP_UP_REQUIRED to a correctly re-authenticated operator for ever.
+        #
+        # ``USER_BLOCK_WRITE`` and ``CREDIT_GRANT_WRITE`` are two rows and not one shared
+        # ``records.write`` whose cells would be identical today: "may edit a record", "may
+        # bar an account" and "may issue credit" are three questions, and one permission
+        # answering all of them widens two decisions the day somebody widens the first.
+        ("POST", USER_BLOCK_PATH, Permission.USER_BLOCK_WRITE),
+        ("POST", USER_UNBLOCK_PATH, Permission.USER_BLOCK_WRITE),
+        ("POST", USER_CREDITS_GRANT_PATH, Permission.CREDIT_GRANT_WRITE),
+        # The seven campaign actions, all on BROADCAST_WRITE. Two of them — the send and the
+        # test send — are the ROLE half of §12.2's ``W+S`` row and enforce
+        # ``BROADCAST_SEND``'s step-up inside the handler on the campaign id, the same split
+        # the three rows above take. The other five change a state and nothing leaves the
+        # building; putting a re-authentication in front of PAUSE in particular would be a
+        # control that costs seconds at the moment somebody most needs them.
+        ("POST", BROADCASTS_PATH, Permission.BROADCAST_WRITE),
+        ("POST", BROADCAST_REVISE_PATH, Permission.BROADCAST_WRITE),
+        ("POST", BROADCAST_SEND_PATH, Permission.BROADCAST_WRITE),
+        ("POST", BROADCAST_PAUSE_PATH, Permission.BROADCAST_WRITE),
+        ("POST", BROADCAST_RESUME_PATH, Permission.BROADCAST_WRITE),
+        ("POST", BROADCAST_CANCEL_PATH, Permission.BROADCAST_WRITE),
+        ("POST", BROADCAST_TEST_SEND_PATH, Permission.BROADCAST_WRITE),
+        # The three rail writes, and the two cells are the whole reason there are two routers.
+        #
+        # RAIL_CONTROL is a plain ``W`` and is the FIRST operator action in this table that is
+        # not the role half of a ``W+S`` row — it carries no step-up at all, and
+        # ``Permission.RAIL_CONTROL`` in ``security/permissions.py`` argues the four reasons at
+        # length. The short one: ``bayram.payme.pause``'s own docstring disclaims the switch as
+        # a security control, pausing stops the bot QUOTING rather than moving any money, and
+        # an incident brake with a password box in front of it costs seconds at the moment
+        # somebody most needs them. ``test_rbac_matrix`` asserts it is absent from
+        # ``STEP_UP_ACTIONS``, because adding it there would 403 an OWNER for ever while
+        # looking exactly correct.
+        #
+        # PAYMENT_NOTIFY is its own cell rather than a third route on RAIL_CONTROL because it
+        # reaches SUPPORT: re-sending a confirmation the customer was already owed is the
+        # single most common answer to "I paid and nothing happened", and folding it in would
+        # have handed a support agent the switch that stops the business selling.
+        ("POST", RAIL_PAUSE_PATH, Permission.RAIL_CONTROL),
+        ("POST", RAIL_RESUME_PATH, Permission.RAIL_CONTROL),
+        ("POST", INTENT_NOTIFY_PATH, Permission.PAYMENT_NOTIFY),
+        # The four ticket actions, and the FIRST write rows in this table that are not the
+        # role half of a ``W+S`` cell and not RAIL_CONTROL's special case. SUPPORT_WRITE is a
+        # plain ``W`` at SUPPORT, ADMIN and OWNER, so the router guard decides the whole
+        # question and no handler in ``routers/support.py`` enforces anything — which is the
+        # deliberate opposite of the five split rows above, and is only safe BECAUSE there is
+        # no step-up: ``check_role`` holds no subject, so any ``+S`` cell declared here would
+        # answer STEP_UP_REQUIRED for ever while looking correct.
+        #
+        # ``POST /{id}/reply`` is the one of the four that puts a message in somebody's phone,
+        # and it deliberately does NOT carry BROADCAST_SEND's step-up: one answer to one
+        # person who asked us a question is not the act §12.1 T2 was written about, and the
+        # ``ticket.reply`` audit row plus the append-only timeline carry the accountability.
+        # ``Permission.SUPPORT_WRITE`` argues that trade at length.
+        ("POST", SUPPORT_TICKET_STATUS_PATH, Permission.SUPPORT_WRITE),
+        ("POST", SUPPORT_TICKET_NOTES_PATH, Permission.SUPPORT_WRITE),
+        ("POST", SUPPORT_TICKET_REPLY_PATH, Permission.SUPPORT_WRITE),
+        ("POST", SUPPORT_TICKET_ASSIGN_PATH, Permission.SUPPORT_WRITE),
+        # Repointing the support inbox, and the ONLY two routes in this table that stand on
+        # SUPPORT_GROUP_WRITE. It is not SUPPORT_WRITE: a support operator works the queue,
+        # while choosing the Telegram room every future card is published into is a different
+        # act with a different blast radius — the wrong room shows a customer's complaint to
+        # people who should not see it, and the board looks fine either way. SUPPORT is
+        # deliberately absent from that cell; ADMIN and OWNER hold it, with no step-up, so it
+        # is safe as the router guard it is declared as (``permissions.py`` argues all three
+        # halves).
+        ("POST", SUPPORT_GROUP_SELECT_PATH, Permission.SUPPORT_GROUP_WRITE),
+        ("POST", SUPPORT_GROUP_CLEAR_PATH, Permission.SUPPORT_GROUP_WRITE),
+    }
+)
+
+#: Every mutation the read-only slice ships. A fifth one is a deliberate edit to this set,
+#: which is what makes "every non-GET is a POST that goes through the CSRF check inside
+#: ``get_current_admin``" a claim a reviewer can check rather than one a route can escape.
+MUTATIONS: Final[frozenset[tuple[str, str]]] = frozenset(
+    {
+        ("POST", f"{AUTH_PREFIX}/login"),
+        ("POST", f"{AUTH_PREFIX}/logout"),
+        ("POST", f"{AUTH_PREFIX}/password"),
+        ("POST", f"{AUTH_PREFIX}/step-up"),
+        # ``POST`` and not ``GET`` even though a reveal reads: the body carries a reason
+        # code, an optional free-text reason and a field list, and §12.1 T8 requires that no
+        # GET change state — a reveal writes an audit row and charges a budget, so it is a
+        # mutation by that rule whatever the verb suggests. Being a POST is also what puts
+        # it behind the CSRF check inside ``get_current_admin``.
+        ("POST", REVEAL_PATH),
+        # §9.2's first three actions. Every one of them writes a state change AND its audit
+        # row in the request's own transaction, which is what §9.1's first rule requires of
+        # an action that is a single database transaction.
+        ("POST", USER_BLOCK_PATH),
+        ("POST", USER_UNBLOCK_PATH),
+        ("POST", USER_CREDITS_GRANT_PATH),
+        # The campaign lifecycle. ``POST /api/broadcasts`` is the first path in this table
+        # that carries BOTH a GET and a POST, which is why the method sweep below probes
+        # every method a path does *not* declare rather than assuming a GET path takes no
+        # POST.
+        ("POST", BROADCASTS_PATH),
+        ("POST", BROADCAST_REVISE_PATH),
+        ("POST", BROADCAST_SEND_PATH),
+        ("POST", BROADCAST_PAUSE_PATH),
+        ("POST", BROADCAST_RESUME_PATH),
+        ("POST", BROADCAST_CANCEL_PATH),
+        ("POST", BROADCAST_TEST_SEND_PATH),
+        # Creating an operator account. Like the three §9.2 actions above it writes the
+        # state change and its audit row in the request's own transaction; unlike them, its
+        # step-up is scoped to a username rather than to an id, because the row it is
+        # authorising does not exist until the request succeeds.
+        ("POST", ADMINS_PATH),
+        # The three rail writes. Pause and resume flip a Redis key and audit the press in the
+        # request's own transaction; notify writes its audit row and then enqueues an ARQ job.
+        # None of the three is a GET and none could be: §12.1 T8 forbids a GET that changes
+        # state, and being a POST is also what puts each behind the CSRF check inside
+        # ``get_current_admin``.
+        ("POST", RAIL_PAUSE_PATH),
+        ("POST", RAIL_RESUME_PATH),
+        ("POST", INTENT_NOTIFY_PATH),
+        # The four ticket actions. Each writes its state change (or its timeline row) AND its
+        # audit row in the request's own transaction, which is what §9.1's first rule requires
+        # of an action that is a single database transaction; three of the four then enqueue
+        # an ARQ job as their last statement, and a refused enqueue rolls the whole thing back
+        # rather than leaving the board and the group card disagreeing for ever.
+        ("POST", SUPPORT_TICKET_STATUS_PATH),
+        ("POST", SUPPORT_TICKET_NOTES_PATH),
+        ("POST", SUPPORT_TICKET_REPLY_PATH),
+        ("POST", SUPPORT_TICKET_ASSIGN_PATH),
+        # The two support-group writes. Select writes its row and its audit entry in the
+        # request's own transaction, COMMITS, and only then enqueues the verification job —
+        # the ordering ``routers/support.py`` had to learn the hard way, because a worker that
+        # overtakes the commit opens its own session and finds no such chat. Clear enqueues
+        # nothing at all: there is no room to verify once nobody is posting to it. Neither is
+        # a GET and neither could be — §12.1 T8 forbids a GET that changes state, and being a
+        # POST is also what puts each behind the CSRF check inside ``get_current_admin``.
+        ("POST", SUPPORT_GROUP_SELECT_PATH),
+        ("POST", SUPPORT_GROUP_CLEAR_PATH),
+    }
+)
+
+#: The two routes the SPA mount installs, by ``name`` — and the whole of what is exempt from
+#: :data:`MOUNTED_ROUTES`. §11.1, Slice 1d.
+#:
+#: They are exempt because of what they *are*, not because of what they serve. ``spa-assets``
+#: is a Starlette ``Mount`` and ``spa-index`` a plain Starlette ``Route``; neither is an
+#: ``APIRoute``, so neither has anywhere for FastAPI to copy a router's ``dependencies=`` list
+#: to and there is no guard on either to assert. Nor should there be: they serve the static
+#: bundle that draws the login screen, so a permission guard would put the login behind the
+#: login. They read no session and touch no database.
+#:
+#: That exemption is a real hole, and this is where it is closed rather than widened.
+#: ``api_routes`` skips every non-``APIRoute`` silently, so an endpoint written as a bare
+#: ``Route`` or a ``Mount`` — under ``/api`` or anywhere else — would be invisible to every
+#: assertion in this file, guard and all, and "the table is unchanged" would then be true
+#: because the route was skipped rather than because it does not exist.
+#: :func:`test_the_non_api_routes_are_exactly_the_named_exemptions` pins the set closed, so a
+#: third one fails here and has to be argued for.
+SPA_ROUTE_NAMES: Final[frozenset[str]] = frozenset({"spa-assets", "spa-index"})
+
+#: FastAPI's own schema document, which is not an ``APIRoute`` either and predates the SPA by
+#: a long way. Named for the same reason: an exemption set is worth nothing unless it is closed.
+FRAMEWORK_ROUTE_NAMES: Final[frozenset[str]] = frozenset({"openapi"})
+
+_PATH_PARAM: Final[re.Pattern[str]] = re.compile(r"\{(\w+)\}")
+
+
+def methods_of(route: APIRoute) -> set[str]:
+    """The route's own methods, without the ``HEAD`` Starlette pairs with every ``GET``."""
+    return {method for method in (route.methods or set()) if method != "HEAD"}
+
+
+def method_paths(routes: Iterable[APIRoute]) -> set[tuple[str, str]]:
+    """``(method, path)`` for every route given."""
+    return {(method, route.path) for route in routes for method in methods_of(route)}
+
+
+#: How a route is identified across the two places it is read from: the application, and the
+#: router that built it. Path and methods together, because neither alone is unique — one
+#: path can carry two methods and one method is shared by thirty paths.
+RouteKey = tuple[str, frozenset[str]]
+
+
+def route_key(route: APIRoute) -> RouteKey:
+    """``(path, methods)`` — the identity a mounted route shares with its declaration."""
+    return (route.path, frozenset(methods_of(route)))
+
+
+def permission_guards(dependencies: Sequence[params.Depends]) -> list[RequirePermission]:
+    """The :class:`RequirePermission` guards in a ``dependencies=`` list, in order."""
+    return [d.dependency for d in dependencies if isinstance(d.dependency, RequirePermission)]
+
+
+@cache
+def builder_declarations() -> tuple[tuple[RouteKey, tuple[RequirePermission, ...]], ...]:
+    """Every route the exported builders declare, paired with its **router's** own guards.
+
+    Each builder is called and its ``APIRouter.dependencies`` read directly — the list the
+    router was constructed with, which is the only reading of "the guard is on the router"
+    that a handler-level guard cannot imitate. See :func:`guards_of`.
+
+    Rebuilt rather than read off the application, so the attribution survives a FastAPI that
+    stores included routers differently: this version keeps the source router on the wrapper
+    it appends, an older one copies the routes in flat, and neither shape is asserted here.
+    The guards are therefore *different instances* from the ones the running application
+    holds, which is why everything below compares ``permission`` and never identity.
+
+    A tuple of pairs rather than a dict so a collision is still visible; see
+    :func:`test_no_two_builders_declare_the_same_route`.
+    """
+    declared: list[tuple[RouteKey, tuple[RequirePermission, ...]]] = []
+    for name in routers_package.__all__:
+        builder: Callable[[], APIRouter] = getattr(routers_package, name)
+        router = builder()
+        guards = tuple(permission_guards(router.dependencies))
+        declared.extend(
+            (route_key(route), guards) for route in router.routes if isinstance(route, APIRoute)
+        )
+    return tuple(declared)
+
+
+@cache
+def guards_declared_on_routers() -> dict[RouteKey, tuple[RequirePermission, ...]]:
+    """:func:`builder_declarations` as a lookup."""
+    return dict(builder_declarations())
+
+
+def guards_of(route: APIRoute) -> list[RequirePermission]:
+    """The permission guards the **router** declares for this route.
+
+    Read off the ``APIRouter`` that builds the route, not off the route. ``APIRoute.dependencies``
+    cannot tell the two apart: FastAPI builds it by copying the router's ``dependencies=``
+    list and then extending it with the decorator's, so a guard moved from
+    ``APIRouter(dependencies=[...])`` to ``@router.get(..., dependencies=[...])`` reads back
+    through it unchanged — and that move is precisely what §12.1 T3 forbids.
+    ``route.dependant`` is looser again, flattening the whole tree.
+
+    An unattributable route — one no exported builder declares — returns ``[]``, i.e. no
+    router-level guard, which is the truthful answer for a route registered straight onto the
+    application. :func:`test_every_mounted_route_is_declared_by_an_exported_builder` is what
+    keeps that fallback from quietly swallowing one.
+
+    :func:`handler_guards_of` is the other half: what the route carries and the router did not
+    declare.
+    """
+    return list(guards_declared_on_routers().get(route_key(route), ()))
+
+
+def handler_guards_of(route: APIRoute) -> list[RequirePermission]:
+    """The guards on the route that its router did not declare — the §12.1 T3 violation.
+
+    A multiset difference, not a set one: a router guard duplicated on the handler is still a
+    handler guard, and a set difference would report nothing.
+    """
+    unclaimed = list(guards_of(route))
+    extra: list[RequirePermission] = []
+    for guard in permission_guards(route.dependencies):
+        match = next((d for d in unclaimed if d.permission is guard.permission), None)
+        if match is None:
+            extra.append(guard)
+        else:
+            unclaimed.remove(match)
+    return extra
+
+
+# ---------------------------------------------------------------------------
+# The table, whole
+# ---------------------------------------------------------------------------
+def test_the_application_serves_exactly_the_expected_route_table(
+    container: AdminContainer,
+) -> None:
+    # Arrange — the real factory, with nothing mounted on top of it. A test that mounts a
+    # router here would be asserting its own wiring rather than ``app.py``'s.
+    application = create_app(container=container)
+
+    # Act
+    served: set[tuple[str, str, Permission | None]] = set()
+    for route in api_routes(application):
+        guards = guards_of(route)
+        permission = guards[0].permission if guards else None
+        served.update((method, route.path, permission) for method in methods_of(route))
+
+    # Assert — as a set difference in both directions, so the failure names the route rather
+    # than reporting that two sets of thirty-one tuples are unequal.
+    assert MOUNTED_ROUTES - served == set(), "declared but not mounted"
+    assert served - MOUNTED_ROUTES == set(), "mounted but not declared"
+
+
+def test_every_router_the_package_exports_is_actually_mounted(
+    container: AdminContainer,
+) -> None:
+    # Arrange — the half that catches the *next* router: a builder exported from
+    # ``bayram.admin.routers`` whose ``include_router`` line was never added to ``create_app``.
+    application = create_app(container=container)
+    served = method_paths(api_routes(application))
+
+    # Act / Assert
+    for name in routers_package.__all__:
+        builder: Callable[[], APIRouter] = getattr(routers_package, name)
+        router = builder()
+        expected = method_paths(r for r in router.routes if isinstance(r, APIRoute))
+        assert expected, f"{name} builds a router with no routes"
+        assert served >= expected, f"{name} is exported but never included in create_app"
+
+
+def test_no_route_is_registered_twice(container: AdminContainer) -> None:
+    # Arrange — a duplicate answers from whichever copy was registered first, so a second
+    # ``include_router`` of the same router is invisible at runtime and hides a wiring bug.
+    application = create_app(container=container)
+
+    # Act
+    pairs = [
+        (method, route.path) for route in api_routes(application) for method in methods_of(route)
+    ]
+
+    # Assert
+    assert len(pairs) == len(set(pairs))
+
+
+# ---------------------------------------------------------------------------
+# The guard on each route
+# ---------------------------------------------------------------------------
+def test_every_route_outside_the_exempt_set_carries_exactly_one_router_guard(
+    container: AdminContainer,
+) -> None:
+    # Arrange
+    application = create_app(container=container)
+
+    # Act / Assert
+    for route in api_routes(application):
+        guards = guards_of(route)
+        if route.path in EXEMPT_PATHS:
+            assert guards == [], route.path
+        else:
+            assert len(guards) == 1, route.path
+
+
+def test_no_route_carries_a_guard_its_router_did_not_declare(
+    container: AdminContainer,
+) -> None:
+    # Arrange — §12.1 T3 itself, and the only assertion in this file that can see the
+    # difference. Every other one reads ``guards_of``, which now answers with the *router's*
+    # list; a handler guard is invisible to it by construction, and would be invisible full
+    # stop if the surplus were not asserted away here.
+    application = create_app(container=container)
+
+    # Act / Assert
+    for route in api_routes(application):
+        assert handler_guards_of(route) == [], route.path
+
+
+def test_every_mounted_route_is_declared_by_an_exported_builder(
+    container: AdminContainer,
+) -> None:
+    # Arrange — the assertion ``guards_of``'s fallback rests on. It answers ``[]`` for a route
+    # no builder declares, which is honest but indistinguishable from "the router declares no
+    # guard", so a route registered straight onto the application with a handler guard could
+    # read as an unguarded one. Require every served route to have a declaration to be
+    # attributed to.
+    application = create_app(container=container)
+    declared = guards_declared_on_routers()
+
+    # Act / Assert
+    for route in api_routes(application):
+        assert route_key(route) in declared, route.path
+
+
+def test_no_two_builders_declare_the_same_route() -> None:
+    # Arrange — ``guards_declared_on_routers`` is a dict, so two builders declaring the same
+    # ``(path, methods)`` would leave the later one's guards attributed to both routes and
+    # the earlier one's read by nobody.
+
+    # Act
+    keys = [key for key, _ in builder_declarations()]
+
+    # Assert
+    assert len(keys) == len(set(keys))
+
+
+def test_the_exempt_set_is_present_rather_than_merely_unmatched(
+    container: AdminContainer,
+) -> None:
+    # Arrange — the previous test passes vacuously if a probe is renamed, which would widen
+    # the unauthenticated surface silently. Assert the three exempt paths exist.
+    application = create_app(container=container)
+
+    # Act
+    paths = {route.path for route in api_routes(application)}
+
+    # Assert
+    assert paths >= EXEMPT_PATHS
+
+
+def test_every_guard_names_a_permission_the_matrix_has_a_row_for(
+    container: AdminContainer,
+) -> None:
+    # Arrange — a permission added to the enum but never given a §12.2 row is a cell nobody
+    # decided, and it would deny silently rather than fail loudly.
+    application = create_app(container=container)
+
+    # Act / Assert
+    for route in api_routes(application):
+        for guard in guards_of(route):
+            assert guard.permission in RBAC_MATRIX, route.path
+
+
+# ---------------------------------------------------------------------------
+# Shape rules — §12.1 T3, T8
+# ---------------------------------------------------------------------------
+def test_the_only_non_get_routes_are_the_known_mutations(
+    container: AdminContainer,
+) -> None:
+    # Arrange — CSRF is enforced inside ``get_current_admin`` rather than as a per-route
+    # object, so there is nothing to enumerate; freezing the mutation set is what makes the
+    # next one a decision. The behavioural half lives in ``test_auth_router.py``.
+    application = create_app(container=container)
+
+    # Act
+    non_get = {
+        (method, path) for method, path in method_paths(api_routes(application)) if method != "GET"
+    }
+
+    # Assert
+    assert non_get == MUTATIONS
+
+
+def test_no_namespace_mixes_identifier_names(container: AdminContainer) -> None:
+    # Arrange — ``/orders/{order_id}`` and ``/orders/{id}`` in the same namespace is how a
+    # caller learns to send the wrong identifier to the right-looking URL (§12.1 T3).
+    application = create_app(container=container)
+    by_namespace: dict[str, set[str]] = {}
+
+    # Act
+    for route in api_routes(application):
+        parts = route.path.strip("/").split("/")
+        if parts[0] != API_PREFIX.strip("/"):
+            continue
+        by_namespace.setdefault(parts[1], set()).update(_PATH_PARAM.findall(route.path))
+
+    # Assert
+    for namespace, names in by_namespace.items():
+        assert len(names) <= 1, (namespace, names)
+
+
+def test_every_path_parameter_is_typed(container: AdminContainer) -> None:
+    # Arrange — a ``str`` path parameter is a parser in the handler, and a parser in the
+    # handler is a 500 where a 422 belongs.
+    application = create_app(container=container)
+
+    # Act / Assert — ``field_info.annotation`` rather than the pydantic-v1 ``ModelField.type_``,
+    # which this FastAPI's v2 compat shim does not carry.
+    seen = 0
+    for route in api_routes(application):
+        for param in route.dependant.path_params:
+            annotation = param.field_info.annotation
+            assert annotation in (UUID, int), (route.path, param.name, annotation)
+            seen += 1
+
+    # Assert — and the loop ran, so a change that stops exposing path params fails here too.
+    assert seen == sum(len(_PATH_PARAM.findall(path)) for _, path, _ in MOUNTED_ROUTES)
+
+
+# ---------------------------------------------------------------------------
+# CSRF — the behavioural half of "every non-GET carries CSRF"
+# ---------------------------------------------------------------------------
+#: A well-shaped body for each mutation, so a refusal here is the CSRF layer's and not the
+#: request model's. The three guarded routes reach ``get_current_admin`` — and therefore
+#: ``deps.enforce_csrf`` — before any of these fields is read; ``/api/auth/login`` never
+#: reaches it at all and calls ``auth._enforce_origin`` itself, which is why it appears in
+#: the origin test below and not in the token one.
+_MUTATION_BODIES: Final[dict[str, dict[str, Any]]] = {
+    f"{AUTH_PREFIX}/login": {"username": USERNAME, "password": PASSWORD},
+    f"{AUTH_PREFIX}/logout": {},
+    f"{AUTH_PREFIX}/password": {
+        "currentPassword": PASSWORD,
+        "newPassword": "a-replacement-nobody-chose-for-them",
+    },
+    f"{AUTH_PREFIX}/step-up": {
+        "password": PASSWORD,
+        "scope": StepUpAction.REVEAL.value,
+        "subjectId": "3f2b9c1e-0a5d-4f61-9c2a-7b18d4e6f0a3",
+    },
+    # Well-shaped rather than answerable: the CSRF and origin checks run inside
+    # ``get_current_admin``, long before this body is validated or the order is looked up,
+    # so a refusal here is the layer under test and not the request model or a 404.
+    REVEAL_PATH: {
+        "subjectType": "order",
+        "subjectId": "3f2b9c1e-0a5d-4f61-9c2a-7b18d4e6f0a3",
+        "fields": ["briefs.recipient_name_display"],
+        "reasonCode": AuditReasonCode.SUPPORT_INVESTIGATION.value,
+    },
+    # The three operator actions. Well-shaped for the same reason the reveal's body is: the
+    # CSRF and origin checks run inside ``get_current_admin``, before the body is validated,
+    # before the step-up is weighed and before any row is touched — so a refusal here is the
+    # layer under test rather than a 422 or a missing grant.
+    USER_BLOCK_PATH: {"reasonCode": AuditReasonCode.ABUSE_REPORT.value},
+    USER_UNBLOCK_PATH: {"reasonCode": AuditReasonCode.CUSTOMER_REQUEST.value},
+    USER_CREDITS_GRANT_PATH: {
+        "credits": 1,
+        "reasonCode": AuditReasonCode.CUSTOMER_REQUEST.value,
+    },
+    # The seven campaign actions. Well-shaped in the same sense as the rest: the CSRF and
+    # origin checks run inside ``get_current_admin``, before the body is validated, before the
+    # step-up is weighed and before any campaign is looked up.
+    BROADCASTS_PATH: {
+        "title": "A campaign nobody will send",
+        "kind": BroadcastKind.SERVICE.value,
+        "segment": {"v": 1, "match": "all", "rules": []},
+        "bodies": [{"language": Language.RU.value, "text": "Salom"}],
+    },
+    BROADCAST_REVISE_PATH: {
+        "title": "A campaign nobody will send",
+        "bodies": [{"language": Language.RU.value, "text": "Salom"}],
+    },
+    BROADCAST_SEND_PATH: {"reasonCode": AuditReasonCode.ROUTINE_OPS.value},
+    BROADCAST_PAUSE_PATH: {"reasonCode": AuditReasonCode.INCIDENT.value},
+    BROADCAST_RESUME_PATH: {"reasonCode": AuditReasonCode.INCIDENT.value},
+    BROADCAST_CANCEL_PATH: {"reasonCode": AuditReasonCode.INCIDENT.value},
+    BROADCAST_TEST_SEND_PATH: {
+        "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
+        "telegramUserId": 770_000_123,
+    },
+    # Creating an operator, well-shaped in the same sense: the CSRF and origin checks run
+    # inside ``get_current_admin``, before this body is validated, before the step-up is
+    # weighed and before ``admin_users`` is touched — so a refusal here is the layer under
+    # test rather than a 422, a missing grant or a username that is already taken.
+    ADMINS_PATH: {
+        "username": "an-operator-nobody-creates",
+        "password": PASSWORD,
+        "role": AdminRole.VIEWER.value,
+        "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
+    },
+    # The three rail writes. Well-shaped in the same sense as everything above: the CSRF and
+    # origin checks run inside ``get_current_admin``, before either body is validated, before
+    # the intent is looked up and before the Redis key is touched — so a refusal here is the
+    # layer under test rather than a 422 or a 409 about a payment nobody seeded.
+    RAIL_PAUSE_PATH: {"reasonCode": AuditReasonCode.INCIDENT.value},
+    RAIL_RESUME_PATH: {"reasonCode": AuditReasonCode.INCIDENT.value},
+    INTENT_NOTIFY_PATH: {"reasonCode": AuditReasonCode.CUSTOMER_REQUEST.value},
+    # The four ticket actions, and the only bodies in this mapping that carry NO reason code —
+    # none of the four inherits ``ReasonedRequest``, which ``schemas/tickets.py`` argues at
+    # length. Well-shaped in the same sense as everything above: the CSRF and origin checks
+    # run inside ``get_current_admin``, before the body is validated and before any ticket is
+    # looked up, so a refusal here is the layer under test rather than a 422 or a 404.
+    SUPPORT_TICKET_STATUS_PATH: {
+        "expectedStatus": SupportTicketStatus.NEW.value,
+        "toStatus": SupportTicketStatus.IN_PROGRESS.value,
+    },
+    SUPPORT_TICKET_NOTES_PATH: {"body": "A note nobody records"},
+    SUPPORT_TICKET_REPLY_PATH: {"body": "A reply nobody sends"},
+    SUPPORT_TICKET_ASSIGN_PATH: {"adminUsername": "an-operator-nobody-assigns"},
+    # The two support-group writes, and the only bodies here that carry no reason code either
+    # — ``schemas/groups.py`` argues that departure separately from the ticket one, because
+    # repointing an inbox destroys nothing and discloses nothing. Well-shaped in the same
+    # sense as everything above: the CSRF and origin checks run inside ``get_current_admin``,
+    # before this body is validated and before a single ``bot_chats`` row is read, so a
+    # refusal here is the layer under test rather than a 422 or a 409.
+    #
+    # ``chatId`` is NEGATIVE because a non-negative Telegram id is a private chat — a person —
+    # and the schema refuses one. A positive number here would still fail the assertions, but
+    # for the wrong reason, which is the failure mode this mapping exists to avoid.
+    SUPPORT_GROUP_SELECT_PATH: {"chatId": -1_001_000_000_777},
+    # Clear takes no body at all. ``{}`` is sent for the same reason ``/auth/logout`` sends
+    # it: the probe needs a request with a JSON content type, not a request with fields.
+    SUPPORT_GROUP_CLEAR_PATH: {},
+}
+
+#: Path parameters for the two CSRF sweeps. :data:`MUTATIONS` now carries templates, and a
+#: POST sent to the literal ``{telegram_user_id}`` would be answered by the path converter's
+#: 422 rather than by the layer under test — which would pass the "not 200" half of both
+#: assertions while proving nothing about CSRF.
+MUTATION_IDENTIFIERS: Final[dict[str, object]] = {
+    "telegram_user_id": 770_000_123,
+    "broadcast_id": UUID(int=4),
+    "intent_id": UUID(int=6),
+    "ticket_id": UUID(int=8),
+}
+
+
+def mutation_url(template: str) -> str:
+    """A sendable URL for a frozen mutation. Identity for the paths that carry no parameter."""
+    return template.format(**MUTATION_IDENTIFIERS)
+
+
+#: The mutations that go through the permission guard, and therefore through the CSRF check
+#: inside ``get_current_admin``. Derived from :data:`MUTATIONS` rather than listed again, so
+#: a fifth mutation is covered the moment it is added to the frozen set.
+GUARDED_MUTATIONS: Final[tuple[str, ...]] = tuple(
+    sorted(path for _, path in MUTATIONS if path != f"{AUTH_PREFIX}/login")
+)
+
+
+def test_every_mutation_has_a_body_the_csrf_tests_can_send() -> None:
+    # Arrange / Act — the two tests below are only as complete as this mapping, and a
+    # mutation added to ``MUTATIONS`` without a body here would silently go unprobed.
+
+    # Assert
+    assert set(_MUTATION_BODIES) == {path for _, path in MUTATIONS}
+
+
+@pytest.mark.parametrize("path", GUARDED_MUTATIONS, ids=str)
+async def test_a_mutation_without_the_csrf_token_is_refused(
+    container: AdminContainer, client: httpx.AsyncClient, path: str
+) -> None:
+    # Arrange — a signed-in operator, with the cookie jar a browser would carry. The only
+    # thing missing is the header, which is exactly what a cross-site form cannot add.
+    await create_account(container, role=AdminRole.OWNER)
+    assert (await sign_in(client)).status_code == 200
+
+    # Act
+    response = await client.post(
+        mutation_url(path), json=_MUTATION_BODIES[path], headers={"Origin": ORIGIN}
+    )
+
+    # Assert
+    assert response.status_code == 403, path
+    assert response.json()["error"]["code"] == AdminErrorCode.CSRF_REJECTED.value, path
+
+
+@pytest.mark.parametrize("path", sorted({path for _, path in MUTATIONS}), ids=str)
+async def test_a_mutation_from_a_foreign_origin_is_refused(
+    container: AdminContainer, client: httpx.AsyncClient, path: str
+) -> None:
+    # Arrange — the login is included here and excluded above: it is exempt from the
+    # permission guard, so its origin check is its own, and a regression there would be
+    # invisible to every other test in this file.
+    await create_account(container, role=AdminRole.OWNER)
+    assert (await sign_in(client)).status_code == 200
+    headers = csrf_headers(client) | {"Origin": "https://not-the-panel.example"}
+
+    # Act
+    response = await client.post(mutation_url(path), json=_MUTATION_BODIES[path], headers=headers)
+
+    # Assert
+    assert response.status_code == 403, path
+    assert response.json()["error"]["code"] == AdminErrorCode.ORIGIN_REJECTED.value, path
+
+
+#: The methods a path is probed with, minus whatever it legitimately declares.
+#:
+#: ``HEAD`` is absent because Starlette pairs one with every ``GET`` and it is not a method
+#: anybody routes. ``GET`` is absent for a subtler reason: the SPA catch-all accepts ``GET``
+#: for every path, and ``_serve_spa_index`` answers an unknown ``/api`` path with **404**, so
+#: a ``GET`` sent to a POST-only route is a 404 from the fallback rather than a 405 from the
+#: router. That is the correct behaviour — a JSON client must not be handed the shell — and it
+#: is asserted in its own right by ``test_asgi_smoke``; it simply means a ``GET`` probe here
+#: could never observe the thing this test is about.
+PROBE_METHODS: Final[tuple[str, ...]] = ("POST", "PUT", "PATCH", "DELETE")
+
+
+async def test_no_route_answers_a_method_the_table_does_not_declare(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    # Arrange — Starlette answers 405 for a method a path does not carry, and that is the
+    # answer wanted: a route that quietly accepted DELETE would be a mutation nobody froze.
+    #
+    # The undeclared methods are DERIVED per path rather than picked as "POST if the row is a
+    # GET". ``POST /api/broadcasts`` is a real route sharing its path with a real ``GET``, so
+    # the old form would have probed the campaign list with a method it genuinely serves and
+    # failed on a correct application; deriving the complement probes four methods per path
+    # instead of one and cannot go stale as the table grows.
+    await create_account(container, role=AdminRole.OWNER)
+    assert (await sign_in(client)).status_code == 200
+    headers = csrf_headers(client)
+    declared: dict[str, set[str]] = {}
+    for method, path, _ in MOUNTED_ROUTES:
+        declared.setdefault(path, set()).add(method)
+
+    # Act / Assert
+    for path, methods in declared.items():
+        if "{" in path:
+            continue
+        for forbidden in PROBE_METHODS:
+            if forbidden in methods:
+                continue
+            response = await client.request(forbidden, path, headers=headers)
+            assert response.status_code == 405, (forbidden, path)
+
+
+# ---------------------------------------------------------------------------
+# §12.1 T8 — no GET route changes state
+# ---------------------------------------------------------------------------
+#: The two tables a GET is *allowed* to touch, excluded explicitly rather than left to luck.
+#:
+#: ``admin_sessions``: ``deps.get_current_admin`` → ``sessions.touch_session`` advances
+#: ``last_seen_at`` and ``last_ip`` on every authenticated request, GET included. It is
+#: throttled to ``sessions.IDLE_TOUCH_INTERVAL_S`` seconds, so a test that signs in and
+#: immediately reads would observe no write at all — which is precisely why the exclusion is
+#: written down instead of relied upon. The Redis mirror of that row is excluded for the
+#: same reason and is not part of the snapshot either.
+#:
+#: ``admin_audit_log``: a refused request writes its own committed refusal row (§12.6,
+#: ``deps.RequirePermission``). The sweep below runs as OWNER and every GET it makes is now
+#: allowed — ``GET /api/admins`` included, since the roster moved onto ``ADMIN_READ`` — so
+#: nothing here provokes one today. The exclusion stays because the rule it protects is
+#: §12.6's, not this sweep's: the day a GET lands whose cell the sweeping role lacks, losing
+#: that refusal row would be the wrong way to keep this test green.
+#:
+#: T8's rule is about domain state, and every other table in the schema is domain state.
+GET_WRITABLE_TABLES: Final[frozenset[str]] = frozenset({"admin_sessions", "admin_audit_log"})
+
+
+async def state_snapshot(container: AdminContainer) -> dict[str, list[str]]:
+    """Every row of every domain table, as comparable text.
+
+    Whole rows rather than ``COUNT(*)`` and a few ``updated_at`` columns: an UPDATE that
+    rewrites a column in place moves no count and would pass a count-based check, and the
+    columns a future writer touches are not knowable from here.
+    """
+    async with container.session_factory.begin() as db:
+        return {
+            table.name: sorted(repr(tuple(row)) for row in (await db.execute(sa.select(table))))
+            for table in Base.metadata.sorted_tables
+            if table.name not in GET_WRITABLE_TABLES
+        }
+
+
+async def test_no_get_route_changes_domain_state(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    # Arrange — a populated database, so a GET has real rows to spoil, and real identifiers
+    # in every path, so each handler runs its query rather than short-circuiting on a 404.
+    order_id = await seed_named_order(container)
+    async with container.session_factory.begin() as db:
+        asset_id = (await db.execute(sa.select(AssetRow.id))).scalars().first()
+        attempt_id = (await db.execute(sa.select(GenerationAttemptRow.id))).scalars().first()
+    assert asset_id is not None and attempt_id is not None
+    identifiers = {
+        "order_id": order_id,
+        "telegram_user_id": TELEGRAM_ID,
+        "asset_id": asset_id,
+        "attempt_id": attempt_id,
+        # No campaign is seeded: the two ``/broadcasts/{id}`` reads answer 404 and an empty
+        # page for an unknown id, which is still a GET that must write nothing.
+        "broadcast_id": UUID(int=5),
+        # Nor a payment: the dossier answers 404 for an unknown intent, and the rail's five
+        # aggregates answer over an empty set. Both are still GETs that must write nothing,
+        # and the settlement route additionally 422s here for want of a ``?from=`` — which is
+        # a refusal that must also leave the database untouched.
+        "intent_id": UUID(int=7),
+        # Nor a ticket: the detail answers 404 for an unknown id, the queue answers an empty
+        # page, and the board answers four zeroes. All three are still GETs that must write
+        # nothing — and the board is the route on this surface most likely to grow a "seen"
+        # write, which is exactly why it is swept here.
+        "ticket_id": UUID(int=9),
+    }
+    await create_account(container, role=AdminRole.OWNER)
+    assert (await sign_in(client)).status_code == 200
+
+    # Act / Assert — snapshotted around each route in turn, so a failure names the offender
+    # instead of reporting that the database moved at some point during a sweep of thirty.
+    for method, template, _ in sorted(MOUNTED_ROUTES):
+        if method != "GET":
+            continue
+        path = template.format(**identifiers)
+        before = await state_snapshot(container)
+        response = await client.get(path)
+        assert response.status_code != 500, path
+        assert await state_snapshot(container) == before, path
+
+
+# ---------------------------------------------------------------------------
+# The SPA mount — the same table, asserted against the application that ships
+# ---------------------------------------------------------------------------
+#: Path-parameter values for the sweeps below. Well-formed rather than real: every guarded
+#: route refuses an unauthenticated caller before its handler runs, so the row need not exist
+#: — but the value must still parse, or a 422 would stand in for the 401 being looked for.
+_PROBE_IDENTIFIERS: Final[dict[str, object]] = {
+    "order_id": UUID(int=1),
+    "telegram_user_id": 1,
+    "asset_id": UUID(int=2),
+    "attempt_id": UUID(int=3),
+    "broadcast_id": UUID(int=4),
+    "intent_id": UUID(int=6),
+    "ticket_id": UUID(int=8),
+}
+
+
+@pytest.fixture
+def spa_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
+    """A directory shaped like ``vite build``'s output, patched onto ``bayram.admin.app``.
+
+    Patched rather than written into ``src/bayram/admin/static``, because whether that directory
+    exists depends on whether anybody has run ``make ui-build``. Without the patch these
+    tests would assert one thing on a developer's machine and pass vacuously on CI, where the
+    bundle is absent and the fallback 404s before it can shadow anything.
+
+    Returns the shell's marker text, so a caller can assert a response *is* it — and, below,
+    that thirty other responses are not.
+    """
+    shell = "<!doctype html><title>Bayram Admin</title><div id=root></div>"
+    static = tmp_path / "static"
+    (static / IMMUTABLE_PATH_PREFIX.strip("/")).mkdir(parents=True)
+    (static / "index.html").write_text(shell, encoding="utf-8")
+    monkeypatch.setattr(app_module, "STATIC_DIR", static)
+    monkeypatch.setattr(app_module, "SPA_INDEX", static / "index.html")
+    return shell
+
+
+async def test_the_route_table_is_unchanged_once_the_spa_mount_is_installed(
+    container: AdminContainer,
+) -> None:
+    # Arrange — every structural assertion above reads ``create_app()``'s output, and that
+    # application has NO SPA routes: ``app._mount_spa`` runs from the lifespan, so a catch-all
+    # cannot shadow a route registered after the factory. Which means the frozen table has so
+    # far been asserted against an application nobody actually runs. Assert it again against
+    # the one they do.
+    application = create_app(container=container)
+
+    # Act
+    async with application.router.lifespan_context(application):
+        served: set[tuple[str, str, Permission | None]] = set()
+        for route in api_routes(application):
+            guards = guards_of(route)
+            permission = guards[0].permission if guards else None
+            served.update((method, route.path, permission) for method in methods_of(route))
+
+    # Assert — the same two differences as the unmounted case, and the same strictness. The
+    # SPA contributed nothing to either side; that is the claim, and it is not weakened to
+    # accommodate the mount.
+    assert MOUNTED_ROUTES - served == set(), "declared but not mounted"
+    assert served - MOUNTED_ROUTES == set(), "mounted but not declared"
+
+
+async def test_the_non_api_routes_are_exactly_the_named_exemptions(
+    container: AdminContainer,
+) -> None:
+    # Arrange — the assertion that keeps ``api_routes``' ``isinstance`` filter honest, and the
+    # reason the test above can be trusted. See :data:`SPA_ROUTE_NAMES`.
+    application = create_app(container=container)
+
+    # Act
+    async with application.router.lifespan_context(application):
+        names: set[str | None] = set()
+        for route in application.routes:
+            if isinstance(route, APIRoute):
+                continue
+            # The wrapper ``include_router`` appends. It carries APIRoutes, which
+            # ``api_routes`` walks and the frozen table covers, so it is not an exemption.
+            if isinstance(getattr(route, "original_router", None), APIRouter):
+                continue
+            names.add(getattr(route, "name", None))
+
+    # Assert
+    assert names == set(SPA_ROUTE_NAMES | FRAMEWORK_ROUTE_NAMES)
+
+
+async def test_the_catch_all_shadows_no_route_in_the_table(
+    container: AdminContainer, spa_bundle: str
+) -> None:
+    # Arrange — the structural tests prove the catch-all is not an ``APIRoute``. They do not
+    # prove it never *answers*: Starlette matches in registration order, so a mount installed
+    # one line too early would shadow real routes while leaving the route table untouched.
+    # Unauthenticated is the sharpest probe available, and needs no seeding: a guarded route
+    # answers 401 with a JSON envelope and the shell is a 200 of HTML, so the two cannot be
+    # confused with each other.
+    application = create_app(container=container)
+
+    # Act / Assert
+    async with application.router.lifespan_context(application):
+        transport = httpx.ASGITransport(app=application)
+        async with httpx.AsyncClient(transport=transport, base_url=ORIGIN) as http:
+            # First, that the fallback is live at all. Without this every assertion below
+            # would pass on an application whose SPA mount was simply broken.
+            shell = await http.get("/orders/00000000-0000-0000-0000-000000000001")
+            assert shell.status_code == 200
+            assert shell.text == spa_bundle
+
+            for method, template, _ in sorted(MOUNTED_ROUTES):
+                path = template.format(**_PROBE_IDENTIFIERS)
+                response = await http.request(method, path)
+                assert response.status_code != 404, (method, path)
+                assert response.text != spa_bundle, (method, path)
+                content_type = response.headers.get("content-type", "")
+                assert "text/html" not in content_type, (method, path, content_type)
+
+
+async def test_the_probes_answer_exactly_what_they_did_before_the_spa(
+    container: AdminContainer, spa_bundle: str
+) -> None:
+    # Arrange — the two routes an orchestrator polls, and the two likeliest to be quietly
+    # replaced by a 200 of HTML: both are unauthenticated GETs on short paths, which is the
+    # exact shape the catch-all exists to serve. ``/healthz`` matters most, because it answers
+    # 200 with an EMPTY body — so a shadowing catch-all would still read as "up" to anything
+    # that only looks at the status code.
+    application = create_app(container=container)
+
+    # Act
+    async with application.router.lifespan_context(application):
+        transport = httpx.ASGITransport(app=application)
+        async with httpx.AsyncClient(transport=transport, base_url=ORIGIN) as http:
+            live = await http.get("/healthz")
+            ready = await http.get("/readyz")
+
+    # Assert — byte for byte what ``test_health.py`` asserts, restated here because that file
+    # would keep passing if the shell were served with the right status code and the wrong body.
+    assert live.status_code == 200
+    assert live.content == b""
+    assert ready.status_code == 200
+    assert ready.json() == {"status": STATUS_OK}

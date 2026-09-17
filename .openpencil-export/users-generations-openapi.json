@@ -1,0 +1,2788 @@
+{
+ "paths": {
+  "/api/auth/step-up": {
+   "post": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Step Up",
+    "description": "Re-authenticate for one action on one subject. Never session-wide.",
+    "operationId": "step_up_api_auth_step_up_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StepUpRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/StepUpResponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/users": {
+   "get": {
+    "tags": [
+     "users"
+    ],
+    "summary": "List User Records",
+    "description": "One keyset page of users, newest account first.",
+    "operationId": "list_user_records_api_users_get",
+    "parameters": [
+     {
+      "name": "withTotal",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Withtotal"
+      }
+     },
+     {
+      "name": "telegramUserId",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "integer"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Telegramuserid"
+      }
+     },
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "maxLength": 64
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Q"
+      }
+     },
+     {
+      "name": "isBlocked",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Isblocked"
+      }
+     },
+     {
+      "name": "hasBalance",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Hasbalance"
+      }
+     },
+     {
+      "name": "uiLanguage",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Language"
+         }
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Uilanguage"
+      }
+     },
+     {
+      "name": "from",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "From"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "To"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 200,
+       "minimum": 1,
+       "default": 50,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "cursor",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Cursor"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UsersPage"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/users/{telegram_user_id}": {
+   "get": {
+    "tags": [
+     "users"
+    ],
+    "summary": "Get User Record",
+    "description": "One person's record plus their per-state order breakdown.\n\n``settings`` is here for two numbers, and it used to be one. ``inFlightRenderCount``\nis counted against the settlement grace and ``creditsProjected`` adds the free\nallowance; both belong to the worker rather than to this process, and both are\nmirrored into :class:`~bayram.admin.settings.AdminSettings`. :func:`_entitlement_policy`\nsays what each one does when the deployment has not published it, and why defaulting\nthe allowance instead of mirroring it overstated every balance by three.",
+    "operationId": "get_user_record_api_users__telegram_user_id__get",
+    "parameters": [
+     {
+      "name": "telegram_user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Telegram User Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UserDetailView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/users/{telegram_user_id}/orders": {
+   "get": {
+    "tags": [
+     "users"
+    ],
+    "summary": "List User Orders",
+    "description": "This person's orders, newest first.\n\nThe existence check is not ceremony: without it an unknown id answers with an empty\npage, which reads as \"this customer has never ordered\" when the truth is \"we hold\nnothing about this id at all\". One bounded count buys the difference.",
+    "operationId": "list_user_orders_api_users__telegram_user_id__orders_get",
+    "parameters": [
+     {
+      "name": "telegram_user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Telegram User Id"
+      }
+     },
+     {
+      "name": "withTotal",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Withtotal"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 200,
+       "minimum": 1,
+       "default": 50,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "cursor",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Cursor"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OrdersPage"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/users/{telegram_user_id}/avatar": {
+   "get": {
+    "tags": [
+     "users"
+    ],
+    "summary": "Get User Avatar",
+    "description": "The customer's profile photo, streamed. ``RECORDS_READ``, like the row it belongs to.\n\nThe order of the refusals is ``stream_asset``'s and it is the control, not a style:\nthe ROW first, then the MIME, then the bytes. Every absence this handler can SEE \u2014 no\n``users`` row, no profile row, a profile that never captured a photo \u2014 answers the\nsame :func:`no_such_user` 404, and it does not echo the id back, because an error\nbody is a JSON payload and repeating a Telegram id would put the one value this slice\nmasks into the one response nobody thought to mask. It is never a 204 and never a\ngenerated placeholder: an invented picture is one the panel made up, and an operator\nwill read it as the customer's. The SPA draws the monogram off the ``<img onError>``.\n\nAn object the volume no longer holds is ALSO a 404, but not this one: it comes out of\n``unwrap(await container.storage.size(key))``, where ``LocalFileStorage._measure``\nreturns ``_absent(key)`` \u2014 a ``NotFoundError`` carrying ``_ABSENT_MESSAGE``. Same\nstatus, different body. Say it that way rather than claiming one unified 404: the\nstatus is what the ``<img onError>`` reacts to, the body is what an operator reads in\nthe network tab, and a docstring that promised they were identical would be the thing\nthey trusted while debugging.\n\nA storage failure is a 503 and must not collapse into the 404. :func:`unwrap` already\nkeeps them apart \u2014 ``Err(NotFoundError)`` carries ``ErrorCode.NOT_FOUND`` (404) and\n``Err(StorageError)`` carries ``ErrorCode.STORAGE_FAILED`` (503) \u2014 and the difference\nis whether an operator goes looking for a retention bug or for a mount that did not\ncome up.\n\n``media_type=mime`` is safe only because the :data:`AVATAR_MIMES` membership test is\nabove it: it is the test, and never the column, that decides the ``Content-Type`` a\nbrowser is handed. Moving that check below the storage read would let any string a\nwriter put on the row become the type of a body the browser then sniffs. There is no\n``Accept-Ranges`` header either \u2014 this route does not implement ``Range``, and\nadvertising support would invite a request it answers with a whole-body 200: legal,\nand confusing.",
+    "operationId": "get_user_avatar_api_users__telegram_user_id__avatar_get",
+    "parameters": [
+     {
+      "name": "telegram_user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Telegram User Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/users/{telegram_user_id}/wizard-state": {
+   "get": {
+    "tags": [
+     "users"
+    ],
+    "summary": "Get Wizard State",
+    "description": "The live FSM session, projected. No database, no plaintext, no 404.\n\nThe client comes off the container rather than through ``deps.RedisClient``. That\nalias is ``Annotated[\"Redis[str]\", ...]`` and FastAPI resolves a handler's\nannotations at import: ``redis.asyncio.Redis`` is generic only in the type stubs, so\nevaluating the string raises ``TypeError: Redis is not a generic class`` and the\nroute never gets registered. Same object, one hop, no import-time landmine.",
+    "operationId": "get_wizard_state_api_users__telegram_user_id__wizard_state_get",
+    "parameters": [
+     {
+      "name": "telegram_user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Telegram User Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/WizardStateView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/users/{telegram_user_id}/block": {
+   "post": {
+    "tags": [
+     "users"
+    ],
+    "summary": "Block User",
+    "description": "Bar this Telegram account from the bot. Step-up scoped to this id, then audited.",
+    "operationId": "block_user_api_users__telegram_user_id__block_post",
+    "parameters": [
+     {
+      "name": "telegram_user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Telegram User Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UserBlockRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UserBlockResultView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/users/{telegram_user_id}/unblock": {
+   "post": {
+    "tags": [
+     "users"
+    ],
+    "summary": "Unblock User",
+    "description": "Lift the bar. A separate route, and a separate audit action \u2014 see below.",
+    "operationId": "unblock_user_api_users__telegram_user_id__unblock_post",
+    "parameters": [
+     {
+      "name": "telegram_user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Telegram User Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UserBlockRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/UserBlockResultView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/users/{telegram_user_id}/credits": {
+   "get": {
+    "tags": [
+     "credits"
+    ],
+    "summary": "List User Credits",
+    "description": "This account's balance and one keyset page of its movements, newest first.\n\nThe existence check is what keeps \"this customer has never spent a credit\" and \"we\nhold nothing about this id at all\" apart: without it an unknown id answers with an\nempty ledger and the first reading is the one an operator takes.\n\n**It asks the credit subsystem as well as ``users``, and the order matters.** The\naccount row is read first and is itself proof that something is held under this id:\n``grant_credits`` below has deliberately no 404 because ``db.credits.grant`` calls\n``open_account``, which writes ``credit_accounts`` and **no ``users`` row** \u2014 so a\n``users``-only probe would 404 on the ledger, the balance and the audit trail this\nAPI had just written for the population the grant route exists to serve. The\n``count_users`` probe survives, one statement cheaper than it was: it runs only when\nthere is no account, which is exactly the case it can still answer for (a customer\nwho has spoken to the bot and never been metered). An id neither table has heard of\nis still a 404, which is the distinction this endpoint's tests pin.\n\n``account`` is ``null`` for a user who has a ``users`` row and no ``credit_accounts``\none \u2014 never a zeroed object. That is a different fact from a balance of 0 and the two\nmust not render alike; :class:`~bayram.admin.schemas.credits.CreditLedgerPage` says which\ntwo populations land there.",
+    "operationId": "list_user_credits_api_users__telegram_user_id__credits_get",
+    "parameters": [
+     {
+      "name": "telegram_user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Telegram User Id"
+      }
+     },
+     {
+      "name": "withTotal",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Withtotal"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 200,
+       "minimum": 1,
+       "default": 50,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "cursor",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Cursor"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CreditLedgerPage"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/users/{telegram_user_id}/credits/grant": {
+   "post": {
+    "tags": [
+     "credits"
+    ],
+    "summary": "Grant Credits",
+    "description": "Add credits to one account on an operator's say-so, with a mandatory reason.\n\n**There is no 404**, and the reason is the writer's: ``db.credits.grant`` calls\n``open_account`` first, so an account that has never been metered is opened by this\ncall \u2014 which is precisely the customer a goodwill comp is usually for. Refusing an id\nwith no ``credit_accounts`` row would refuse the common case; refusing one with no\n``users`` row would make the route an existence oracle for guessable Telegram ids, and\nwould also refuse an account that ``credits.touch`` has simply not seen since the\nonboarding deploy. The credit lands on the account either way, because the ledger is\nkeyed on the Telegram id and never on ``users.id``.\n\nThe idempotency key is minted here when the caller sent no ``requestId``, so two\npresses of the button are two grants \u2014 the honest reading of two presses. A caller\nthat retries a timed-out request sends the same ``requestId`` and gets\n``isReplay: true`` with nothing moved.\n\n**The key carries the Telegram id, and leaving it out was a silent no-op.**\n``credit_ledger.idempotency_key`` is globally unique, so a bare\n``grant:admin:{requestId}`` made one ``requestId`` reused across two accounts credit\nthe first and quietly issue nothing to the second: ``grant`` sees a used key, answers\n``False``, and the response says ``grantedCredits: N`` with ``isReplay: true`` \u2014 a\nvalue-issuing action reporting a number nobody was ever given. Any caller keying\n``requestId`` off something coarser than one press of one button (a ticket id, a\nresubmitted form) hits that. Scoped to the subject the step-up was taken for, the\ncollision is impossible rather than unlikely, and retry-safety is unchanged for the\ncase ``requestId`` exists to serve: same caller, same account, same request.\n\n``now`` is read once and threaded through the step-up window, the ledger row, the\naudit row and the response, so none of them can land on the far side of a boundary\nfrom the others.",
+    "operationId": "grant_credits_api_users__telegram_user_id__credits_grant_post",
+    "parameters": [
+     {
+      "name": "telegram_user_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "title": "Telegram User Id"
+      }
+     }
+    ],
+    "requestBody": {
+     "required": true,
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CreditGrantRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/CreditGrantResultView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/generations": {
+   "get": {
+    "tags": [
+     "generations"
+    ],
+    "summary": "List Generations",
+    "description": "One keyset page of the render ledger, newest first.\n\nThe count is a second query and it runs only when asked for: ``bounded_total`` stops\nat ``TOTAL_COUNT_CAP``, so it is cheap, but it is not free and no screen needs it to\nrender the first page.",
+    "operationId": "list_generations_api_generations_get",
+    "parameters": [
+     {
+      "name": "withTotal",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false,
+       "title": "Withtotal"
+      }
+     },
+     {
+      "name": "kind",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/GenerationKind"
+         }
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Kind"
+      }
+     },
+     {
+      "name": "provider",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "maxLength": 64
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Provider"
+      }
+     },
+     {
+      "name": "isSuccess",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Issuccess"
+      }
+     },
+     {
+      "name": "errorCode",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "maxLength": 48
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Errorcode"
+      }
+     },
+     {
+      "name": "strategy",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "$ref": "#/components/schemas/NameStrategy"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Strategy"
+      }
+     },
+     {
+      "name": "isOrphaned",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "boolean"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Isorphaned"
+      }
+     },
+     {
+      "name": "from",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "From"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "format": "date-time"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "To"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 200,
+       "minimum": 1,
+       "default": 50,
+       "title": "Limit"
+      }
+     },
+     {
+      "name": "cursor",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Cursor"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AttemptsPage"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/generations/{attempt_id}": {
+   "get": {
+    "tags": [
+     "generations"
+    ],
+    "summary": "Get Generation",
+    "description": "One attempt by id. An id that matches nothing is a 404, never an empty body.",
+    "operationId": "get_generation_api_generations__attempt_id__get",
+    "parameters": [
+     {
+      "name": "attempt_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "uuid",
+       "title": "Attempt Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AttemptWireView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/reveal": {
+   "post": {
+    "tags": [
+     "reveal"
+    ],
+    "summary": "Reveal",
+    "description": "Plaintext for the named fields of one subject \u2014 never the whole object.\n\nReturns 403 ``STEP_UP_REQUIRED`` without a grant scoped to ``reveal:<subject>``, 429\n``REVEAL_BUDGET_EXHAUSTED`` when either ceiling is spent, 404 when the subject does\nnot exist, and 422 for a body that could not be charged honestly. Every one of those\nafter step 4 leaves the audit row behind, which is the point of the ordering.",
+    "operationId": "reveal_api_reveal_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RevealRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/RevealResponse"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "AttemptWireView": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "orderId": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Orderid"
+     },
+     "kind": {
+      "$ref": "#/components/schemas/GenerationKind"
+     },
+     "sequence": {
+      "type": "integer",
+      "title": "Sequence"
+     },
+     "attempt": {
+      "type": "integer",
+      "title": "Attempt"
+     },
+     "provider": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Provider"
+     },
+     "providerRemoteId": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Providerremoteid"
+     },
+     "language": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Language"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "isSuccess": {
+      "type": "boolean",
+      "title": "Issuccess"
+     },
+     "isOrphaned": {
+      "type": "boolean",
+      "title": "Isorphaned"
+     },
+     "nameCandidateStrategy": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/NameStrategy"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "nameCandidateRank": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Namecandidaterank"
+     },
+     "isNameVerified": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Isnameverified"
+     },
+     "matchConfidence": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Matchconfidence"
+     },
+     "nameCandidate": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Namecandidate"
+     },
+     "identityPurgedAt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Identitypurgedat"
+     },
+     "sttTranscriptChars": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Stttranscriptchars"
+     },
+     "textPurgedAt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Textpurgedat"
+     },
+     "errorCode": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Errorcode"
+     },
+     "errorMessage": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Errormessage"
+     },
+     "isRetryable": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Isretryable"
+     },
+     "costUsd": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Costusd"
+     },
+     "costSource": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Costsource"
+     },
+     "latencyMs": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Latencyms"
+     },
+     "isInstrumented": {
+      "type": "boolean",
+      "title": "Isinstrumented"
+     },
+     "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Createdat"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "orderId",
+     "kind",
+     "sequence",
+     "attempt",
+     "provider",
+     "providerRemoteId",
+     "language",
+     "isSuccess",
+     "isOrphaned",
+     "nameCandidateStrategy",
+     "nameCandidateRank",
+     "isNameVerified",
+     "matchConfidence",
+     "nameCandidate",
+     "identityPurgedAt",
+     "sttTranscriptChars",
+     "textPurgedAt",
+     "errorCode",
+     "errorMessage",
+     "isRetryable",
+     "costUsd",
+     "costSource",
+     "latencyMs",
+     "isInstrumented",
+     "createdAt"
+    ],
+    "title": "AttemptWireView",
+    "description": "One row of the render ledger.\n\n``costUsd`` and ``latencyMs`` are ``null`` rather than ``0`` for every row written before\nPhase 5 instruments them, and ``isInstrumented`` says which kind of row this is. The\ncolumn defaults are ``0.0`` and ``0``; rendering those as money would be a confident lie\nin the one screen an operator uses to decide what to spend."
+   },
+   "AttemptsPage": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/AttemptWireView"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "meta": {
+      "$ref": "#/components/schemas/PageMeta"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "items",
+     "meta"
+    ],
+    "title": "AttemptsPage"
+   },
+   "AuditReasonCode": {
+    "type": "string",
+    "enum": [
+     "customer_request",
+     "gdpr_erasure",
+     "abuse_report",
+     "support_investigation",
+     "incident",
+     "bake_off",
+     "routine_ops",
+     "other"
+    ],
+    "title": "AuditReasonCode",
+    "description": "Why an operator did it \u2014 structured, because the free-text version is a privacy leak.\n\nEvery destructive action requires a reason, and the row carrying it lives 730 days in the\none table ``purge_user`` deliberately does not touch and ``REVOKE`` makes undeletable\n(\u00a712.4). Real support reasons read *\"Dilnoza asked us to delete her mother's song\"*, so a\nfree-text-only reason would make the longest-clocked, purge-immune table in the system the\nplace customer names accumulate. The accountability is carried by this code plus\n``reason_ref`` (a ticket id); the optional ``reason_text`` beside them is capped, excluded\nfrom the chain HMAC and swept at 90 days."
+   },
+   "CreditAccountView": {
+    "properties": {
+     "telegramUserId": {
+      "type": "integer",
+      "title": "Telegramuserid"
+     },
+     "telegramUserIdMasked": {
+      "type": "string",
+      "title": "Telegramuseridmasked"
+     },
+     "balance": {
+      "type": "integer",
+      "title": "Balance"
+     },
+     "lifetimeGranted": {
+      "type": "integer",
+      "title": "Lifetimegranted"
+     },
+     "allowancePeriod": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Allowanceperiod"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "telegramUserId",
+     "telegramUserIdMasked",
+     "balance",
+     "lifetimeGranted",
+     "allowancePeriod"
+    ],
+    "title": "CreditAccountView",
+    "description": "One ``credit_accounts`` row: what the ledger can prove this account holds.\n\n``balance`` is the stored column and **not** the number the customer sees. The bot's gate\nprojects a rolling allowance that is due but not yet minted, and that projection is\n``creditsProjected`` on :class:`~bayram.admin.schemas.users.UserDetailView`. Both are on the\nwire because an operator settling \"they say they have three songs and you say zero\" needs\nthe pair; a single number would be right for one of the two conversations and wrong for\nthe other."
+   },
+   "CreditEntryKind": {
+    "type": "string",
+    "enum": [
+     "grant",
+     "debit",
+     "refund",
+     "consume"
+    ],
+    "title": "CreditEntryKind",
+    "description": "What a ``credit_ledger`` row did to the balance.\n\nThe four members are not interchangeable labels \u2014 each one is a different arithmetic\nsign, which is why ``ck_credit_ledger_delta_matches_kind`` exists: a ``DEBIT`` that\nsomehow carried a positive ``delta`` would mint credits, and a ``REFUND`` with a\nnegative one would burn them, and neither is a mistake a reviewer reliably spots in a\ndiff. The database refuses both.\n\n``CONSUME`` is the one that looks redundant and is not. It moves nothing (``delta``\nis exactly 0); it exists to mark a debit *settled*, which is what frees the in-flight\nslot derived from unsettled debits. Without a zero-delta member the only way to close\na debit would be to refund it, and refunding a song the customer actually received is\nthe exploit the settlement policy is written to avoid."
+   },
+   "CreditGrantRequest": {
+    "properties": {
+     "reasonCode": {
+      "$ref": "#/components/schemas/AuditReasonCode"
+     },
+     "reasonRef": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9#_-]{1,64}$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasonref"
+     },
+     "reasonText": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 500
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasontext"
+     },
+     "credits": {
+      "type": "integer",
+      "maximum": 100.0,
+      "minimum": 1.0,
+      "title": "Credits"
+     },
+     "requestId": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Requestid"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "reasonCode",
+     "credits"
+    ],
+    "title": "CreditGrantRequest",
+    "description": "``POST /users/{telegramUserId}/credits/grant``: how many, why, and optionally under\nwhich key.\n\nThe Telegram id is **not** in the body. It is the path parameter the step-up scope was\nbuilt from, and a second copy here is a second answer to \"who is being credited\" \u2014 the\nshape that grants one account under another account's re-authentication."
+   },
+   "CreditGrantResultView": {
+    "properties": {
+     "telegramUserId": {
+      "type": "integer",
+      "title": "Telegramuserid"
+     },
+     "telegramUserIdMasked": {
+      "type": "string",
+      "title": "Telegramuseridmasked"
+     },
+     "grantedCredits": {
+      "type": "integer",
+      "title": "Grantedcredits"
+     },
+     "isReplay": {
+      "type": "boolean",
+      "title": "Isreplay"
+     },
+     "idempotencyKey": {
+      "type": "string",
+      "title": "Idempotencykey"
+     },
+     "account": {
+      "$ref": "#/components/schemas/CreditAccountView"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "telegramUserId",
+     "telegramUserIdMasked",
+     "grantedCredits",
+     "isReplay",
+     "idempotencyKey",
+     "account"
+    ],
+    "title": "CreditGrantResultView",
+    "description": "What the grant did, and what the account looks like now.\n\n``isReplay`` is the field that makes a retry safe to interpret: ``true`` means this exact\n``requestId`` had already been granted and nothing moved, so a client that retried a\ntimed-out request can tell \"it worked the first time\" from \"it worked just now\" without\nguessing from the balance."
+   },
+   "CreditLedgerEntryView": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "kind": {
+      "$ref": "#/components/schemas/CreditEntryKind"
+     },
+     "reason": {
+      "$ref": "#/components/schemas/CreditReason"
+     },
+     "delta": {
+      "type": "integer",
+      "title": "Delta"
+     },
+     "orderId": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "uuid"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Orderid"
+     },
+     "generation": {
+      "type": "integer",
+      "title": "Generation"
+     },
+     "idempotencyKey": {
+      "type": "string",
+      "title": "Idempotencykey"
+     },
+     "actor": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Actor"
+     },
+     "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Createdat"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "kind",
+     "reason",
+     "delta",
+     "orderId",
+     "generation",
+     "idempotencyKey",
+     "actor",
+     "createdAt"
+    ],
+    "title": "CreditLedgerEntryView",
+    "description": "One movement. Append-only: no row on this wire was ever updated after it was written."
+   },
+   "CreditLedgerPage": {
+    "properties": {
+     "account": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/CreditAccountView"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/CreditLedgerEntryView"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "meta": {
+      "$ref": "#/components/schemas/PageMeta"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "account",
+     "items",
+     "meta"
+    ],
+    "title": "CreditLedgerPage",
+    "description": "``GET /users/{telegramUserId}/credits``.\n\n``account`` is ``null`` when ``credit_accounts`` holds no row, which happens for two\npopulations an operator must be able to tell apart from \"spent everything\": a customer\nwho has never been charged or granted anything (the row is opened by the first movement),\nand a customer whose ``/forget`` deleted the row. In the second case ``items`` may still\nbe empty even though movements exist \u2014 erasure keeps the rows and nulls their Telegram\nid, so they belong to nobody and match no account."
+   },
+   "CreditReason": {
+    "type": "string",
+    "enum": [
+     "signup_allowance",
+     "period_allowance",
+     "admin_grant",
+     "order_render",
+     "order_failed",
+     "order_delivered",
+     "order_not_delivered",
+     "stale_settlement",
+     "unenforced_render",
+     "topup_purchase",
+     "plan_song"
+    ],
+    "title": "CreditReason",
+    "description": "Why a ``credit_ledger`` row was written.\n\nDeliberately a closed enum rather than a free-text note. Two reasons, both load-bearing:\nan operator reading a customer's history needs values a query can group by, and \u2014 more\nsharply \u2014 free text here would be text *about a person*, which would drag the ledger\ninto ``tests/test_db/test_privacy_constraints.py``'s ``tables_with_personal_data`` and\ntherefore onto a retention clock. An audit trail that deletes itself on a schedule\ncannot answer \"why is this balance what it is\" for the period that matters, so the\nledger holds no personal data and outlives every purge instead.\n\nThe longest value is ``order_not_delivered`` at 19 characters, comfortably inside\n``ENUM_LENGTH`` (32) \u2014 ``tests/test_db/test_enum_lengths.py`` asserts that rather than\ntrusting it, because SQLite would store an over-length value and only Postgres raises."
+   },
+   "DraftFieldView": {
+    "properties": {
+     "key": {
+      "type": "string",
+      "title": "Key"
+     },
+     "isPresent": {
+      "type": "boolean",
+      "title": "Ispresent"
+     },
+     "charCount": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Charcount"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "key",
+     "isPresent"
+    ],
+    "title": "DraftFieldView",
+    "description": "One allowlisted draft key: whether it is there, and how much of it there is.\n\n``charCount`` is ``null`` for a key that is absent and ``0`` for one present and empty \u2014\na distinction that matters when the question is \"did they type a note and delete it?\"."
+   },
+   "GenerationKind": {
+    "type": "string",
+    "enum": [
+     "song",
+     "song_inpaint",
+     "greeting",
+     "lyrics",
+     "name_preview",
+     "name_verification",
+     "cover"
+    ],
+    "title": "GenerationKind",
+    "description": "What a ``generation_attempts`` row is an attempt at.\n\n``NAME_VERIFICATION`` is not a vendor render \u2014 it is the STT verdict on a rendered\nname chunk. It lives in the same table because the tuning question (\"did strategy X\nsurvive verification?\") needs the render and its verdict side by side."
+   },
+   "Genre": {
+    "type": "string",
+    "enum": [
+     "pop",
+     "retro_estrada",
+     "hip_hop",
+     "rock",
+     "acoustic_ballad",
+     "dance_electronic",
+     "uzbek_pop",
+     "uzbek_folk",
+     "shashmaqom",
+     "jazz_lounge"
+    ],
+    "title": "Genre"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "type": "array",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "title": "HTTPValidationError"
+   },
+   "JsonValue": {},
+   "Language": {
+    "type": "string",
+    "enum": [
+     "uz_latn",
+     "uz_cyrl",
+     "ru",
+     "en"
+    ],
+    "title": "Language",
+    "description": "Interface language and output language are chosen INDEPENDENTLY."
+   },
+   "NameStrategy": {
+    "type": "string",
+    "enum": [
+     "canonical",
+     "stripped",
+     "ascii",
+     "cyrillic",
+     "hyphenated",
+     "phonetic"
+    ],
+    "title": "NameStrategy",
+    "description": "How one candidate orthography was derived from the typed name.\n\nThe ORDER in which these are tried is configuration (``Settings.name_candidate_order``),\nnever code. A bake-off reorders the list; no module changes."
+   },
+   "Occasion": {
+    "type": "string",
+    "enum": [
+     "birthday",
+     "love",
+     "support",
+     "prank",
+     "holiday",
+     "wedding",
+     "anniversary",
+     "kids",
+     "no_occasion",
+     "custom"
+    ],
+    "title": "Occasion",
+    "description": "What the song is FOR. Declaration order is the order the wizard draws them in.\n\nThe list is the offer, not a taxonomy: every member has to be a reason somebody\nactually opens this bot with, because the occasion is the first question asked and a\ncustomer who finds nothing that fits presses ``CUSTOM`` and tells the writer nothing.\nThat is why the three-member version was widened \u2014 birthday, anniversary and \"something\nelse\" sent everyone who wanted a roast, an apology or a song for a two-year-old down the\nescape hatch, and ``OCCASION_BRIEFS`` turned all of them into \"a personal celebration\".\n\n``CUSTOM`` stays LAST and stays the escape hatch. ``keyboards.OWN_LYRICS_SITS_ABOVE``\nis pinned to it, so a member added after it would silently move the\n\"I will write the words myself\" button; add new occasions ABOVE it.\n\nValues are what the database stores, so they are renamed only with a migration \u2014\n``briefs.occasion`` is a plain ``VARCHAR(32)`` with no CHECK constraint (see\n``db.base.enum_type``), which is why ADDING a member needs no migration at all."
+   },
+   "OrderLedgerStatus": {
+    "type": "string",
+    "enum": [
+     "unmetered",
+     "pending",
+     "settled",
+     "refunded"
+    ],
+    "title": "OrderLedgerStatus",
+    "description": "Where one order stands in ``credit_ledger``, in the algebra the gate itself uses.\n\nEvery member is defined against exactly three numbers, all of them taken over\n``credit_ledger WHERE order_id = orders.id``: ``net = SUM(delta)``, the count of\n``REFUND`` rows and the count of ``CONSUME`` rows. Prose definitions were the alternative\nand they are how this field would drift from the authorisation decision: ``charge`` reads\n``net_position`` (``db/credit_sql.py``) and nothing else, so a status derived from\nanything else would eventually disagree with whether the customer is about to be charged\nagain.\n\n* :attr:`PENDING` \u2014 ``net < 0`` and no ``CONSUME``. A debit stands open: the render is in\n  flight, or it died without settling and the hourly sweep has not reached it yet. This\n  is the state that holds an in-flight slot the customer cannot see.\n* :attr:`SETTLED` \u2014 ``net < 0`` and at least one ``CONSUME``. The charge stands and was\n  closed: the kit exists (``ORDER_DELIVERED``), or exists and Telegram refused it\n  (``ORDER_NOT_DELIVERED``), or the sweep closed a delivered order's debit\n  (``STALE_SETTLEMENT``). The customer paid and keeps paying.\n* :attr:`REFUNDED` \u2014 ``net >= 0`` and at least one ``REFUND``. The debit was handed back,\n  which returns the order to net 0 \u2014 and net 0 is precisely what makes it **chargeable\n  again**, at ``generation + 1``, on its next authorisation. A refunded order is not a\n  closed one, and the panel must not draw it as an ending.\n* :attr:`UNMETERED` \u2014 everything else: ``net >= 0`` with no refund, which in practice\n  means the ledger holds no row for this order at all.\n\n:attr:`UNMETERED` is a fourth member where ``ADMIN_PANEL_AUDIT_AND_REDESIGN_PLAN.md``\n\u00a75.1 named three (``settled`` / ``refunded`` / ``pending``), and it is the state most\norders in this deployment are actually in: a DRAFT that never reached authorisation has\nno ledger row, and neither does anything created before the meter existed. Folding it\ninto ``pending`` would tell an operator a credit is held against an order that holds\nnone; folding it into ``settled`` would invent a sale. It is a real fourth state, so it\nis named."
+   },
+   "OrderPaymentRail": {
+    "type": "string",
+    "enum": [
+     "none",
+     "credits",
+     "unenforced"
+    ],
+    "title": "OrderPaymentRail",
+    "description": "What paid for one order \u2014 restricted to what this schema can actually prove.\n\n\u00a75.1 of the audit plan names ``telegram_stars``, ``credit_allowance`` and ``admin_grant``.\nTwo of those three are **not derivable here and are deliberately absent**, because a\nvalue the data cannot support is worse than a missing field: an operator reading\n``admin_grant`` off a screen would act on it.\n\n* ``telegram_stars`` has no writer anywhere in ``src/``. There is no ``payments`` table\n  (``db.admin.sql.PAYMENTS_TABLE`` is what the timeline reports as unavailable for\n  exactly this reason) and ``CreditReason`` has no member a payment rail could write.\n  ``orders.is_paid`` is not it either: it latches when the order reaches ``AUTHORIZED``,\n  whichever provider produced that, so it says *authorised*, never *by whom*.\n* ``credit_allowance`` versus ``admin_grant`` cannot be told apart **by construction**,\n  not merely for want of a column. ``credit_accounts.balance`` is fungible: a debit spends\n  the balance, and the balance does not record which grant minted the credit it is\n  spending. An account holding one allowance credit and one comped credit that renders\n  one song produces exactly one ``DEBIT``/``ORDER_RENDER`` row, and no query over this\n  schema can say which of the two it consumed. Recovering it would take a lot-tracked\n  ledger (FIFO consumption linking each debit to the grants it draws down), which is a\n  schema decision and not a read-layer one.\n\nWhat is left is real, and the third member is the one an operator actually asks for:\n\n* :attr:`CREDITS` \u2014 a charge stands or stood against this order in the ledger. The\n  customer's own balance paid for the render.\n* :attr:`UNENFORCED` \u2014 ``Settings.credits_enforced`` was off and the account could not\n  afford the render, so ``credits._cover_the_shortfall`` minted exactly what it cost.\n  Nobody paid; a configuration flag did. This is the \"was it comped?\" the audit document\n  asks for, and it is the closest thing to ``admin_grant`` that the ledger can prove,\n  because that grant is the only one keyed to a specific render.\n* :attr:`NONE` \u2014 no ledger row references this order and no top-up was written for it.\n  An unmetered order, not a free one: the difference matters for a DRAFT that simply\n  never got as far as being charged.\n\nNote that :attr:`CREDITS` and :attr:`NONE` carry no information\n:class:`OrderLedgerStatus` does not already carry \u2014 with one charging reason in the enum,\n\"which rail\" collapses into \"was there a charge at all\". The rail is a separate field\nonly because :attr:`UNENFORCED` is genuinely orthogonal to it: a dark render is charged\n*and* comped, and the status alone would show it as an ordinary sale."
+   },
+   "OrderState": {
+    "type": "string",
+    "enum": [
+     "draft",
+     "brief_ready",
+     "lyrics_ready",
+     "authorized",
+     "generating",
+     "delivered",
+     "failed",
+     "cancelled"
+    ],
+    "title": "OrderState",
+    "description": "Forward-only. ``FAILED`` and ``DELIVERED`` are terminal."
+   },
+   "OrderStateCount": {
+    "properties": {
+     "state": {
+      "$ref": "#/components/schemas/OrderState"
+     },
+     "count": {
+      "type": "integer",
+      "title": "Count"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "state",
+     "count"
+    ],
+    "title": "OrderStateCount",
+    "description": "One state with at least one order. States with none are absent, never zero-filled."
+   },
+   "OrderView": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "telegramUserId": {
+      "type": "integer",
+      "title": "Telegramuserid"
+     },
+     "telegramUserIdMasked": {
+      "type": "string",
+      "title": "Telegramuseridmasked"
+     },
+     "state": {
+      "$ref": "#/components/schemas/OrderState"
+     },
+     "isPaid": {
+      "type": "boolean",
+      "title": "Ispaid"
+     },
+     "correlationId": {
+      "type": "string",
+      "title": "Correlationid"
+     },
+     "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Createdat"
+     },
+     "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Updatedat"
+     },
+     "deliveredAt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Deliveredat"
+     },
+     "failedReason": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Failedreason"
+     },
+     "isFailedReasonRetryable": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Isfailedreasonretryable"
+     },
+     "isBriefPresent": {
+      "type": "boolean",
+      "title": "Isbriefpresent"
+     },
+     "recipientName": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Recipientname"
+     },
+     "isIdentityPurged": {
+      "type": "boolean",
+      "title": "Isidentitypurged"
+     },
+     "identityPurgedAt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Identitypurgedat"
+     },
+     "notePurgedAt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Notepurgedat"
+     },
+     "occasion": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Occasion"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "genre": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Genre"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "outputLanguage": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Language"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "assetCount": {
+      "type": "integer",
+      "title": "Assetcount"
+     },
+     "hasAssets": {
+      "type": "boolean",
+      "title": "Hasassets"
+     },
+     "creditCost": {
+      "type": "integer",
+      "title": "Creditcost"
+     },
+     "ledgerStatus": {
+      "$ref": "#/components/schemas/OrderLedgerStatus"
+     },
+     "paymentRail": {
+      "$ref": "#/components/schemas/OrderPaymentRail"
+     },
+     "retryCount": {
+      "type": "integer",
+      "title": "Retrycount"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "telegramUserId",
+     "telegramUserIdMasked",
+     "state",
+     "isPaid",
+     "correlationId",
+     "createdAt",
+     "updatedAt",
+     "deliveredAt",
+     "failedReason",
+     "isFailedReasonRetryable",
+     "isBriefPresent",
+     "recipientName",
+     "isIdentityPurged",
+     "identityPurgedAt",
+     "notePurgedAt",
+     "occasion",
+     "genre",
+     "outputLanguage",
+     "assetCount",
+     "hasAssets",
+     "creditCost",
+     "ledgerStatus",
+     "paymentRail",
+     "retryCount"
+    ],
+    "title": "OrderView",
+    "description": "One row of ``/orders``. Masked, and honest about what a purge removed."
+   },
+   "OrdersPage": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/OrderView"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "meta": {
+      "$ref": "#/components/schemas/PageMeta"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "items",
+     "meta"
+    ],
+    "title": "OrdersPage"
+   },
+   "PageMeta": {
+    "properties": {
+     "nextCursor": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nextcursor"
+     },
+     "total": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Total"
+     },
+     "isTotalExact": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Istotalexact"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "title": "PageMeta",
+    "description": "``meta`` on every list response. ``nextCursor`` is ``null`` at the end, never ``\"\"``."
+   },
+   "RevealBudgetView": {
+    "properties": {
+     "recordsCharged": {
+      "type": "integer",
+      "title": "Recordscharged"
+     },
+     "recordsRemaining": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Recordsremaining"
+     },
+     "conversationsCharged": {
+      "type": "integer",
+      "title": "Conversationscharged"
+     },
+     "conversationsRemaining": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Conversationsremaining"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "recordsCharged",
+     "conversationsCharged"
+    ],
+    "title": "RevealBudgetView",
+    "description": "What this reveal cost and what is left, for \u00a711.4's ``RevealBudgetMeter``.\n\n``*Remaining`` is ``null`` when the counter was not touched \u2014 a single-record reveal\nnever reads the daily conversation budget \u2014 and ``null`` is not zero: a meter rendering\n\"0 left\" for \"not asked\" stops an operator doing legitimate work."
+   },
+   "RevealField": {
+    "type": "string",
+    "enum": [
+     "briefs.recipient_name_display",
+     "briefs.recipient_name_raw",
+     "briefs.recipient_lookup_key",
+     "briefs.recipient_candidates",
+     "briefs.note",
+     "briefs.approved_lyrics",
+     "generation_attempts.stt_transcript",
+     "generation_attempts.name_candidate_text",
+     "user_profiles.phone_e164",
+     "user_profiles.first_name",
+     "user_profiles.last_name",
+     "user_profiles.telegram_username"
+    ],
+    "title": "RevealField",
+    "description": "The closed list of columns a reveal may unmask, spelled as ``table.column``.\n\nThe value is what lands in ``admin_audit_log.field_names`` \u2014 \u00a712.4: \"``field_names``\nrecords *that* ``briefs.note`` was revealed, never what it said.\""
+   },
+   "RevealRequest": {
+    "properties": {
+     "reasonCode": {
+      "$ref": "#/components/schemas/AuditReasonCode"
+     },
+     "reasonRef": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9#_-]{1,64}$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasonref"
+     },
+     "reasonText": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 500
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasontext"
+     },
+     "subjectType": {
+      "$ref": "#/components/schemas/RevealSubjectType"
+     },
+     "subjectId": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Subjectid"
+     },
+     "fields": {
+      "items": {
+       "$ref": "#/components/schemas/RevealField"
+      },
+      "type": "array",
+      "maxItems": 12,
+      "minItems": 1,
+      "title": "Fields"
+     },
+     "limit": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "maximum": 50.0,
+        "minimum": 1.0
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Limit"
+     },
+     "cursor": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 256
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Cursor"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "reasonCode",
+     "subjectType",
+     "subjectId",
+     "fields"
+    ],
+    "title": "RevealRequest",
+    "description": "\u00a712.3's body: ``{subjectType, subjectId, fields[], reasonCode, reasonRef?,\nreasonText?, limit?, cursor?}``.\n\n**The reason trio is inherited, not restated**, and the restating was a real divergence\nrather than an untidiness: this model carried its own ``reasonCode``/``reasonRef``/\n``reasonText`` and its own copy of ``_strip_control_chars``, so\n``admin_audit_log.reason_text`` \u2014 one column, one 90-day sweep \u2014 was scrubbed by whichever\nendpoint wrote the row, and adding a character to one set would have left the reveal\nwriting it through. :class:`~bayram.admin.schemas.actions.ReasonedRequest` is where that\nrule lives for every \u00a79.2 action; ``reasonCode`` still has **no default** there, which is\nthe whole of \"reveal without a ``reasonCode`` \u2192 422\".\n\nWhat stays here is what is genuinely reveal-shaped: the subject, the field list and the\ntwo page controls."
+   },
+   "RevealResponse": {
+    "properties": {
+     "subjectType": {
+      "$ref": "#/components/schemas/RevealSubjectType"
+     },
+     "subjectId": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Subjectid"
+     },
+     "revealedAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Revealedat"
+     },
+     "reasonCode": {
+      "$ref": "#/components/schemas/AuditReasonCode"
+     },
+     "recordCount": {
+      "type": "integer",
+      "title": "Recordcount"
+     },
+     "revealedFields": {
+      "items": {
+       "$ref": "#/components/schemas/RevealField"
+      },
+      "type": "array",
+      "title": "Revealedfields"
+     },
+     "records": {
+      "items": {
+       "$ref": "#/components/schemas/RevealedRecord"
+      },
+      "type": "array",
+      "title": "Records"
+     },
+     "nextCursor": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Nextcursor"
+     },
+     "budget": {
+      "$ref": "#/components/schemas/RevealBudgetView"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "subjectType",
+     "subjectId",
+     "revealedAt",
+     "reasonCode",
+     "recordCount",
+     "revealedFields",
+     "records",
+     "budget"
+    ],
+    "title": "RevealResponse",
+    "description": "Plaintext for the named fields only \u2014 never the whole object (\u00a712.3).\n\n``recordCount`` is the number **charged and audited**, which is the page size the reveal\nwas authorised to return rather than the number of rows it found. An empty result is not\nfree: it cost a step-up, a budget charge and an audit row, and a budget that let a miss\ncost nothing would be a budget an operator could probe with."
+   },
+   "RevealSubjectType": {
+    "type": "string",
+    "enum": [
+     "order",
+     "user"
+    ],
+    "title": "RevealSubjectType",
+    "description": "What the reveal is about. A subset of ``audit.SUBJECT_TYPES``, and deliberately so.\n\n``audit.SUBJECT_TYPES`` is the closed vocabulary the audit column accepts \u2014\n``order``/``user``/``asset``/``chat``/``config``/``admin``/``session``/``wizard_draft``/\n``system``. This enum is the subset ``POST /reveal`` can actually answer for **today**,\nand a member arrives here only when its source table does. ``ORDER`` reads ``briefs``\nand ``generation_attempts``; ``USER`` reads ``user_profiles``, which arrives with its\nown model and its own migration, and until that table existed a ``\"user\"`` on the wire\nwould have been a value that answers 500. The absences that remain are \u00a712.3's other\nsubjects \u2014 ``chat`` bodies and ``wizard_draft`` keys and moderation detail, whose\n``chat_messages`` and ``moderation_reviews`` are Phase 3 \u2014 plus audio, which is the\nasset stream's own route rather than a reveal at all.\n\nBoth members are already in ``db.admin.audit.SUBJECT_TYPES`` (``audit.py:136-138``), so\nthe audit column takes them with no schema change and ``audit._checked_subject_type``\npasses on the string this enum hands it. That is not a coincidence to be relied on\nquietly: a member added here whose value is outside that closed set would raise inside\n``append``, after the step-up was granted and the budget charged, and the reveal would\nfail with the operator already authorised."
+   },
+   "RevealedRecord": {
+    "properties": {
+     "recordId": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Recordid"
+     },
+     "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Createdat"
+     },
+     "fields": {
+      "additionalProperties": {
+       "$ref": "#/components/schemas/JsonValue"
+      },
+      "type": "object",
+      "title": "Fields"
+     },
+     "identityPurgedAt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Identitypurgedat"
+     },
+     "textPurgedAt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Textpurgedat"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "recordId",
+     "createdAt",
+     "fields"
+    ],
+    "title": "RevealedRecord",
+    "description": "One record's plaintext, byte-for-byte as it is stored.\n\n``fields`` maps a :class:`RevealField` value to the column's value, and ``null`` there\nmeans **the column is NULL** \u2014 never a mask and never an empty string. That distinction\nis \u00a712.3's, and it is why the two purge stamps travel with every record: \"no name\" and\n\"name erased on schedule on 2026-05-14\" are different facts about a record, and a screen\nthat renders them identically cannot answer the question a data-subject request asks.\n\nBoth stamps are ``None`` on a ``user_profiles`` record and that is not \"never purged\nyet\": ``user_profiles`` carries no clock at all (PD-2) and ``/forget`` deletes the whole\nrow (PD-3), so an erased customer is a 404 from this endpoint and never a record with\nstamps on it. See ``services.reveal._read_user_profile``."
+   },
+   "StepUpAction": {
+    "type": "string",
+    "enum": [
+     "reveal",
+     "order.force_deliver",
+     "user.block",
+     "credit.grant",
+     "moderation.decide",
+     "user.purge",
+     "config.write",
+     "order.evidence_export",
+     "audit.export",
+     "admin.manage"
+    ],
+    "title": "StepUpAction",
+    "description": "The left half of a step-up scope.\n\nCoarser than :class:`Permission` in exactly one place: every reveal \u2014 a name, a note, a\nchat body, a moderation detail, an audio stream \u2014 is the single ``reveal`` action, so\nthe one audited reveal path in \u00a712.3 has one scope shape. Everything else maps 1:1,\nbecause a step-up for \"block this user\" must not authorise \"purge this user\"."
+   },
+   "StepUpRequest": {
+    "properties": {
+     "password": {
+      "type": "string",
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Password"
+     },
+     "scope": {
+      "$ref": "#/components/schemas/StepUpAction"
+     },
+     "subjectId": {
+      "type": "string",
+      "maxLength": 96,
+      "minLength": 1,
+      "title": "Subjectid"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "password",
+     "scope",
+     "subjectId"
+    ],
+    "title": "StepUpRequest",
+    "description": "Re-authentication for **one action on one subject** (\u00a712.1 T2).\n\n``scope`` is the action class and ``subjectId`` is what it is being taken against; the\nstored grant is the pair, compared whole. A body that named only the action would grant a\ndoor onto every subject the role can reach, which is the confused deputy the scope exists\nto close."
+   },
+   "StepUpResponse": {
+    "properties": {
+     "scope": {
+      "type": "string",
+      "title": "Scope"
+     },
+     "grantedAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Grantedat"
+     },
+     "expiresAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Expiresat"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "scope",
+     "grantedAt",
+     "expiresAt"
+    ],
+    "title": "StepUpResponse",
+    "description": "The grant, so the SPA can show what it covers and when it lapses."
+   },
+   "UserBlockRequest": {
+    "properties": {
+     "reasonCode": {
+      "$ref": "#/components/schemas/AuditReasonCode"
+     },
+     "reasonRef": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 64,
+        "pattern": "^[A-Za-z0-9#_-]{1,64}$"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasonref"
+     },
+     "reasonText": {
+      "anyOf": [
+       {
+        "type": "string",
+        "maxLength": 500
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Reasontext"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "reasonCode"
+    ],
+    "title": "UserBlockRequest",
+    "description": "``POST /users/{telegramUserId}/block`` and ``/unblock``.\n\nA reason and nothing else: which of the two states is being set is carried by the path,\nfor the reason the module docstring gives."
+   },
+   "UserBlockResultView": {
+    "properties": {
+     "telegramUserId": {
+      "type": "integer",
+      "title": "Telegramuserid"
+     },
+     "telegramUserIdMasked": {
+      "type": "string",
+      "title": "Telegramuseridmasked"
+     },
+     "isBlocked": {
+      "type": "boolean",
+      "title": "Isblocked"
+     },
+     "changedAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Changedat"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "telegramUserId",
+     "telegramUserIdMasked",
+     "isBlocked",
+     "changedAt"
+    ],
+    "title": "UserBlockResultView",
+    "description": "What the account looks like after the action, and when it was set.\n\nIt echoes ``isBlocked`` rather than returning nothing, because the two routes are\nidempotent by design: an operator who pressed block on an already-blocked account has to\nbe able to see that the state is what they wanted, and a 204 would leave the panel\nre-reading the list to find out.\n\n``changedAt`` is the instant the action was recorded, not \"when this account was first\nblocked\" \u2014 the ``users`` row carries no such column, and inventing one from ``updated_at``\nwould report the time of whatever last touched the row."
+   },
+   "UserDetailView": {
+    "properties": {
+     "user": {
+      "$ref": "#/components/schemas/UserView"
+     },
+     "ordersByState": {
+      "items": {
+       "$ref": "#/components/schemas/OrderStateCount"
+      },
+      "type": "array",
+      "title": "Ordersbystate"
+     },
+     "deliveredOrderCount": {
+      "type": "integer",
+      "title": "Deliveredordercount"
+     },
+     "failedOrderCount": {
+      "type": "integer",
+      "title": "Failedordercount"
+     },
+     "creditsProjected": {
+      "type": "integer",
+      "title": "Creditsprojected"
+     },
+     "inFlightRenderCount": {
+      "type": "integer",
+      "title": "Inflightrendercount"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "user",
+     "ordersByState",
+     "deliveredOrderCount",
+     "failedOrderCount",
+     "creditsProjected",
+     "inFlightRenderCount"
+    ],
+    "title": "UserDetailView"
+   },
+   "UserView": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "format": "uuid",
+      "title": "Id"
+     },
+     "telegramUserId": {
+      "type": "integer",
+      "title": "Telegramuserid"
+     },
+     "telegramUserIdMasked": {
+      "type": "string",
+      "title": "Telegramuseridmasked"
+     },
+     "uiLanguage": {
+      "$ref": "#/components/schemas/Language"
+     },
+     "isBlocked": {
+      "type": "boolean",
+      "title": "Isblocked"
+     },
+     "accountCreatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Accountcreatedat"
+     },
+     "firstOrderAt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Firstorderat"
+     },
+     "lastOrderAt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Lastorderat"
+     },
+     "orderCount": {
+      "type": "integer",
+      "title": "Ordercount"
+     },
+     "paidOrderCount": {
+      "type": "integer",
+      "title": "Paidordercount"
+     },
+     "isProfilePresent": {
+      "type": "boolean",
+      "title": "Isprofilepresent"
+     },
+     "telegramUsernameMasked": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Telegramusernamemasked"
+     },
+     "firstNameMasked": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Firstnamemasked"
+     },
+     "lastNameMasked": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Lastnamemasked"
+     },
+     "phoneMasked": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Phonemasked"
+     },
+     "phoneSharedAt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Phonesharedat"
+     },
+     "avatarFetchedAt": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date-time"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Avatarfetchedat"
+     },
+     "hasAvatar": {
+      "type": "boolean",
+      "title": "Hasavatar"
+     },
+     "avatarUrl": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Avatarurl"
+     },
+     "creditBalance": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Creditbalance"
+     },
+     "lifetimeCreditsGranted": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Lifetimecreditsgranted"
+     },
+     "allowancePeriod": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Allowanceperiod"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "id",
+     "telegramUserId",
+     "telegramUserIdMasked",
+     "uiLanguage",
+     "isBlocked",
+     "accountCreatedAt",
+     "firstOrderAt",
+     "lastOrderAt",
+     "orderCount",
+     "paidOrderCount",
+     "isProfilePresent",
+     "telegramUsernameMasked",
+     "firstNameMasked",
+     "lastNameMasked",
+     "phoneMasked",
+     "phoneSharedAt",
+     "avatarFetchedAt",
+     "hasAvatar",
+     "avatarUrl",
+     "creditBalance",
+     "lifetimeCreditsGranted",
+     "allowancePeriod"
+    ],
+    "title": "UserView",
+    "description": "One row of ``/users``. There is deliberately no ``lastSeenAt`` \u2014 see the module docs."
+   },
+   "UsersPage": {
+    "properties": {
+     "items": {
+      "items": {
+       "$ref": "#/components/schemas/UserView"
+      },
+      "type": "array",
+      "title": "Items"
+     },
+     "meta": {
+      "$ref": "#/components/schemas/PageMeta"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "items",
+     "meta"
+    ],
+    "title": "UsersPage"
+   },
+   "ValidationError": {
+    "properties": {
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Location"
+     },
+     "msg": {
+      "type": "string",
+      "title": "Message"
+     },
+     "type": {
+      "type": "string",
+      "title": "Error Type"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "ctx": {
+      "type": "object",
+      "title": "Context"
+     }
+    },
+    "type": "object",
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError"
+   },
+   "WizardStateView": {
+    "properties": {
+     "telegramUserId": {
+      "type": "integer",
+      "title": "Telegramuserid"
+     },
+     "telegramUserIdMasked": {
+      "type": "string",
+      "title": "Telegramuseridmasked"
+     },
+     "isStatePresent": {
+      "type": "boolean",
+      "title": "Isstatepresent"
+     },
+     "state": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "State"
+     },
+     "sessionId": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Sessionid"
+     },
+     "choices": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object",
+      "title": "Choices",
+      "default": {}
+     },
+     "textFields": {
+      "items": {
+       "$ref": "#/components/schemas/DraftFieldView"
+      },
+      "type": "array",
+      "title": "Textfields",
+      "default": []
+     },
+     "lyricWrites": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Lyricwrites"
+     }
+    },
+    "additionalProperties": false,
+    "type": "object",
+    "required": [
+     "telegramUserId",
+     "telegramUserIdMasked",
+     "isStatePresent"
+    ],
+    "title": "WizardStateView",
+    "description": "The projected FSM draft. No plaintext, at any role.\n\n``isStatePresent`` is false for a user with no live wizard session at all, which is the\nnormal state of everyone who is not mid-flow right now. It is distinct from a session\nthat exists and is empty, and from one whose TTL is about to take it: the draft expires\non the abandoned-draft clock (``build_storage``'s ``data_ttl``), so an absent state may\nsimply mean the sweep already happened."
+   }
+  }
+ }
+}

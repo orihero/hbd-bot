@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-label="Bayram — Bayram monogram">
+  <g transform="translate(3.9 0)">
+  <g stroke="#1C1620" stroke-width="9" stroke-linecap="round" fill="none">
+  <path d="M18.5 24V53"/>
+  <path d="M18.5 24H29A7.25 7.25 0 0 1 29 38.5H18.5"/>
+  <path d="M18.5 38.5H30.5A7.25 7.25 0 0 1 30.5 53H18.5"/>
+  </g>
+  <path d="M18.5 4.3C21.236 9.707 22.1 13.188 22.1 14.7a3.6 3.6 0 0 1 -7.2 0C14.9 13.188 15.764 9.707 18.5 4.3Z" fill="#BD32AF"/>
+  </g>
+</svg>
