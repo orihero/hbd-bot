@@ -231,4 +231,11 @@ async def test_a_store_that_refuses_the_write_does_not_stop_the_customer_arrivin
 
     await send(dispatcher, bot, "/start ig_bio")
 
-    assert session.calls, "the customer was answered with nothing at all"
+    # `assert session.calls` would NOT do. ErrorGuardMiddleware answers an escaped exception
+    # with an apology, so *something* is always sent — and this test would pass against the
+    # very defect it is named for. What distinguishes arriving from failing is WHICH screen.
+    texts = [getattr(call, "text", None) for call in session.calls]
+    assert texts, "the customer was answered with nothing at all"
+    assert translate("error.generic", Language.UZ_LATN) not in texts, (
+        "a label that failed to write turned the arrival into an apology"
+    )

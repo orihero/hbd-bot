@@ -807,6 +807,7 @@ async def test_every_method_returns_err_rather_than_raising_on_a_dead_session(
     results: dict[str, Result[Any]] = {
         "get": await store.get(_ALICE),
         "record_language": await store.record_language(_ALICE, ui_language=Language.EN),
+        "record_acquisition": await store.record_acquisition(_ALICE, source="ig_bio"),
         "record_contact": await store.record_contact(
             _ALICE, phone_e164=_PHONE, telegram_username=None, first_name=None, last_name=None
         ),
