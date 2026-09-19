@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Final
 
 from aiogram import F, Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
@@ -64,8 +64,71 @@ _TOO_LATE_KEY: Final[str] = "wizard.cancel_too_late"
 #: characters of ``A-Za-z0-9_-`` — and "paid" is inside every one of them.
 PAID_DEEP_LINK: Final[str] = "paid"
 
+#: Telegram's own rule for a ``/start`` payload: 1..64 characters of ``A-Za-z0-9_-``. It is
+#: restated here rather than imported from the bridge that builds the links, because this is
+#: the trust boundary — the payload is attacker-supplied text arriving over the wire, and a
+#: link built by hand, by a third party, or by a future campaign tool is not bound by what
+#: our own page happens to enforce client-side. A payload that does not match is DISCARDED
+#: rather than truncated: a truncated campaign label is a wrong answer wearing the shape of a
+#: right one, and "we do not know where this account came from" is the honest record.
+_MAX_ACQUISITION_SOURCE: Final[int] = 64
 
-async def handle_start(message: Message, state: FSMContext, deps: BotDeps) -> None:
+
+def _is_payload_character(character: str) -> bool:
+    """One character of Telegram's ``A-Za-z0-9_-``, ASCII-only.
+
+    ``isalnum()`` alone is not that test: it is true for ``é``, for Cyrillic, and for Arabic
+    digits, none of which Telegram will carry in a ``start`` payload. The ``isascii()`` guard
+    is what makes this the platform's rule rather than Python's.
+    """
+    return character.isascii() and (character.isalnum() or character in "_-")
+
+
+def _acquisition_source(args: str | None) -> str | None:
+    """The deep-link payload, if it is one Telegram could have carried. Else ``None``.
+
+    ``CommandObject.args`` is whatever followed ``/start``, unparsed. Telegram bounds a real
+    deep-link payload at :data:`_MAX_ACQUISITION_SOURCE` characters of ``A-Za-z0-9_-``, so
+    anything outside that did not come from a ``t.me`` link at all — it was typed, pasted, or
+    constructed — and recording it would put arbitrary user text into a column an operator
+    reads as a campaign name. Discarding beats truncating: see :data:`_MAX_ACQUISITION_SOURCE`.
+    """
+    if args is None:
+        return None
+    candidate = args.strip()
+    if not candidate or len(candidate) > _MAX_ACQUISITION_SOURCE:
+        return None
+    if not all(_is_payload_character(character) for character in candidate):
+        return None
+    return candidate
+
+
+async def _record_arrival(deps: BotDeps, telegram_user_id: int, args: str | None) -> None:
+    """Record where this account came from, and never let that stop it arriving.
+
+    **The failure is swallowed on purpose, and this is the same posture as
+    :meth:`UserProfileStore.record_avatar`.** A customer who taps the Instagram bio link has
+    come to order a song; a database that cannot write an analytics label right now is not a
+    reason to answer them with an error. ``run_guarded`` has already logged whatever went
+    wrong, so the silence is in the flow and not in the record.
+
+    ``paid`` never reaches here — :func:`handle_paid_return` claims it with a filter — so a
+    customer returning from the payment page is not recorded as having been acquired by the
+    checkout rail. Every other payload is a campaign label or is discarded.
+
+    ``deps.profiles is None`` is a real deployment and not a defect: it is the unwired
+    configuration :attr:`BotDeps.profiles` documents, in which no profile row exists to stamp.
+    An arrival there is simply unrecorded, exactly as the language choice is.
+    """
+    source = _acquisition_source(args)
+    if source is None or deps.profiles is None:
+        return
+    await deps.profiles.record_acquisition(telegram_user_id, source=source)
+
+
+async def handle_start(
+    message: Message, state: FSMContext, deps: BotDeps, command: CommandObject
+) -> None:
     """Three ways in, and which one is taken is decided by what we already know.
 
     **A returning customer is never asked a question we already have the answer to.** This
@@ -96,6 +159,8 @@ async def handle_start(message: Message, state: FSMContext, deps: BotDeps) -> No
     """
     user = message.from_user
     _LOG.info("wizard started", extra={"user_id": user.id if user is not None else None})
+    if user is not None:
+        await _record_arrival(deps, user.id, command.args)
     identity = await load_identity(state, deps, user.id if user is not None else None)
     # The identity's language when there is one, and the operator's configured default
     # otherwise: this is the one screen that must be drawn before anybody has chosen.
