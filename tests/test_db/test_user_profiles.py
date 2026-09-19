@@ -260,6 +260,65 @@ async def test_record_language_is_idempotent_and_keeps_the_first_choice_stamp(
     assert await _profile_rows(sessions) == 1
 
 
+async def test_record_acquisition_opens_the_row_and_keeps_the_first_campaign(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """First touch wins forever, and the first touch may be the account's first event at all.
+
+    This asserts the ``COALESCE`` in ``upsert_acquisition`` against real SQL rather than
+    against the in-memory fake, and the distinction is not academic: with the ``SET`` clause
+    changed to last-touch-wins, every bot-level test still passes, because those drive
+    ``FakeProfiles``. The column would read "wherever they last clicked" in production while
+    the suite stayed green.
+
+    ``language_chosen_at`` must stay ``None`` through both writes. An arrival is not a choice,
+    and ``handlers.onboarding._identify`` reads exactly that column to decide whether to draw
+    the language screen — so a stamp here would send every Instagram visitor past it.
+    """
+    # Arrange — a stranger arrives from the bio link, and comes back a day later by a highlight.
+    clock = MovableClock(_NOON)
+    store = _store(sessions, clock=clock)
+    await store.record_acquisition(_ALICE, source="ig_bio")
+    later = clock.advance(days=1)
+
+    # Act
+    await store.record_acquisition(_ALICE, source="ig_hl_narxlar")
+
+    # Assert — the first campaign stands, the row moved, and no second row was opened.
+    profile = await _unwrap(await store.get(_ALICE))  # type: ignore[arg-type]
+    assert profile.acquisition_source == "ig_bio"
+    assert profile.updated_at == later
+    assert profile.language_chosen_at is None
+    assert profile.is_onboarded is False
+    assert await _profile_rows(sessions) == 1
+
+
+async def test_record_language_after_an_arrival_keeps_the_campaign_and_stamps_the_choice(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The two writers touch one row and neither erases the other's column.
+
+    This is the real sequence for every customer the Instagram campaign buys: ``/start ig_bio``
+    opens the row, then the language screen is answered. ``record_language``'s value dict does
+    not mention ``acquisition_source`` and ``upsert_acquisition``'s does not mention
+    ``language_chosen_at``, so an overlap would show up here as one of them going ``None``.
+    """
+    # Arrange
+    clock = MovableClock(_NOON)
+    store = _store(sessions, clock=clock)
+    await store.record_acquisition(_ALICE, source="ig_bio")
+    later = clock.advance(seconds=3600)
+
+    # Act
+    profile = await _unwrap(await store.record_language(_ALICE, ui_language=Language.RU))
+
+    # Assert
+    assert profile.acquisition_source == "ig_bio"
+    assert profile.ui_language is Language.RU
+    assert profile.language_chosen_at == later
+    assert await _profile_rows(sessions) == 1
+
+
 async def test_record_language_is_authoritative_and_an_order_is_not(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:

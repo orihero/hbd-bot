@@ -31,7 +31,9 @@ from aiogram.fsm.storage.memory import MemoryStorage
 from bayram.bot.app import build_dispatcher
 from bayram.bot.deps import BotDeps
 from bayram.bot.handlers.start import PAID_DEEP_LINK
+from bayram.bot.i18n import translate
 from bayram.config import Settings
+from bayram.contracts import Language
 from bayram.errors import StorageError
 from tests.test_bot.conftest import (
     USER_ID,
@@ -71,6 +73,35 @@ async def test_the_bio_link_payload_is_recorded_on_a_first_ever_start(
     await send(dispatcher, bot, "/start ig_bio")
 
     assert profiles.rows[USER_ID].acquisition_source == "ig_bio"
+
+
+@pytest.mark.parametrize("arrivals", [1, 2], ids=["first-arrival", "repeated-arrival"])
+async def test_an_arrival_is_not_a_language_choice(
+    settings: Settings, bot: Bot, session: RecordingSession, arrivals: int
+) -> None:
+    """A stranger who taps the bio link is still asked which language to speak.
+
+    This is the defect that made recording an arrival dangerous rather than merely useless.
+    ``upsert_acquisition`` opens a profile row before any screen is drawn, and ``_identify``
+    used to read row existence as proof that a language had been chosen — so every Instagram
+    deep-link visitor skipped the language screen and was pinned to the operator default. A
+    Russian speaker who tapped the bio link got an Uzbek interface and was never asked again,
+    because the row persists. It hit exactly the traffic the campaign pays for, and nothing
+    else, which is why every existing walker missed it.
+
+    ``repeated-arrival`` is the case a smaller fix does not cover. Moving the recording below
+    ``load_identity`` rescues only the FIRST ``/start``: the second one finds the row the first
+    one opened and skips the screen again. The fix has to be that ``language_chosen_at``, not
+    row existence, answers "has this person chosen".
+    """
+    dispatcher, _ = wire(settings, FakeProfiles())
+
+    for _ in range(arrivals):
+        session.clear()
+        await send(dispatcher, bot, "/start ig_bio")
+
+    shown = [getattr(call, "text", "") for call in session.calls]
+    assert translate("onboarding.language.prompt", Language.UZ_LATN) in shown
 
 
 async def test_a_second_start_does_not_overwrite_the_first_campaign(
