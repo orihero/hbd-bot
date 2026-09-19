@@ -158,6 +158,33 @@ async def test_returning_from_the_payment_page_is_not_an_acquisition(
     assert USER_ID not in profiles.rows or profiles.rows[USER_ID].acquisition_source is None
 
 
+@pytest.mark.parametrize(
+    "text",
+    [f"/start {PAID_DEEP_LINK} ", f"/start  {PAID_DEEP_LINK}  "],
+    ids=["one-trailing-space", "padded-both-ends"],
+)
+async def test_whitespace_around_paid_does_not_smuggle_it_past_the_filter(
+    settings: Settings, bot: Bot, text: str
+) -> None:
+    """``/start paid `` misses the checkout filter, and must still not be an acquisition.
+
+    The filter compares ``F.args`` RAW; this recorder compares it stripped. ``str.split(
+    maxsplit=1)`` keeps trailing whitespace, so ``Command.extract_command("/start paid ").args``
+    is ``"paid "`` — which is not equal to ``"paid"``, misses ``handle_paid_return``, and lands
+    here. Strip it and you are holding the string the filter exists to exclude.
+
+    Without the explicit guard in ``_acquisition_source`` this test records ``paid`` and every
+    customer who returns from the payment page with a stray space is attributed to the payment
+    page, which would quietly make checkout the best campaign in the report.
+    """
+    dispatcher, profiles = wire(settings, FakeProfiles())
+
+    await send(dispatcher, bot, text)
+
+    recorded = profiles.rows[USER_ID].acquisition_source if USER_ID in profiles.rows else None
+    assert recorded is None, f"the checkout rail was recorded as a campaign: {recorded!r}"
+
+
 async def test_a_store_that_refuses_the_write_does_not_stop_the_customer_arriving(
     settings: Settings, bot: Bot, session: RecordingSession
 ) -> None:

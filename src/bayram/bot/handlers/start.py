@@ -92,11 +92,22 @@ def _acquisition_source(args: str | None) -> str | None:
     anything outside that did not come from a ``t.me`` link at all — it was typed, pasted, or
     constructed — and recording it would put arbitrary user text into a column an operator
     reads as a campaign name. Discarding beats truncating: see :data:`_MAX_ACQUISITION_SOURCE`.
+
+    **``paid`` is refused HERE as well as by the filter, and the redundancy is the point.**
+    :func:`handle_paid_return` claims ``/start paid`` one registration earlier, so in the happy
+    path this branch is dead — but the filter compares ``F.args`` RAW while this function
+    compares it stripped, and ``str.split(maxsplit=1)`` keeps trailing whitespace. ``/start
+    paid`` with one trailing space therefore arrives as ``"paid "``, misses the filter, reaches
+    here, and without this line would be stripped back to ``"paid"`` and recorded — making the
+    checkout rail look like the best-performing campaign we run. Proven, not theorised:
+    ``Command.extract_command("/start paid ").args == "paid "``.
     """
     if args is None:
         return None
     candidate = args.strip()
     if not candidate or len(candidate) > _MAX_ACQUISITION_SOURCE:
+        return None
+    if candidate == PAID_DEEP_LINK:
         return None
     if not all(_is_payload_character(character) for character in candidate):
         return None
