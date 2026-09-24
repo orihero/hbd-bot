@@ -19,6 +19,13 @@ removed only when BOTH hold:
   its row no longer exists at all. An absent row means retention already purged it, and the
   workspace copy of its audio has then outlived the promise the archive copy kept.
 
+  A terminal order whose song was never sent is NOT finished. ``DELIVERED`` is written
+  before Telegram is tried, so a kit the customer never received (they blocked the bot,
+  Telegram was down) is terminal with ``tg_file_id`` still NULL — and archival reports its
+  failures as gaps rather than failing the order, so its workspace can be the only copy of
+  what was paid for. A later replay reads that workspace. Such an order is kept until
+  retention removes its asset rows; that is rare enough to cost nothing.
+
 Anything else is kept: a live order, a directory whose name is not an id, a symlink, a stray
 file. The sweep deletes what it can PROVE is finished, never what it merely cannot explain.
 
@@ -63,9 +70,9 @@ from uuid import UUID
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from bayram.contracts import OrderState
+from bayram.contracts import AssetKind, OrderState
 from bayram.db.base import utc_now
-from bayram.db.models import OrderRow
+from bayram.db.models import AssetRow, OrderRow
 from bayram.errors import PipelineError
 from bayram.logging import get_logger
 from bayram.runtime.container import AppContainer
@@ -132,7 +139,7 @@ class WorkspaceSweepReport:
     kept_recent: int = 0
     #: Not a directory named by an id — left alone, never guessed at.
     skipped_unrecognised: int = 0
-    #: Removal was attempted and the filesystem refused. Logged one by one.
+    #: The filesystem refused to let it be measured or removed. Kept; logged one by one.
     failed: int = 0
 
     @property
@@ -159,6 +166,19 @@ class _Scan:
     orders: list[_Candidate] = field(default_factory=list)
     media: list[_Candidate] = field(default_factory=list)
     unrecognised: int = 0
+    #: Directories the filesystem would not let us measure. Kept, logged, and counted in
+    #: :attr:`WorkspaceSweepReport.failed` — one unreadable tree must not stop the rest.
+    failed: int = 0
+
+    def add(self, into: list[_Candidate], owner: UUID, path: Path) -> None:
+        try:
+            into.append(_candidate(owner, path))
+        except OSError as exc:
+            self.failed += 1
+            _LOG.error(
+                "a workspace could not be measured; it is kept",
+                extra={"path": str(path), "detail": str(exc)},
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -216,15 +236,24 @@ def _scan(root: Path) -> _Scan:
     with os.scandir(root) as entries:
         for entry in entries:
             if entry.name == MEDIA_WORKSPACE_DIRNAME and entry.is_dir(follow_symlinks=False):
-                media, unrecognised = _owned_directories(Path(entry.path))
+                try:
+                    media, unrecognised = _owned_directories(Path(entry.path))
+                except OSError as exc:
+                    scan.failed += 1
+                    _LOG.error(
+                        "the media workspace could not be listed; it is kept",
+                        extra={"path": entry.path, "detail": str(exc)},
+                    )
+                    continue
                 scan.unrecognised += unrecognised
-                scan.media.extend(_candidate(owner, path) for owner, path in media)
+                for media_owner, path in media:
+                    scan.add(scan.media, media_owner, path)
                 continue
             owner = _as_uuid(entry.name)
             if owner is None or not entry.is_dir(follow_symlinks=False):
                 scan.unrecognised += 1
                 continue
-            scan.orders.append(_candidate(owner, Path(entry.path)))
+            scan.add(scan.orders, owner, Path(entry.path))
     return scan
 
 
@@ -287,7 +316,7 @@ async def sweep_workspace(
 
     deleted = 0
     bytes_freed = 0
-    failed = 0
+    failed = scan.failed
     for candidate in deletable:
         try:
             removed = await asyncio.to_thread(_remove_if_still_idle, candidate.path, cutoff=cutoff)
@@ -330,16 +359,30 @@ def finished_orders_lookup(session_factory: async_sessionmaker[AsyncSession]) ->
 
     Reading the live set rather than the terminal one is what makes "gone" count as
     finished without a second query: an id with no row is simply never in the live set.
+    "Live" also takes in a terminal order holding a song Telegram never received — see the
+    module docstring: its workspace may be the only copy a replay can send.
     """
 
     async def lookup(ids: frozenset[UUID]) -> frozenset[UUID]:
         live: set[UUID] = set()
         async with session_factory() as session:
             for batch in _batches(ids):
+                unsent_song = (
+                    sa.select(AssetRow.id)
+                    .where(
+                        AssetRow.order_id == OrderRow.id,
+                        AssetRow.kind == AssetKind.SONG,
+                        AssetRow.tg_file_id.is_(None),
+                    )
+                    .exists()
+                )
                 rows = await session.execute(
                     sa.select(OrderRow.id).where(
                         OrderRow.id.in_(batch),
-                        OrderRow.state.not_in(tuple(TERMINAL_ORDER_STATES)),
+                        sa.or_(
+                            OrderRow.state.not_in(tuple(TERMINAL_ORDER_STATES)),
+                            unsent_song,
+                        ),
                     )
                 )
                 live.update(rows.scalars().all())

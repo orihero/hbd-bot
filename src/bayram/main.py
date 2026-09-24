@@ -125,7 +125,8 @@ def refuse_an_unsafe_checkout_rail(settings: Settings) -> None:
     was right for a stub that reports every purchase paid and takes nothing. It is not right
     for a rail that takes real money: with ``credits_enforced`` false the worker covers a
     short balance with an ``UNENFORCED_RENDER`` grant and renders anyway, so the customer is
-    charged 7 000 UZS and would have got the song for nothing. The failure is silent, it is
+    charged the song price (``single_song_price_minor``) and would have got the song for
+    nothing. The failure is silent, it is
     on the money path, and nothing else in the process would ever notice it — the bot-side
     paywall deliberately does not read that flag. So the two settings must move in the same
     edit, and this refusal is what makes that mandatory rather than remembered. The warning

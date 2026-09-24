@@ -18,7 +18,8 @@ from uuid import UUID, uuid4
 import pytest
 
 from bayram.config import ENV_PREFIX, Settings
-from bayram.contracts import OrderState, is_ok
+from bayram.contracts import AssetKind, OrderState, is_ok
+from bayram.db.models import AssetRow
 from bayram.errors import PipelineError
 from bayram.runtime.container import build_container
 from bayram.runtime.jobs import build_kit_worker_settings
@@ -243,6 +244,44 @@ async def test_a_missing_workspace_root_is_an_empty_sweep(tmp_path: Path) -> Non
     assert report.examined == 0
 
 
+async def test_one_unreadable_workspace_does_not_stop_the_rest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tree the filesystem will not let us measure is kept and counted, not fatal.
+
+    Before, one ``PermissionError`` escaped the whole scan and the cron turned it into an
+    empty report — every hour, for every workspace, for as long as that directory stayed.
+    """
+    # Arrange
+    unreadable, sweepable = uuid4(), uuid4()
+    for owner in (unreadable, sweepable):
+        _workspace(tmp_path, owner, age=_OLD)
+    blocked = tmp_path / str(unreadable)
+    real_lstat = Path.lstat
+
+    def lstat(self: Path) -> os.stat_result:
+        if self == blocked:
+            raise PermissionError(13, "Permission denied", str(self))
+        return real_lstat(self)
+
+    monkeypatch.setattr(Path, "lstat", lstat)
+
+    # Act
+    report = await sweep_workspace(
+        tmp_path,
+        now=_NOW,
+        finished_orders=_lookup({unreadable, sweepable}),
+        finished_media_jobs=finished_media_jobs_before_m2,
+    )
+
+    # Assert
+    assert not (tmp_path / str(sweepable)).exists()
+    assert blocked.is_dir()
+    assert report.deleted == 1
+    assert report.failed == 1
+    assert report.examined == 2
+
+
 # ---------------------------------------------------------------------------
 # The cron entry point, over a real container and real order states
 # ---------------------------------------------------------------------------
@@ -283,6 +322,53 @@ async def test_the_cron_sweeps_terminal_orders_and_keeps_live_ones(tmp_path: Pat
         assert summary["deleted"] == 4
         assert summary["kept_live"] == 2
         assert summary["error"] is None
+    finally:
+        await container.engine.dispose()
+
+
+async def test_the_cron_keeps_a_delivered_order_whose_song_never_reached_telegram(
+    tmp_path: Path,
+) -> None:
+    """DELIVERED is written before the send; an unsent song may exist only in the workspace.
+
+    A later replay reads the song from that path, so the sweep must treat the order as live
+    until Telegram holds a copy (``tg_file_id``) or retention has removed its assets.
+    """
+    # Arrange
+    container = await build_container(
+        _settings(tmp_path), data_root=tmp_path / "var", with_providers=False
+    )
+    try:
+        unsent = new_order(state=OrderState.DELIVERED, telegram_user_id=_USER)
+        sent = new_order(state=OrderState.DELIVERED, telegram_user_id=_USER)
+        for order, file_id in ((unsent, None), (sent, "tg-file-1")):
+            created = await container.repository.create_order(order)
+            assert is_ok(created), created
+            async with container.require_session_factory()() as session, session.begin():
+                session.add(
+                    AssetRow(
+                        order_id=order.id,
+                        kind=AssetKind.SONG,
+                        path=f"/workspace/{order.id}/song.mp3",
+                        mime="audio/mpeg",
+                        sha256="0" * 64,
+                        tg_file_id=file_id,
+                        expires_at=datetime.now(UTC) + timedelta(days=365),
+                    )
+                )
+        now = datetime.now(UTC)
+        for order in (unsent, sent):
+            _workspace(container.workspace_root, order.id, age=_OLD, now=now)
+
+        # Act
+        summary = await run_workspace_sweep({"container": container}, now=now)
+
+        # Assert
+        root = container.workspace_root
+        assert (root / str(unsent.id)).is_dir()
+        assert not (root / str(sent.id)).exists()
+        assert summary["deleted"] == 1
+        assert summary["kept_live"] == 1
     finally:
         await container.engine.dispose()
 

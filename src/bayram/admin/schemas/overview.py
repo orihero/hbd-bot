@@ -1436,7 +1436,7 @@ def _to_net_run_rate(
 
 
 #: Minor units in one major unit. The som's subunit is the tiyin at 1/100, which is what
-#: ``single_song_price_minor``'s 700 000 for 7 000 soʻm already assumes.
+#: ``single_song_price_minor`` (1 500 000 for 15 000 soʻm by default) already assumes.
 _MINOR_UNITS_PER_MAJOR: int = 100
 
 

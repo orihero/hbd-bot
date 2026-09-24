@@ -9,6 +9,7 @@ under ``integration``.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Final
 
 import httpx
@@ -18,7 +19,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from bayram.config import Settings, build_settings
 from bayram.contracts import Err, LlmRequest, LyricDraft, LyricSection, Result
-from bayram.errors import ErrorCode, ProviderUnavailableError
+from bayram.errors import ErrorCode, ProviderRejectedContentError, ProviderUnavailableError
 from bayram.pipeline.moderation import (
     MODERATION_ATTEMPTS,
     UNREVIEWED_USER_MESSAGE_KEY,
@@ -28,6 +29,7 @@ from bayram.pipeline.moderation import (
 )
 from bayram.pipeline.prompts import moderation_system_prompt, moderation_user_prompt
 from bayram.providers.llm.factory import build_llm_provider
+from bayram.providers.llm.json_schema import to_gemini_schema, to_openai_strict_schema
 from bayram.providers.llm.parsing import parse_model_json
 from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_lyrics
 from tests.test_pipeline.conftest import FakeLlmProvider, failure_of
@@ -121,12 +123,50 @@ async def test_a_transport_error_never_allows_the_brief(
 
     # Assert
     error = failure_of(result)
-    assert error.error_code is ErrorCode.CONTENT_REJECTED
+    assert error.error_code is ErrorCode.MODERATION_UNAVAILABLE
     assert error.is_retryable is False
     assert error.user_message_key == UNREVIEWED_USER_MESSAGE_KEY
     assert error.context["needs_review"] is True
     assert error.context["failure"] == ErrorCode.UPSTREAM_5XX.value
     assert len(llm.requests) == MODERATION_ATTEMPTS
+
+
+async def test_a_vendor_safety_block_is_a_refusal_asked_once_and_not_an_outage(
+    settings: Settings,
+) -> None:
+    """The reviewer vendor's own filter blocking the prompt is a judgement, not a failure.
+
+    It is deterministic at temperature 0, so retrying buys two identical refusals; and it
+    is a decision about the words, so the customer is told so and nobody is paged.
+    """
+    # Arrange
+    llm = FakeLlmProvider()
+    for _ in range(MODERATION_ATTEMPTS):
+        llm.fail_next(
+            "ModerationPayload", ProviderRejectedContentError("blocked: SAFETY", provider="fake")
+        )
+
+    # Act
+    result = await LlmModerator(llm, settings).review(make_brief(note="a kind note"))
+
+    # Assert
+    error = failure_of(result)
+    assert error.error_code is ErrorCode.CONTENT_REJECTED
+    assert error.user_message_key == "error.content_not_allowed"
+    assert "needs_review" not in error.context
+    assert len(llm.requests) == 1
+
+
+@pytest.mark.parametrize("convert", [to_gemini_schema, to_openai_strict_schema])
+def test_the_verdict_schema_sent_to_the_model_carries_no_developer_notes(
+    convert: Callable[[type[BaseModel]], dict[str, object]],
+) -> None:
+    """The class docstring becomes the schema ``description`` the reviewer model reads."""
+    schema = convert(ModerationPayload)
+
+    assert schema.get("description") == (
+        "The reviewer's verdict: whether the brief is allowed, and a short reason."
+    )
 
 
 class _RawReplyLlm(FakeLlmProvider):
@@ -173,7 +213,7 @@ async def test_a_reply_without_an_explicit_is_allowed_blocks(settings: Settings,
 
     # Assert
     error = failure_of(result)
-    assert error.error_code is ErrorCode.CONTENT_REJECTED
+    assert error.error_code is ErrorCode.MODERATION_UNAVAILABLE
     assert error.context["failure"] == ErrorCode.PARSE_FAILED.value
     assert len(llm.requests) == MODERATION_ATTEMPTS
 

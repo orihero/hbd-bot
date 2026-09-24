@@ -27,6 +27,7 @@ __all__ = [
     "ValidationError",
     "NotFoundError",
     "ModerationRejectedError",
+    "ModerationUnavailableError",
     "ProviderError",
     "ProviderTimeoutError",
     "ProviderRateLimitedError",
@@ -62,6 +63,10 @@ class ErrorCode(StrEnum):
     INVALID_INPUT = "INVALID_INPUT"
     NOT_FOUND = "NOT_FOUND"
     CONTENT_REJECTED = "CONTENT_REJECTED"
+    # Not CONTENT_REJECTED: nothing judged the brief. The moderation model gave no verdict,
+    # so the brief was refused unreviewed (IMAGE_VIDEO_SPEC §6.8) — an outage, which an
+    # operator must be able to count apart from genuine refusals.
+    MODERATION_UNAVAILABLE = "MODERATION_UNAVAILABLE"
 
     # Provider transport
     RATE_LIMITED = "RATE_LIMITED"
@@ -223,6 +228,20 @@ class ModerationRejectedError(BayramError):
 
     code = ErrorCode.CONTENT_REJECTED
     default_user_message_key = "error.content_not_allowed"
+    default_is_retryable = False
+
+
+class ModerationUnavailableError(BayramError):
+    """No moderation verdict could be obtained, so the brief was refused unreviewed.
+
+    Its own code rather than a ``ModerationRejectedError`` because a ``LIKE
+    'CONTENT_REJECTED%'`` count of refused briefs must not silently include outages
+    (IMAGE_VIDEO_SPEC §6.8 asks for them to be marked for review). Terminal: the moderator
+    already retried, and the worker's refund path is the right place for a paid order.
+    """
+
+    code = ErrorCode.MODERATION_UNAVAILABLE
+    default_user_message_key = "error.service_unavailable"
     default_is_retryable = False
 
 
