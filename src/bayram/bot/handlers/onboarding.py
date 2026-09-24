@@ -1,4 +1,11 @@
-"""First contact: which language to speak, and the phone number. Two screens, one gate.
+"""First contact: which language to speak, the Terms, and the phone number. One gate.
+
+**The Terms step (IMAGE_VIDEO_SPEC §2.1, D26)** sits between the other two and exists only
+while the gate is on (``BotDeps.terms``). Its handlers live in ``handlers.terms`` and are
+registered HERE, above the ``NotOnboarded`` catch-all, because the catch-all would otherwise
+claim a not-yet-onboarded customer's ✅ and answer it with the screen they were looking at.
+Every "where does this customer resume?" answer in this module and in ``/start`` is ordered
+language → terms → contact.
 
 **Why this is a ROUTER and not a middleware.** A middleware can refuse an update with a
 sentence; it cannot set an FSM state and it cannot render a screen. "Please tell me which
@@ -68,13 +75,22 @@ from bayram.bot.screens import (
     menu_screen,
     onboarding_contact_screen,
     onboarding_language_screen,
+    terms_screen,
 )
 from bayram.bot.states import Onboarding, Wizard
 from bayram.contracts import Err, Language
 from bayram.logging import get_logger
+from bayram.terms import TermsStanding
 from bayram.user_profiles import normalise_phone
 
-__all__ = ["build_router", "Identity", "NotOnboarded", "load_identity"]
+__all__ = [
+    "build_router",
+    "Identity",
+    "NotOnboarded",
+    "load_identity",
+    "present_terms",
+    "terms_standing",
+]
 
 _LOG = get_logger(__name__)
 
@@ -94,7 +110,7 @@ ONBOARDED_VALUE: Final[bool] = True
 class Identity:
     """What the routers need to know about a customer before anything else happens.
 
-    Three flat fields rather than the :class:`~bayram.user_profiles.UserProfile` itself, and the
+    Flat fields rather than the :class:`~bayram.user_profiles.UserProfile` itself, and the
     difference is not cosmetic: the FSM cache can answer the first two with no row at all, so
     a type that required a profile would force :func:`load_identity` to invent one on the
     cheap path — and would put a phone number into the hands of two handlers and a ``/start``
@@ -114,6 +130,13 @@ class Identity:
     #: than a fallback for the reason ``middleware.resolve_language_or_none`` gives: a guess
     #: that is indistinguishable from a choice gets written down as one.
     ui_language: Language | None
+    #: Whether the Terms in force have been accepted (IMAGE_VIDEO_SPEC §2.1). ``False`` only
+    #: for a customer mid-onboarding — a language chosen, no number yet — while the gate is on
+    #: and the ledger says so. Every other path says ``True`` and means "not this field's
+    #: question": before the language is chosen the language comes first, and for an
+    #: onboarded customer ``TermsGateMiddleware`` asks instead. Defaulted, so the three
+    #: fail-open constructions above stay what they were.
+    terms_ok: bool = True
 
 
 def _language_from(data: dict[str, object]) -> Language | None:
@@ -259,7 +282,42 @@ async def _identify(state: FSMContext, deps: BotDeps, telegram_user_id: int | No
         # with nothing chosen, the honest language is whatever the FSM holds, not the default
         # the ``users`` row happens to carry.
         return Identity(profile.is_onboarded, False, _language_from(data))
-    return Identity(profile.is_onboarded, True, profile.ui_language)
+    if profile.is_onboarded:
+        return Identity(True, True, profile.ui_language)
+    # Mid-onboarding with a language: the one customer for whom "which step next?" depends on
+    # the Terms. Asked only here, so the cheap path above never pays for it.
+    is_terms_ok = await terms_standing(deps, telegram_user_id) is TermsStanding.ACCEPTED
+    return Identity(False, True, profile.ui_language, is_terms_ok)
+
+
+async def terms_standing(deps: BotDeps, telegram_user_id: int | None) -> TermsStanding:
+    """Where this account stands against the Terms in force. ``ACCEPTED`` when there is no gate.
+
+    No gate (``deps.terms is None``) and no sender both answer ``ACCEPTED``, which is "nothing
+    to ask", never a claim that a row exists. :meth:`bayram.terms.TermsGate.standing` never
+    raises and fails open, so neither does this.
+    """
+    if deps.terms is None or telegram_user_id is None:
+        return TermsStanding.ACCEPTED
+    return await deps.terms.standing(telegram_user_id)
+
+
+async def present_terms(
+    event: Event,
+    deps: BotDeps,
+    language: Language,
+    *,
+    standing: TermsStanding = TermsStanding.NEVER,
+    is_repeat: bool = False,
+) -> None:
+    """Draw the Terms gate screen. A no-op with no gate wired, which no caller reaches."""
+    gate = deps.terms
+    if gate is None:
+        return
+    await present(
+        event,
+        terms_screen(language, gate.versions, standing=standing, url=gate.url, is_repeat=is_repeat),
+    )
 
 
 class NotOnboarded(Filter):
@@ -314,6 +372,14 @@ async def handle_language_chosen(
                 "the chosen interface language could not be persisted",
                 extra=recorded.error.to_log_dict(),
             )
+    standing = await terms_standing(deps, user.id)
+    if standing is not TermsStanding.ACCEPTED:
+        # The Terms come next, in the language just chosen (IMAGE_VIDEO_SPEC §2.1). Drawn OVER
+        # the language screen rather than under a "language saved" receipt: the four language
+        # buttons have to go anyway, and one message is less to scroll past than two.
+        await state.set_state(Onboarding.terms)
+        await present_terms(callback, deps, language, standing=standing)
+        return
     await state.set_state(Onboarding.contact)
     # ``settings.language.saved`` and not an onboarding-only twin of it: "✅ Language saved."
     # is exactly what happened, and inventing a second sentence for one event is how two
@@ -497,6 +563,13 @@ async def _resume_onboarding(
         await state.set_state(Onboarding.language)
         await present(event, onboarding_language_screen(language))
         return
+    if not identity.terms_ok:
+        # Language → TERMS → contact (IMAGE_VIDEO_SPEC §2.1). A Redis FSM expiry while the
+        # customer sat on the Terms lands here, and brings the Terms back rather than skipping
+        # them to the contact screen.
+        await state.set_state(Onboarding.terms)
+        await present_terms(event, deps, language)
+        return
     await state.set_state(Onboarding.contact)
     await present(event, onboarding_contact_screen(language))
 
@@ -531,6 +604,9 @@ async def handle_blocked_callback(
 def build_router() -> Router:
     """Registered THIRD. Both observers stand down for ``Wizard.submitting``.
 
+    The Terms handlers ride on this router, registered before everything else in it — see the
+    comment at their registration and the module docstring.
+
     That stand-down is ONE declarative filter rather than a guard in each of the eight
     handlers below, because ``handlers.submitting`` claims every message and every callback in
     that state and its claim is load-bearing: ``commands.handle_forget`` re-parks a running
@@ -549,6 +625,13 @@ def build_router() -> Router:
     router = Router(name="onboarding")
     router.message.filter(~StateFilter(Wizard.submitting))
     router.callback_query.filter(~StateFilter(Wizard.submitting))
+    # The Terms handlers FIRST — above the ``NotOnboarded`` catch-all at the bottom, which
+    # would otherwise claim a not-yet-onboarded customer's ✅ (IMAGE_VIDEO_SPEC §2.1). Imported
+    # here rather than at module level because ``handlers.terms`` imports this module for
+    # ``load_identity``; the import runs once per dispatcher build.
+    from bayram.bot.handlers import terms
+
+    terms.register(router)
     router.callback_query.register(
         handle_language_chosen,
         Onboarding.language,

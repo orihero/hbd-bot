@@ -33,7 +33,7 @@ from bayram.bot.handlers.common import (
     say,
     ui_language,
 )
-from bayram.bot.handlers.onboarding import load_identity
+from bayram.bot.handlers.onboarding import load_identity, present_terms, terms_standing
 from bayram.bot.handlers.submitting import (
     STILL_IN_STUDIO_KEY,
     order_in_flight,
@@ -44,6 +44,7 @@ from bayram.bot.middleware import resolve_language
 from bayram.bot.screens import menu_screen, onboarding_contact_screen, onboarding_language_screen
 from bayram.bot.states import Onboarding
 from bayram.logging import get_logger
+from bayram.terms import TermsStanding
 
 __all__ = ["build_router", "handle_paid_return", "PAID_DEEP_LINK"]
 
@@ -140,7 +141,11 @@ async def _record_arrival(deps: BotDeps, telegram_user_id: int, args: str | None
 async def handle_start(
     message: Message, state: FSMContext, deps: BotDeps, command: CommandObject
 ) -> None:
-    """Three ways in, and which one is taken is decided by what we already know.
+    """Four ways in, and which one is taken is decided by what we already know.
+
+    **The Terms (IMAGE_VIDEO_SPEC §2.1) are the third question, between language and contact**,
+    and an onboarded customer who owes the version in force is shown them instead of the menu.
+    With no gate wired neither branch is reachable.
 
     **A returning customer is never asked a question we already have the answer to.** This
     command used to re-ask the interface language on every single send, which made it the most
@@ -181,10 +186,24 @@ async def handle_start(
         await present(message, onboarding_language_screen(language))
         return
     if not identity.is_onboarded:
+        if not identity.terms_ok:
+            # Language → TERMS → contact (IMAGE_VIDEO_SPEC §2.1): ``/start`` typed on the
+            # Terms step, or after the FSM expired there, brings the Terms back — never the
+            # contact screen, which would skip them.
+            await state.set_state(Onboarding.terms)
+            await present_terms(message, deps, language)
+            return
         await state.set_state(Onboarding.contact)
         await present(message, onboarding_contact_screen(language))
         return
     await clear_keeping_identity(state)
+    standing = await terms_standing(deps, user.id if user is not None else None)
+    if standing is not TermsStanding.ACCEPTED:
+        # An onboarded customer who owes the Terms in force gets them instead of the menu: the
+        # menu's every button would be stopped by ``TermsGateMiddleware`` anyway, and ``/start``
+        # is what somebody types when they are lost.
+        await present_terms(message, deps, await ui_language(state, deps), standing=standing)
+        return
     await present(message, menu_screen(await ui_language(state, deps)))
 
 

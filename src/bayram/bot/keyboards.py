@@ -49,6 +49,8 @@ from bayram.bot.callbacks import (
     OccasionCB,
     SupportAction,
     SupportCB,
+    TermsAction,
+    TermsCB,
     VocalGenderCB,
     pack_reference,
 )
@@ -84,6 +86,7 @@ __all__ = [
     "main_menu_keyboard",
     "contact_request_keyboard",
     "settings_keyboard",
+    "terms_keyboard",
     "LANGUAGE_COLUMNS",
     "GENRE_COLUMNS",
     "OCCASION_COLUMNS",
@@ -876,4 +879,34 @@ def settings_keyboard(language: Language) -> InlineKeyboardMarkup:
         NavAction.TO_MENU,
     ):
         builder.row(_nav_button(action, language))
+    return builder.as_markup()
+
+
+def terms_keyboard(
+    language: Language, *, is_read_full_offered: bool = True
+) -> InlineKeyboardMarkup:
+    """✅ I accept, and 📄 Read in full under it (IMAGE_VIDEO_SPEC §2.1).
+
+    No decline button, deliberately: declining is just not accepting, and a ❌ would need a
+    screen of its own that says the same as this one. No Back and no Cancel either — there is
+    nothing behind the gate to go back to. One button per row, so neither label is measured
+    against the other's width.
+
+    ``is_read_full_offered`` is false under the full text itself, where 📄 would redraw the
+    screen the customer is already reading.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text=translate("button.terms.accept", language),
+            callback_data=TermsCB(action=TermsAction.ACCEPT).pack(),
+        )
+    )
+    if is_read_full_offered:
+        builder.row(
+            InlineKeyboardButton(
+                text=translate("button.terms.read_full", language),
+                callback_data=TermsCB(action=TermsAction.READ_FULL).pack(),
+            )
+        )
     return builder.as_markup()

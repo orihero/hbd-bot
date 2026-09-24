@@ -25,6 +25,8 @@ __all__ = [
     "VocalGenderCB",
     "NavCB",
     "SupportCB",
+    "TermsAction",
+    "TermsCB",
     "NO_REFERENCE",
     "pack_reference",
     "read_reference",
@@ -191,6 +193,29 @@ class SupportCB(CallbackData, prefix="sup"):
 
     action: SupportAction
     ref: str
+
+
+class TermsAction(StrEnum):
+    """The two buttons under the Terms screen (IMAGE_VIDEO_SPEC §2.1)."""
+
+    #: ✅ I accept. Records the acceptance of the version pair in force AT THE TAP, not the
+    #: one on screen — a button drawn before a version bump accepts the new pair, which is the
+    #: text ``/terms`` would now show. The payload therefore carries no version.
+    ACCEPT = "ok"
+    #: 📄 Read in full. Draws the whole Terms of Use over the summary.
+    READ_FULL = "full"
+
+
+class TermsCB(CallbackData, prefix="trm"):
+    """Its own prefix so the terms screen depends on no other router (IMAGE_VIDEO_SPEC §2.1).
+
+    Both handlers are registered with NO state filter inside the onboarding router, above its
+    ``NotOnboarded`` catch-all — a not-yet-onboarded customer's ✅ would otherwise be claimed by
+    the catch-all and answered with the screen they were already looking at — and every
+    ``trm:*`` callback passes ``TermsGateMiddleware``.
+    """
+
+    action: TermsAction
 
 
 def pack_reference(value: UUID | None) -> str:

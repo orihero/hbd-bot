@@ -20,7 +20,7 @@ from bayram.bot.i18n import FALLBACK_LANGUAGE, translate
 from bayram.bot.keyboards import MENU_LABELS, start_over_keyboard
 from bayram.bot.middleware import resolve_language_or_none
 from bayram.bot.pricing import CheckoutOffer
-from bayram.bot.screens import Screen, render_step, resolve_step
+from bayram.bot.screens import Screen, render_step, resolve_step, with_legal_status
 from bayram.bot.states import WizardStep, state_for
 from bayram.contracts import Err, Language
 from bayram.errors import BayramError
@@ -352,7 +352,7 @@ def support_text(language: Language, contact: str) -> str:
     return translate("support.text", language, contact=trimmed)
 
 
-def privacy_text(language: Language, policy: RetentionPolicy) -> str:
+def privacy_text(language: Language, policy: RetentionPolicy, *, version: str = "") -> str:
     """The retention notice, said the same way from both surfaces that offer it.
 
     Two surfaces render it — the ``/privacy`` command and the 🔒 button on the Settings
@@ -368,20 +368,28 @@ def privacy_text(language: Language, policy: RetentionPolicy) -> str:
     module's own rule — a notice that says thirty days while the job runs sixty is worse than
     no notice — is the reason.
 
-    **Four kwargs and no fifth.** ``privacy.text``'s placeholder set is fixed by
+    **Six kwargs and no seventh.** ``privacy.text``'s placeholder set is fixed by
     ``tests/test_bot/test_i18n.py``, which asserts placeholder-set equality across the four
-    catalogues; a fifth kwarg with no matching placeholder would be silently dropped by
+    catalogues; a kwarg with no matching placeholder would be silently dropped by
     ``i18n._SafeParams`` and would read, to whoever added it, as a period that simply never
-    appeared.
+    appeared. The two media periods joined the four in M1.2, when this became the versioned
+    Privacy Notice (IMAGE_VIDEO_SPEC §2.1, Appendix A.2) rather than a retention list alone.
+
+    **It is THE Privacy Notice, not one of two.** The notice the Terms gate asks customers to
+    accept is this text: ``version`` is ``Settings.privacy_version`` and is printed under it,
+    and ``screens.with_legal_status`` heads it with the draft banner until counsel's sign-off.
     """
-    return translate(
+    body = translate(
         "privacy.text",
         language,
         recipient_identity_days=policy.recipient_identity_days,
         brief_text_days=policy.brief_text_days,
         paid_audio_days=policy.paid_audio_days,
         abandoned_draft_days=policy.abandoned_draft_days,
+        media_input_hours=policy.media_input_max_hours,
+        media_output_days=policy.media_output_days,
     )
+    return with_legal_status(language, body, version=version)
 
 
 def error_text(error: BayramError, language: Language) -> str:

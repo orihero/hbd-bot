@@ -138,7 +138,10 @@ async def handle_show_privacy(callback: CallbackQuery, state: FSMContext, deps: 
     """
     await callback.answer()
     language = await ui_language(state, deps)
-    await say(callback, privacy_text(language, DEFAULT_RETENTION_POLICY))
+    await say(
+        callback,
+        privacy_text(language, DEFAULT_RETENTION_POLICY, version=deps.settings.privacy_version),
+    )
 
 
 async def handle_show_support(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:

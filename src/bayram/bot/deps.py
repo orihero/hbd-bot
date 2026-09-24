@@ -29,6 +29,7 @@ from bayram.entitlements import EntitlementStore
 from bayram.lyric_budget import LyricBudgetStore
 from bayram.pipeline.ports import ContentWriter
 from bayram.support import SupportTicketStore
+from bayram.terms import TermsGate
 from bayram.user_profiles import UserProfileStore
 
 __all__ = ["BotDeps", "DEPS_KEY"]
@@ -272,3 +273,19 @@ class BotDeps:
     #: half of the support feature is simply off — the ticket is still written, the customer is
     #: still answered and the panel board is still populated.
     bot_chats: BotChatDirectory | None = None
+    #: THE TERMS + PRIVACY GATE (IMAGE_VIDEO_SPEC §2.1, D26): the version pair in force, the
+    #: ``terms_acceptances`` ledger behind a ``Result`` seam, and the ``terms:ok:{tg}`` cache.
+    #:
+    #: A WRITE port, and the fifth on this container, so the rule ``entitlements`` states is
+    #: checked once more: it cannot express a charge, a grant or a refusal of an order. It
+    #: records that somebody accepted a text, and ``/forget`` drops its cache entry.
+    #:
+    #: ``None`` means NO GATE, and it is the shipped default: ``bayram.main`` builds one only
+    #: when ``BAYRAM_TERMS_VERSION`` and ``BAYRAM_PRIVACY_VERSION`` are set and a database is
+    #: wired. With it unset onboarding is the two screens it always was, the middleware is not
+    #: installed, and ``/terms`` shows the text with nothing to accept.
+    #:
+    #: TRAILING and DEFAULTED for the reason measured on ``profiles``: the whole bot suite
+    #: builds ``BotDeps`` by keyword, and a field inserted anywhere but the end, or without a
+    #: default, breaks every construction site at once.
+    terms: TermsGate | None = None

@@ -36,6 +36,7 @@ from bayram.bot.handlers.commands import (
     handle_privacy,
     handle_support,
 )
+from bayram.bot.handlers.common import privacy_text
 from bayram.bot.handlers.submitting import ORDER_ID_KEY
 from bayram.bot.i18n import FALLBACK_LANGUAGE, translate
 from bayram.bot.states import Wizard
@@ -145,15 +146,15 @@ async def test_help_answers_in_the_chosen_interface_language(
 # /privacy
 # ---------------------------------------------------------------------------
 async def test_privacy_states_the_periods_the_purge_job_actually_runs_on(
-    bot: Bot, session: RecordingSession, state: FSMContext
+    bot: Bot, session: RecordingSession, state: FSMContext, deps: BotDeps
 ) -> None:
     """A notice that disagrees with the code is worse than no notice.
 
-    The four periods are interpolated from ``DEFAULT_RETENTION_POLICY`` at call time, so
+    The six periods are interpolated from ``DEFAULT_RETENTION_POLICY`` at call time, so
     this fails the moment somebody shortens one without revisiting the copy.
     """
     # Arrange / Act
-    await handle_privacy(bound_message("/privacy", bot), state)
+    await handle_privacy(bound_message("/privacy", bot), state, deps)
 
     # Assert
     text = session.last_screen.text
@@ -163,20 +164,22 @@ async def test_privacy_states_the_periods_the_purge_job_actually_runs_on(
         policy.brief_text_days,
         policy.paid_audio_days,
         policy.abandoned_draft_days,
+        policy.media_input_max_hours,
+        policy.media_output_days,
     ):
         assert str(days) in text
     assert "{" not in text, "an unfilled placeholder reached the customer"
 
 
 async def test_privacy_does_not_disturb_a_half_typed_wizard(
-    dispatcher: Dispatcher, bot: Bot, state: FSMContext
+    dispatcher: Dispatcher, bot: Bot, state: FSMContext, deps: BotDeps
 ) -> None:
     """Reading the privacy notice must not cost the user the answers they have given."""
     # Arrange
     await walk_to_name(dispatcher, bot)
 
     # Act
-    await handle_privacy(bound_message("/privacy", bot), state)
+    await handle_privacy(bound_message("/privacy", bot), state, deps)
 
     # Assert
     assert await state.get_state() == Wizard.name.state
@@ -457,14 +460,7 @@ def test_the_privacy_notice_names_the_credit_record_in_every_language(
     policy = DEFAULT_RETENTION_POLICY
 
     # Act
-    notice = translate(
-        "privacy.text",
-        language,
-        recipient_identity_days=policy.recipient_identity_days,
-        brief_text_days=policy.brief_text_days,
-        paid_audio_days=policy.paid_audio_days,
-        abandoned_draft_days=policy.abandoned_draft_days,
-    )
+    notice = privacy_text(language, policy)
 
     # Assert
     assert CREDIT_RECORD_MARKER in notice
@@ -539,10 +535,21 @@ def test_every_advertised_command_is_one_the_bot_answers() -> None:
 
     ``/balance`` joined it with the entitlement layer: a metered product whose meter has no
     surface of its own tells a customer how many songs they have left only by refusing one.
+    ``/terms`` joined it with the Terms gate (IMAGE_VIDEO_SPEC §2.1): a customer asked to accept
+    a text must be able to find it.
     """
     # Arrange / Assert
     advertised = {command.command for command in BOT_COMMANDS}
-    assert advertised == {"start", "cancel", "balance", "help", "privacy", "support", "forget"}
+    assert advertised == {
+        "start",
+        "cancel",
+        "balance",
+        "help",
+        "privacy",
+        "terms",
+        "support",
+        "forget",
+    }
     assert all(command.description for command in BOT_COMMANDS)
 
 

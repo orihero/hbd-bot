@@ -576,19 +576,92 @@ CATALOGUE: Final[dict[str, str]] = {
     "command.balance": "Songs you still have",
     "command.help": "How this works",
     "command.privacy": "What is kept, what isn't",
+    "command.terms": "Terms of Use",
     "command.support": "Write to a person",
     "command.forget": "Erase everything about you",
+    # -- terms of use + privacy notice (IMAGE_VIDEO_SPEC §2.1, D26) ------------
+    # DRAFT TEXT (IMAGE_VIDEO_SPEC Appendix A), written by Claude on 2026-09-24 and NOT
+    # approved: every rendering carries ``terms.draft_banner`` while
+    # ``bayram.terms.LEGAL_TEXT_IS_DRAFT`` is true, and M1.3 replaces this block with the
+    # wording the owner and counsel sign off. English is the master; ru and uz_latn are
+    # translated from it and uz_cyrl is transliterated from uz_latn.
+    "button.terms.accept": "✅ I accept",
+    "button.terms.read_full": "📄 Read in full",
+    "terms.draft_banner": (
+        "⚠️ <b>DRAFT</b> — this text has not yet been approved by our lawyers and may change "
+        "before it takes effect."
+    ),
+    "terms.gate": (
+        "📜 Before we start: please read and accept our Terms of Use and Privacy Notice.\n"
+        "\n"
+        "In short: images, videos and voice are for adults (18+); someone younger may order a "
+        "song only with a parent's permission. You are responsible for what you upload — only "
+        "upload photos and voices you have the right to use, and only of people who agree. We "
+        "check every request automatically, and we delete your uploads after delivery."
+    ),
+    "terms.updated": (
+        "📜 Our Terms have changed ({version}). Please review and accept them to continue."
+    ),
+    "terms.required": "To use the bot, please accept the Terms.",
+    "terms.links": "📄 Full text: /terms · 🔒 Privacy Notice: /privacy",
+    "terms.url_line": "🔗 {url}",
+    "terms.version_line": "<i>Version: {version}</i>",
+    "terms.accepted": "✅ Thank you — accepted.",
+    "terms.full": (
+        "📜 <b>Terms of Use</b>\n"
+        "\n"
+        "1. <b>Who we are.</b> The operator of this bot. [Legal name, registration and address "
+        "to be added.] Contact: /support.\n"
+        "2. <b>The service.</b> Songs, images and videos made by AI, inside Telegram. "
+        "Automated systems make them, and a result can come out inaccurate or unexpected.\n"
+        "3. <b>Who may use it.</b> Images, videos and voice are for people aged 18 and over. "
+        "Someone younger may order a song only with a parent's or guardian's permission. By "
+        "accepting, you confirm this.\n"
+        "4. <b>Your content.</b> What you own stays yours. You let us process your prompts, "
+        "photos and voice messages only to make what you ordered. You confirm you have the "
+        "right to upload them and, for anyone recognisable in them, that person's permission.\n"
+        "5. <b>Not allowed:</b> sexual content involving anyone under 18 (we report it where "
+        "the law requires); sexual or nude images of real people; content that harasses, "
+        "defames or impersonates a real person, officials included; extremist, terrorist or "
+        "hateful content; content that insults religion or state symbols in breach of the law; "
+        "illegal goods; using other people's copyrights, trademarks or characters; trying to "
+        "get around our safety checks.\n"
+        "6. <b>Safety checks.</b> Every request and every result is checked automatically. We "
+        "may refuse, pause or withhold a result without giving the exact reason. Repeated "
+        "breaches suspend access; you can appeal through /support.\n"
+        "7. <b>What the AI makes.</b> Results are marked as made by AI and may not be "
+        "protected by copyright. We do not promise a likeness, legible text or fitness for a "
+        "purpose. Do not use a result to deceive — for example, to pass a generated image off "
+        "as a real photo.\n"
+        "8. <b>Payment.</b> Prices are shown in soʻm before you pay, through Payme; a request "
+        "buys what the quote says (for example, 2 images). If a paid request fails, or our "
+        "check blocks its result, you get a credit for the same product; not liking a result "
+        "is not a failure. Cash refunds on request follow Payme's process. Free beta access "
+        "can end at any time.\n"
+        "9. <b>Other providers.</b> We use a GPU partner, speech services, a payment provider "
+        "and, optionally, cloud generation services; their terms may apply too.\n"
+        "10. <b>Availability.</b> No uptime guarantee; waiting times are estimates; we may "
+        "pause features.\n"
+        "11. <b>Liability.</b> Limited to what you paid for the request concerned, as far as "
+        "the law allows.\n"
+        "12. <b>Changes.</b> New versions are shown here and have to be accepted to carry on.\n"
+        "13. <b>Law.</b> The law of the Republic of Uzbekistan applies; your rights as a "
+        "consumer are unaffected."
+    ),
     "help.text": (
-        "🎂 I write and record one song for one person, with their name sung properly.\n\n"
+        "🎂 I write and record one song for one person, with their name sung properly.\n"
+        "\n"
         "🎬 /start — make a song\n"
         "❌ /cancel — stop the one being made\n"
         "📄 /help — this list\n"
         "🎵 /balance — songs left in your allowance\n"
         "🔒 /privacy — what I keep, and for how long\n"
+        "📜 /terms — the Terms of Use\n"
         "✉️ /support — tell me something went wrong\n"
-        "🗑️ /forget — delete the song I am holding for you\n\n"
-        "Something wrong with a song you received? Send /support with the order number "
-        "from its closing message."
+        "🗑️ /forget — erase what I hold about you\n"
+        "\n"
+        "Something wrong with a song you received? Send /support with the order number from "
+        "its closing message."
     ),
     # The first line of the list has no number beside it on purpose. What the customer told
     # me about THEMSELVES has no clock: ``/forget`` deletes the row, and the absence of the
@@ -606,28 +679,55 @@ CATALOGUE: Final[dict[str, str]] = {
     # purpose: ``tests/test_bot/test_i18n.py`` asserts placeholder-set equality across all
     # four catalogues in both directions, and this row has no sweep date to name anyway.
     "privacy.text": (
-        "🔒 <b>What I keep, and for how long</b>\n\n"
+        "🔒 <b>Privacy Notice</b>\n"
+        "\n"
+        "<b>Who:</b> the operator of this bot looks after your data. Reach us with /support.\n"
+        "\n"
+        "<b>What I collect:</b> your Telegram id, name, language and phone number; for a song, "
+        "what you tell me about the person it is for; for images and videos, your prompts, "
+        "photos, voice messages and what is made from them; what you paid (card details stay "
+        "with Payme); technical logs; and that you accepted our terms.\n"
+        "\n"
+        "<b>Why:</b> to make what you ordered, check it is safe, take payment, answer /support "
+        "and stop abuse — on the basis of your consent when you accept, and of providing the "
+        "service you asked for.\n"
+        "\n"
+        "<b>Who else handles it:</b> our GPU server; speech services (Google, ElevenLabs); "
+        "optional cloud generation services (Higgsfield, fal). Your data may leave Uzbekistan. "
+        "Text you ask to be spoken aloud goes to Google, which may use it to improve its "
+        "services — keep private details out of it.\n"
+        "\n"
+        "<b>What I keep, and for how long</b>\n"
         "📱 Your phone number, @username, name and profile photo: while your account exists\n"
         "🎙️ The name you gave me: {recipient_identity_days} days\n"
         "✍️ The note you wrote: {brief_text_days} days\n"
         "🎵 The finished song and lyric sheet: {paid_audio_days} days\n"
         "🎬 A song you started but never finished: {abandoned_draft_days} days\n"
+        "📷 Photos and voice messages you upload: deleted right after delivery, or within "
+        "{media_input_hours} hours if the request fails or is abandoned\n"
+        "🖼️ Images and videos I make, and your prompts: {media_output_days} days\n"
         "🧾 The record of songs made and allowance used: no end date\n"
         "💳 What you paid, what it bought and when the plan runs out: no end date\n"
-        "✍️ A count of how many times the words were written today: until you write again\n\n"
+        "📜 That you accepted our terms: no end date\n"
+        "✍️ A count of how many times the words were written today: until you write again\n"
+        "\n"
         "Everything with a date on it is deleted on a schedule, not by hand. The songs-made "
-        "record and what you paid are the two exceptions, on purpose — between them they are "
-        "what can still answer a question about your songs, or about money that left your "
-        "account, months later — so /forget takes your account number off both and leaves "
-        "the counts and the amounts behind, rather than erasing a receipt. The daily writing "
-        "count keeps your account number too — it is what stops one person rewriting all "
-        "day — and it is "
-        "replaced the next time you write. What you told me about yourself — the number, "
-        "the username, the name, the photo — has no date on it: I keep it while you have "
-        "an account here, and /forget erases all of it at once.\n\n"
-        "Send /forget and the song you are working on now goes immediately, along with "
-        "your number, your name and your photo; anything already sent to the studio keeps "
-        "the dates above. I will ask for your language and your number again next time.\n\n"
+        "record, what you paid and your acceptance of the terms are the exceptions, on purpose "
+        "— they are what can still answer a question about your songs, your money or what you "
+        "agreed to, months later — so /forget takes your account number off them and leaves "
+        "the counts behind, rather than erasing a receipt. The daily writing count keeps your "
+        "account number too, and is replaced the next time you write. What you told me about "
+        "yourself — the number, the username, the name, the photo — I keep while you have an "
+        "account here, and /forget erases all of it at once.\n"
+        "\n"
+        "<b>Your rights:</b> ask through /support what I hold, or to correct it. Send /forget "
+        "and the song you are working on goes immediately, with your number, your name and "
+        "your photo; anything already sent to the studio keeps the dates above. I will ask for "
+        "your language and your number again next time.\n"
+        "\n"
+        "<b>Children:</b> images, videos and voice are not for under-18s.\n"
+        "<b>Changes:</b> a new version of this notice is shown here and has to be accepted again.\n"
+        "\n"
         "Send /start whenever you want to make a song."
     ),
     # The closing line says /start rather than pointing at a button, because after /forget
@@ -636,14 +736,20 @@ CATALOGUE: Final[dict[str, str]] = {
     # below" would be promising a shortcut that this deletion has just taken away.
     "privacy.forgotten": (
         "✅ Deleted. The song you were working on — the name, the note, the words — is gone "
-        "from my side, and there is nothing left to undo.\n\n"
-        "Your phone number, your username, your name and your photo are gone too: I no "
-        "longer know anything about you, and next time I will ask which language to speak "
-        "and for your number again before we can make a song.\n\n"
+        "from my side, and there is nothing left to undo.\n"
+        "\n"
+        "Your phone number, your username, your name and your photo are gone too: I no longer "
+        "know anything about you, and next time I will ask which language to speak and for "
+        "your number again before we can make a song.\n"
+        "\n"
         "Your songs-made record is no longer linked to you either: the count stays, your "
-        "account number does not. That also gives up the songs left in this allowance "
-        "window — the next ones open when the window turns over.\n\n"
-        "A song already sent to the studio is deleted on the schedule /privacy sets out.\n\n"
+        "account number does not. That also gives up the songs left in this allowance window — "
+        "the next ones open when the window turns over. The record of any terms you accepted "
+        "no longer names you, so if our terms are in force you will be asked to accept them "
+        "again.\n"
+        "\n"
+        "A song already sent to the studio is deleted on the schedule /privacy sets out.\n"
+        "\n"
         "Whenever you want another one, send /start."
     ),
     "support.no_contact": (

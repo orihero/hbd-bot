@@ -744,6 +744,19 @@ class Settings(BaseSettings):
         ),
     )
 
+    # -- terms of use + privacy notice (IMAGE_VIDEO_SPEC §2.1, D26) ---------
+    #: The version pair every customer must have accepted, and THE FLAG for the whole gate.
+    #: Both empty — the default — means no gate: nothing asks, nothing blocks, and the bot runs
+    #: exactly as it did before M1.2. The spec's default until counsel signs the draft text off
+    #: (IMAGE_VIDEO_SPEC Q6, M1.3). Setting a pair turns the gate on; changing either value
+    #: re-prompts every account, because acceptance is recorded per exact pair
+    #: (``terms_acceptances``' UNIQUE). Owner-written, typically a date such as ``2026-10-01``;
+    #: 32 characters because that is the column.
+    terms_version: str = Field(default="", max_length=32)
+    privacy_version: str = Field(default="", max_length=32, validate_default=True)
+    #: Optional link to the full text on the web, drawn under the terms screen. Empty: no link.
+    terms_url: str = Field(default="", max_length=255)
+
     # -- languages ----------------------------------------------------------
     default_ui_language: Language = Field(default=Language.UZ_LATN)
     supported_languages: Annotated[tuple[Language, ...], NoDecode] = Field(
@@ -975,6 +988,27 @@ class Settings(BaseSettings):
                 "one, silently, producing a payment that works and a redirect that does not"
             )
         return value
+
+    @field_validator("privacy_version")
+    @classmethod
+    def _terms_versions_come_as_a_pair(cls, value: str, info: Any) -> str:
+        """Both versions or neither. One alone is a half-switched gate.
+
+        A Terms version with no Privacy version would record acceptances of a pair with an
+        empty half — a lawful-basis record that names no notice — and the reverse would gate on
+        a document nobody versioned. Refused at boot, where the mistake is still attributable.
+        """
+        terms = str(info.data.get("terms_version") or "").strip()
+        if bool(terms) != bool(value.strip()):
+            raise ValueError(
+                "BAYRAM_TERMS_VERSION and BAYRAM_PRIVACY_VERSION are set together or not at all"
+            )
+        return value.strip()
+
+    @property
+    def is_terms_gate_enabled(self) -> bool:
+        """Whether the Terms + Privacy gate asks anyone anything (IMAGE_VIDEO_SPEC §2.1)."""
+        return bool(self.terms_version.strip())
 
     @field_validator("greeting_max_duration_s")
     @classmethod

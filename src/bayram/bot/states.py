@@ -92,9 +92,14 @@ class Wizard(StatesGroup):
 
 
 class Onboarding(StatesGroup):
-    """First contact: which language to speak, and the phone number. NOT wizard steps.
+    """First contact: which language to speak, the Terms, and the phone number. NOT wizard steps.
 
-    These two screens are deliberately a separate :class:`StatesGroup` rather than two more
+    ``terms`` sits BETWEEN the other two (IMAGE_VIDEO_SPEC §2.1, D26): the Terms are shown in
+    the language just chosen, and are accepted before a phone number is asked for. It is only
+    ever entered while the gate is on (``Settings.is_terms_gate_enabled``); with the gate off
+    onboarding is the two screens it always was.
+
+    These screens are deliberately a separate :class:`StatesGroup` rather than two more
     members of :class:`Wizard`, and the reason is that everything in this module treats a
     ``Wizard`` member as a step of an order. :data:`_STATE_BY_STEP` maps a step to a state
     and :func:`state_for` reads it as an UNDEFAULTED dict lookup, so a state with no step
@@ -117,6 +122,7 @@ class Onboarding(StatesGroup):
     """
 
     language = State()
+    terms = State()
     contact = State()
 
 

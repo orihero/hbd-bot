@@ -52,6 +52,7 @@ from bayram.bot.pricing import Pricing
 from bayram.checkout import STUB_PROVIDER_NAME
 from bayram.config import FOREIGN_SECRET_ENV_VARS, Settings, env_file, load_settings
 from bayram.db.support_tickets import SqlSupportTickets
+from bayram.db.terms import SqlTermsLedger
 from bayram.errors import BayramError, ConfigError
 from bayram.logging import configure_logging, get_logger
 from bayram.payme.pause import is_paused
@@ -66,6 +67,7 @@ from bayram.runtime.jobs import (
 from bayram.runtime.startup import verify_host
 from bayram.runtime.submitter import ArqOrderSubmitter, InProcessOrderSubmitter
 from bayram.support import resolve_support_quota
+from bayram.terms import InMemoryTermsCache, TermsCache, TermsGate, TermsVersions
 
 __all__ = [
     "main",
@@ -349,6 +351,39 @@ def support_eraser(store: object | None) -> SupportTicketEraser | None:
     return None
 
 
+def build_terms_gate(
+    settings: Settings,
+    container: AppContainer,
+    cache: TermsCache | None,
+) -> TermsGate | None:
+    """The Terms + Privacy gate (IMAGE_VIDEO_SPEC §2.1, D26), or ``None`` for no gate.
+
+    ``None`` — the shipped default — whenever no version pair is configured: the versions ARE
+    the flag, and until counsel signs the draft off (M1.3) nothing should ask anybody to accept
+    it. ``None`` also, LOUDLY, when a pair is configured but there is no database to record an
+    acceptance in: a gate whose ✅ records nothing would be a lawful-basis record that does not
+    exist, so the bot runs ungated and says why at boot rather than pretending.
+
+    ``cache`` is the queue pool this process already holds, which is Redis; ``None`` on the
+    demo path, where an in-process cache stands in because nothing there outlives the process.
+    """
+    if not settings.is_terms_gate_enabled:
+        return None
+    if container.session_factory is None:
+        _LOG.warning(
+            "BAYRAM_TERMS_VERSION is set but no database is wired; the terms gate is OFF "
+            "because an acceptance could not be recorded",
+            extra={"terms_version": settings.terms_version},
+        )
+        return None
+    return TermsGate(
+        SqlTermsLedger(container.session_factory),
+        TermsVersions(terms=settings.terms_version, privacy=settings.privacy_version),
+        cache=cache if cache is not None else InMemoryTermsCache(),
+        url=settings.terms_url,
+    )
+
+
 async def run(settings: Settings, *, data_root: Path | None = None) -> None:
     """Build everything, poll until interrupted, then release it all."""
     # Before anything is built: three statements about configuration alone, each of which
@@ -465,6 +500,10 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         # ``my_chat_member`` and reads the selection on every group update, and the worker reads
         # the selection for a card sync and is the only process that can prove the bot may post.
         bot_chats=container.bot_chats,
+        # THE TERMS GATE (IMAGE_VIDEO_SPEC §2.1). ``None`` unless a version pair is configured,
+        # which is the default until counsel's sign-off — see :func:`build_terms_gate`. The
+        # cache rides on the queue pool: the one Redis connection this process already opened.
+        terms=build_terms_gate(settings, container, pool),
     )
     # The lock that makes a state filter a real gate. Built from the same Redis as the
     # storage, so it holds across every process that could handle this chat.

@@ -62,12 +62,14 @@ from bayram.bot.keyboards import (
     occasion_keyboard,
     own_lyrics_keyboard,
     settings_keyboard,
+    terms_keyboard,
     vocal_gender_keyboard,
 )
 from bayram.bot.lyrics_entry import MAX_LYRIC_CHARS, MIN_LYRIC_CHARS
 from bayram.bot.pricing import CheckoutOffer, format_amount
 from bayram.bot.states import WizardStep
 from bayram.contracts import MAX_RECIPIENT_NAME_CHARS, Language
+from bayram.terms import LEGAL_TEXT_IS_DRAFT, TermsStanding, TermsVersions
 from bayram.watermark import WATERMARK_HANDLE
 
 __all__ = [
@@ -80,6 +82,9 @@ __all__ = [
     "settings_language_screen",
     "onboarding_language_screen",
     "onboarding_contact_screen",
+    "terms_screen",
+    "terms_full_screen",
+    "with_legal_status",
     "MAX_PREVIEW_LYRIC_CHARS",
 ]
 
@@ -323,6 +328,68 @@ def onboarding_contact_screen(language: Language) -> Screen:
             )
         ),
         contact_request_keyboard(language),
+    )
+
+
+def with_legal_status(language: Language, body: str, *, version: str = "") -> str:
+    """A Terms or Privacy text as it is shown: draft banner on top, version line underneath.
+
+    The banner is there while :data:`~bayram.terms.LEGAL_TEXT_IS_DRAFT` is (D26: the text is
+    Claude's draft until the owner and counsel approve it, M1.3). The version line is there
+    once a version is configured, so a customer reading ``/privacy`` can tell which notice
+    they accepted; with no version — the gate off — there is nothing to name.
+    """
+    parts: list[str] = []
+    if LEGAL_TEXT_IS_DRAFT:
+        parts.append(translate("terms.draft_banner", language))
+    parts.append(body)
+    if version:
+        parts.append(translate("terms.version_line", language, version=version))
+    return "\n\n".join(parts)
+
+
+def terms_screen(
+    language: Language,
+    versions: TermsVersions,
+    *,
+    standing: TermsStanding = TermsStanding.NEVER,
+    url: str = "",
+    is_repeat: bool = False,
+) -> Screen:
+    """The Terms gate (IMAGE_VIDEO_SPEC §2.1): a short summary and the two buttons.
+
+    Three openings over one screen. ``terms.gate`` for somebody who has never accepted,
+    ``terms.updated`` for somebody who accepted an earlier pair, and ``terms.required`` —
+    shorter, because they have just seen the summary — when anything but ✅ arrives while the
+    screen is up. Declining is just not accepting, so the repeat is the whole of the refusal.
+
+    The full texts are one command away and named under the summary (``/terms``,
+    ``/privacy``), which is also what makes the summary short enough to read on a phone.
+    """
+    if is_repeat:
+        opening = translate("terms.required", language)
+    elif standing is TermsStanding.OUTDATED:
+        opening = translate("terms.updated", language, version=versions.label)
+    else:
+        opening = translate("terms.gate", language)
+    parts = [opening, translate("terms.links", language)]
+    if url:
+        parts.append(translate("terms.url_line", language, url=url))
+    return Screen(with_legal_status(language, "\n\n".join(parts)), terms_keyboard(language))
+
+
+def terms_full_screen(
+    language: Language, *, version: str = "", is_accept_offered: bool = False
+) -> Screen:
+    """The whole Terms of Use (Appendix A.1), with ✅ under it when there is something to accept.
+
+    Reached by 📄 on the gate screen and by ``/terms``. ✅ is offered only when the gate is on
+    and this account has not accepted the pair in force, because a button that records an
+    acceptance nobody is being asked for is a lawful-basis row with no reason behind it.
+    """
+    markup = terms_keyboard(language, is_read_full_offered=False) if is_accept_offered else None
+    return Screen(
+        with_legal_status(language, translate("terms.full", language), version=version), markup
     )
 
 

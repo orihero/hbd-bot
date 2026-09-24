@@ -55,6 +55,7 @@ from bayram.bot.keyboards import (
     post_delivery_keyboard,
     settings_keyboard,
     start_over_keyboard,
+    terms_keyboard,
     vocal_gender_keyboard,
 )
 from bayram.bot.pricing import CheckoutOffer, Pricing
@@ -189,6 +190,8 @@ def every_keyboard(language: Language) -> Iterator[tuple[str, InlineKeyboardMark
     yield "paid_late", paid_late_keyboard(language)
     yield "post_delivery", post_delivery_keyboard(language)
     yield "settings", settings_keyboard(language)
+    yield "terms", terms_keyboard(language)
+    yield "terms_under_the_full_text", terms_keyboard(language, is_read_full_offered=False)
 
 
 def every_reply_keyboard(language: Language) -> Iterator[tuple[str, ReplyKeyboardMarkup]]:

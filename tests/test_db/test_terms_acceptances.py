@@ -25,13 +25,14 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from bayram.contracts import Language, is_ok
 from bayram.db.credit_erasure import forget_account
 from bayram.db.enums import TermsAcceptanceSource
-from bayram.db.models import TermsAcceptanceRow, UserProfileRow
+from bayram.db.models import TermsAcceptanceRow, UserProfileRow, UserRow
 from bayram.db.purge import (
     TERMS_ACCEPTANCE_RETENTION_DAYS,
     purge_expired,
     rows_past_expiry_statements,
 )
-from bayram.db.terms import has_accepted, record_acceptance
+from bayram.db.terms import SqlTermsLedger, has_accepted, record_acceptance
+from bayram.terms import TermsStanding, TermsVersions
 from tests.test_db.conftest import MovableClock
 
 #: Outside the 32-bit range, like every account id in the credit tests.
@@ -216,3 +217,67 @@ async def test_the_backlog_counts_exactly_what_the_sweep_would_take(
 
     # Assert
     assert backlog == 1
+
+
+# ---------------------------------------------------------------------------
+# SqlTermsLedger — the facade the bot holds (IMAGE_VIDEO_SPEC §2.1, M1.2)
+# ---------------------------------------------------------------------------
+_PAIR: Final[TermsVersions] = TermsVersions(terms=_TERMS, privacy=_PRIVACY)
+
+
+async def test_the_ledger_tells_never_from_outdated_from_accepted(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """Three answers, because the customer reads three different sentences off them."""
+    # Arrange
+    ledger = SqlTermsLedger(sessions, clock=lambda: clock.now)
+    bumped = TermsVersions(terms="2026-11-01", privacy=_PRIVACY)
+
+    # Act / Assert
+    never = await ledger.standing(_USER, _PAIR)
+    assert is_ok(never) and never.value is TermsStanding.NEVER
+    accepted = await ledger.accept(_USER, _PAIR, language=Language.RU, source="gate")
+    assert is_ok(accepted)
+    now_accepted = await ledger.standing(_USER, _PAIR)
+    assert is_ok(now_accepted) and now_accepted.value is TermsStanding.ACCEPTED
+    outdated = await ledger.standing(_USER, bumped)
+    assert is_ok(outdated) and outdated.value is TermsStanding.OUTDATED
+    rows = await _rows(sessions)
+    assert [(row.language, row.source) for row in rows] == [
+        (Language.RU, TermsAcceptanceSource.GATE)
+    ]
+
+
+async def test_the_ledger_accept_opens_no_profile_and_no_user_row(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """The row-existence bug (IMAGE_VIDEO_SPEC §0.3), through the facade the bot really calls."""
+    # Arrange
+    ledger = SqlTermsLedger(sessions, clock=lambda: clock.now)
+
+    # Act
+    result = await ledger.accept(_USER, _PAIR, language=Language.EN, source="onboarding")
+
+    # Assert
+    assert is_ok(result)
+    async with sessions() as session:
+        profiles = await session.scalar(sa.select(sa.func.count()).select_from(UserProfileRow))
+        users = await session.scalar(sa.select(sa.func.count()).select_from(UserRow))
+    assert (profiles, users) == (0, 0)
+
+
+async def test_a_forgotten_account_stands_nowhere(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """After ``/forget`` the gate asks again: the anonymised row names nobody."""
+    # Arrange
+    ledger = SqlTermsLedger(sessions, clock=lambda: clock.now)
+    await ledger.accept(_USER, _PAIR, language=Language.EN, source="onboarding")
+
+    # Act
+    async with sessions.begin() as session:
+        await forget_account(session, telegram_user_id=_USER)
+    standing = await ledger.standing(_USER, _PAIR)
+
+    # Assert
+    assert is_ok(standing) and standing.value is TermsStanding.NEVER

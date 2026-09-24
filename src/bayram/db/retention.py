@@ -60,7 +60,7 @@ class RetentionClass(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class RetentionPolicy:
-    """Per-class retention periods in days. Frozen: a policy is never edited in place."""
+    """Per-class retention periods, in days unless the name says hours. Frozen."""
 
     #: Delivered audio on a paid order — 12 months from delivery.
     paid_audio_days: int = _DAYS_PER_YEAR
@@ -74,6 +74,15 @@ class RetentionPolicy:
     brief_text_days: int = 30
     #: Recipient name, script and candidate orthographies, absent reminder consent.
     recipient_identity_days: int = 90
+    #: The ceiling on how long an UPLOADED photo or voice note survives a request that failed,
+    #: was cancelled or was abandoned, in hours (IMAGE_VIDEO_SPEC §3.2.4, O16). A delivered
+    #: request deletes its uploads at delivery; this is the backstop, and the number the
+    #: Privacy Notice quotes (Appendix A.2 §6). Read by the notice now and by the media purge
+    #: from M2.
+    media_input_max_hours: int = 24
+    #: Generated images and videos, and the prompts behind them (IMAGE_VIDEO_SPEC Q2 — open;
+    #: 30 days is the spec's default until the owner answers).
+    media_output_days: int = 30
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -83,6 +92,8 @@ class RetentionPolicy:
             "abandoned_draft_days",
             "brief_text_days",
             "recipient_identity_days",
+            "media_input_max_hours",
+            "media_output_days",
         ):
             value = getattr(self, field_name)
             # ``bool`` is an ``int`` in Python, and ``True`` would silently mean "one day".
