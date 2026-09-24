@@ -1472,7 +1472,7 @@ contract checks are separate make targets.
 | M0.1 | Zero-greeting `_replay` fix: `_build_kit` returns a kit with an empty greeting tuple | new `tests/test_db` case builds a `greetings_per_kit=0` kit; a redelivered job replays without a vendor call (fake counts = 1) |
 | M0.2 | Song moderator fail-open fix (§6.8) | the two tests in §6.8 |
 | M0.3 | `workspace_sweep` cron + `Storage.put_file` | sweep deletes terminal dirs > 24 h, keeps live ones; `put_file` streams (memory bounded, tested with a 50 MB temp file) |
-| M0.4 | Row-existence onboarding fix **and its migration `0029_add_acquisition_source`**, merged from `feat/capture-start-payload` | existing test on that branch passes here; `alembic heads` returns one head (`0029`) |
+| M0.4 | Row-existence onboarding fix **and its migration `0029_add_acquisition_source`**, merged from `feat/capture-start-payload` | existing test on that branch passes here; `alembic heads` returns one head (`0029`). **Landed** by merging `feat/capture-start-payload` into `feat/media-products` (merge commit `7bec7ea`), not as its own PR |
 | M0.5 | SCOPE_OF_WORK amendment blocks: "Amended by D20 (2026-09-24)" at §3.2, §2.2, FR-7, FR-96, LR-47, LR-51, LR-59; "Amended by D26" at LR-54 | doc-only; grep shows each carries its block |
 
 ### M1 — Terms gate (all users)
