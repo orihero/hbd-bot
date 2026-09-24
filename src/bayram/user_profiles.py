@@ -145,6 +145,11 @@ class UserProfile:
     language_chosen_at: datetime | None
     phone_shared_at: datetime | None
     onboarded_at: datetime | None
+    #: The ``/start`` deep-link payload this account FIRST arrived with (``ig_bio`` from the
+    #: Instagram bio link), or ``None`` when it arrived by a bare ``/start``. Write-once: a
+    #: returning customer's later ``/start`` does not move it, because the question it answers
+    #: is "where did this person come from", which has exactly one true answer per account.
+    acquisition_source: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -331,6 +336,31 @@ class UserProfileStore(Protocol):
         ``content_type`` and persists none of it; ``file_unique_id`` is recorded so a later
         fetch can skip a photo that has not changed. The object key is not stored at all — it
         is :func:`avatar_key` of the ``users.id``.
+        """
+        ...
+
+    async def record_acquisition(
+        self, telegram_user_id: int, *, source: str
+    ) -> Result[None]:
+        """Stamp where this account came from, the first time and only the first time.
+
+        Called from ``/start`` with the deep-link payload — ``ig_bio`` for the Instagram bio
+        link, ``ig_hl_narxlar`` for a highlight — so it can be the first write of an account's
+        life, before a language has been chosen and before a number exists. It creates the
+        ``users`` row and the profile row if they are not there, and it tells
+        :func:`bayram.db.users_sql.ensure_user` that it knows nothing about the language, so an
+        arrival can never stamp a language over one the customer picked.
+
+        **Write-once.** A second ``/start`` with a different payload is accepted and discarded:
+        the answer to "where did this customer come from" is settled by the first arrival, and
+        a later tap must not rewrite it. See :func:`bayram.db.user_profiles.upsert_acquisition`
+        for why first-touch rather than last-touch.
+
+        ``Ok(None)`` on success, and the payload is NOT echoed back — the caller already has
+        it, and a profile read here would cost a query for a value nobody consumes. Like
+        :meth:`record_avatar` this is best effort in spirit: a customer who arrives must reach
+        the bot whether or not we managed to record how, which is the caller's decision to make
+        and the reason this answers ``Result`` rather than raising.
         """
         ...
 

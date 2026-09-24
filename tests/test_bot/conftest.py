@@ -562,6 +562,7 @@ def _fresh_profile(telegram_user_id: int, ui_language: Language) -> UserProfile:
         language_chosen_at=FIXED_MOMENT,
         phone_shared_at=None,
         onboarded_at=None,
+        acquisition_source=None,
         created_at=FIXED_MOMENT,
         updated_at=FIXED_MOMENT,
     )
@@ -634,6 +635,7 @@ class FakeProfiles:
             "language_chosen_at": FIXED_MOMENT,
             "phone_shared_at": FIXED_MOMENT,
             "onboarded_at": FIXED_MOMENT,
+            "acquisition_source": None,
             "created_at": FIXED_MOMENT,
             "updated_at": FIXED_MOMENT,
         }
@@ -672,6 +674,38 @@ class FakeProfiles:
         )
         self.rows[telegram_user_id] = profile
         return ok(profile)
+
+    async def record_acquisition(self, telegram_user_id: int, *, source: str) -> Result[None]:
+        """Stamp the arrival label, write-once, creating the row if this is the first update.
+
+        The ``if existing.acquisition_source is None`` guard is the fake's whole reason to
+        exist beside the real store: it is the in-memory spelling of the ``COALESCE`` in
+        :func:`bayram.db.user_profiles.upsert_acquisition`, and a fake that overwrote would let
+        a last-touch defect pass every bot-level test while the real store refused it.
+
+        The row it creates when there is none carries ``Language.UZ_LATN`` — spelled out rather
+        than imported from ``bayram.db.users_sql.DEFAULT_UI_LANGUAGE``, which is the value the
+        real store's INSERT lands on, because this conftest deliberately imports nothing from
+        ``bayram.db``. It carries ``language_chosen_at=None`` with it, because an arrival says
+        nothing about language, which is exactly what ``ensure_user(ui_language=None,
+        is_language_authoritative=False)`` expresses in the real store. A fake that stamped
+        ``language_chosen_at`` here would make an arrival look like a deliberate choice and
+        send every onboarding walker straight past the language screen.
+        """
+        if self.failure is not None:
+            return err(self.failure)
+        existing = self.rows.get(telegram_user_id)
+        if existing is None:
+            self.rows[telegram_user_id] = replace(
+                _fresh_profile(telegram_user_id, Language.UZ_LATN),
+                language_chosen_at=None,
+                acquisition_source=source,
+            )
+        elif existing.acquisition_source is None:
+            self.rows[telegram_user_id] = replace(
+                existing, acquisition_source=source, updated_at=FIXED_MOMENT
+            )
+        return ok(None)
 
     async def record_contact(
         self,

@@ -81,6 +81,7 @@ __all__ = [
     "NAME_LENGTH",
     "FILE_ID_LENGTH",
     "MIME_LENGTH",
+    "ACQUISITION_SOURCE_LENGTH",
 ]
 
 #: E.164 admits at most fifteen digits, and one leading ``+`` is the only punctuation
@@ -104,6 +105,12 @@ FILE_ID_LENGTH: Final[int] = 64
 #: literal, because a column sized to today's single value is how the next value silently
 #: becomes a truncation.
 MIME_LENGTH: Final[int] = 64
+#: Telegram's own ceiling on a ``/start`` deep-link payload, which is what this column
+#: stores. The limit is part of the link format rather than a choice of ours — Telegram
+#: refuses to build ``t.me/<bot>?start=<payload>`` above 64 characters of ``A-Za-z0-9_-``
+#: — so sizing the column to anything else would either truncate a payload that reached us
+#: intact or reserve space for one that cannot exist.
+ACQUISITION_SOURCE_LENGTH: Final[int] = 64
 
 
 class UserProfileRow(TimestampMixin, Base):
@@ -177,3 +184,18 @@ class UserProfileRow(TimestampMixin, Base):
     #: updates their number appears in the admin list as newly onboarded, which turns the
     #: only cohort figure the panel has into noise.
     onboarded_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    #: The ``/start`` deep-link payload this account FIRST arrived with — ``ig_bio`` from the
+    #: Instagram bio link, ``ig_hl_narxlar`` from a highlight, and so on. **Write-once**, for
+    #: the same reason as :attr:`language_chosen_at`: it answers "where did this customer come
+    #: from", and a later ``/start`` typed by a returning customer — or tapped from a second
+    #: campaign — must not overwrite the first answer, or the only acquisition figure the panel
+    #: has degrades into "wherever they last clicked". ``None`` means the account arrived by a
+    #: bare ``/start`` with no payload, which is a real and common answer, not a missing one.
+    #:
+    #: It is a campaign LABEL and deliberately not a referral edge: no user id, no join, no
+    #: arithmetic. That is what keeps it on the right side of the scope line drawn in
+    #: :mod:`bayram.db.models.user` and inside FR-60 (``SCOPE_OF_WORK`` §"referral ``start``
+    #: parameters"), and it is erased with the rest of this row by ``/forget``.
+    acquisition_source: Mapped[str | None] = mapped_column(
+        sa.String(ACQUISITION_SOURCE_LENGTH), nullable=True
+    )

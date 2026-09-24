@@ -228,7 +228,25 @@ async def _identify(state: FSMContext, deps: BotDeps, telegram_user_id: int | No
         # finished, so it is read rather than assumed absent.
         return Identity(False, False, _language_from(data))
     cache: dict[str, object] = {}
-    if UI_LANGUAGE_KEY not in data:
+    # **A profile row is no longer proof that a language was chosen.** This used to return a
+    # literal ``True`` here, which was sound only while ``record_language`` and
+    # ``record_contact`` were the only two writers that could open a row — both of them
+    # answers to a question the customer was actually asked. ``upsert_acquisition`` broke
+    # that: it opens a row on a ``/start ig_bio`` deep link, before any screen has been
+    # drawn, carrying no language opinion at all (``ensure_user(ui_language=None)``). Trusting
+    # row existence there sent every Instagram arrival straight past the language screen and
+    # pinned them to the operator default — so a Russian speaker who tapped the bio link got
+    # an Uzbek interface and was never asked again, because the row persists.
+    #
+    # ``language_chosen_at`` is the column that answers the question being asked, and it is
+    # written by exactly the two deliberate choices. ``or profile.is_onboarded`` keeps the
+    # installed base out of the language screen: an account that finished onboarding has
+    # answered, whatever its stamp says.
+    is_language_chosen = profile.language_chosen_at is not None or profile.is_onboarded
+    if UI_LANGUAGE_KEY not in data and is_language_chosen:
+        # Gated on the same condition, and not merely for tidiness: caching the row's language
+        # when nobody has chosen one pins a GUESS into the FSM as though it were a choice,
+        # which is the confusion ``Identity.ui_language`` exists to keep out.
         cache[UI_LANGUAGE_KEY] = profile.ui_language.value
     if profile.is_onboarded:
         cache[ONBOARDED_KEY] = ONBOARDED_VALUE
@@ -236,6 +254,11 @@ async def _identify(state: FSMContext, deps: BotDeps, telegram_user_id: int | No
         # One write, not two, and skipped entirely when there is nothing to say: every
         # ``update_data`` is a round trip to Redis inside the FSM isolation lock.
         await state.update_data(cache)
+    if not is_language_chosen:
+        # The same answer the ``profile is None`` branch above gives, and for the same reason:
+        # with nothing chosen, the honest language is whatever the FSM holds, not the default
+        # the ``users`` row happens to carry.
+        return Identity(profile.is_onboarded, False, _language_from(data))
     return Identity(profile.is_onboarded, True, profile.ui_language)
 
 

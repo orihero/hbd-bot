@@ -56,6 +56,7 @@ __all__ = [
     "load_profile",
     "upsert_language",
     "upsert_contact",
+    "upsert_acquisition",
     "erase_profile",
 ]
 
@@ -104,7 +105,7 @@ async def load_profile(session: AsyncSession, telegram_user_id: int) -> UserProf
     says ``phone_e164 is None``. :func:`bayram.db.lyric_budget._writes_today` documents the same
     trap and escapes it the other way, by selecting columns instead of the entity.
 
-    That columns-only alternative was considered here and lost. Thirteen columns read by
+    That columns-only alternative was considered here and lost. Fourteen columns read by
     position is one column rename away from being silently wrong — the values would still
     unpack, they would just land in the wrong fields, and a phone number in the
     ``telegram_username`` slot is a defect no type checker can see. Mapping the ORM entity
@@ -135,6 +136,7 @@ async def load_profile(session: AsyncSession, telegram_user_id: int) -> UserProf
         language_chosen_at=profile.language_chosen_at,
         phone_shared_at=profile.phone_shared_at,
         onboarded_at=profile.onboarded_at,
+        acquisition_source=profile.acquisition_source,
         created_at=profile.created_at,
         updated_at=profile.updated_at,
     )
@@ -269,6 +271,64 @@ async def upsert_contact(
     )
 
 
+async def upsert_acquisition(
+    session: AsyncSession,
+    *,
+    user_id: UUID,
+    telegram_user_id: int,
+    acquisition_source: str,
+    now: datetime,
+) -> None:
+    """Open the profile row if it is not there, and stamp where this account came from.
+
+    **``acquisition_source`` is write-once, via ``COALESCE`` in the ``SET`` clause**, exactly
+    like :attr:`language_chosen_at` in :func:`upsert_language` and for the same reason. The
+    column answers "where did this customer arrive from", which has one true answer per
+    account; a returning customer who later taps a highlight link, or simply types ``/start``
+    again, must not overwrite the campaign that actually brought them. Without the
+    ``COALESCE`` the figure would silently become "wherever they last clicked", which reads
+    like attribution and is not.
+
+    That the LAST touch is discarded is a deliberate choice and not an oversight. First-touch
+    is what the Instagram plan is measured on: a name-per-video reply ladder wants to know
+    which video earned the account, not which link the customer happened to re-open. Nothing
+    here stores a second row per visit, so last-touch is not merely unused — it is not
+    recorded at all, and adding it later is a new column rather than a change to this one.
+
+    This can be the FIRST write of an account's life — it runs on ``/start``, which is often
+    the very first update the bot ever sees from a person — so it is an UPSERT for the reason
+    :func:`upsert_language` states: ``run_guarded`` treats an ``IntegrityError`` as terminal,
+    and a conditional insert that lost a race here would fail a write that has no second
+    chance.
+
+    Nothing but the source is written. The names, the number and the language are absent from
+    both halves, because a deep link carries none of them and writing ``None`` over a number
+    shared last week would make an arrival an erasure.
+    """
+    await session.execute(
+        upsert_statement(
+            session,
+            UserProfileRow,
+            {
+                "user_id": user_id,
+                "telegram_user_id": telegram_user_id,
+                "acquisition_source": acquisition_source,
+                "created_at": now,
+                "updated_at": now,
+            },
+            index_elements=["user_id"],
+            set_={
+                "telegram_user_id": telegram_user_id,
+                "updated_at": now,
+                # First touch wins forever — see the docstring.
+                "acquisition_source": sa.func.coalesce(
+                    UserProfileRow.acquisition_source, acquisition_source
+                ),
+            },
+        )
+    )
+
+
 async def erase_profile(session: AsyncSession, *, telegram_user_id: int) -> ProfileErasure:
     """Delete one account's profile row and report the object key its bytes live under. PD-3.
 
@@ -395,6 +455,14 @@ class SqlUserProfiles:
             telegram_user_id=telegram_user_id,
         )
 
+    async def record_acquisition(self, telegram_user_id: int, *, source: str) -> Result[None]:
+        """Stamp the deep-link payload this account first arrived with."""
+        return await run_guarded(
+            "profiles.record_acquisition",
+            lambda: self._record_acquisition(telegram_user_id, source),
+            telegram_user_id=telegram_user_id,
+        )
+
     async def record_contact(
         self,
         telegram_user_id: int,
@@ -459,6 +527,37 @@ class SqlUserProfiles:
                 session, user_id=user_id, telegram_user_id=telegram_user_id, now=now
             )
             return await self._read_back(session, telegram_user_id)
+
+    async def _record_acquisition(self, telegram_user_id: int, source: str) -> None:
+        """One transaction: the ``users`` row and the profile row. No read-back.
+
+        ``ui_language=None`` with ``is_language_authoritative=False`` is the honest pair here,
+        and the signature of :func:`bayram.db.users_sql.ensure_user` exists to let this call
+        say so: a deep link carries a campaign label and no opinion whatever about which
+        language its owner reads in. Inventing one — passing the operator default so the
+        argument is non-``None`` — would make every first arrival silently stamp a language,
+        which is the clobber that function's flag was added to prevent.
+
+        Nothing is read back. :meth:`_record_language` re-reads because its caller redraws a
+        screen from the stored truth; this one's caller is ``/start``, which goes on to read
+        the identity for its own reasons anyway.
+        """
+        now = self._clock()
+        async with self._sessions.begin() as session:
+            user_id = await ensure_user(
+                session,
+                telegram_user_id=telegram_user_id,
+                ui_language=None,
+                now=now,
+                is_language_authoritative=False,
+            )
+            await upsert_acquisition(
+                session,
+                user_id=user_id,
+                telegram_user_id=telegram_user_id,
+                acquisition_source=source,
+                now=now,
+            )
 
     async def _record_contact(
         self,
