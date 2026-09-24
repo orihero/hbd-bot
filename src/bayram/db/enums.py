@@ -513,3 +513,16 @@ class ChatMessageKind(StrEnum):
     TOAST = "toast"
     ACTION = "action"
 
+
+
+class TermsAcceptanceSource(StrEnum):
+    """Which screen a ``terms_acceptances`` row was accepted on (IMAGE_VIDEO_SPEC §2.1, §3.2.1).
+
+    ``ONBOARDING`` is the ``Onboarding.terms`` step a new account passes through between the
+    language picker and the contact screen; ``GATE`` is the inbound gate that stops an
+    account already onboarded until it accepts the current versions. The column is
+    ``VARCHAR(16)`` with no CHECK, so a third screen is Python validation and no DDL.
+    """
+
+    ONBOARDING = "onboarding"
+    GATE = "gate"

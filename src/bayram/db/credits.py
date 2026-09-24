@@ -837,5 +837,6 @@ class SqlCreditLedger:
                 # with the name off" are opposite answers, and this line is the record.
                 "tickets_deleted": erased.tickets_deleted,
                 "ticket_events_deleted": erased.ticket_events_deleted,
+                "terms_acceptances_anonymised": erased.terms_acceptances_anonymised,
             },
         )

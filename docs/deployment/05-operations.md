@@ -692,6 +692,12 @@ table per run (`DEFAULT_PURGE_BATCH_SIZE`, db/purge.py:204) — 12 000 a day per
 > `broadcast_recipients_deleted` in particular: `broadcast_recipients` takes **a row per account
 > per campaign**, so it is the count most likely to be the one saturating the 500-row batch and
 > holding `is_batch_full` true.
+>
+> **2026-09-24: twenty.** Revision 0030 adds `terms_acceptances_deleted` (IMAGE_VIDEO_SPEC
+> §3.2.1), between `broadcast_recipients_deleted` and `stale_debits_settled`. It sweeps only
+> acceptances `/forget` has already anonymised, so it stays at zero until someone who accepted
+> the Terms asks to be forgotten and 400 days pass from their acceptance. The host line below
+> predates it.
 
 `[HOST 2026-09-11]` All nineteen appear in the live line, which is the cheapest proof that the
 installed wheel matches this list:

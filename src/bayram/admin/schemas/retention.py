@@ -92,6 +92,9 @@ class SweepCounts(ApiModel):
     #: model, and worth watching more than any of them: the table takes a row per account per
     #: campaign, so this is where a sweep falling behind becomes visible first.
     broadcast_recipients_deleted: int = 0
+    #: ANONYMISED ``terms_acceptances`` past the 400-day cutoff (revision 0030). Defaulted
+    #: like the five above so a run stored before the Terms gate existed still projects.
+    terms_acceptances_deleted: int = 0
 
     @property
     def total(self) -> int:
@@ -232,6 +235,7 @@ def _counts(row: PurgeRunRow) -> SweepCounts:
         payme_rpc_rows_deleted=row.payme_rpc_rows_deleted,
         payment_intents_deleted=row.payment_intents_deleted,
         broadcast_recipients_deleted=row.broadcast_recipients_deleted,
+        terms_acceptances_deleted=row.terms_acceptances_deleted,
     )
 
 

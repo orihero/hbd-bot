@@ -115,6 +115,17 @@ and ``assets`` deletes ahead of the ``orders`` one whose cascade would otherwise
 The cascade stays on the column as the backstop for any path that deletes a ticket without
 coming through here; this function does not depend on it.
 
+**``terms_acceptances`` is the tenth table, and it is on ``broadcast_recipients``' footing**
+(IMAGE_VIDEO_SPEC §3.2.1, §9.3). It is the lawful-basis record behind the Terms gate: one row
+per account per accepted (Terms, Privacy) version pair. The id comes off and the versions, the
+language the text was shown in, the screen and the instant stay, saying only that someone
+accepted that text then — so the number of acceptances of a version does not shrink
+retroactively by the number of people who have since asked to be forgotten. The unique
+constraint tolerates any number of NULLs, so an anonymised row can never block the same
+account accepting again after ``/forget``, which the gate then asks it to do. The anonymous
+remainder leaves on the purge's 400-day cutoff. The Redis cache ``terms:ok:{tg}`` is the
+bot's, not this module's; the ``/forget`` handler deletes it beside this call.
+
 **Why ``idempotency_key`` deliberately keeps the id it was built from.** The rolling
 allowance is minted once per window on ``grant:period:{telegram_user_id}:{index}``, and the
 unique index on that key is the ONLY thing that makes the mint idempotent. Rewriting the
@@ -131,7 +142,7 @@ know it is there.
 
 Shape follows :mod:`bayram.db.admin` and :func:`bayram.db.purge.purge_expired`: session first and
 positional, exceptions propagate, and **nothing is committed here**. The caller owns the
-transaction, which is what lets the nine statements below be atomic — an erasure that
+transaction, which is what lets the ten statements below be atomic — an erasure that
 deleted the balance and then failed to anonymise the ledger would be the worst of both, and
 one that deleted a ticket and then failed to delete its timeline would be worse still.
 """
@@ -152,6 +163,7 @@ from bayram.db.models.payment_intent import PaymentIntentRow
 from bayram.db.models.support_ticket import SupportTicketRow
 from bayram.db.models.support_ticket_event import SupportTicketEventRow
 from bayram.db.plan_sql import anonymise_plans
+from bayram.db.terms import anonymise_terms_acceptances
 from bayram.db.topup_sql import anonymise_topups
 
 __all__ = ["CreditErasure", "forget_account"]
@@ -159,15 +171,15 @@ __all__ = ["CreditErasure", "forget_account"]
 
 @dataclass(frozen=True, slots=True)
 class CreditErasure:
-    """What one ``/forget`` actually removed. Nine numbers, so the log is not a guess.
+    """What one ``/forget`` actually removed. Ten numbers, so the log is not a guess.
 
-    All nine being zero is a perfectly ordinary answer — most people who send ``/forget`` never
+    All ten being zero is a perfectly ordinary answer — most people who send ``/forget`` never
     confirmed an order, so they have no account row and no ledger history — and it is
     reported as such rather than treated as a failure. The handler's confirmation to the
     customer does not depend on it: it says the same thing either way, because "there was
     nothing of yours to delete" and "I deleted it" are the same promise kept.
 
-    All nine come from the driver's ``rowcount`` over a bulk statement, which
+    All ten come from the driver's ``rowcount`` over a bulk statement, which
     :func:`bayram.db.credit_sql.rowcount_of` documents as exact only for single-row writes.
     They are therefore DIAGNOSTIC — they go in a log line and nothing branches on them.
     """
@@ -222,12 +234,16 @@ class CreditErasure:
     #: number did not exist. A non-zero ``tickets_deleted`` with a zero here, for a customer
     #: who ever described a ticket, means the child delete has been removed or reordered.
     ticket_events_deleted: int = 0
+    #: ``terms_acceptances`` rows that lost their owner and kept everything else, and a TENTH
+    #: number because it answers a question none of the others do: "can we still show this
+    #: person agreed to the Terms?" — after ``/forget``, deliberately not by name.
+    terms_acceptances_anonymised: int = 0
 
 
 async def forget_account(session: AsyncSession, *, telegram_user_id: int) -> CreditErasure:
     """Erase what the credit tables hold about one Telegram account.
 
-    Ordered receipts-first and balance-last on purpose. All nine statements run in the
+    Ordered receipts-first and balance-last on purpose. All ten statements run in the
     caller's transaction, so they either all land or none do; but if a future caller ever
     splits them, a run that leaves the receipts anonymous and the balance behind is far less
     bad than one that deletes the balance and leaves a fully identified history. The two
@@ -235,7 +251,7 @@ async def forget_account(session: AsyncSession, *, telegram_user_id: int) -> Cre
     are the only arm that destroys rather than anonymises, so they are the last thing worth
     risking and the first thing a half-run must not have done alone.
 
-    Idempotent by construction: a second call matches nothing and returns nine zeroes.
+    Idempotent by construction: a second call matches nothing and returns ten zeroes.
 
     **What this does not reach.** A song already in the studio settles after the erasure,
     and the worker writes that settlement from the ``orders`` row — which keeps its own id
@@ -247,6 +263,7 @@ async def forget_account(session: AsyncSession, *, telegram_user_id: int) -> Cre
     plans = await anonymise_plans(session, telegram_user_id=telegram_user_id)
     topups = await anonymise_topups(session, telegram_user_id=telegram_user_id)
     events = await anonymise_bot_membership_events(session, telegram_user_id=telegram_user_id)
+    acceptances = await anonymise_terms_acceptances(session, telegram_user_id=telegram_user_id)
     # Written here rather than behind a ``payme_sql`` helper because the redirect rail's own
     # query module is not a dependency of erasure: this arm must keep working — and keep
     # being asserted by test — on a deployment where ``BAYRAM_CHECKOUT_PROVIDER=stub`` and no
@@ -316,4 +333,5 @@ async def forget_account(session: AsyncSession, *, telegram_user_id: int) -> Cre
         recipients_anonymised=rowcount_of(recipients),
         tickets_deleted=rowcount_of(tickets),
         ticket_events_deleted=rowcount_of(ticket_events),
+        terms_acceptances_anonymised=acceptances,
     )

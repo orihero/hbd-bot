@@ -120,6 +120,7 @@ async def record_run(
         payme_rpc_rows_deleted=report.payme_rpc_rows_deleted,
         payment_intents_deleted=report.payment_intents_deleted,
         broadcast_recipients_deleted=report.broadcast_recipients_deleted,
+        terms_acceptances_deleted=report.terms_acceptances_deleted,
         storage_keys_returned=len(report.storage_keys),
         storage_keys_deleted=storage_keys_deleted,
         storage_delete_failures=storage_delete_failures,

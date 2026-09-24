@@ -35,6 +35,7 @@ from bayram.db.models.plan_purchase import PlanPurchaseRow
 from bayram.db.models.purge_run import PurgeRunRow
 from bayram.db.models.support_ticket import SupportTicketRow
 from bayram.db.models.support_ticket_event import SupportTicketEventRow
+from bayram.db.models.terms_acceptance import TermsAcceptanceRow
 from bayram.db.models.topup_purchase import TopupPurchaseRow
 from bayram.db.models.user import UserRow
 from bayram.db.models.user_activity_snapshot import UserActivitySnapshotRow
@@ -75,4 +76,5 @@ __all__ = [
     "BroadcastRecipientRow",
     "SupportTicketRow",
     "SupportTicketEventRow",
+    "TermsAcceptanceRow",
 ]

@@ -25,6 +25,7 @@ Bot membership events   ``bot_membership_events``, deleted outright     13 month
 Payment RPC journal     ``payme_rpc_log``, deleted outright             90 days
 Terminal unpaid intents ``payment_intents`` not ``paid``, deleted       13 months
 Broadcast delivery log  ``broadcast_recipients``, deleted outright     13 months
+Anonymised acceptances  ``terms_acceptances`` with no account, deleted 13 months
 ======================  ==============================================  ==========
 
 The last six rows are not customer data. ``purge_runs`` is this job's own audit trail,
@@ -47,7 +48,11 @@ broadcast tables (revision 0024) and is ``bot_membership_events``' shape exactly
 ``broadcast_recipients`` carries a ``telegram_user_id``, so the identity comes off it
 through ``/forget``'s anonymisation arm rather than on any schedule, and this cutoff
 bounds how long an account id sits there as defence in depth beside that arm, never as a
-substitute for it (see :data:`BROADCAST_RECIPIENT_RETENTION_DAYS`).
+substitute for it (see :data:`BROADCAST_RECIPIENT_RETENTION_DAYS`). The last row arrived
+with the Terms gate (revision 0030, IMAGE_VIDEO_SPEC §3.2.1) and takes the same route with
+one narrowing: only ``terms_acceptances`` rows ``/forget`` has ALREADY anonymised are swept,
+because an identified acceptance is a live account's lawful-basis record and must not age
+out while the account still uses the bot (see :data:`TERMS_ACCEPTANCE_RETENTION_DAYS`).
 
 **THREE TABLES ADDED BY THE DASHBOARD WORK ARE DELIBERATELY UNSWEPT, and their absence from
 the table above is a decision rather than an oversight** — the same standing instruction the
@@ -170,6 +175,7 @@ from bayram.db.models.order import OrderRow
 from bayram.db.models.payme_rpc_log import PaymeRpcLogRow
 from bayram.db.models.payment_intent import PaymentIntentRow
 from bayram.db.models.purge_run import PurgeRunRow
+from bayram.db.models.terms_acceptance import TermsAcceptanceRow
 from bayram.db.models.vendor_usage import VendorUsageRow
 from bayram.db.purge_admin import (
     admin_sessions_due,
@@ -195,6 +201,7 @@ __all__ = [
     "PAYME_RPC_LOG_RETENTION_DAYS",
     "PAYMENT_INTENT_RETENTION_DAYS",
     "BROADCAST_RECIPIENT_RETENTION_DAYS",
+    "TERMS_ACCEPTANCE_RETENTION_DAYS",
     "rows_past_expiry_statements",
 ]
 
@@ -312,6 +319,23 @@ PAYMENT_INTENT_RETENTION_DAYS: Final[int] = 400
 #: the row so a completed campaign's arithmetic does not change retroactively.
 BROADCAST_RECIPIENT_RETENTION_DAYS: Final[int] = 400
 
+#: How long an ANONYMISED ``terms_acceptances`` row is kept, counted from ``accepted_at``
+#: (IMAGE_VIDEO_SPEC §3.2.1, §3.2.4). Thirteen months, matching the cutoffs above.
+#:
+#: **The predicate is narrow on purpose, as :data:`PAYMENT_INTENT_RETENTION_DAYS`' is.** It
+#: sweeps rows whose ``telegram_user_id`` is already NULL and nothing else. An IDENTIFIED row
+#: is never swept: it is the proof that a live account accepted the text its uploads are
+#: screened under, and a cutoff that deleted it would re-prompt a customer for terms they
+#: already accepted and leave us unable to show they did. Identity leaves by ``/forget``'s
+#: anonymisation arm (:mod:`bayram.db.credit_erasure`); this cutoff then bounds how long the
+#: anonymous remainder is kept.
+#:
+#: On ``accepted_at`` because the table has no record of WHEN it was anonymised, so an
+#: acceptance older than the cutoff is swept on the first run after ``/forget`` and a recent
+#: one waits out the remainder of its thirteen months. A CUTOFF, not a per-row clock, which is
+#: why no column on that table is named ``*_expires_at``.
+TERMS_ACCEPTANCE_RETENTION_DAYS: Final[int] = 400
+
 
 class PurgeReport(BaseModel):
     """What one purge run did. Logged, and returned so a scheduler can alert on it."""
@@ -361,6 +385,9 @@ class PurgeReport(BaseModel):
     #: account per campaign, so a sweep that quietly stops keeping up shows here as a small
     #: number beside a large backlog long before it shows anywhere else.
     broadcast_recipients_deleted: int = Field(default=0, ge=0)
+    #: ANONYMISED ``terms_acceptances`` past the 400-day cutoff. An identified acceptance is
+    #: never counted here, because it is never swept.
+    terms_acceptances_deleted: int = Field(default=0, ge=0)
     #: Open credit debits the sweep closed — refunded, or consumed when the kit was already
     #: rendered. Not a retention clock and not personal data; it rides this run because this
     #: is the transaction the worker already schedules. Deliberately NOT added to
@@ -391,6 +418,7 @@ class PurgeReport(BaseModel):
             self.payme_rpc_rows_deleted,
             self.payment_intents_deleted,
             self.broadcast_recipients_deleted,
+            self.terms_acceptances_deleted,
             self.stale_debits_settled,
         )
 
@@ -506,6 +534,11 @@ async def _purge(
             cutoff=now - timedelta(days=BROADCAST_RECIPIENT_RETENTION_DAYS),
             limit=batch_size,
         )
+        acceptances = await _purge_terms_acceptances(
+            session,
+            cutoff=now - timedelta(days=TERMS_ACCEPTANCE_RETENTION_DAYS),
+            limit=batch_size,
+        )
         # Last, and inside the same transaction: it writes ledger rows rather than deleting
         # anything, so a purge that fails half way must take these back with it.
         debits = await settle_stale_debits(session, now=now, limit=batch_size, policy=entitlements)
@@ -532,6 +565,7 @@ async def _purge(
         payme_rpc_rows_deleted=payme_rpc_rows,
         payment_intents_deleted=intents,
         broadcast_recipients_deleted=recipients,
+        terms_acceptances_deleted=acceptances,
         stale_debits_settled=debits,
     )
     # A purge that runs and does nothing is as important to see as one that deletes 40k
@@ -681,6 +715,19 @@ def _broadcast_recipients_due(cutoff: datetime) -> sa.ColumnElement[bool]:
     return BroadcastRecipientRow.created_at <= cutoff
 
 
+def _terms_acceptances_due(cutoff: datetime) -> sa.ColumnElement[bool]:
+    """ANONYMISED acceptances recorded before ``cutoff``.
+
+    The ``telegram_user_id IS NULL`` half is the whole decision — see
+    :data:`TERMS_ACCEPTANCE_RETENTION_DAYS`. Without it this would delete a live account's
+    proof of acceptance thirteen months after the tap.
+    """
+    return sa.and_(
+        TermsAcceptanceRow.telegram_user_id.is_(None),
+        TermsAcceptanceRow.accepted_at <= cutoff,
+    )
+
+
 def _chat_bodies_due(now: datetime) -> sa.ColumnElement[bool]:
     return sa.and_(
         ChatMessageRow.text_expires_at <= now,
@@ -772,6 +819,13 @@ def rows_past_expiry_statements(
             _count_of(
                 BroadcastRecipientRow,
                 _broadcast_recipients_due(now - timedelta(days=BROADCAST_RECIPIENT_RETENTION_DAYS)),
+            ),
+        ),
+        (
+            "terms_acceptances_deleted",
+            _count_of(
+                TermsAcceptanceRow,
+                _terms_acceptances_due(now - timedelta(days=TERMS_ACCEPTANCE_RETENTION_DAYS)),
             ),
         ),
     )
@@ -1190,6 +1244,26 @@ async def _purge_broadcast_recipients(
     if not due:
         return 0
     await session.execute(sa.delete(BroadcastRecipientRow).where(BroadcastRecipientRow.id.in_(due)))
+    return len(due)
+
+
+async def _purge_terms_acceptances(session: AsyncSession, *, cutoff: datetime, limit: int) -> int:
+    """Delete anonymised acceptances older than ``cutoff``. Bounded growth, not a legal clock.
+
+    Only rows ``/forget`` has already stripped of their account are reachable — see
+    :func:`_terms_acceptances_due` — so this can never take away a live account's proof that
+    it accepted the Terms.
+    """
+    due = await _ids_due(
+        session,
+        sa.select(TermsAcceptanceRow.id)
+        .where(_terms_acceptances_due(cutoff))
+        .order_by(TermsAcceptanceRow.accepted_at)
+        .limit(limit),
+    )
+    if not due:
+        return 0
+    await session.execute(sa.delete(TermsAcceptanceRow).where(TermsAcceptanceRow.id.in_(due)))
     return len(due)
 
 

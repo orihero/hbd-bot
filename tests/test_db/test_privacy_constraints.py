@@ -412,6 +412,22 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     # would also delete the one thing an operator needs when tickets stop arriving — the row
     # saying which group was selected and what the last verification said about it.
     #
+    # ``terms_acceptances`` (revision 0030, IMAGE_VIDEO_SPEC §3.2.1, §3.2.4) is deliberately in
+    # NEITHER set, by the THIRD ROUTE stated above for ``broadcast_recipients``. It carries a
+    # ``telegram_user_id`` and is about an identified person, but every other column is a
+    # version string the OWNER wrote, a closed enum (the language the text was shown in, the
+    # screen that took the tap) or a clock — nothing on it is text ABOUT a person. Identity
+    # leaves by ``bayram.db.credit_erasure.forget_account``'s anonymising ``UPDATE``
+    # (``bayram.db.terms.anonymise_terms_acceptances``); growth leaves by
+    # ``bayram.db.purge._purge_terms_acceptances``' 400-day cutoff, which is NARROWER than
+    # ``broadcast_recipients``': it reaches only rows ``/forget`` has already anonymised,
+    # because an identified acceptance is a live account's lawful-basis record and must not
+    # age out while the account still uses the bot. It is NOT in
+    # ``tables_erased_on_request``, because deleting the row on request would make the number
+    # of acceptances of a version shrink retroactively; it is NOT in
+    # ``tables_with_personal_data``, because it has no ``*_expires_at`` clock and must not
+    # acquire one — the proof of acceptance is kept for as long as the account is.
+    #
     #: Tables whose personal data is erased ON REQUEST rather than on a clock. The absence of
     #: a row IS the erasure record: ``/forget`` DELETEs it outright (PD-3, a full reset to
     #: first-contact state), so there is nothing for a sweep to find and no ``*_expires_at``

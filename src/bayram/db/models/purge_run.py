@@ -122,6 +122,10 @@ class PurgeRunRow(Base):
     broadcast_recipients_deleted: Mapped[int] = mapped_column(
         sa.Integer, nullable=False, default=0
     )
+    #: ANONYMISED ``terms_acceptances`` past their 400-day cutoff (revision 0030). An
+    #: identified acceptance is never swept — it is a live account's lawful-basis record
+    #: (IMAGE_VIDEO_SPEC §3.2.1) — so this counts only what ``/forget`` has already reached.
+    terms_acceptances_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
 
     # -- bytes --------------------------------------------------------------
     #: Keys ``purge_expired`` handed back, i.e. rows whose objects are now orphaned.

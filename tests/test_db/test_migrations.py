@@ -154,6 +154,10 @@ _BOT_CHATS_TABLE: Final[str] = "bot_chats"
 #: because that test compares NAMES in one direction only.
 _SELECTED_SUPPORT_GROUP_INDEX: Final[str] = "ix_bot_chats_selected_support_group"
 
+#: The table revision ``0030`` adds: the Terms + Privacy acceptance record
+#: (IMAGE_VIDEO_SPEC §3.2.1). Named by hand for the reason stated on ``_EXPECTED_TABLES``.
+_TERMS_ACCEPTANCES_TABLE: Final[str] = "terms_acceptances"
+
 #: The revision that adds the lyric the customer approves in the wizard, and the one it
 #: builds on. Named here because both halves of the product depend on this column existing
 #: before the wizard ships: without it the worker silently sings a lyric nobody approved.
@@ -524,6 +528,23 @@ def test_the_bot_chats_table_is_registered_as_well_as_migrated() -> None:
     assert _BOT_CHATS_TABLE in registered, (
         f"{_BOT_CHATS_TABLE} is created by revision 0028 but no model declares it; "
         "import BotChatRow in src/bayram/db/models/__init__.py"
+    )
+
+
+def test_the_terms_acceptances_table_is_registered_as_well_as_migrated() -> None:
+    """Revision 0030 creates ``terms_acceptances``; a model has to declare it too.
+
+    The same blind spot the tests above close. The stake here is the unique constraint that
+    makes an accept idempotent: it lives in the model's ``__table_args__``, so every unit
+    test of the writer exercises it only if ``create_all`` sees the model.
+    """
+    # Arrange / Act
+    registered = set(Base.metadata.tables)
+
+    # Assert
+    assert _TERMS_ACCEPTANCES_TABLE in registered, (
+        f"{_TERMS_ACCEPTANCES_TABLE} is created by revision 0030 but no model declares it; "
+        "import TermsAcceptanceRow in src/bayram/db/models/__init__.py"
     )
 
 
