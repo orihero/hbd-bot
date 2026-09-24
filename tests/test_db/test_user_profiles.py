@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any, Final
 from uuid import UUID
 
@@ -93,6 +94,9 @@ class _MemoryStorage:
         return ok(
             StoredObject(key=key, size_bytes=len(data), sha256="a" * 64, content_type=content_type)
         )
+
+    async def put_file(self, key: str, src: Path, *, content_type: str) -> Result[StoredObject]:
+        raise NotImplementedError
 
     async def get(self, key: str) -> Result[bytes]:
         raise NotImplementedError

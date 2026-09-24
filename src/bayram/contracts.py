@@ -1322,6 +1322,14 @@ class Storage(Protocol):
 
     async def put(self, key: str, data: bytes, *, content_type: str) -> Result[StoredObject]: ...
 
+    async def put_file(self, key: str, src: Path, *, content_type: str) -> Result[StoredObject]:
+        """Store the file at ``src`` without holding it in memory (IMAGE_VIDEO_SPEC §3.6).
+
+        Same key rules and same atomicity as :meth:`put`; the returned ``size_bytes`` and
+        ``sha256`` describe the bytes actually copied. ``src`` is not removed.
+        """
+        ...
+
     async def get(self, key: str) -> Result[bytes]: ...
 
     async def signed_url(self, key: str, *, ttl_s: int) -> Result[str]: ...

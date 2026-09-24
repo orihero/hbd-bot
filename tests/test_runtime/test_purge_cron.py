@@ -111,6 +111,9 @@ class _RefusingStorage:
     async def put(self, key: str, data: bytes, *, content_type: str) -> Result[Any]:
         raise NotImplementedError
 
+    async def put_file(self, key: str, src: Path, *, content_type: str) -> Result[Any]:
+        raise NotImplementedError
+
     async def get(self, key: str) -> Result[bytes]:
         raise NotImplementedError
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import tracemalloc
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -10,7 +11,7 @@ import pytest
 
 from bayram.contracts import Err, Ok
 from bayram.errors import ErrorCode
-from bayram.storage import RANGE_CHUNK_BYTES, LocalFileStorage
+from bayram.storage import COPY_CHUNK_BYTES, RANGE_CHUNK_BYTES, LocalFileStorage
 
 PAYLOAD = b"\xff\xfb\x10\xc0 pretend this is a song"
 MIME = "audio/mpeg"
@@ -160,6 +161,122 @@ async def test_no_partial_file_survives_a_failed_write(
     # Assert: a typed error, and no ".partial" litter left behind.
     assert isinstance(result, Err)
     assert not list(storage.root.glob("*.partial"))
+
+
+# ---------------------------------------------------------------------------
+# put_file — the streaming write (IMAGE_VIDEO_SPEC §3.6, M0.3)
+# ---------------------------------------------------------------------------
+_FIFTY_MB = 50 * 1024 * 1024
+
+
+def _write_pattern_file(path: Path, size: int) -> str:
+    """Write ``size`` bytes a chunk at a time, returning their sha256. Never holds them all."""
+    digest = hashlib.sha256()
+    block = bytes(range(256)) * 4096  # 1 MiB
+    with path.open("wb") as stream:
+        remaining = size
+        while remaining:
+            piece = block[: min(len(block), remaining)]
+            stream.write(piece)
+            digest.update(piece)
+            remaining -= len(piece)
+    return digest.hexdigest()
+
+
+async def test_put_file_streams_fifty_megabytes_without_holding_them(
+    storage: LocalFileStorage, tmp_path: Path
+) -> None:
+    # Arrange — the acceptance test M0.3 names: a 50 MB source. A ``put`` of it would have
+    # to allocate all fifty; the copy may hold a few chunks and nothing more.
+    source = tmp_path / "clip.mp4"
+    expected_digest = _write_pattern_file(source, _FIFTY_MB)
+
+    # Act — tracemalloc sees allocations from every thread, including the copy's own.
+    tracemalloc.start()
+    try:
+        result = await storage.put_file("media/j/out/clip.mp4", source, content_type="video/mp4")
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    # Assert — memory bounded by the chunk, not by the file; and the object is exact.
+    assert isinstance(result, Ok), result
+    assert peak < 8 * COPY_CHUNK_BYTES, peak
+    assert result.value.size_bytes == _FIFTY_MB
+    assert result.value.sha256 == expected_digest
+    assert result.value.content_type == "video/mp4"
+    stored = storage.root / "media/j/out/clip.mp4"
+    assert stored.stat().st_size == _FIFTY_MB
+    assert source.exists(), "put_file copies; removing the source is the caller's decision"
+
+
+async def test_put_file_round_trips_through_get(storage: LocalFileStorage, tmp_path: Path) -> None:
+    # Arrange
+    source = tmp_path / "photo.jpg"
+    source.write_bytes(PAYLOAD)
+
+    # Act
+    result = await storage.put_file("media/j/in/photo.jpg", source, content_type="image/jpeg")
+
+    # Assert
+    assert isinstance(result, Ok)
+    assert result.value.sha256 == hashlib.sha256(PAYLOAD).hexdigest()
+    got = await storage.get("media/j/in/photo.jpg")
+    assert isinstance(got, Ok)
+    assert got.value == PAYLOAD
+
+
+@pytest.mark.parametrize("key", ["../escape.bin", "/etc/passwd", "a//b", ""])
+async def test_put_file_refuses_the_keys_put_refuses(
+    storage: LocalFileStorage, tmp_path: Path, key: str
+) -> None:
+    # Arrange
+    source = tmp_path / "x.bin"
+    source.write_bytes(PAYLOAD)
+
+    # Act
+    result = await storage.put_file(key, source, content_type="application/octet-stream")
+
+    # Assert — the same confinement, because it is the same ``_resolve``.
+    assert isinstance(result, Err)
+    assert result.error.error_code is ErrorCode.INVALID_INPUT
+    assert not (tmp_path / "escape.bin").exists()
+
+
+async def test_put_file_of_a_missing_source_is_a_typed_error_and_leaves_nothing(
+    storage: LocalFileStorage, tmp_path: Path
+) -> None:
+    # Act
+    result = await storage.put_file("k/v.bin", tmp_path / "absent.bin", content_type="x/y")
+
+    # Assert
+    assert isinstance(result, Err)
+    assert result.error.error_code is ErrorCode.STORAGE_FAILED
+    assert not list(storage.root.rglob("*.partial"))
+
+
+async def test_put_file_leaves_no_partial_file_when_the_rename_fails(
+    storage: LocalFileStorage, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange
+    source = tmp_path / "x.bin"
+    source.write_bytes(PAYLOAD)
+    original_replace = Path.replace
+
+    def explode(self: Path, target: Path) -> Path:
+        if self.suffix == ".partial":
+            raise OSError("disk went away")
+        return original_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", explode)
+
+    # Act
+    result = await storage.put_file("k", source, content_type="x/y")
+
+    # Assert — the old-or-nothing guarantee ``put`` makes, made here too.
+    assert isinstance(result, Err)
+    assert not list(storage.root.glob("*.partial"))
+    assert not (storage.root / "k").exists()
 
 
 # ---------------------------------------------------------------------------

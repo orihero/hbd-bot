@@ -36,6 +36,7 @@ from bayram.runtime.jobs import (
     SUPPORT_VERIFY_JOB_NAME,
     TEST_SEND_JOB_NAME,
     VENDOR_BALANCE_JOB_NAME,
+    WORKSPACE_SWEEP_JOB_NAME,
     build_kit_worker_settings,
     generate_and_deliver,
 )
@@ -205,9 +206,13 @@ async def test_the_worker_registers_the_job_the_submitter_enqueues(settings: Set
     # — and ``bayram.admin.queue`` names these jobs as STRINGS it restates rather than imports.
     # A rename that compiled on both sides of that gap would silently stop every campaign,
     # which is exactly what reading this list by name prevents.
+    #
+    # The workspace sweep (IMAGE_VIDEO_SPEC §3.3) is the retention sweep's counterpart for
+    # the render scratch that the archive-rooted purge cannot reach.
     assert [_registered_name(fn) for fn in worker_settings.functions] == [
         KIT_JOB_NAME,
         RETENTION_JOB_NAME,
+        WORKSPACE_SWEEP_JOB_NAME,
         VENDOR_BALANCE_JOB_NAME,
         ACTIVITY_SNAPSHOT_JOB_NAME,
         PAYME_NOTIFY_JOB_NAME,

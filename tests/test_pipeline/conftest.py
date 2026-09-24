@@ -464,6 +464,10 @@ class FakeStorage:
             )
         )
 
+    async def put_file(self, key: str, src: Path, *, content_type: str) -> Result[StoredObject]:
+        """Reads the whole file: streaming is the real backend's problem, not a fake's."""
+        return await self.put(key, src.read_bytes(), content_type=content_type)
+
     async def get(self, key: str) -> Result[bytes]:
         if key not in self.objects:
             return err(StorageError("no such object"))

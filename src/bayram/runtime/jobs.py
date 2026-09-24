@@ -43,12 +43,14 @@ Because it is the join, it also owns every way the run can end from the customer
   ``WIZARD_STATE_TTL`` is the fourteen-day abandoned-draft retention clock, a data
   lifetime rather than a session one. See :func:`_release_session`.
 
-It also assembles ``WorkerSettings``, which is where every OTHER job lives. There are eleven
+It also assembles ``WorkerSettings``, which is where every OTHER job lives. There are twelve
 of them now, each in its own module and each registered here:
 
 * the hourly retention sweep (:mod:`bayram.runtime.retention_job`). Until it was added,
   ``functions`` held one entry and ``cron_jobs`` did not exist, so ``purge_expired`` —
   complete, tested and legally required — was called by nothing at all;
+* the hourly workspace sweep (:mod:`bayram.runtime.workspace_sweep`), which deletes the
+  render scratch under ``var/workspace`` that the retention sweep cannot reach;
 * the hourly vendor balance poll (:mod:`bayram.runtime.vendor_balance_job`), the only thing in
   the system that asks a vendor how much credit is left. It runs HERE, in the worker, and
   never in the admin process, which holds no vendor key and no HTTP client by design;
@@ -169,11 +171,17 @@ from bayram.runtime.vendor_balance_job import (
     VENDOR_BALANCE_JOB_NAME,
     poll_vendor_balances,
 )
+from bayram.runtime.workspace_sweep import (
+    WORKSPACE_SWEEP_CRON_MINUTE,
+    WORKSPACE_SWEEP_JOB_NAME,
+    run_workspace_sweep,
+)
 from bayram.usage import usage_scope
 
 __all__ = [
     "generate_and_deliver",
     "run_retention_sweep",
+    "run_workspace_sweep",
     "poll_vendor_balances",
     "record_activity_snapshot",
     "notify_payment_settled",
@@ -187,6 +195,7 @@ __all__ = [
     "build_kit_worker_settings",
     "KIT_JOB_NAME",
     "RETENTION_JOB_NAME",
+    "WORKSPACE_SWEEP_JOB_NAME",
     "VENDOR_BALANCE_JOB_NAME",
     "ACTIVITY_SNAPSHOT_JOB_NAME",
     "PAYME_NOTIFY_JOB_NAME",
@@ -796,6 +805,7 @@ def build_kit_worker_settings(
         functions = [
             generate_and_deliver,
             run_retention_sweep,
+            run_workspace_sweep,
             poll_vendor_balances,
             record_activity_snapshot,
             # THE SETTLED-PAYMENT NOTIFICATION. Wrapped in ``func`` rather than listed bare
@@ -944,6 +954,25 @@ def build_kit_worker_settings(
                 run_retention_sweep,
                 name=RETENTION_JOB_NAME,
                 minute=RETENTION_CRON_MINUTE,
+                run_at_startup=False,
+                unique=True,
+                max_tries=1,
+                timeout=settings.queue_job_timeout_s,
+            ),
+            # THE WORKSPACE SWEEP (IMAGE_VIDEO_SPEC §3.3, M0.3). Hourly, and the cadence is
+            # not the clock: a directory must sit untouched for 24 h AND belong to a finished
+            # order before it goes, so the hour only bounds how late past that it goes. It
+            # is the only thing that deletes ``var/workspace`` — the retention sweep above
+            # works through the archive-rooted ``Storage`` and cannot reach it.
+            #
+            # ``max_tries=1`` and ``unique=True`` for the retention entry's reasons: the next
+            # hour IS the retry, and two replicas walking the same tree at once would race
+            # each other's ``rmtree``. ``timeout`` is ``queue_job_timeout_s`` — no network
+            # call, one read of ``orders`` and a disk walk.
+            cron(
+                run_workspace_sweep,
+                name=WORKSPACE_SWEEP_JOB_NAME,
+                minute=WORKSPACE_SWEEP_CRON_MINUTE,
                 run_at_startup=False,
                 unique=True,
                 max_tries=1,

@@ -23,6 +23,12 @@ amplifier when a browser issues a range request per few seconds of audio; and th
 must resolve a key through a public seam rather than through ``_resolve``, which is
 private and would not exist at all on an S3 backend.
 
+``put_file`` is the streaming half of writing, added for the media products
+(IMAGE_VIDEO_SPEC §3.6). ``put`` takes ``bytes``, so a caller must already hold the whole
+object in memory; a 200 MB video on a host with ~830 MiB free cannot be handled that way
+twice in a row. ``put_file`` copies from a path in bounded chunks, hashing as it goes, and
+lands the result with the same temp-file-then-rename as ``put``.
+
 ``signed_url`` returns a ``file://`` URL. That is honest: this backend cannot mint a
 credential, and pretending otherwise would hand the bot an address it cannot send. The day
 S3/R2 lands, it replaces this class behind the same protocol and nothing else moves.
@@ -47,6 +53,7 @@ __all__ = [
     "LocalFileStorage",
     "STORAGE_BACKEND_NAME",
     "RANGE_CHUNK_BYTES",
+    "COPY_CHUNK_BYTES",
     "archive_key",
 ]
 
@@ -61,6 +68,11 @@ _FORBIDDEN_KEY_PARTS: Final[frozenset[str]] = frozenset({"", ".", ".."})
 #: big enough that a three-minute song is a few hundred hops, small enough that a stalled
 #: client cannot pin a worker thread on a multi-megabyte read.
 RANGE_CHUNK_BYTES: Final[int] = 64 * 1024
+
+#: One read per loop turn in :meth:`LocalFileStorage.put_file`. The copy runs in ONE worker
+#: thread rather than one hop per chunk, so the chunk only bounds memory, and 1 MiB keeps the
+#: peak far below the video cap while keeping a 200 MB copy to two hundred syscalls.
+COPY_CHUNK_BYTES: Final[int] = 1024 * 1024
 
 #: Every message a range or existence failure can carry. They are CONSTANTS on purpose:
 #: ``bayram.admin.errors`` puts ``BayramError.operator_message`` on the wire verbatim while it
@@ -169,6 +181,37 @@ class LocalFileStorage:
         _LOG.info(
             "object stored",
             extra={"key": key, "size_bytes": stored.size_bytes, "backend": STORAGE_BACKEND_NAME},
+        )
+        return ok(stored)
+
+    async def put_file(self, key: str, src: Path, *, content_type: str) -> Result[StoredObject]:
+        """Store the file at ``src`` under ``key`` without reading it into memory.
+
+        IMAGE_VIDEO_SPEC §3.6: same key confinement as :meth:`put` (it goes through
+        ``_resolve`` and nothing else), same atomicity (a sibling ``.partial`` renamed over
+        the target), and the digest is computed on the bytes as they are copied rather
+        than by a second read. ``src`` is left where it is; removing the workspace copy is
+        the caller's decision, and the workspace sweep's if the caller never makes it.
+        """
+        resolved = self._resolve(key)
+        if not isinstance(resolved, Path):
+            return resolved
+        try:
+            size_bytes, digest = await asyncio.to_thread(_copy_atomically, src, resolved)
+        except OSError as exc:
+            return err(
+                StorageError(
+                    "could not copy a file into local storage",
+                    context={"key": key, "path": str(resolved), "detail": str(exc)},
+                    cause=exc,
+                )
+            )
+        stored = StoredObject(
+            key=key, size_bytes=size_bytes, sha256=digest, content_type=content_type
+        )
+        _LOG.info(
+            "object stored",
+            extra={"key": key, "size_bytes": size_bytes, "backend": STORAGE_BACKEND_NAME},
         )
         return ok(stored)
 
@@ -338,3 +381,32 @@ def _write_atomically(destination: Path, data: bytes) -> None:
     except BaseException:
         Path(temporary).unlink(missing_ok=True)
         raise
+
+
+def _copy_atomically(source: Path, destination: Path) -> tuple[int, str]:
+    """Stream ``source`` into a sibling temp file of ``destination``, then rename it over.
+
+    Returns ``(size, sha256)`` of what was written. At most one :data:`COPY_CHUNK_BYTES`
+    chunk is held at a time, whatever the file's size — that bound is the point of the
+    function, and the storage tests measure it against a 50 MB file.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256()
+    size = 0
+    # The source is opened BEFORE the temp file exists: a missing source then raises with
+    # no descriptor or ``.partial`` left behind to clean up.
+    with source.open("rb") as reader:
+        handle, temporary = tempfile.mkstemp(dir=destination.parent, suffix=".partial")
+        try:
+            with os.fdopen(handle, "wb") as writer:
+                while chunk := reader.read(COPY_CHUNK_BYTES):
+                    writer.write(chunk)
+                    digest.update(chunk)
+                    size += len(chunk)
+                writer.flush()
+                os.fsync(writer.fileno())
+            Path(temporary).replace(destination)
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise
+    return size, digest.hexdigest()
