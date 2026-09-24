@@ -41,6 +41,7 @@ from bayram.bot.keyboards import (
     checkout_link_keyboard,
     confirm_keyboard,
     contact_request_keyboard,
+    create_picker_keyboard,
     genre_keyboard,
     language_keyboard,
     lyrics_failed_keyboard,
@@ -48,9 +49,12 @@ from bayram.bot.keyboards import (
     lyrics_writing_keyboard,
     main_menu_keyboard,
     media_again_keyboard,
+    media_aspect_keyboard,
     media_busy_keyboard,
+    media_open_request_keyboard,
     media_quote_keyboard,
     media_refused_keyboard,
+    media_tray_keyboard,
     name_confirm_keyboard,
     name_prompt_keyboard,
     note_keyboard,
@@ -213,6 +217,14 @@ def every_keyboard(language: Language) -> Iterator[tuple[str, InlineKeyboardMark
     yield "media_refused", media_refused_keyboard(language, SAMPLE_MEDIA_JOB)
     yield "media_busy", media_busy_keyboard(language, SAMPLE_MEDIA_JOB)
     yield "media_again", media_again_keyboard(language, SAMPLE_MEDIA_JOB)
+    yield (
+        "create_picker",
+        create_picker_keyboard(language, is_image_offered=True, is_video_offered=True),
+    )
+    yield "media_tray", media_tray_keyboard(language, has_photos=True)
+    yield "media_tray_with_no_photos", media_tray_keyboard(language, has_photos=False)
+    yield "media_aspect", media_aspect_keyboard(language)
+    yield "media_open_request", media_open_request_keyboard(language, SAMPLE_MEDIA_JOB)
 
 
 def every_reply_keyboard(language: Language) -> Iterator[tuple[str, ReplyKeyboardMarkup]]:

@@ -40,10 +40,14 @@ from bayram.bot.handlers.submitting import (
     say_still_working,
 )
 from bayram.bot.i18n import translate
+from bayram.bot.media_draft import load_media_draft
+from bayram.bot.menu_version import stamp_menu_version
 from bayram.bot.middleware import resolve_language
 from bayram.bot.screens import menu_screen, onboarding_contact_screen, onboarding_language_screen
 from bayram.bot.states import Onboarding
+from bayram.contracts import Err
 from bayram.logging import get_logger
+from bayram.media.desk import CancelOutcome
 from bayram.terms import TermsStanding
 
 __all__ = ["build_router", "handle_paid_return", "PAID_DEEP_LINK"]
@@ -52,6 +56,9 @@ _LOG = get_logger(__name__)
 
 #: Said when ``/cancel`` arrives after the order has already gone to the studio.
 _TOO_LATE_KEY: Final[str] = "wizard.cancel_too_late"
+#: ``/cancel`` against an open media request (IMAGE_VIDEO_SPEC §2.6).
+_MEDIA_CANCELLED_KEY: Final[str] = "media.cancelled"
+_MEDIA_TOO_LATE_KEY: Final[str] = "media.cancel_too_late"
 
 #: The deep-link payload the checkout rail sends a paying customer back with, as the tail of
 #: ``https://t.me/<bot>?start=paid``.
@@ -205,6 +212,9 @@ async def handle_start(
         await present_terms(message, deps, await ui_language(state, deps), standing=standing)
         return
     await present(message, menu_screen(await ui_language(state, deps)))
+    # This menu carries the current keyboard, so the re-push hook has nothing to add
+    # (IMAGE_VIDEO_SPEC §2.2).
+    await stamp_menu_version(deps.media_kv, user.id if user is not None else None)
 
 
 async def handle_paid_return(message: Message, state: FSMContext, deps: BotDeps) -> None:
@@ -239,7 +249,7 @@ async def handle_paid_return(message: Message, state: FSMContext, deps: BotDeps)
     await show_balance(message, state, deps)
 
 
-async def handle_cancel_command(message: Message, state: FSMContext) -> None:
+async def handle_cancel_command(message: Message, state: FSMContext, deps: BotDeps) -> None:
     """Stop the wizard — unless there is nothing left to stop.
 
     The same guard ``navigation.handle_cancel`` applies to the Cancel BUTTON, for the same
@@ -258,7 +268,38 @@ async def handle_cancel_command(message: Message, state: FSMContext) -> None:
             # declined to cancel and leave the next /cancel free to claim nothing was made.
             await say(message, translate(STILL_IN_STUDIO_KEY, await resolve_language(state)))
         return
+    if await _cancel_media(message, state, deps):
+        return
     await finish_with(message, state, "wizard.cancelled")
+
+
+async def _cancel_media(message: Message, state: FSMContext, deps: BotDeps) -> bool:
+    """``/cancel`` with an open media request (IMAGE_VIDEO_SPEC §2.6). True when it answered.
+
+    ``order_in_flight`` reads only the song's ``ORDER_ID_KEY``, which media never sets, so
+    without this a paid image would be answered "Cancelled — nothing was made" and then
+    arrive. A pre-pay request is cancelled (``media.cancelled``); one that is paid, or whose
+    pay link is out, is not (``media.cancel_too_late``). Either way the session goes.
+    A desk that cannot be read falls back to the song's answer, which cancels nothing.
+    """
+    user = message.from_user
+    if deps.media is None or user is None:
+        return False
+    outcome = await deps.media.cancel_open(user.id)
+    if isinstance(outcome, Err) or outcome.value is None:
+        if load_media_draft(await state.get_data()) is None:
+            return False
+        # A compose with nothing frozen: the draft goes, in the language it was being
+        # written in (``finish_with`` reads the SONG draft for that).
+        key = "wizard.cancelled"
+    elif outcome.value is CancelOutcome.CANCELLED:
+        key = _MEDIA_CANCELLED_KEY
+    else:
+        key = _MEDIA_TOO_LATE_KEY
+    language = await resolve_language(state)
+    await clear_keeping_identity(state)
+    await say(message, translate(key, language))
+    return True
 
 
 def build_router() -> Router:

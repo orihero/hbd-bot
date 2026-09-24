@@ -292,7 +292,9 @@ def test_every_nav_action_is_registered_to_a_handler() -> None:
 #: did not. Python exposes no ``Emoji_Presentation`` property, so this is the curated set:
 #: the four in use plus the near neighbours an editor reaching for a "tool" or "document"
 #: glyph is most likely to pick next. Add to it rather than working around it.
-TEXT_DEFAULT_EMOJI: Final[frozenset[str]] = frozenset("🎙🎚🎛🛡🗑🗒🗓🗂🖼🖊🖋⏱⏲✉✏✒✂❤⚠⚙↩↪⬅➡⬆⬇ℹ⌨☑▶◀")
+#: ⏹ 🖥 🗣 joined with the media screens (IMAGE_VIDEO_SPEC §2): the square aspect, the
+#: landscape aspect and the AI-voice button.
+TEXT_DEFAULT_EMOJI: Final[frozenset[str]] = frozenset("🎙🎚🎛🛡🗑🗒🗓🗂🖼🖊🖋⏱⏲✉✏✒✂❤⚠⚙↩↪⬅➡⬆⬇ℹ⌨☑▶◀⏹🖥🗣")
 
 #: The selector that forces emoji presentation.
 EMOJI_SELECTOR: Final[str] = "️"

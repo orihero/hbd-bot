@@ -261,7 +261,10 @@ CATALOGUE: Final[dict[str, str]] = {
     # that happens to read "What shall we do?" must not be routed into a dispatcher that has
     # no button to dispatch to.
     "menu.prompt": "What shall we do?",
-    "menu.generate": "🎵 Make a song",
+    "menu.generate": "✨ Create",
+    # The label ✨ replaced (IMAGE_VIDEO_SPEC §2.2): still ANSWERED, never drawn, because a
+    # chat that has not been re-pushed a keyboard still has it pinned.
+    "menu.generate_legacy": "🎵 Make a song",
     "menu.balance": "🎫 My balance",
     "menu.settings": "⚙️ Settings",
     "menu.help": "❓ Help",
@@ -571,7 +574,7 @@ CATALOGUE: Final[dict[str, str]] = {
     # renders from the client's own language rather than the interface language this bot
     # asked for, which is why they live here and are published per language_code by
     # ``bayram.bot.app.publish_commands`` instead of being an English-only tuple.
-    "command.start": "Start a song for someone",
+    "command.start": "Open the menu",
     "command.cancel": "Stop and start over",
     "command.balance": "Songs you still have",
     "command.help": "How this works",
@@ -649,9 +652,10 @@ CATALOGUE: Final[dict[str, str]] = {
         "consumer are unaffected."
     ),
     "help.text": (
-        "🎂 I write and record one song for one person, with their name sung properly.\n"
+        "🎂 I write and record songs for one person, with their name sung properly. Tap "
+        "✨ Create on the menu to start.\n"
         "\n"
-        "🎬 /start — make a song\n"
+        "🎬 /start — open the menu\n"
         "❌ /cancel — stop the one being made\n"
         "📄 /help — this list\n"
         "🎵 /balance — songs left in your allowance\n"
@@ -750,6 +754,9 @@ CATALOGUE: Final[dict[str, str]] = {
         "the next ones open when the window turns over. The record of any terms you accepted "
         "no longer names you, so if our terms are in force you will be asked to accept them "
         "again.\n"
+        "\n"
+        "The descriptions and photos you sent for pictures are gone too, and so are the "
+        "pictures I was keeping for you.\n"
         "\n"
         "A song already sent to the studio is deleted on the schedule /privacy sets out.\n"
         "\n"
@@ -870,4 +877,44 @@ CATALOGUE: Final[dict[str, str]] = {
         "One of the two images could not be made — we've added 1 {kind} credit to your balance."
     ),
     "media.eta.minutes": "{minutes} min",
+    # -- media: the compose screens the BOT draws (IMAGE_VIDEO_SPEC §2.2, §2.3.3) ----------
+    # The ✨ picker, the compose tray (edited in place, never a reply per photo), the
+    # aspect picker and the post-freeze answers. Nothing here is written by the worker.
+    "create.pick": "✨ What shall we make?",
+    "button.create.song": "🎵 Song",
+    "button.create.image": "🖼️ Image",
+    "button.create.video": "🎬 Video",
+    "button.create.more": "✨ Something else",
+    "notice.menu_updated": "✨ New: pictures made from your words and photos — tap ✨ Create.",
+    "media.image.compose": (
+        "🖼️ Describe the picture you want — just type it as a message. You can also "
+        "attach up to {max} photos (optional)."
+    ),
+    "media.compose.photos_not_kept": (
+        "📎 Your earlier photos were deleted after delivery — attach them again if you want them."
+    ),
+    "media.tray": "Description: {prompt_state}\nPhotos: {n}/{max}",
+    "media.tray.no_prompt": "— not yet",
+    "media.tray.cap_reached": "Only the first {max} photos are used.",
+    "media.need_prompt": "Please type a description first.",
+    "media.prompt.invalid": "Please describe it in {min}–{max} characters.",
+    "media.compose.closed": "Photos can be added before ✅ Done — tap ✏️ Edit.",
+    "media.use_buttons": "Please use the buttons above.",
+    "media.aspect": "📐 Choose a shape.",
+    "media.screening": "⏳ Checking your request…",
+    "media.open_request": (
+        "📌 You already have an open {kind} request — pay for it or cancel it first."
+    ),
+    "media.open_request.paid": "📌 Your {kind} is being made — it will arrive here in this chat.",
+    "media.stale": "This button is no longer active.",
+    "media.cancelled": "✖️ Cancelled — nothing was made and nothing was charged.",
+    "media.cancel_too_late": (
+        "⏳ This request is already paid for, or its payment is being processed, so it "
+        "can't be cancelled now. It will arrive here."
+    ),
+    "button.media.done": "✅ Done",
+    "button.media.clear_photos": "🗑️ Clear photos",
+    "button.media.aspect.portrait": "📱 Portrait 9:16",
+    "button.media.aspect.square": "⏹️ Square 1:1",
+    "button.media.aspect.landscape": "🖥️ Landscape 16:9",
 }

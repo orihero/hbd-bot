@@ -259,7 +259,8 @@ CATALOGUE: Final[dict[str, str]] = {
     # ``keyboards.MENU_BUTTON_KEYS`` ichida ataylab yoʻq: izoh bosqichida tasodifan "Nima
     # qilamiz?" deb yozilgan izoh hech qanday tugmasi yoʻq dispetcherga tushmasligi kerak.
     "menu.prompt": "Nima qilamiz?",
-    "menu.generate": "🎵 Qoʻshiq yasash",
+    "menu.generate": "✨ Yaratish",
+    "menu.generate_legacy": "🎵 Qoʻshiq yasash",
     "menu.balance": "🎫 Limitim",
     "menu.settings": "⚙️ Sozlamalar",
     "menu.help": "❓ Yordam",
@@ -561,7 +562,7 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "gap.greeting_missing": "Ovozli tabriklardan biri chiqmadi, shuning uchun u bu yerda yoʻq.",
     # -- commands ----------------------------------------------------------
-    "command.start": "Bir odamga qoʻshiq yasash",
+    "command.start": "Menyuni ochish",
     "command.cancel": "Toʻxtatib, qaytadan boshlash",
     "command.balance": "Nechta qoʻshigʻingiz qolgan",
     "command.help": "Bu qanday ishlaydi",
@@ -645,9 +646,9 @@ CATALOGUE: Final[dict[str, str]] = {
         "sifatidagi huquqlaringiz saqlanadi."
     ),
     "help.text": (
-        "🎂 Men bitta odam uchun bitta qoʻshiq yozaman va kuylayman — ismi toʻgʻri "
-        "talaffuz bilan.\n\n"
-        "🎬 /start — qoʻshiq yasash\n"
+        "🎂 Men bitta odam uchun qoʻshiq yozaman va kuylayman — ismi toʻgʻri "
+        "talaffuz bilan. Menyudagi ✨ Yaratish tugmasidan boshlang.\n\n"
+        "🎬 /start — menyuni ochish\n"
         "❌ /cancel — tayyorlanayotganini toʻxtatish\n"
         "📄 /help — shu roʻyxat\n"
         "🎵 /balance — limitingizda nechta qoʻshiq qolgani\n"
@@ -752,6 +753,9 @@ CATALOGUE: Final[dict[str, str]] = {
         "keyingilari davr almashganda ochiladi. Qabul qilgan shartlaringiz yozuvi ham endi "
         "sizni koʻrsatmaydi, shuning uchun shartlar amalda boʻlsa, ularni qaytadan qabul "
         "qilish soʻraladi.\n"
+        "\n"
+        "Rasmlar uchun yuborgan tavsif va rasmlaringiz ham, siz uchun saqlab turgan "
+        "rasmlarim ham oʻchirildi.\n"
         "\n"
         "Studiyaga allaqachon yuborilgan qoʻshiq /privacy dagi jadval boʻyicha oʻchiriladi.\n"
         "\n"
@@ -870,4 +874,49 @@ CATALOGUE: Final[dict[str, str]] = {
         "Ikki rasmdan birini yaratib boʻlmadi — balansingizga 1 ta kredit ({kind}) qoʻshildi."
     ),
     "media.eta.minutes": "{minutes} daqiqa",
+    # -- media: the compose screens the BOT draws (IMAGE_VIDEO_SPEC §2.2, §2.3.3) ----------
+    # The ✨ picker, the compose tray (edited in place, never a reply per photo), the
+    # aspect picker and the post-freeze answers. Nothing here is written by the worker.
+    "create.pick": "✨ Nima yaratamiz?",
+    "button.create.song": "🎵 Qoʻshiq",
+    "button.create.image": "🖼️ Rasm",
+    "button.create.video": "🎬 Video",
+    "button.create.more": "✨ Boshqa narsa",
+    "notice.menu_updated": (
+        "✨ Yangilik: tavsifingiz va rasmlaringiz asosida rasmlar — ✨ Yaratish tugmasini bosing."
+    ),
+    "media.image.compose": (
+        "🖼️ Qanday rasm xohlayotganingizni xabar qilib yozing. Xohlasangiz, {max} tagacha "
+        "rasm ham biriktirishingiz mumkin (ixtiyoriy)."
+    ),
+    "media.compose.photos_not_kept": (
+        "📎 Avvalgi rasmlar yetkazilgandan keyin oʻchirildi — kerak boʻlsa, ularni qayta "
+        "biriktiring."
+    ),
+    "media.tray": "Tavsif: {prompt_state}\nRasmlar: {n}/{max}",
+    "media.tray.no_prompt": "— hali yoʻq",
+    "media.tray.cap_reached": "Faqat birinchi {max} ta rasm ishlatiladi.",
+    "media.need_prompt": "Avval tavsif yozing.",
+    "media.prompt.invalid": "Iltimos, {min}–{max} belgi oraligʻida tasvirlab bering.",
+    "media.compose.closed": (
+        "Rasmlarni ✅ Tayyor tugmasidan oldin qoʻshish mumkin — ✏️ Tahrirlash tugmasini bosing."
+    ),
+    "media.use_buttons": "Iltimos, yuqoridagi tugmalardan foydalaning.",
+    "media.aspect": "📐 Shaklni tanlang.",
+    "media.screening": "⏳ Soʻrovingiz tekshirilmoqda…",
+    "media.open_request": (
+        "📌 Sizda allaqachon ochiq soʻrov bor ({kind}) — avval uni toʻlang yoki bekor qiling."
+    ),
+    "media.open_request.paid": "📌 Soʻrovingiz ({kind}) tayyorlanmoqda — natija shu chatga keladi.",
+    "media.stale": "Bu tugma endi ishlamaydi.",
+    "media.cancelled": "✖️ Bekor qilindi — hech narsa yaratilmadi va pul olinmadi.",
+    "media.cancel_too_late": (
+        "⏳ Bu soʻrov allaqachon toʻlangan yoki toʻlovi koʻrib chiqilmoqda, shuning uchun "
+        "hozir bekor qilib boʻlmaydi. Natija shu yerga keladi."
+    ),
+    "button.media.done": "✅ Tayyor",
+    "button.media.clear_photos": "🗑️ Rasmlarni olib tashlash",
+    "button.media.aspect.portrait": "📱 Tik 9:16",
+    "button.media.aspect.square": "⏹️ Kvadrat 1:1",
+    "button.media.aspect.landscape": "🖥️ Yotiq 16:9",
 }

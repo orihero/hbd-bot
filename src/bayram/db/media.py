@@ -271,16 +271,23 @@ async def cancel_prepay_jobs(
     telegram_user_id: int,
     now: datetime,
     kind: MediaKind | None = None,
+    states: Collection[MediaJobState] = MEDIA_PREPAY_STATES,
     policy: RetentionPolicy = DEFAULT_RETENTION_POLICY,
 ) -> list[UUID]:
     """Cancel every PRE-PAY request of this account (of one kind, or all). The ids moved.
 
-    Freezing a new draft calls it for one kind (§2.3.1); ``/forget`` for all (§9.3). A paid
-    request is never touched here. The caller runs ``media_cleanup`` for each id returned.
+    ``/forget`` calls it for all kinds and every pre-pay state (§9.3). Freezing a new draft
+    and ``/cancel`` pass ``states`` without ``awaiting_payment`` (§2.3.1, §2.6): a request
+    whose pay link is out may have money in flight, so it is never swept aside by a new
+    draft. A paid request is never touched here. The caller runs ``media_cleanup`` for each
+    id returned.
     """
+    if not set(states) <= MEDIA_PREPAY_STATES:
+        raise ValueError("cancel_prepay_jobs cancels pre-pay states only")
+    wanted = tuple(states)
     conditions = [
         MediaJobRow.telegram_user_id == telegram_user_id,
-        MediaJobRow.state.in_(tuple(MEDIA_PREPAY_STATES)),
+        MediaJobRow.state.in_(wanted),
     ]
     if kind is not None:
         conditions.append(MediaJobRow.kind == kind)
@@ -289,7 +296,7 @@ async def cancel_prepay_jobs(
         return []
     await session.execute(
         sa.update(MediaJobRow)
-        .where(MediaJobRow.id.in_(ids), MediaJobRow.state.in_(tuple(MEDIA_PREPAY_STATES)))
+        .where(MediaJobRow.id.in_(ids), MediaJobRow.state.in_(wanted))
         .values(
             state=MediaJobState.CANCELLED,
             updated_at=now,

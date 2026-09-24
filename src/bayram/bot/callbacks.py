@@ -31,6 +31,8 @@ __all__ = [
     "TermsCB",
     "MediaAction",
     "MediaCB",
+    "CreatePick",
+    "AspectPick",
     "pack_job_ref",
     "read_job_ref",
     "NO_REFERENCE",
@@ -229,13 +231,19 @@ class TermsCB(CallbackData, prefix="trm"):
 
 
 class MediaAction(StrEnum):
-    """The post-freeze media buttons (IMAGE_VIDEO_SPEC §2, §2.3.3). Short: packed into 64 bytes.
+    """The media buttons (IMAGE_VIDEO_SPEC §2, §2.2, §2.3.3). Short: packed into 64 bytes.
 
-    Drawn by the WORKER (the quote, refusal, busy and failure screens are edits it makes to the
-    tray, §3.3) and handled by the bot's media router (M2.5). Every one carries the
-    ``media_jobs.id`` and is registered WITHOUT a state filter: the FSM may be cleared or days
-    old, so the handler reads the row — owner and state — and answers ``media.stale`` when the
-    press no longer fits it.
+    Two families share one prefix and are told apart by whether :attr:`MediaCB.job` is set.
+
+    **Post-freeze** (``PAY`` … ``MORE``) are drawn by the WORKER (the quote, refusal, busy and
+    failure screens are edits it makes to the tray, §3.3) or by the bot's open-request screen.
+    Every one carries the ``media_jobs.id`` and is registered WITHOUT a state filter: the FSM
+    may be cleared or days old, so the handler reads the row — owner and state — and answers
+    ``media.stale`` when the press no longer fits it.
+
+    **Pre-freeze** (``PICK`` … ``ASPECT``) belong to the compose screens, carry no job and are
+    registered WITH a state filter (``PICK`` excepted: the picker is drawn from the menu,
+    which has no state).
     """
 
     #: 💳 Pay — only on a live-paid rail (§2.5).
@@ -253,14 +261,48 @@ class MediaAction(StrEnum):
     #: 🔁 Again after delivery or a failure: a fresh compose pre-filled with the prompt and
     #: aspect (never the photos, O16).
     AGAIN = "again"
+    #: ✨ Create something else, under a delivery: the ✨ picker again.
+    MORE = "more"
+    #: A choice on the ✨ picker; :attr:`MediaCB.arg` is a :class:`CreatePick` value.
+    PICK = "pick"
+    #: ✅ Done on the compose tray.
+    DONE = "done"
+    #: 🗑 Clear photos on the compose tray.
+    CLEAR = "clear"
+    #: ✖️ on a screen before anything was frozen: the draft is dropped, no row exists.
+    DROP = "drop"
+    #: An aspect on the aspect screen; :attr:`MediaCB.arg` is a :class:`AspectPick` value.
+    ASPECT = "asp"
+
+
+class CreatePick(StrEnum):
+    """The three rows of the ✨ picker (§2.2)."""
+
+    SONG = "song"
+    IMAGE = "image"
+    VIDEO = "video"
+
+
+class AspectPick(StrEnum):
+    """The aspect buttons, by name — the ratio itself contains the ``:`` the payload is split
+    on. ``bayram.db.enums.MediaAspect`` holds the ratio."""
+
+    PORTRAIT = "portrait"
+    SQUARE = "square"
+    LANDSCAPE = "landscape"
 
 
 class MediaCB(CallbackData, prefix="med"):
-    """``med:<action>:<22-char job ref>`` — at most 35 of the 64 bytes (§2 "Callbacks")."""
+    """``med:<action>:<22-char job ref>:<arg>`` — at most 46 of the 64 bytes (§2 "Callbacks").
+
+    ``job`` is empty on a pre-freeze button and ``arg`` on every button but ``PICK`` and
+    ``ASPECT``.
+    """
 
     action: MediaAction
-    #: :func:`pack_job_ref` of the ``media_jobs.id``.
-    job: str
+    #: :func:`pack_job_ref` of the ``media_jobs.id``; empty before anything is frozen.
+    job: str = ""
+    arg: str = ""
 
 
 def pack_job_ref(job_id: UUID) -> str:

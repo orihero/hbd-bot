@@ -46,6 +46,7 @@ __all__ = [
     "WizardStep",
     "Wizard",
     "Onboarding",
+    "ImageOrder",
     "WIZARD_ORDER",
     "OWN_LYRICS_ORDER",
     "PARKED_ONLY_STEPS",
@@ -124,6 +125,25 @@ class Onboarding(StatesGroup):
     language = State()
     terms = State()
     contact = State()
+
+
+class ImageOrder(StatesGroup):
+    """The image request before it is paid for (IMAGE_VIDEO_SPEC §2.3.1). NOT wizard steps.
+
+    Its own group for :class:`Onboarding`'s reason: a ``Wizard`` member is a step of a SONG
+    order, and :func:`step_for_state` answering ``None`` for these is what keeps the song's
+    navigation from treating them as one.
+
+    ``compose`` collects the prompt and the photos on one tray message; ``aspect`` is the
+    shape; at the aspect pick the draft is frozen into a ``media_jobs`` row and the chat
+    parks in ``quote`` while the worker screens it and edits the tray into the quote. The
+    quote's own buttons carry the job id and need no state (§2 "Callbacks"): ``quote`` exists
+    so that a photo or a line of text sent there is answered, not swallowed by the fallback.
+    """
+
+    compose = State()
+    aspect = State()
+    quote = State()
 
 
 WIZARD_ORDER: Final[tuple[WizardStep, ...]] = (

@@ -69,6 +69,7 @@ from bayram.bot.handlers.common import (
 )
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import contact_request_keyboard
+from bayram.bot.menu_version import stamp_menu_version
 from bayram.bot.middleware import resolve_language
 from bayram.bot.screens import (
     Screen,
@@ -513,6 +514,9 @@ async def handle_contact_shared(
     # receipt above, and that same message is what replaces the pinned 📱 contact button.
     # ``is_first_time`` draws the welcome paragraph, here and nowhere else.
     await present(message, menu_screen(language, is_first_time=True))
+    # A new account's first keyboard is the current one: nothing for the re-push hook to
+    # add, and no "new" notice for somebody to whom nothing is new (IMAGE_VIDEO_SPEC §2.2).
+    await stamp_menu_version(deps.media_kv, user.id)
     await fetch_and_store_avatar(bot, telegram_user_id=user.id, profiles=deps.profiles)
 
 

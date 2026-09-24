@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Final
 
+from bayram.bot.albums import AlbumMemory
 from bayram.bot.chatlog import ChatRecorder
 from bayram.bot.payment import DEFAULT_CURRENCY, FREE_AMOUNT_MINOR, NoopPaymentProvider
 from bayram.bot.ports import Clock, MediaEraser, OrderSubmitter, SupportTicketEraser, utc_now
@@ -27,6 +28,8 @@ from bayram.config import Settings
 from bayram.contracts import PaymentProvider
 from bayram.entitlements import EntitlementStore
 from bayram.lyric_budget import LyricBudgetStore
+from bayram.media.desk import MediaDesk
+from bayram.media.overrides import MediaSwitchStore
 from bayram.pipeline.ports import ContentWriter
 from bayram.support import SupportTicketStore
 from bayram.terms import TermsCache, TermsGate
@@ -300,3 +303,15 @@ class BotDeps:
     #: ``None`` on a deployment with no database, which has never stored an upload. Trailing
     #: and defaulted, for the reason ``terms`` gives.
     media_erasure: MediaEraser | None = None
+    #: The image/video compose screens' door to the media tables and the stage queue
+    #: (IMAGE_VIDEO_SPEC §2.3). ``None`` — a deployment with no database, and the default the
+    #: whole song suite runs in — means media is offered to NOBODY: ✨ goes straight to the
+    #: song, exactly as 🎵 did (§2.2). Trailing and defaulted, for the reason ``terms`` gives.
+    media: MediaDesk | None = None
+    #: Redis, as far as media reads it from the bot: the operator switches (``media:paused:*``,
+    #: §4.5) and the per-account menu version ``menu:v:{tg}`` (§2.2). ``None`` reads as "not
+    #: paused" and "nothing to re-push". Trailing and defaulted, for the reason ``terms`` gives.
+    media_kv: MediaSwitchStore | None = None
+    #: The one-reply-per-album seen-set (IMAGE_VIDEO_SPEC §2.3.2), shared by the inbound gate
+    #: and the handlers so an album counts once and is answered once. In-process by design.
+    albums: AlbumMemory = field(default_factory=AlbumMemory)

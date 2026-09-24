@@ -57,6 +57,7 @@ from bayram.bot.handlers.submitting import (
 from bayram.bot.handlers.support import open_ticket
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import start_over_keyboard
+from bayram.bot.menu_version import forget_menu_version
 from bayram.bot.middleware import resolve_language
 from bayram.bot.screens import terms_full_screen
 from bayram.bot.states import Wizard
@@ -332,10 +333,12 @@ async def handle_forget(message: Message, state: FSMContext, deps: BotDeps) -> N
     torn_up = await _forget_tickets(deps, telegram_user_id)
     unaccepted = await _forget_terms_cache(deps, telegram_user_id)
     unmade = await _forget_media(deps, telegram_user_id)
+    # ``menu:v:{tg}`` names the account too (IMAGE_VIDEO_SPEC §2.2).
+    unversioned = await forget_menu_version(deps.media_kv, telegram_user_id)
     failure = next(
         (
             result
-            for result in (forgotten, erased, torn_up, unaccepted, unmade)
+            for result in (forgotten, erased, torn_up, unaccepted, unmade, unversioned)
             if isinstance(result, Err)
         ),
         None,

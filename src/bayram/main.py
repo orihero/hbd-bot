@@ -58,6 +58,7 @@ from bayram.db.terms import SqlTermsLedger
 from bayram.errors import BayramError, ConfigError
 from bayram.logging import configure_logging, get_logger
 from bayram.media.boot import refuse_unsafe_media_config
+from bayram.media.desk import SqlMediaDesk
 from bayram.payme.pause import is_paused
 from bayram.pipeline.content import LlmContentWriter
 from bayram.runtime.container import AppContainer, build_container
@@ -536,6 +537,17 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
             if container.session_factory is not None
             else None
         ),
+        # ✨ Create's image compose (IMAGE_VIDEO_SPEC §2.2, §2.3): rows through the database,
+        # stages through the SAME queue pool the song submitter uses. ``None`` — media offered
+        # to nobody, ✨ straight to the song — with no database or no pool (the demo path,
+        # which has no worker to run a stage).
+        media=(
+            SqlMediaDesk(container.session_factory, queue=pool, settings=settings)
+            if container.session_factory is not None and pool is not None
+            else None
+        ),
+        # The operator switches and ``menu:v:{tg}`` (§2.2, §4.5), on that same pool.
+        media_kv=pool,
     )
     # The lock that makes a state filter a real gate. Built from the same Redis as the
     # storage, so it holds across every process that could handle this chat.

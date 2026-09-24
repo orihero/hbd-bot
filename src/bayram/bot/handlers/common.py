@@ -56,6 +56,7 @@ __all__ = [
     "error_text",
     "support_text",
     "privacy_text",
+    "is_first_of_album",
 ]
 
 _LOG = get_logger(__name__)
@@ -407,3 +408,16 @@ def error_text(error: BayramError, language: Language) -> str:
         if isinstance(value, str | int | float | bool)
     }
     return translate(error.user_message_key, language, **params)
+
+
+def is_first_of_album(message: Message, deps: BotDeps) -> bool:
+    """False for the second and later photos of an album this chat already answered.
+
+    Telegram delivers an album as one message per item, and a handler that replies to each
+    draws ten replies to one gesture (IMAGE_VIDEO_SPEC §2.2, §2.3.2). A message outside an
+    album is always "first".
+    """
+    user = message.from_user
+    if user is None:
+        return True
+    return deps.albums.first(user.id, message.media_group_id, purpose="reply", now=deps.clock())

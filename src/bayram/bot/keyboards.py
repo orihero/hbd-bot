@@ -41,6 +41,8 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bayram.bot.callbacks import (
+    AspectPick,
+    CreatePick,
     GenreCB,
     LanguageCB,
     LanguageSlot,
@@ -94,6 +96,10 @@ __all__ = [
     "media_refused_keyboard",
     "media_busy_keyboard",
     "media_again_keyboard",
+    "create_picker_keyboard",
+    "media_tray_keyboard",
+    "media_aspect_keyboard",
+    "media_open_request_keyboard",
     "LANGUAGE_COLUMNS",
     "GENRE_COLUMNS",
     "OCCASION_COLUMNS",
@@ -103,6 +109,9 @@ __all__ = [
     "MAX_ROW_LABEL_CHARS",
     "MAX_REPLY_ROW_LABEL_CHARS",
     "MENU_BUTTON_KEYS",
+    "MENU_LEGACY_LABEL_KEYS",
+    "MENU_GENERATE_LEGACY_LABEL_KEY",
+    "MENU_VERSION",
     "MENU_LABELS",
     "MENU_GENERATE_LABEL_KEY",
     "MENU_BALANCE_LABEL_KEY",
@@ -219,8 +228,24 @@ MENU_BUTTON_KEYS: Final[tuple[str, ...]] = (
 #: language still has yesterday's labels pinned and will press one. A set built per-request
 #: from the current language would route those presses to the fallback handler and answer
 #: "that session expired" to a button the bot itself drew.
+#: Labels the menu no longer DRAWS but still ANSWERS, each mapped to the key it now means
+#: (IMAGE_VIDEO_SPEC §2.2, D20). 🎵 became ✨ Create; every chat that has not been re-pushed a
+#: keyboard still has the 🎵 one pinned, and its press must keep working. Kept apart from
+#: :data:`MENU_BUTTON_KEYS` because that tuple is what :func:`main_menu_keyboard` draws — a
+#: legacy key there would be a fifth button.
+MENU_LEGACY_LABEL_KEYS: Final[Mapping[str, str]] = {"menu.generate_legacy": "menu.generate"}
+#: Named so the locale contract's key scan sees it (see ``MENU_GENERATE_LABEL_KEY``).
+MENU_GENERATE_LEGACY_LABEL_KEY: Final[str] = "menu.generate_legacy"
+
+#: The reply keyboard's version (IMAGE_VIDEO_SPEC §2.2). Bumped whenever a label changes, so
+#: ``bot.menu_version`` re-sends the keyboard once to every chat still holding the old one.
+#: 1 was the 🎵 menu; 2 is ✨ Create.
+MENU_VERSION: Final[int] = 2
+
 MENU_LABELS: Final[frozenset[str]] = frozenset(
-    translate(key, language) for key in MENU_BUTTON_KEYS for language in SUPPORTED_LANGUAGES
+    translate(key, language)
+    for key in (*MENU_BUTTON_KEYS, *MENU_LEGACY_LABEL_KEYS)
+    for language in SUPPORTED_LANGUAGES
 )
 
 #: Label keys that do NOT follow the ``button.{action.value}`` convention, named here so
@@ -984,11 +1009,82 @@ def media_busy_keyboard(language: Language, job_id: UUID) -> InlineKeyboardMarku
 
 
 def media_again_keyboard(language: Language, job_id: UUID) -> InlineKeyboardMarkup:
-    """Under a delivery or a failure: 🔁 a fresh compose with the prompt and aspect pre-filled.
+    """Under a delivery or a failure: 🔁 a fresh compose with the prompt and aspect pre-filled,
+    and ✨ the picker, for something else entirely (§2.3.3).
 
     After a refunded failure the bot's handler pre-selects the credit at the quote, so one
     button serves both the "again" and the "use your credit" readings of §2.3.3.
     """
     return InlineKeyboardMarkup(
-        inline_keyboard=[_media_button(language, "button.media.again", MediaAction.AGAIN, job_id)]
+        inline_keyboard=[
+            _media_button(language, "button.media.again", MediaAction.AGAIN, job_id),
+            _media_button(language, "button.create.more", MediaAction.MORE, job_id),
+        ]
+    )
+
+
+def _pre_freeze_button(
+    language: Language, key: str, action: MediaAction, arg: str = ""
+) -> list[InlineKeyboardButton]:
+    return [
+        InlineKeyboardButton(
+            text=translate(key, language), callback_data=MediaCB(action=action, arg=arg).pack()
+        )
+    ]
+
+
+def create_picker_keyboard(
+    language: Language, *, is_image_offered: bool, is_video_offered: bool
+) -> InlineKeyboardMarkup:
+    """``create.pick`` (§2.2): 🎵 always; 🖼 and 🎬 only when offered to THIS account (§2.5).
+
+    Drawn from the menu, which carries no state, so these three are the one pre-freeze family
+    registered without a state filter.
+    """
+    rows = [_pre_freeze_button(language, "button.create.song", MediaAction.PICK, CreatePick.SONG)]
+    if is_image_offered:
+        rows.append(
+            _pre_freeze_button(language, "button.create.image", MediaAction.PICK, CreatePick.IMAGE)
+        )
+    if is_video_offered:
+        rows.append(
+            _pre_freeze_button(language, "button.create.video", MediaAction.PICK, CreatePick.VIDEO)
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def media_tray_keyboard(language: Language, *, has_photos: bool) -> InlineKeyboardMarkup:
+    """The compose tray (§2.3.3): ✅ Done, 🗑 Clear photos when there are any, ✖️ Cancel."""
+    rows = [_pre_freeze_button(language, "button.media.done", MediaAction.DONE)]
+    if has_photos:
+        rows.append(_pre_freeze_button(language, "button.media.clear_photos", MediaAction.CLEAR))
+    rows.append(_pre_freeze_button(language, "button.media.cancel", MediaAction.DROP))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+#: The aspect buttons in the order they are drawn: the default (9:16, O15) first.
+_ASPECT_LABEL_KEYS: Final[tuple[tuple[AspectPick, str], ...]] = (
+    (AspectPick.PORTRAIT, "button.media.aspect.portrait"),
+    (AspectPick.SQUARE, "button.media.aspect.square"),
+    (AspectPick.LANDSCAPE, "button.media.aspect.landscape"),
+)
+
+
+def media_aspect_keyboard(language: Language) -> InlineKeyboardMarkup:
+    """``media.aspect`` (§2.3.3): 📱 9:16 · ⏹ 1:1 · 🖥 16:9, and ✖️ — nothing is frozen yet."""
+    rows = [
+        _pre_freeze_button(language, key, MediaAction.ASPECT, pick)
+        for pick, key in _ASPECT_LABEL_KEYS
+    ]
+    rows.append(_pre_freeze_button(language, "button.media.cancel", MediaAction.DROP))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def media_open_request_keyboard(language: Language, job_id: UUID) -> InlineKeyboardMarkup:
+    """``media.open_request`` for a request whose pay link is out (§2.3.1): 💳 · ✖️ on THAT row."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            _media_button(language, "button.media.pay", MediaAction.PAY, job_id),
+            _media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id),
+        ]
     )

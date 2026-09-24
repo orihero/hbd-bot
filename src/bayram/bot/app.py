@@ -23,6 +23,7 @@ from bayram.bot.deps import DEPS_KEY, BotDeps
 from bayram.bot.gate import InboundGateMiddleware
 from bayram.bot.handlers import build_router
 from bayram.bot.handlers.commands import commands_for
+from bayram.bot.menu_version import MenuRepushMiddleware
 from bayram.bot.middleware import ErrorGuardMiddleware
 from bayram.bot.terms_gate import TermsGateMiddleware
 from bayram.config import Settings
@@ -140,8 +141,12 @@ def build_dispatcher(
     guard = ErrorGuardMiddleware()
     dispatcher.message.middleware(guard)
     dispatcher.callback_query.middleware(guard)
+    # IMAGE_VIDEO_SPEC §2.2: after a handled private message, re-send the reply keyboard once
+    # to a chat still holding an older one. Inside the guard, so its own failure is contained
+    # twice over; it stands down with no ``deps.media_kv``.
+    dispatcher.message.middleware(MenuRepushMiddleware())
     if deps.chat_recorder is not None:
-        chat_inbound = ChatLogInboundMiddleware(deps.chat_recorder)
+        chat_inbound = ChatLogInboundMiddleware(deps.chat_recorder, albums=deps.albums)
         dispatcher.message.middleware(chat_inbound)
         dispatcher.callback_query.middleware(chat_inbound)
         dispatcher.startup.register(deps.chat_recorder.start)
@@ -190,6 +195,7 @@ def install_inbound_gate(dispatcher: Dispatcher, deps: BotDeps) -> InboundGateMi
         entitlements=deps.entitlements,
         policy=resolve_inbound_policy(deps.settings),
         clock=deps.clock,
+        albums=deps.albums,
     )
     dispatcher.message.outer_middleware(gate)
     dispatcher.callback_query.outer_middleware(gate)
