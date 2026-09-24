@@ -264,6 +264,8 @@ You always receive $0.013/Star; the buyer paid between $0.0145 and $0.0199. Nudg
 
 **Reversibility.** CHEAPEST decision in the document. Two vendors, one strict-JSON schema, one config flag. If UzLiB turns out to be misread, switching back to Claude costs an afternoon.
 
+**Amendment, 2026-09-24 — the paid-tier rule is narrowed for TTS narration by D23.** D5's LLM decision is unchanged. What D23 adds is a second Google surface, Gemini 3.8 Flash TTS for video narration, drawn from an owner-supplied key pool that may span projects. The owner accepted (2026-09-24) that pool keys may be free-tier for every job, so Google may train on **narration text** (a short spoken line, disclosed in the Privacy notice); D5's paid-tier rule still holds for the LLM, which sees the full brief. The pool keys are TTS-only and must not be the D5 LLM's keys, so a suspension of one cannot take down the other.
+
 
 ### D6 — How are voice briefs transcribed, and how is the recipient's name captured?
 
@@ -283,6 +285,8 @@ You always receive $0.013/Star; the buyer paid between $0.0145 and $0.0199. Nudg
 
 
 **Reversibility.** CHEAP. Confidence-based cascade behind one interface: Scribe → Azure → Google Chirp. Because the name never passes through it, an STT swap cannot damage the product's core promise.
+
+**Amendment, 2026-09-24 — Whisper is used, narrowly, for media voice notes (D24; rejected #13 amended).** D6 is unchanged for song briefs and names. Whisper large-v3 on the owner's gateway transcribes a video's own-voice note **as moderation input only** — never for lyrics, names or anything sung — and a transcript that looks hallucinated is refused, not trusted (`IMAGE_VIDEO_SPEC` §5.4).
 
 
 ### D7 — How is the cover art produced?
@@ -304,6 +308,8 @@ You always receive $0.013/Star; the buyer paid between $0.0145 and $0.0199. Nudg
 
 **Reversibility.** CHEAP and one-directional — you can always add a generative background later behind the same compositor. Going the other way (retrofitting deterministic type onto a generative pipeline after customers complain about mangled names) is the expensive direction.
 
+**Amendment, 2026-09-24 — "No image model in the request path, ever" no longer holds for the new products (D20, D21).** The Image and Video products (`IMAGE_VIDEO_SPEC`) put an image model (local FLUX.2 [dev]) and a video model (local Wan 2.2) in the request path, on the owner's decision. **Everything else in D7 stands**: the song cover is still composed deterministically, and no generation prompt ever carries a name or the `@bayram_uzbot` watermark to be drawn — the image product promises no legible text, because rejected #15 is still true.
+
 
 ### D8 — How is user-supplied content moderated across three languages?
 
@@ -323,6 +329,8 @@ You always receive $0.013/Star; the buyer paid between $0.0145 and $0.0199. Nudg
 
 
 **Reversibility.** CHEAP. Three independent layers; any one can be swapped or dropped. The blocklist is our own data and portable.
+
+**Amendment, 2026-09-24 — media is screened under D24, not here.** D8 still governs song text. Image and video requests — prompts, uploaded photos, voice-note transcripts and generated outputs — are screened by guard models on the owner's GPU, before payment and before delivery, failing closed (D24).
 
 
 ### D9 — Which payment rail, given Payme and Click are ruled out?
@@ -607,6 +615,127 @@ The render's identity is the UUID5 `order_id_for` already takes over the draft, 
 **Known weaknesses.** (1) Nothing alarms on a stale date; the date is rendered and a human must look at it. (2) The price mirror can drift silently — `extra="ignore"` means writing the worker's spelling into the admin file is a no-op with no error, and nothing cross-checks the two processes. (3) Setting three of the four variables takes the panel off the air in a crash loop rather than degrading, which is the correct refusal but an unkind one to walk into; the procedure in `02-configuration.md` states it in capitals for that reason. (4) The rate applies to every historical card at once, so correcting a wrong rate changes what past periods appear to have earned — the as-of date is the only record that they were ever read differently.
 
 
+### D20 — Bayram sells generated images and videos, and takes customers' photos and voice notes to make them (amends SCOPE §2.2, §3.2, FR-7, FR-96, LR-47, LR-51, LR-59 and D7)
+
+**Decision.** Add two products beside the song, specified by `IMAGE_VIDEO_SPEC`: **Image** (one request → two images from a prompt and 0..N photos) and **Video** (a 5 s clip from a prompt and optional photos, with an optional voice). The persistent menu keeps four buttons; 🎵 becomes **✨ Create**, which opens Song / Image / Video, and the old 🎵 labels stay as aliases (`IMAGE_VIDEO_SPEC` §2.2). The user picks 9:16, 1:1 or 16:9 (default 9:16). Uploaded photos and voice notes are **deleted immediately after delivery**, and on failure, cancellation or abandonment; outputs are kept 30 days by default (open, `IMAGE_VIDEO_SPEC` Q2). **Real people and faces are governed by the Terms only** (D26) plus the general safety checks (D24): there is no face detector, no consent tap and no face-conditioned policy. Owner decision, 2026-09-24.
+
+**What this reverses, stated rather than inferred** (the D12 rule). SCOPE §3.2 (`SCOPE_OF_WORK.md:111`: "Not building: animated or AI video clips of any kind; … user-uploaded audio or photos beyond a voice brief; third-party image models in the request path"); §2.2 (:84, "No third-party photo or voice upload anywhere in v1"); **FR-7** (:141, MUST: "No third-party voice or photo upload path exists"); the intake clause of **FR-96** (:305, "no user-supplied image is ever accepted") — the song cover producer itself is unchanged; **LR-47** (:836, "No user-uploaded audio anywhere in v1"); the "no photo" item of **LR-51** (:844); **LR-59**'s "No photographs of children ever" (:852), which becomes a Terms prohibition and a moderation category rather than an absence of intake; and **D7**'s "No image model in the request path, ever", which is amended below D7. **SCOPE_OF_WORK is not annotated by this entry**: this change is a plan only, and the SCOPE items are MUST-bans that stay literally true until the first media code lands, so each receives its dated "Amended by D20 (2026-09-24)" block in the M0 change that precedes any media code (`IMAGE_VIDEO_SPEC` §10 M0.5); until then this entry is the record. (LR-54 is discharged by D26, not here.) What is **not** reversed: D7's deterministic typography for the *song* cover, rejected #15 (no image model renders U+02BB — the image product promises no legible text), and the watermark rule that `@bayram_uzbot` never enters a generation prompt.
+
+**Reasoning.** The owner wants the bot to be a creation studio, not a single-product song shop, and the pieces exist: a local GPU gateway that renders FLUX.2 images in ~40 s and Wan clips in ~17.5 min, a Payme rail with settle-starts-render (D17), and a worker that already runs a submit → poll → asset pipeline. The scope refusals were written for a song product whose threat model had no photos in it; they were right for that product and are not right for this one, so they are amended openly rather than bypassed by a feature flag. Keeping four buttons avoids the 360dp truncation `bot/handlers/menu.py:14-18` records for six. Deleting uploads at delivery is the minimum-retention position the owner chose and the strongest privacy control available without face logic.
+
+**Fallback and switch trigger.** Turn both products off: `BAYRAM_IS_IMAGE_OFFERED=false`, `BAYRAM_IS_VIDEO_*_OFFERED=false` (or the per-SKU Redis pause) returns the menu to songs only with the ✨ label routing straight to the song flow. Triggers: (1) a confirmed abuse case involving a real person or a minor that the D24 layers let through (then also D20's face-policy fallback: build the policy written in `RESEARCH-image-video-pipeline` §5 "Face-conditioned fallback" — MediaPipe detection, stricter rules with a face present, a consent tap, likely-minor → innocuous edits only — within one release); (2) counsel advises that photo intake needs more than terms under the Personal Data law; (3) capacity makes the promised wait false for a week (`IMAGE_VIDEO_SPEC` §11 R4).
+
+**Cost.** Two migrations (`0030` terms, `0031` media) plus `0032` for the review queue — `0029` is already taken by `add_acquisition_source`, which lands first with the row-existence fix (`IMAGE_VIDEO_SPEC` §3.2); roughly six bot modules, a provider package, a moderation package, a dozen ARQ jobs, admin routes and screens (`IMAGE_VIDEO_SPEC` §3, §8); four new secrets. Recurring: GPU time on the owner's box, gateway operations, moderation review, and 30 days of output storage on a 38 GB disk.
+
+**Confidence.** MEDIUM. The mechanism reuses shipped primitives (D17 latch, retention/purge machinery, provider factories). The product risk is untested demand and the safety posture with no face logic.
+
+**Reversibility.** CHEAP IN CODE (flags), NOT REVERSIBLE FOR WHAT WAS DELIVERED: an output that reached a chat cannot be recalled. That asymmetry is why output screening happens before delivery.
+
+**Known weaknesses.** (1) Terms-only real-person policy (`IMAGE_VIDEO_SPEC` §11 R3). (2) A re-roll cannot reuse photos, because they are gone after delivery — the customer re-attaches them. (3) Media cannot start while a song renders (`IMAGE_VIDEO_SPEC` Q5).
+
+
+### D21 — Paid images render locally on FLUX.2 [dev], with the licence risk accepted by the owner (reverses rejected #19 for this use)
+
+**Decision.** The Image product's default backend is the owner's local gateway model `flux2` (FLUX.2 [dev]), for **paid** images. The owner was told on 2026-09-24 that the FLUX.2 [dev] weights "explicitly prohibit revenue-generating use" (§7 rejected #19) and answered "I accept the risk". The backend is a closed flag, `BAYRAM_IMAGE_BACKEND: local | higgsfield | fal | fake`, with a Redis operator override and a per-SKU kill switch (`IMAGE_VIDEO_SPEC` §4.5); Higgsfield and fal sit behind the same `MediaGenProvider` protocol and are off. Several reference photos on the one-reference local backend are **composited into one collage** input; a multi-reference backend gets them natively (`IMAGE_VIDEO_SPEC` §4.4). Only `flux2` and `wan` are reachable from bayram; `zootopia` (a LoRA of named Disney characters), `storybook`, `storybook_wan` and `hunyuan` are refused in code.
+
+**Reasoning.** Local rendering has near-zero cash cost per image, keeps customer photos off third-party clouds (which also sidesteps the Personal Data amendment No. 1125 question for this path), and is already working. The licensed alternatives cost money per image and add a foreign processor. The owner weighed that against the licence and chose local. This entry exists so the choice is on the record as an informed acceptance, not an oversight, and so the LR-36 licence matrix (SCOPE LR-36) can carry a truthful row: "FLUX.2 [dev] — non-commercial; used commercially; risk accepted by owner 2026-09-24, D21". LR-41's customer warranty (SCOPE:825) must not claim otherwise.
+
+**Fallback and switch trigger.** `media:backend:image = higgsfield` (or `fal`) in one Redis write, no restart — **but only to a backend whose per-request cost (two images, 1.5 attempts) is under ~50% of net revenue at the current price** (`RESEARCH-image-video-pipeline` §6: Nano Banana Pro and Higgsfield's documented image price are not viable at 5 000 UZS; Seedream v4, Soul 2 and Runware FLUX dev are), enforced by the boot/quote margin check (`IMAGE_VIDEO_SPEC` §4.3); otherwise re-price first. Or buy a BFL commercial self-hosting licence and keep `local`. Switch within 7 days on any of: contact or notice from Black Forest Labs; counsel advising against; monthly image revenue exceeding the cost of the BFL commercial licence; a permissively licensed local model reaching comparable quality on the owner's box.
+
+**Cost.** Zero cash per image; ~40 s of GPU per image; the unpriced legal exposure the owner accepted.
+
+**Confidence.** HIGH on the mechanism; the decision is a risk acceptance, not a technical judgement.
+
+**Reversibility.** CHEAP — a flag. What does not reverse is images already sold under the dev licence.
+
+**Known weaknesses.** Rejected #19's text is left as written; the amendment beneath it points here. Collage input to img2img produces a stylised collage, not a composed scene; that is a quality limit of the one-reference backend until a multi-reference backend is enabled.
+
+
+### D22 — Video has two tiers: Standard on local Wan now, Fast on Higgsfield later; paying customers outrank marketing on the GPU
+
+**Decision.** Video is sold in two tiers the user chooses between: **Standard** (local Wan 2.2 on the gateway: queue + ~17.5 min per 5 s 720p clip, cheap) and **Fast** (Higgsfield, Kling 3.0 std by default, pricier). **Only Standard is enabled now**, beta first (D25); the owner will test it himself. Fast is built behind the same protocol and stays flagged off until M6. Prices are configuration: Standard **25 000 UZS** (`video_standard_price_minor=2_500_000`, owner 2026-09-24); Fast (`video_fast_price_minor`) unset = not sellable until M6, recommended range in `IMAGE_VIDEO_SPEC` §7.1. **GPU priority:** paid customer jobs go ahead of the owner's marketing renders in the gateway queue (never by interrupting a running job — `/interrupt` is global); during an operator "GPU reserved" window (`media:gpu:reserved_until`), every local-backed SKU stops taking orders **before payment** with a "busy" message, and jobs already paid continue. Owner decision, 2026-09-24.
+
+**Reasoning.** The first research pass concluded video was broken, from a stale README; the owner's logs show 13 clean Wan clips on 09-22/23, so video is slow, not blocked (`RESEARCH-image-video-pipeline` §1.1). Slow and cheap is a legitimate product if the wait is shown honestly at the quote and money is never taken for a wait that would exceed the job's deadline (NFR-20, FR-88). A Fast tier on a cloud backend is the honest answer for customers who will not wait, at a price that covers ~$0.56 per clip plus retries. Queue priority rather than pre-emption is forced by the gateway: there is no per-job cancel.
+
+**Fallback and switch trigger.** If local Standard cannot keep p95 paid→delivered under 2 h for a week, or the gateway has three outages over an hour in 30 days: enable Fast for all, or point Standard at a cloud Wan (`VIDEO_STANDARD_BACKEND=fal`, fal Wan 2.5 ≈ $0.25/clip) with the price re-checked. If Higgsfield's pass-through clause or its training-on-inputs term is judged unacceptable by counsel, Fast uses fal.
+
+**Cost.** ~17.5 GPU-minutes per Standard clip (ceiling ~80/day with the GPU otherwise idle); Fast ≈ 7 200–10 800 UZS per clip at 1–1.5 attempts; the gateway changes G5 (priority) and G6 (delete) in `IMAGE_VIDEO_SPEC` §6.5.
+
+**Confidence.** MEDIUM. Wan throughput is measured; queue behaviour under real demand and marketing contention is not.
+
+**Reversibility.** CHEAP — flags and prices.
+
+**Known weaknesses.** Until G5 exists, "customers pre-empt marketing" depends on the owner's marketing scripts yielding voluntarily. HunyuanVideo is never used (untested, no i2v).
+
+
+### D23 — Narration uses Gemini 3.8 Flash TTS through an owner-supplied key pool, with the ToS risk accepted; own voice notes are muxed as-is (amends rejected #11; narrows D5's paid-tier rule)
+
+**Decision.** Video voice is optional and offered four ways: **none**; **AI voice on the user's text**; **AI voice on an LLM-written line the user can edit**; **the user's own Telegram voice note**, muxed as-is — no cloning and no voice conversion. AI voice is `gemini-3.8-flash-tts` via the Interactions API (`POST /v1beta/interactions`), with a male and a female house voice, behind a new `GeminiTtsProvider` and a narration route table whose fallback is ElevenLabs (`IMAGE_VIDEO_SPEC` §5). The provider draws from a **pool of 5–6 owner-supplied keys, possibly from different projects**, round-robin with per-key cooldown on 429, health tracking and disablement on 401/403. Audio is capped to the clip (5 s now): AI text ≤ ~12 words; a voice note over the limit is rejected **before payment**. The LLM line is written on the gateway (`qwen3.8:27b`) with the D5 LLM as fallback. Owner decisions, 2026-09-24.
+
+**Reasoning.** Gemini 3.8 Flash TTS (GA 2026-09-23) is the first Google TTS whose language table lists Northern Uzbek, and at ~$0.002 per clip it is effectively free. The owner was told that Gemini rate limits are per project, not per key, and that spreading keys across projects to exceed limits falls under the Google APIs ToS §d; he chose the pool anyway and accepts suspension risk. He also accepted free-tier keys for all jobs, paying customers included, so narration text may be used for Google's training (answer to `IMAGE_VIDEO_SPEC` Q17, 2026-09-24); the Privacy notice says so. The guard that remains: the keys are used for TTS only, so a suspension cannot take down the D5 LLM. Own voice notes are allowed because they are the customer's own voice, delivered back to the customer, and screened through a whisper transcript.
+
+**Fallback and switch trigger.** ElevenLabs (already integrated and paid) for any language, automatically when every pool key is cooling or disabled. Collapse the pool to **one billed project with ≤2 rotation keys** on: any key suspended or 403-disabled twice in 30 days (the same trigger as `IMAGE_VIDEO_SPEC` §11 R2); any Google notice about circumvention; or the D5 LLM project sharing a key. Route `uz` to ElevenLabs permanently if the M4 listening test fails — Uzbek is listed but unproven on a one-day-old model.
+
+**Cost.** ~$0.002 per clip until 2026-12-31, doubling from 2027-01-01. Thirteen new voice settings (`IMAGE_VIDEO_SPEC` §9.5 — key pool, model, two house voices, narration routes and fallback, clip length, six per-language word/char budgets), one of them a secret (`gemini_tts_api_keys`, in `VENDOR_SECRET_FIELDS`).
+
+**Confidence.** LOW-MEDIUM on Uzbek quality (unmeasured); HIGH on the fallback path; the pool is a risk acceptance.
+
+**Reversibility.** CHEAP — a route table and an env var.
+
+**Known weaknesses.** (1) The ToS exposure (`IMAGE_VIDEO_SPEC` §11 R2). (2) Gemini and Higgsfield terms require users to be 18+, while LR-59 treats children as a song use case — the Terms draft makes media 18+ (`IMAGE_VIDEO_SPEC` Q7). (3) Whisper hallucinates on Uzbek (rejected #13, amended); here it feeds moderation only, with confidence, language and word-rate checks that refuse rather than allow; tone and non-verbal sound in a voice note are unscreened. (4) Free-tier keys: narration text may train Google's models (accepted). (5) The narration length budget is per language (Uzbek ≈8 words, not 12), because 12 agglutinative Uzbek words do not fit in 5 s; an over-long synthesis after payment is trimmed with a fade, never failed.
+
+
+### D24 — Media moderation runs on guard models on the owner's GPU, before payment and before delivery, and fails closed
+
+**Decision.** Every media request is screened **before payment** — prompt, captions, narration text, voice-note transcript and every uploaded photo (and the collage) — and every output is screened **before delivery**, by purpose-trained guard models the owner installs on the RTX 5090: **Qwen3Guard-Gen-4B** (text), **ShieldGemma 2** (images), **whisper large-v3** (voice notes → text). They sit behind a `MediaModerator` protocol and a strict verdict schema with no defaults, closed category codes and the decision computed in our code — from the text guard's `Safe/Controversial/Unsafe` label (Qwen3Guard-Gen is generative and emits no scores) and from the image guard's per-policy probabilities — where a missing label or an empty score map is `unavailable`, never `allow` (`IMAGE_VIDEO_SPEC` §6.2–6.3). Text inside images is read by OCR plus a short VLM caption on the gateway (G8) and screened as text. Layers L0–L6 (§6.4): deterministic denylist and budget, text guard, image guard, re-screen of LLM-written text, output screen, provider refusals, human review queue. **Fail closed:** a guard that is down, slow or unparseable stops sales before payment ("busy, not charged") and holds delivery after payment. A strike counter suspends repeat offenders. **No installed guard detects minors**, so the youth signal is built in our code — a uz/ru/en youth-term lexicon over every text and every OCR/caption string, plus an uncalibrated ShieldGemma custom policy — and, because age cannot be judged from pixels, **sexual content on any image is blocked at a low fixed threshold** whatever the signal says. Sexual plus a youth signal is a hard block (no retry, suspension, escalation). CSAM-class bytes go under an **encrypted ≤72 h legal hold** that is never revealable in the panel — an exception to the delete-at-once retention rule that the owner confirmed on 2026-09-24 (`IMAGE_VIDEO_SPEC` Q16). The gateway work the owner does (endpoints G1–G7) is listed in `IMAGE_VIDEO_SPEC` §6.5. Owner decision, 2026-09-24. **Separately**, the song moderator's live fail-open defects are fixed first (§6.8: `is_allowed` defaults to `True` with `extra='ignore'`; transport errors allow; user text pasted unescaped).
+
+**Reasoning.** The owner proposed screening prompts with a local LLM. The instinct is right (no per-call cost, no data leaving the box); a general chat model answering yes/no is its weakest form — injectable, uncalibrated, non-deterministic on q4, and prone to refusing words rather than meaning. Guard models give scores to threshold. Text-only screening would miss the larger risk, which is in uploaded photos and generated output, and the local generator refuses nothing. The bayram host (1.9 GiB RAM) cannot run a guard, so the guards live on the gateway. This supersedes D8's three hosted layers **for media only**; D8 still governs song text.
+
+**Fallback and switch trigger.** If the guards cannot answer within 10 s p95 while Wan renders (measured in M3.3), or the box is down for long periods: point `BAYRAM_MEDIA_MODERATOR_BASE_URL` at a hosted endpoint serving the same G1/G2/G8 contract (`media_moderator` stays `gateway`), with the privacy note that screened content then leaves the box. If Qwen3Guard's recall on the labelled uz/ru/en set is below 90% for sexual/violence, add a second text guard (gpt-oss-safeguard with a written Uzbekistan policy) or an image tripwire (NudeNet).
+
+**Cost.** VRAM for two resident ~4B models competing with Wan; ~1–3 s per screen; a review queue someone must staff (24 h SLA).
+
+**Confidence.** MEDIUM. Guard quality on Uzbek is untested; none of the guards has a minor detector, and the youth signal that replaces one is a heuristic.
+
+**Reversibility.** CHEAP — a protocol and a flag. The fail-closed position is deliberate and should not be relaxed to fail-open under load.
+
+**Known weaknesses.** With no face logic (D20), identifiable-person and minor detection rest on general classifiers, a term lexicon and zero-tolerance nudity; a sexualised edit described in neutral words and showing no nudity can still pass. Holding CSAM-class material at all is a legal exposure the owner has not yet chosen (Q16, `IMAGE_VIDEO_SPEC` §11 R12). Free pre-payment screening is a probing oracle; the daily budget and strikes bound it.
+
+
+### D25 — Media is its own SKU with its own receipt and refund credit, free for owner/admins on the stub rail until Payme production
+
+**Decision.** Image and video are paid per request through a Payme intent — `Product.IMAGE` (500 000 tiyin = 5 000 UZS for **one request yielding two images**), `VIDEO_STANDARD`, `VIDEO_FAST` — with the Pay button going through `CheckoutProvider.charge` (so the operator pause switch and link builder apply), a `media_purchases` receipt written in the Perform commit together with a **conditional** `awaiting_payment → paid` move that never touches a cancelled or abandoned row, and settlement starting the job via a new `payment_intents.resume_media_job_id`. Unlike D17 songs, the start latch is the job row's own `paid → queued` move, re-driven by a sweep, because a media customer has no 🎬 button to recover a burned one-shot claim; media is not gated by `BAYRAM_AUTO_RENDER_ON_PAYMENT`. They **never touch the song credit scalar**. Failures and our own output blocks refund a **SKU-scoped credit** (`media_credit_ledger`); a re-roll is paid again; dissatisfaction is not a failure; cash refunds are manual. Every SINGLE-else-PLAN branch becomes an exhaustive `match` that fails closed (`IMAGE_VIDEO_SPEC` §7.3; `db/payme.py:1058` raises inside the money commit today). **Until Payme production, media runs as a free beta on the stub rail, visible only to an explicit allowlist of the owner and admins**; boot refuses to offer media unless the rail is live-paid — `checkout_provider=payme` with `credits_enforced` **and not `payme_is_sandbox`** — or `MEDIA_BETA_ENABLED` with a non-empty allowlist. 💳 is shown only on a live-paid rail and a media SKU is never charged on the stub; 🎁 beta is shown only when the rail is not live-paid; handlers re-check the allowlist at press time; a failed beta job is re-runnable for free but **mints no credit**. A job refunds at most once whatever combination of failures it meets. Owner decisions, 2026-09-24.
+
+**Reasoning.** The shipped rail is the stub with credits unenforced, so an unchanged launch would give media away free, and unlike songs every media job costs GPU time or cash. One fungible credit would let a 5 000 soʻm image credit buy a 15 000 soʻm song. A receipt table avoids `topup_purchases`' `CHECK credits_granted > 0`. Revenue then reads from receipts, so no new hand-mirrored admin price (D19's drift problem).
+
+**Fallback and switch trigger.** If the SKU-specific receipt path in PerformTransaction proves unsafe in sandbox: keep media beta-only and do not enable it for customers. If refund credits are abused or confusing: switch failed-job handling to manual cash refunds only. Trigger for leaving beta: Payme production live (PAYME_INTEGRATION §8.6, not sandbox) **and** M3 moderation in place **and** a named CSAM/terrorism escalation owner with a reporting route (`IMAGE_VIDEO_SPEC` Q8).
+
+**Cost.** Three Product members, three tables (`media_purchases`, `media_credit_ledger`, `media_credit_balances`), one intent column, eight branch sites rewritten (including the Payme Check/Create refusal), a ledger CLI.
+
+**Confidence.** HIGH on the mechanism (reuses D17 and the receipt pattern).
+
+**Reversibility.** CHEAP IN CODE, EXPENSIVE IN MONEY — money that moved stays moved; credits granted stay granted.
+
+**Known weaknesses.** Beta receipts are zero-amount rows that dashboards must exclude. The partial-image rule (deliver one, refund a full credit) is generous by design (`IMAGE_VIDEO_SPEC` Q3) and **applies only to a variant that failed to generate**: if our own output screen blocks either variant, the whole request fails with one credit and nothing is delivered, so a user cannot steer prompts toward "one image plus a free credit". **Relation to D14:** the review queue's "refund" mints a SKU-scoped credit, so it sits in D14's step-up class — step-up, reason code and INTENT/OUTCOME audit rows, like `CREDIT_GRANT` (`IMAGE_VIDEO_SPEC` §8); automatic refunds by the worker are rule-driven, not panel minting.
+
+
+### D26 — Every user accepts a versioned Terms of Use and Privacy Notice before using the bot at all
+
+**Decision.** Before any feature — songs included — a user accepts the current Terms of Use and Privacy Notice. New users see it as an onboarding step after language; existing users are stopped by an inbound middleware on their next message until they accept. Acceptance is stored append-only in `terms_acceptances` with `terms_version`, `privacy_version`, language and time; bumping the version re-prompts everyone. Worker deliveries are never blocked by the gate. The text is drafted by Claude (uz/ru/en, `IMAGE_VIDEO_SPEC` Appendix A), **marked DRAFT**, and goes live only after the owner and counsel approve it. Owner decision, 2026-09-24.
+
+**Reasoning.** The owner chose Terms, not face logic, as the control for real people in uploads (D20), which only works if every user has actually accepted them — so the gate covers the whole bot, not just media. It also discharges LR-54 (a plain-language notice in the bot at first use) for the whole product — SCOPE receives an "Amended by D26" block at `IMAGE_VIDEO_SPEC` §10 M0.5 — and records the lawful-basis evidence the Personal Data law expects. Versioning makes a change of terms enforceable instead of silent.
+
+**Fallback and switch trigger.** If the gate measurably hurts conversion of new users (onboarding completion down >15% week-on-week after launch), shorten the summary and move the full text behind a link — never remove acceptance while media is offered. If counsel rejects click-through acceptance for photo processing, add an explicit media-only consent step.
+
+**Cost.** One table (`0030`), one onboarding state registered inside the onboarding router above its `NotOnboarded` catch-all, a third `Identity` field, one middleware, a new `/terms` (the existing `/privacy` renders the versioned notice through the same `privacy_text()` helper — no second notice), copy in four locales, counsel time.
+
+**Confidence.** HIGH on the mechanism; the text's legal adequacy is unknown until counsel reviews it.
+
+**Reversibility.** CHEAP IN CODE; acceptances already recorded remain the record.
+
+**Known weaknesses.** Click-through terms do not stop a determined bad actor; they allocate responsibility. The gate must not create a `user_profiles` row (the row-existence onboarding bug), or users skip the language screen.
+
+
 ---
 
 ## 5. Fastest path to a paying bot
@@ -744,11 +873,15 @@ Two things that will break this schedule if skipped: the day-1 Stars withdrawal 
 
 11. **Google Cloud Text-to-Speech, for Uzbek specifically** — zero Uzbek at every tier (Standard, WaveNet, Neural2, Chirp 3 HD, Gemini TTS), verified by grepping the live voice tables. Google Cloud *STT* does support uz-UZ and stays in the stack as an STT fallback; Google TTS does not.
 
+    **Amendment, 2026-09-24 — stale for Gemini 3.8 TTS (D23).** `gemini-3.8-flash-tts` and `gemini-3.8-flash-lite-tts`, released 2026-09-23, list Northern Uzbek in their language tables (`RESEARCH-image-video-pipeline` §2). Listed, not proven: D23 uses Gemini for video narration only, gated by a listening test, with ElevenLabs as the Uzbek fallback. The rejection still holds for the older Google TTS tiers named above and for the song's spoken greetings (D3).
+
 
 12. **AssemblyAI for Uzbek** — it lists `uz` and then places it in its own 'Fair accuracy (>50% WER)' tier. More than half the words wrong is not a transcript, it is noise, and it would silently corrupt the name and the personal facts the whole product depends on. The clearest illustration in this entire research of why a language-list checkmark must always be checked against a published WER tier.
 
 
 13. **Whisper (hosted or self-hosted) for Uzbek** — a language token exists, functional accuracy does not. Whisper hallucinates fluent, confident, wrong-language text rather than failing loudly; the documented pattern for comparable low-resource languages is WER at or above 100%. A silent hallucination poisons the lyric prompt with invented facts about a real person.
+
+    **Amendment, 2026-09-24 — used for media voice notes as moderation input only (D23, D24).** Whisper large-v3 on the owner's gateway transcribes an own-voice note so the text guard can screen it; it never feeds lyrics, names or anything sung, so the rejection stands for every song use. Because the hallucination described above would make a transcript look benign, a note is **refused before payment** when the transcript is empty while speech is present, when mean `avg_logprob` < −1.0 or `compression_ratio` > 2.4, when the detected language is not uz/ru/en, or when the word rate is implausibly low for the voiced audio (`IMAGE_VIDEO_SPEC` §5.4).
 
 
 14. **Ideogram for cover art** — it was shortlisted for exactly one reason, text-in-image, and its own documentation disqualifies it: AI has limitations rendering non-Latin alphabets including Cyrillic, English is recommended for best text rendering, and for precise readable text you should generate the visual and add the text manually in a graphics editor. Where third-party reviews contradict the vendor, believe the vendor. Plus a $15/mo Plus subscription gate for API access.
@@ -767,6 +900,8 @@ Two things that will break this schedule if skipped: the day-1 Stars withdrawal 
 
 
 19. **Meta MMS `mms-tts-uzb-script_cyrillic` and Coqui XTTS-v2** — the two open models that actually cover our languages are BOTH non-commercial. MMS is CC-BY-NC-4.0; XTTS-v2 is under the Coqui Public Model License, non-commercial without a separate agreement, and Coqui has shut down so it is unclear who could even grant one. Use **Navoiy TTS (Apache-2.0)** instead — it covers Uzbek in both scripts, has ten emotion styles, and carries none of this baggage. **FLUX.2 [dev] weights** are likewise non-commercial and explicitly prohibit revenue-generating use; the BFL *API* is fine, the dev weights are not.
+
+    **Amendment, 2026-09-24 — the FLUX.2 [dev] clause is overridden by an owner risk acceptance (D21).** The owner was shown this clause and chose to sell images rendered locally on FLUX.2 [dev] anyway ("I accept the risk"). The facts above are unchanged — the weights are still non-commercial — so the LR-36 licence matrix must record the use as a known, accepted breach, and D21 names the triggers that move paid images to a licensed backend. MMS and XTTS-v2 remain rejected.
 
 
 20. **Purpose-built Uzbek LLM fine-tunes** (Mistral 7B Uz, Mistral Nemo Uz, Llama 3.1 8B Uz, Llama 3.2 1B Uz) — all score below the human baseline on UzLiB and the smallest is barely distinguishable from random. 'It was fine-tuned on Uzbek' is not evidence of quality. The one exception worth evaluating is NeuronAI-oʻzbek_tili (4B), which reportedly beats every Claude model at 4B parameters and could serve as a cheap self-hosted validator — never as the generator.

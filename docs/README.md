@@ -84,7 +84,7 @@ all-or-nothing operation with its own rollback; that window has since closed.
 ### `decisions/`
 
 - [`DECISIONS.md`](decisions/DECISIONS.md) — the vendor and architecture picks, numbered
-  (`D1`, `D2`, …, currently through `D19`) and cited by number from code comments throughout
+  (`D1`, `D2`, …, currently through `D26`) and cited by number from code comments throughout
   `src/bayram/`. Those citations are by number, not by path, so they survive this file moving.
   The later ones are mostly about the product rather than a vendor: **D14** draws the line
   between what the panel may do to a payment and what stays in the terminal, **D15** records
@@ -100,6 +100,21 @@ all-or-nothing operation with its own rollback; that window has since closed.
   rendering an em dash that names its own absence rather than a zero. D19's operator half is
   [`deployment/02-configuration.md`](deployment/02-configuration.md) §"The four finance
   variables", which is where to go when the Finances tab looks empty.
+  **D20–D26**, all taken on 2026-09-24, are the image and video products and are specified by
+  [`product/IMAGE_VIDEO_SPEC.md`](product/IMAGE_VIDEO_SPEC.md): **D20** adds the products and
+  photo/voice-note intake, amending SCOPE §2.2, §3.2, FR-7, FR-96, LR-47, LR-51, LR-59 and D7's "no
+  image model in the request path"; **D21** sells images rendered on local FLUX.2 [dev] as an owner
+  **risk acceptance** against rejected #19; **D22** splits video into a local Standard tier (live)
+  and a Higgsfield Fast tier (off) and puts paying customers ahead of marketing on the GPU; **D23**
+  voices video with Gemini 3.8 TTS from an owner-supplied key pool (ToS risk accepted, rejected #11
+  amended, D5 narrowed) and transcribes own voice notes with Whisper for moderation only (rejected
+  #13 amended, D6 pointer); **D24** screens media with guard models on the owner's GPU, before payment
+  and before delivery, failing closed; **D25** gives media its own SKU, receipt and refund credit,
+  free for an admin allowlist on the stub rail until Payme production; **D26** puts a versioned
+  Terms + Privacy acceptance in front of the whole bot. Each earlier `DECISIONS.md` entry they
+  change (D5, D6, D7, D8, rejected #11, #13, #19) carries a dated amendment block where it is read;
+  the SCOPE_OF_WORK items D20 and D26 amend receive theirs in the first media change
+  (`IMAGE_VIDEO_SPEC` §10 M0.5), before any media code.
 
 ### `product/`
 
@@ -205,6 +220,17 @@ all-or-nothing operation with its own rollback; that window has since closed.
   records what the first build deliberately leaves out, and §9 Q2/Q3/Q7 are the open questions
   that need a human: who is in the support group, whether indefinite retention has a lawful
   basis, and who may answer a customer unreviewed.
+- [`IMAGE_VIDEO_SPEC.md`](product/IMAGE_VIDEO_SPEC.md) — the image and video products behind ✨
+  Create, written 2026-09-24 as a **plan; nothing in it is built**. §0 is the ground truth and the
+  owner's binding answers of that day; §2 the Terms gate and the image and video flows
+  as state diagrams with their copy keys; §3 the `0029`/`0030` schema, retention and the stage-job
+  chain; §4 the `MediaGenProvider` protocol, the local gateway's traps and the backend flags; §5
+  Gemini TTS, the key pool and own voice notes; §6 moderation — including, at §6.1, the answer to
+  the owner's local-LLM idea — and the song moderator's fail-open fix; §7 payments; §10 the M0–M6
+  milestones; §11 the risk register, where three owner risk acceptances are recorded; §12 the open
+  questions. Appendix A is a **DRAFT** Terms of Use and Privacy Notice outline, not legal advice and
+  not in force. To be cited by section (`IMAGE_VIDEO_SPEC §4.2`). It specifies `DECISIONS.md`
+  **D20–D26**.
 
 ### `research/`
 
@@ -217,25 +243,6 @@ all-or-nothing operation with its own rollback; that window has since closed.
 - [`bakeoff-prompts.md`](research/bakeoff-prompts.md) + `bakeoff-prompts.json` — the
   name-orthography bake-off. The verification command inside is written to run from the
   repository root.
-
-### `audits/`
-
-- [`ux-copy-audit.md`](audits/ux-copy-audit.md)
-
-### `mockups/`
-
-`admin-panel-mockup.html`, `dashboard-mockup.html`, `dashboard-mockup-full.html`. Open them
-in a browser; nothing builds or serves them. The real console is `admin-dashboard/`, which is
-what `make ui-build` builds and what the FastAPI app serves. It is now the only console in the
-tree: `admin-ui/`, the deprecated predecessor, was removed on 2026-09-16 (`DECISIONS.md`
-**D15**, and the amendment beneath it).
-
-## Citing a document from code
-
-Prefer a **section number over a path** — `ADMIN_PANEL_PLAN §4.5`, `DECISIONS.md D10`. A
-section number survives a file being moved; a path does not, and this reorganisation had to
-rewrite twenty-two of them. Where a path is genuinely needed, write it from the repository
-root (`docs/product/ADMIN_PANEL_PLAN.md`) so it is greppable and unambiguous.
 - [`RESEARCH-ab-higgsfield-vs-local-reel-metrics.md`](research/RESEARCH-ab-higgsfield-vs-local-reel-metrics.md)
   — how to read the A/B metrics when the Peshta reel is rebuilt on local open-weight models.
   §2 is the per-metric worse/better/different table; §3 says which judgement the numbers
@@ -257,6 +264,17 @@ root (`docs/product/ADMIN_PANEL_PLAN.md`) so it is greppable and unambiguous.
   linked from nowhere** until this row and the two in `marketing/` picked it up on 2026-09-19 — a
   document with no inbound reference is invisible, which is the failure this index is here to
   prevent.
+- [`RESEARCH-image-video-pipeline.md`](research/RESEARCH-image-video-pipeline.md) — dated
+  2026-09-24, frozen: what the owner's local GPU gateway actually does (video is slow, not broken —
+  the older gateway README is stale), its API traps and security gaps, Gemini 3.8 TTS (Uzbek listed,
+  unproven; limits per project, not per key), the Higgsfield REST API as distinct from the MCP, fal,
+  the guard models considered for moderation, and unit economics for images and 5 s clips. Fed
+  `DECISIONS.md` D20–D26; §7 points to what was chosen, which in three places is not what it
+  recommended.
+
+### `audits/`
+
+- [`ux-copy-audit.md`](audits/ux-copy-audit.md)
 - [`ADMIN_PANEL_AUDIT_AND_REDESIGN_PLAN.md`](audits/ADMIN_PANEL_AUDIT_AND_REDESIGN_PLAN.md) — the
   September 2026 audit of the admin panel, backend and frontend read together, and the redesign it
   argues for: credit accounts and the append-only ledger present in the database and absent from
@@ -268,6 +286,15 @@ root (`docs/product/ADMIN_PANEL_PLAN.md`) so it is greppable and unambiguous.
   2026-09-16**, so read its findings as the reasoning that fed
   [`product/ADMIN_PANEL_PLAN.md`](product/ADMIN_PANEL_PLAN.md) rather than as a description of the
   console that ships today.
+
+### `mockups/`
+
+`admin-panel-mockup.html`, `dashboard-mockup.html`, `dashboard-mockup-full.html`. Open them
+in a browser; nothing builds or serves them. The real console is `admin-dashboard/`, which is
+what `make ui-build` builds and what the FastAPI app serves. It is now the only console in the
+tree: `admin-ui/`, the deprecated predecessor, was removed on 2026-09-16 (`DECISIONS.md`
+**D15**, and the amendment beneath it).
+
 ### `marketing/` — moved out on 2026-09-21
 
 It is [`../marketing/`](../marketing/README.md) now, a sibling of `docs/` rather than a folder
@@ -286,3 +313,9 @@ rewritten in the same change: the A/B harness is
 `marketing/campaigns/peshta/06_local/compare_ab.py` and the render budget is
 `marketing/campaigns/peshta/06_local/render_budget.json`.
 
+## Citing a document from code
+
+Prefer a **section number over a path** — `ADMIN_PANEL_PLAN §4.5`, `DECISIONS.md D10`. A
+section number survives a file being moved; a path does not, and this reorganisation had to
+rewrite twenty-two of them. Where a path is genuinely needed, write it from the repository
+root (`docs/product/ADMIN_PANEL_PLAN.md`) so it is greppable and unambiguous.
