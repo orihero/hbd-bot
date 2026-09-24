@@ -450,7 +450,16 @@ def _build_kit(
     asset_rows: Sequence[AssetRow],
     verdict_rows: Sequence[GenerationAttemptRow],
 ) -> Kit:
-    """Reassemble a kit, failing loudly if a required deliverable is missing."""
+    """Reassemble a kit, failing loudly if a required deliverable is missing.
+
+    Greetings are NOT a required deliverable. ``BAYRAM_GREETINGS_PER_KIT=0`` sells a
+    song-only kit (the ``Kit`` contract says empty is not a failure), and demanding a
+    greeting row here made every such kit unreadable: ``get_kit`` answered ``not_found``,
+    the orchestrator's replay saw "no kit yet", and a redelivered job re-ran the pipeline
+    and paid the music vendor a second time (IMAGE_VIDEO_SPEC §0.3). A kit short of the
+    greetings its order asked for is still reported — by the replay's gap reconstruction,
+    which knows the configured count; this function does not.
+    """
     by_kind: dict[AssetKind, list[AssetRow]] = {}
     for row in asset_rows:
         by_kind.setdefault(row.kind, []).append(row)
@@ -458,7 +467,7 @@ def _build_kit(
     song_rows = by_kind.get(AssetKind.SONG, [])
     sheet_rows = by_kind.get(AssetKind.LYRIC_SHEET, [])
     greeting_rows = by_kind.get(AssetKind.GREETING, [])
-    if not song_rows or not sheet_rows or not greeting_rows:
+    if not song_rows or not sheet_rows:
         raise not_found(
             "kit",
             order_id=str(order_id),
