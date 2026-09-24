@@ -1408,7 +1408,7 @@ BAYRAM_IMAGE_BACKEND=local              # local|higgsfield|fal|fake
 BAYRAM_VIDEO_STANDARD_BACKEND=local
 BAYRAM_VIDEO_FAST_BACKEND=higgsfield
 BAYRAM_IMAGE_PRICE_MINOR=500000
-BAYRAM_VIDEO_STANDARD_PRICE_MINOR=      # unset = not sellable
+BAYRAM_VIDEO_STANDARD_PRICE_MINOR=2500000   # §7.1 (owner, 2026-09-24); empty = not sellable
 BAYRAM_VIDEO_FAST_PRICE_MINOR=
 BAYRAM_MEDIA_MAX_REFERENCE_IMAGES=4
 BAYRAM_MEDIA_DAILY_CAP_IMAGE=10
@@ -1426,6 +1426,7 @@ BAYRAM_MEDIA_MODERATOR=gateway          # gateway|fake (fake refuses to boot wit
 BAYRAM_MEDIA_MODERATOR_BASE_URL=        # defaults to GENAI_BASE_URL; a hosted guard endpoint (D24 fallback)
 BAYRAM_MEDIA_SEXUAL_IMAGE_BLOCK_P=0.2
 BAYRAM_MEDIA_MAX_COST_SHARE=0.5
+BAYRAM_MEDIA_UZS_PER_USD=                # margin check only; needed once a SKU is on a backend that costs money
 # --- voice
 BAYRAM_GEMINI_TTS_API_KEYS=             # secret, comma-separated pool
 BAYRAM_GEMINI_TTS_MODEL=gemini-3.8-flash-tts

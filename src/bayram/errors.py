@@ -35,6 +35,7 @@ __all__ = [
     "ProviderQuotaExhaustedError",
     "ProviderRejectedContentError",
     "ProviderInvalidResponseError",
+    "ProviderAmbiguousError",
     "LlmParseError",
     "PipelineError",
     "NameVerificationExhaustedError",
@@ -75,6 +76,11 @@ class ErrorCode(StrEnum):
     QUOTA_EXHAUSTED = "QUOTA_EXHAUSTED"
     ARTIST_NAME_IN_STYLE = "ARTIST_NAME_IN_STYLE"
     UPSTREAM_MALFORMED = "UPSTREAM_MALFORMED"
+    # A submit whose outcome we cannot know: the POST left, and no job id came back (a read
+    # timeout, a dropped connection, a 5xx after the body was sent). The job may be running.
+    # Never retried automatically — a second POST is a second GPU job or a second vendor bill
+    # (IMAGE_VIDEO_SPEC §4.1, §4.2).
+    UPSTREAM_AMBIGUOUS = "UPSTREAM_AMBIGUOUS"
     PARSE_FAILED = "PARSE_FAILED"
 
     # Pipeline
@@ -326,6 +332,20 @@ class ProviderInvalidResponseError(ProviderError):
     code = ErrorCode.UPSTREAM_MALFORMED
     default_user_message_key = "error.provider_generic"
     default_is_retryable = True
+
+
+class ProviderAmbiguousError(ProviderError):
+    """The request may or may not have created a job at the vendor. Terminal for the CALLER.
+
+    Not retryable by design, and that is the whole point of the class: the generation
+    backends have no idempotency key (IMAGE_VIDEO_SPEC §4.2, §4.3), so repeating the POST can
+    render — or bill — twice. The attempt is marked ``ambiguous`` and reconciled (the local
+    gateway's ``GET /queue``; an admin hold for a paid vendor), never re-posted blindly.
+    """
+
+    code = ErrorCode.UPSTREAM_AMBIGUOUS
+    default_user_message_key = "error.provider_generic"
+    default_is_retryable = False
 
 
 class LlmParseError(ProviderError):

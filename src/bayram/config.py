@@ -61,6 +61,8 @@ __all__ = [
     "get_settings",
     "LogLevel",
     "CheckoutRail",
+    "MediaBackendName",
+    "MediaModeratorName",
     "VENDOR_SECRET_FIELDS",
     "REQUIRED_VENDOR_SECRET_FIELDS",
     "FOREIGN_SECRET_ENV_VARS",
@@ -124,6 +126,16 @@ type LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 #: duplication is pinned rather than merely noticed.
 type CheckoutRail = Literal["stub", "payme"]
 
+#: Which generation backend renders a media SKU (IMAGE_VIDEO_SPEC §4.5, O18). Closed for the
+#: same reason as :data:`CheckoutRail`: a typo is a boot failure naming the variable, not a
+#: silent fall-through. The spellings equal ``bayram.db.enums.MediaBackend``'s values, which
+#: is what ``media_jobs.backend`` stores; ``tests/test_media/test_settings.py`` pins the two.
+type MediaBackendName = Literal["local", "higgsfield", "fal", "fake"]
+
+#: Who screens media (IMAGE_VIDEO_SPEC §6). ``fake`` refuses to boot with any SKU offered
+#: outside the test suite (§4.5, §7.4).
+type MediaModeratorName = Literal["gateway", "fake"]
+
 #: The credentials the admin process must never hold (ADMIN_PANEL_PLAN §4.2, D10). The admin
 #: lifespan derives ``FORBIDDEN_ENV_VARS`` from this tuple, so a credential missing here is a
 #: credential a prod admin host may hold with neither a refusal nor a warning. Every field on
@@ -136,6 +148,9 @@ VENDOR_SECRET_FIELDS: Final[tuple[str, ...]] = (
     "llm_api_key",
     "llm_fallback_api_key",
     "openrouter_management_key",
+    # The local generation gateway's key (IMAGE_VIDEO_SPEC §9.5). Optional — media is off by
+    # default — so it is here and not in REQUIRED_VENDOR_SECRET_FIELDS.
+    "genai_api_key",
 )
 
 #: The subset the bot and the worker cannot run without — the ones
@@ -757,6 +772,60 @@ class Settings(BaseSettings):
     #: Optional link to the full text on the web, drawn under the terms screen. Empty: no link.
     terms_url: str = Field(default="", max_length=255)
 
+    # -- media: offering and rail (IMAGE_VIDEO_SPEC §4.5, §7.1, §7.4) ---------
+    #: Whether each media SKU is part of the catalogue at all. All three ship **False**: with
+    #: them off the ✨ button routes straight to songs and nothing below is read. Turning one
+    #: on is checked at boot by ``bayram.media.boot`` — a free rail needs the beta flag and
+    #: a non-empty allowlist, an offered SKU needs a price and a margin (§7.4).
+    is_image_offered: bool = Field(default=False)
+    is_video_standard_offered: bool = Field(default=False)
+    #: The Higgsfield tier (O2, D22). Off until M6.
+    is_video_fast_offered: bool = Field(default=False)
+    #: The free beta (O9, O12): on a rail that is not live-paid, media is offered to the
+    #: allowlist only, as 🎁, and recorded ``paid_via='beta'``. No effect on a live-paid rail
+    #: beyond a boot warning — beta ends at live-paid (§2.5).
+    media_beta_enabled: bool = Field(default=False)
+    #: Telegram ids, comma-separated. Admins are listed explicitly; the bot does not know
+    #: panel roles (§2.5).
+    media_beta_allowlist: Annotated[tuple[int, ...], NoDecode] = Field(default=())
+    #: The env backend per SKU. A Redis override (``media:backend:<sku>``) wins for new
+    #: submits; the effective backend is stamped on ``media_jobs.backend`` (§4.5).
+    image_backend: MediaBackendName = Field(default="local")
+    video_standard_backend: MediaBackendName = Field(default="local")
+    video_fast_backend: MediaBackendName = Field(default="higgsfield")
+    #: Prices in minor units (UZS tiyin), hand-set per currency, no FX (§7.1). ``None`` —
+    #: an empty variable — means "not sellable", and an offered SKU with no price refuses to
+    #: boot. 500_000 == 5 000 soʻm for ONE request yielding two images (O5).
+    image_price_minor: int | None = Field(default=500_000, gt=0)
+    #: 2_500_000 == 25 000 soʻm (owner, 2026-09-24): ~17.5 GPU-minutes and a long wait,
+    #: priced above the song.
+    video_standard_price_minor: int | None = Field(default=2_500_000, gt=0)
+    #: Unset until M6; 35 000–45 000 soʻm recommended (§7.1).
+    video_fast_price_minor: int | None = Field(default=None, gt=0)
+    #: The per-request cash cost of a backend may be at most this share of the SKU's price
+    #: net of the Payme fee, or the SKU is not offered on it (§4.3 margin check).
+    media_max_cost_share: float = Field(default=0.5, gt=0.0, le=1.0)
+    #: UZS per USD, for the margin check only. **Unset is safe for the local backend**, whose
+    #: cash cost is zero; a SKU on a backend that costs money refuses to boot without it,
+    #: because a margin cannot be proved in two currencies with no rate between them. The
+    #: admin panel's ``BAYRAM_ADMIN_UZS_PER_USD`` lives in another process's dotenv (D19).
+    media_uzs_per_usd: float | None = Field(default=None, gt=0, le=1_000_000)
+    #: Photos a customer may attach to one request (§1.3). A 1-ref backend gets a collage.
+    media_max_reference_images: int = Field(default=4, ge=0, le=10)
+    #: ``gateway`` screens on the owner's 5090 (D24, M3); ``fake`` allows everything and is
+    #: for tests — boot refuses it with any SKU offered unless ``use_fake_providers`` (§4.5).
+    media_moderator: MediaModeratorName = Field(default="gateway")
+
+    # -- the local generation gateway (IMAGE_VIDEO_SPEC §4.2, §9.1) ----------
+    #: HTTPS through the tunnel (§9.1). Empty with a SKU offered on ``local`` refuses to boot.
+    genai_base_url: str = Field(default="", max_length=255)
+    #: Sent as a header only, never ``?api_key=`` (§4.2). Secret — see VENDOR_SECRET_FIELDS.
+    genai_api_key: str = Field(default="")
+    #: Must be members of ``LOCAL_MODEL_ALLOWLIST`` (flux2, wan); boot refuses anything else,
+    #: so ``zootopia``, ``storybook`` and ``hunyuan`` are unreachable from bayram (§1.2).
+    genai_image_model: str = Field(default="flux2", min_length=1, max_length=32)
+    genai_video_model: str = Field(default="wan", min_length=1, max_length=32)
+
     # -- languages ----------------------------------------------------------
     default_ui_language: Language = Field(default=Language.UZ_LATN)
     supported_languages: Annotated[tuple[Language, ...], NoDecode] = Field(
@@ -1016,6 +1085,42 @@ class Settings(BaseSettings):
     def is_terms_gate_enabled(self) -> bool:
         """Whether the Terms + Privacy gate asks anyone anything (IMAGE_VIDEO_SPEC §2.1)."""
         return bool(self.terms_version.strip())
+
+    @field_validator(
+        "image_price_minor",
+        "video_standard_price_minor",
+        "video_fast_price_minor",
+        "media_uzs_per_usd",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_unset(cls, value: Any) -> Any:
+        """``BAYRAM_VIDEO_FAST_PRICE_MINOR=`` means "not sellable", as ``.env.example`` ships it.
+
+        pydantic would otherwise try to parse the empty string as a number and refuse to
+        boot on the documented spelling of "unset".
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("media_beta_allowlist", mode="before")
+    @classmethod
+    def _allowlist_from_csv(cls, value: Any) -> Any:
+        return _split_csv(value)
+
+    @field_validator("media_beta_allowlist")
+    @classmethod
+    def _allowlist_holds_telegram_ids(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        """Positive ids, de-duplicated in order. A 0 or a negative id is a typo, refused here."""
+        if any(item <= 0 for item in value):
+            raise ValueError("must list positive Telegram user ids")
+        return tuple(dict.fromkeys(value))
+
+    @property
+    def is_any_media_offered(self) -> bool:
+        """Whether any media SKU is in the catalogue (IMAGE_VIDEO_SPEC §4.5)."""
+        return self.is_image_offered or self.is_video_standard_offered or self.is_video_fast_offered
 
     @field_validator("greeting_max_duration_s")
     @classmethod

@@ -57,6 +57,7 @@ from bayram.db.support_tickets import SqlSupportTickets
 from bayram.db.terms import SqlTermsLedger
 from bayram.errors import BayramError, ConfigError
 from bayram.logging import configure_logging, get_logger
+from bayram.media.boot import refuse_unsafe_media_config
 from bayram.payme.pause import is_paused
 from bayram.pipeline.content import LlmContentWriter
 from bayram.runtime.container import AppContainer, build_container
@@ -119,7 +120,7 @@ def _reachable_foreign_secrets() -> tuple[str, ...]:
 
 
 def refuse_an_unsafe_checkout_rail(settings: Settings) -> None:
-    """Three boot refusals about money. Raises ``ConfigError``; returns ``None`` when safe.
+    """Boot refusals about money. Raises ``ConfigError``; returns ``None`` when safe.
 
     Called before anything is built, because each of these is a statement about configuration
     alone and none of them needs a database, a Redis or a vendor. A process that is going to
@@ -225,6 +226,11 @@ def refuse_an_unsafe_checkout_rail(settings: Settings) -> None:
                 "wizard_state_ttl_s": draft_ttl_s,
             },
         )
+
+    # **5. Media on an unsafe rail or backend** (IMAGE_VIDEO_SPEC §4.5, §7.4): a SKU offered on
+    # a free rail with no beta, a fake moderator or backend, a SKU with no price or no margin,
+    # a gateway model off the allowlist. The worker runs the same check at startup.
+    refuse_unsafe_media_config(settings)
 
 
 def _fsm_storage(settings: Settings) -> BaseStorage:
