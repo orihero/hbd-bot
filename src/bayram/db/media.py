@@ -83,6 +83,14 @@ __all__ = [
     "cleanup_job_media",
     "insert_attempt",
     "set_attempt_status",
+    "list_inputs",
+    "list_outputs",
+    "find_attempt",
+    "latest_attempts",
+    "bump_seq",
+    "touch_job",
+    "record_output_file_id",
+    "average_run_ms",
     "record_purchase",
     "media_balance",
     "grant_refund",
@@ -491,14 +499,19 @@ async def insert_attempt(
     provider: str,
     now: datetime,
     model_id: str | None = None,
+    attempt_id: UUID | None = None,
 ) -> UUID | None:
     """Write the ``submitting`` row BEFORE the POST (R7). Its id, or None if it existed.
 
     None is the crash-recovery signal: an attempt with this (job, stage, variant, attempt)
     was already started, and if it has no ``remote_id`` the caller must mark it
     ``ambiguous`` and reconcile — never POST again (§3.3).
+
+    ``attempt_id`` lets the caller mint the id first: ``media_submit`` takes the GPU lock in
+    the attempt's name BEFORE the row exists (§3.4), so a lock it fails to get leaves no
+    ``submitting`` row behind to be mistaken for a crash.
     """
-    attempt_id = uuid4()
+    attempt_id = attempt_id or uuid4()
     statement = upsert_statement(
         session,
         MediaAttemptRow,
@@ -560,6 +573,149 @@ async def set_attempt_status(
         .values(**values)
     )
     return rowcount_of(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Reads and small writes for the stage chain (IMAGE_VIDEO_SPEC §3.3)
+# ---------------------------------------------------------------------------
+#: The order generation reads inputs in, and therefore the order ``content_sha256`` hashes
+#: them in: every photo by ordinal, then the collage built from them.
+_INPUT_ROLE_ORDER: Final[dict[MediaInputRole, int]] = {
+    MediaInputRole.PHOTO: 0,
+    MediaInputRole.VOICE_NOTE: 1,
+    MediaInputRole.COLLAGE: 2,
+}
+
+
+async def list_inputs(session: AsyncSession, job_id: UUID) -> list[MediaInputRow]:
+    """Every input row of the job, photos first by ordinal, then voice note, then collage."""
+    rows = list(
+        (await session.scalars(sa.select(MediaInputRow).where(MediaInputRow.job_id == job_id)))
+        .unique()
+        .all()
+    )
+    rows.sort(key=lambda row: (_INPUT_ROLE_ORDER.get(row.role, 9), row.ordinal))
+    return rows
+
+
+async def list_outputs(
+    session: AsyncSession, job_id: UUID, *, role: MediaOutputRole
+) -> list[MediaOutputRow]:
+    """The job's outputs of one role, by variant."""
+    return list(
+        (
+            await session.scalars(
+                sa.select(MediaOutputRow)
+                .where(MediaOutputRow.job_id == job_id, MediaOutputRow.role == role)
+                .order_by(MediaOutputRow.variant)
+            )
+        ).all()
+    )
+
+
+async def find_attempt(
+    session: AsyncSession,
+    job_id: UUID,
+    *,
+    stage: MediaAttemptStage,
+    variant: int,
+    attempt: int,
+) -> MediaAttemptRow | None:
+    found: MediaAttemptRow | None = await session.scalar(
+        sa.select(MediaAttemptRow)
+        .where(
+            MediaAttemptRow.job_id == job_id,
+            MediaAttemptRow.stage == stage,
+            MediaAttemptRow.variant == variant,
+            MediaAttemptRow.attempt == attempt,
+        )
+        .execution_options(populate_existing=True)
+    )
+    return found
+
+
+async def latest_attempts(
+    session: AsyncSession, job_id: UUID, *, stage: MediaAttemptStage
+) -> dict[int, MediaAttemptRow]:
+    """The highest-numbered attempt of each variant that has one."""
+    rows = (
+        await session.scalars(
+            sa.select(MediaAttemptRow)
+            .where(MediaAttemptRow.job_id == job_id, MediaAttemptRow.stage == stage)
+            .order_by(MediaAttemptRow.variant, MediaAttemptRow.attempt)
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    latest: dict[int, MediaAttemptRow] = {}
+    for row in rows:
+        latest[row.variant] = row
+    return latest
+
+
+async def bump_seq(
+    session: AsyncSession, job_id: UUID, *, column: str, now: datetime
+) -> int | None:
+    """``submit_seq`` / ``oscreen_seq`` + 1, returning the new value (§3.3 "ARQ job ids").
+
+    The suffix of a deliberate re-enqueue: a fresh ARQ id every time, so ARQ never drops the
+    re-run as a duplicate of the job that is enqueueing it. Also stamps ``updated_at``, which
+    is the heartbeat ``media_sweep`` reads to tell a job waiting for the GPU from a job whose
+    chain died. ``None`` when the row is gone.
+    """
+    if column not in ("submit_seq", "oscreen_seq"):
+        raise ValueError(f"{column} is not a re-enqueue suffix")
+    target = getattr(MediaJobRow, column)
+    result = await session.execute(
+        sa.update(MediaJobRow)
+        .where(MediaJobRow.id == job_id)
+        .values({column: target + 1, "updated_at": now})
+    )
+    if rowcount_of(result) != 1:
+        return None
+    value = await session.scalar(sa.select(target).where(MediaJobRow.id == job_id))
+    return None if value is None else int(value)
+
+
+async def touch_job(session: AsyncSession, job_id: UUID, *, now: datetime) -> None:
+    """The stage chain's heartbeat: a live poll proves the job is not stranded (§3.3 (c))."""
+    await session.execute(
+        sa.update(MediaJobRow).where(MediaJobRow.id == job_id).values(updated_at=now)
+    )
+
+
+async def record_output_file_id(session: AsyncSession, output_id: UUID, *, tg_file_id: str) -> None:
+    """What Telegram minted on delivery: a re-send costs zero bytes."""
+    await session.execute(
+        sa.update(MediaOutputRow)
+        .where(MediaOutputRow.id == output_id)
+        .values(tg_file_id=tg_file_id)
+    )
+
+
+async def average_run_ms(
+    session: AsyncSession,
+    *,
+    stage: MediaAttemptStage,
+    model_id: str | None,
+    sample: int = 20,
+) -> int | None:
+    """The moving average of the last ``sample`` successful runs of a model (§3.4 ETA)."""
+    conditions = [
+        MediaAttemptRow.stage == stage,
+        MediaAttemptRow.status == MediaAttemptStatus.SUCCEEDED,
+        MediaAttemptRow.run_ms.is_not(None),
+    ]
+    if model_id is not None:
+        conditions.append(MediaAttemptRow.model_id == model_id)
+    recent = (
+        sa.select(MediaAttemptRow.run_ms)
+        .where(*conditions)
+        .order_by(MediaAttemptRow.created_at.desc())
+        .limit(sample)
+        .subquery()
+    )
+    value = await session.scalar(sa.select(sa.func.avg(recent.c.run_ms)))
+    return None if value is None else int(value)
 
 
 # ---------------------------------------------------------------------------

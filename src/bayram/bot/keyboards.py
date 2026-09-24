@@ -44,6 +44,8 @@ from bayram.bot.callbacks import (
     GenreCB,
     LanguageCB,
     LanguageSlot,
+    MediaAction,
+    MediaCB,
     NavAction,
     NavCB,
     OccasionCB,
@@ -52,6 +54,7 @@ from bayram.bot.callbacks import (
     TermsAction,
     TermsCB,
     VocalGenderCB,
+    pack_job_ref,
     pack_reference,
 )
 from bayram.bot.i18n import (
@@ -87,6 +90,10 @@ __all__ = [
     "contact_request_keyboard",
     "settings_keyboard",
     "terms_keyboard",
+    "media_quote_keyboard",
+    "media_refused_keyboard",
+    "media_busy_keyboard",
+    "media_again_keyboard",
     "LANGUAGE_COLUMNS",
     "GENRE_COLUMNS",
     "OCCASION_COLUMNS",
@@ -911,3 +918,77 @@ def terms_keyboard(
             )
         )
     return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Media (IMAGE_VIDEO_SPEC §2.3.3). Drawn by the WORKER onto the tray it edits (§3.3); the
+# handlers are the bot's media router. One button per row: the labels are sentences, and a
+# row of two would be measured against each other's width on a 360dp phone.
+# ---------------------------------------------------------------------------
+def _media_button(
+    language: Language, key: str, action: MediaAction, job_id: UUID
+) -> list[InlineKeyboardButton]:
+    return [
+        InlineKeyboardButton(
+            text=translate(key, language),
+            callback_data=MediaCB(action=action, job=pack_job_ref(job_id)).pack(),
+        )
+    ]
+
+
+def media_quote_keyboard(
+    language: Language,
+    job_id: UUID,
+    *,
+    is_pay_offered: bool,
+    is_credit_offered: bool,
+    is_beta_offered: bool,
+) -> InlineKeyboardMarkup:
+    """The quote (§2.3.3): 💳 only on a live-paid rail, 🎁 only off one and only for the
+    allowlist, 🎟 when the customer holds a credit of this SKU; ✏️ and ✖️ always.
+
+    Which of the three the worker draws is decided from the row and the rail at render time,
+    and the bot re-checks all of it at press time (§2.5): a drawn button is never proof of
+    entitlement.
+    """
+    rows: list[list[InlineKeyboardButton]] = []
+    if is_pay_offered:
+        rows.append(_media_button(language, "button.media.pay", MediaAction.PAY, job_id))
+    if is_credit_offered:
+        rows.append(_media_button(language, "button.media.use_credit", MediaAction.CREDIT, job_id))
+    if is_beta_offered:
+        rows.append(_media_button(language, "button.media.beta_free", MediaAction.BETA, job_id))
+    rows.append(_media_button(language, "button.media.edit", MediaAction.EDIT, job_id))
+    rows.append(_media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def media_refused_keyboard(language: Language, job_id: UUID) -> InlineKeyboardMarkup:
+    """``media.refused``: change the words or the photos, or stop (§2.3.3)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            _media_button(language, "button.media.edit", MediaAction.EDIT, job_id),
+            _media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id),
+        ]
+    )
+
+
+def media_busy_keyboard(language: Language, job_id: UUID) -> InlineKeyboardMarkup:
+    """``media.busy``: 🔁 re-runs the check on the SAME frozen row; nothing was charged."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            _media_button(language, "button.media.retry_later", MediaAction.RETRY, job_id),
+            _media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id),
+        ]
+    )
+
+
+def media_again_keyboard(language: Language, job_id: UUID) -> InlineKeyboardMarkup:
+    """Under a delivery or a failure: 🔁 a fresh compose with the prompt and aspect pre-filled.
+
+    After a refunded failure the bot's handler pre-selects the credit at the quote, so one
+    button serves both the "again" and the "use your credit" readings of §2.3.3.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[_media_button(language, "button.media.again", MediaAction.AGAIN, job_id)]
+    )

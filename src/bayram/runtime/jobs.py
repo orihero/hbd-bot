@@ -43,8 +43,8 @@ Because it is the join, it also owns every way the run can end from the customer
   ``WIZARD_STATE_TTL`` is the fourteen-day abandoned-draft retention clock, a data
   lifetime rather than a session one. See :func:`_release_session`.
 
-It also assembles ``WorkerSettings``, which is where every OTHER job lives. There are twelve
-of them now, each in its own module and each registered here:
+It also assembles ``WorkerSettings``, which is where every OTHER job lives. There are
+twenty-one of them now, each in its own module and each registered here:
 
 * the hourly retention sweep (:mod:`bayram.runtime.retention_job`). Until it was added,
   ``functions`` held one entry and ``cron_jobs`` did not exist, so ``purge_expired`` —
@@ -78,7 +78,12 @@ of them now, each in its own module and each registered here:
   entries here with NO backstop sweep behind them. That is deliberate and is argued in their
   module: an unposted card and an undelivered reply are both already visible to an operator —
   on the board and on the ticket's timeline — where a settled-but-unannounced payment was
-  visible to nobody, which is the whole reason ``run_payme_sweep`` has a third arm.
+  visible to nobody, which is the whole reason ``run_payme_sweep`` has a third arm;
+* the media stage chain (:mod:`bayram.runtime.media_jobs`) — eight short jobs that take an
+  image request from screening to delivery, one conditional state move each — and its
+  five-minutely backstop (:mod:`bayram.runtime.media_sweep`). A media request is a CHAIN
+  rather than one long job because it can wait an hour for the owner's one GPU, and a job that
+  waited in a worker slot would starve every song behind it (IMAGE_VIDEO_SPEC §3.3).
 
 The registration is here rather than in each job's own module because ARQ needs one class
 naming every job the process can run, and one place naming them is what keeps the enqueue
@@ -114,6 +119,17 @@ from bayram.db.repository import record_song_file_id
 from bayram.entitlements import SettlementOutcome
 from bayram.errors import BayramError, PipelineError
 from bayram.logging import correlation_scope, get_logger
+from bayram.media.stages import (
+    MEDIA_CLEANUP_JOB,
+    MEDIA_DELIVER_JOB,
+    MEDIA_FETCH_JOB,
+    MEDIA_OUTPUT_SCREEN_JOB,
+    MEDIA_POLL_JOB,
+    MEDIA_SCREEN_JOB,
+    MEDIA_START_JOB,
+    MEDIA_SUBMIT_JOB,
+    MEDIA_SWEEP_JOB,
+)
 from bayram.payments import PIPELINE_ACTOR
 from bayram.pipeline import worker as pipeline_worker
 from bayram.pipeline.events import (
@@ -142,6 +158,18 @@ from bayram.runtime.broadcast_job import (
     sweep_due_broadcasts,
 )
 from bayram.runtime.container import AppContainer
+from bayram.runtime.media_jobs import (
+    MEDIA_STAGE_MAX_TRIES,
+    media_cleanup,
+    media_deliver,
+    media_fetch,
+    media_output_screen,
+    media_poll,
+    media_screen,
+    media_start,
+    media_submit,
+)
+from bayram.runtime.media_sweep import MEDIA_SWEEP_CRON_MINUTES, media_sweep
 from bayram.runtime.payme_jobs import (
     PAYME_NOTIFY_JOB_NAME,
     PAYME_NOTIFY_MAX_TRIES,
@@ -932,6 +960,43 @@ def build_kit_worker_settings(
                 max_tries=SUPPORT_VERIFY_MAX_TRIES,
                 timeout=settings.queue_job_timeout_s,
             ),
+            # THE MEDIA STAGE CHAIN (IMAGE_VIDEO_SPEC §3.3). Eight short jobs, each of which
+            # reads the ``media_jobs`` row, moves it with a conditional UPDATE and enqueues the
+            # next — so an image waiting an hour for the GPU holds no slot while it waits. The
+            # bot enqueues the first two (screen at the aspect pick, start after 🎁/🎟) and the
+            # Payme settlement will enqueue ``media_start`` (M5), so every name is stated
+            # explicitly from ``bayram.media.stages``, the one spelling both sides import.
+            #
+            # ``max_tries`` is ``MEDIA_STAGE_MAX_TRIES`` for all eight: only a fetch or a
+            # delivery raises ``Retry`` (a transient download or Telegram failure), and each
+            # reads the same number back before it does, so its last permitted try takes the
+            # terminal path instead of vanishing. A waiting submit or a running poll does NOT
+            # retry — it re-enqueues itself under a NEW id (``submit_seq``, the tick), which is
+            # the only way to wait hours without spending ``max_tries``. ``media_sweep`` below
+            # re-drives whatever a lost enqueue stranded.
+            #
+            # ``timeout`` is ``queue_job_timeout_s``: the longest stage is a result download
+            # (≤ 200 MB, streamed) and every other one is a handful of queries and one call.
+            *(
+                func(
+                    stage,
+                    name=name,
+                    max_tries=MEDIA_STAGE_MAX_TRIES,
+                    timeout=settings.queue_job_timeout_s,
+                )
+                for stage, name in (
+                    (media_screen, MEDIA_SCREEN_JOB),
+                    (media_start, MEDIA_START_JOB),
+                    (media_submit, MEDIA_SUBMIT_JOB),
+                    (media_poll, MEDIA_POLL_JOB),
+                    (media_fetch, MEDIA_FETCH_JOB),
+                    (media_output_screen, MEDIA_OUTPUT_SCREEN_JOB),
+                    (media_deliver, MEDIA_DELIVER_JOB),
+                    (media_cleanup, MEDIA_CLEANUP_JOB),
+                )
+            ),
+            # The media sweep, registered as well as scheduled, for every other cron's reason.
+            media_sweep,
         ]
         # The FIL-7 retention schedule, on a clock at last. Hourly rather than nightly for
         # two reasons: every sweep is bounded by ``batch_size``, so a backlog is worked off
@@ -1103,6 +1168,25 @@ def build_kit_worker_settings(
                 sweep_due_broadcasts,
                 name=DUE_JOB_NAME,
                 minute=BROADCAST_DUE_CRON_MINUTE,  # type: ignore[arg-type]
+                run_at_startup=False,
+                unique=True,
+                max_tries=1,
+                timeout=settings.broadcast_chunk_timeout_s,
+            ),
+            # THE MEDIA SWEEP (IMAGE_VIDEO_SPEC §3.3). Five-minutely because its cadence is
+            # how long a customer whose stage enqueue was lost waits, and how late past its
+            # deadline a stuck paid job is failed and refunded. It abandons stale quotes,
+            # starts paid rows nothing started, re-drives stranded chains with the NEXT id
+            # suffix, fails jobs past their deadline and tidies the GPU queue and lock.
+            #
+            # ``max_tries=1`` and ``unique=True`` for the Payme sweep's reasons: the next run
+            # five minutes away is the retry, every arm is bounded and idempotent, and two
+            # replicas must not sweep one window. ``timeout`` is the chunk timeout, as for the
+            # broadcast sweep: bounded queries and enqueues, no business holding a slot longer.
+            cron(
+                media_sweep,
+                name=MEDIA_SWEEP_JOB,
+                minute=MEDIA_SWEEP_CRON_MINUTES,  # type: ignore[arg-type]
                 run_at_startup=False,
                 unique=True,
                 max_tries=1,

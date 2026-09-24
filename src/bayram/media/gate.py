@@ -2,8 +2,8 @@
 
 One question — "may this user be quoted this SKU right now?" — answered from settings, the
 operator's Redis switches and the margin rule. The answer is a reason or ``None``; the bot
-turns every reason but ``NOT_OFFERED`` into ``media.busy``. Backend health and the ETA ≤
-deadline check join this in M2.4, where the provider and the queue are in hand.
+turns every reason but ``NOT_OFFERED`` into ``media.busy``. The ETA ≤ deadline check is made
+beside this by ``media_screen`` (``bayram.runtime.media_jobs``), where the GPU queue is in hand.
 """
 
 from __future__ import annotations

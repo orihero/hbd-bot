@@ -1,0 +1,461 @@
+"""``media_sweep``: the five-minutely reaper and re-driver of the media stage chain.
+
+IMAGE_VIDEO_SPEC §3.3 (the ``media_sweep`` row), §3.4, §3.5, §2.6. Every stage enqueues its
+successor after committing, and an enqueue can be lost (Redis blipped, the worker was killed
+between the commit and the enqueue). Media jobs are not on the song debit path, so the song
+sweeps never see them: this is their only backstop, and it is what makes "the row is the
+promise, the queue is only the nudge" true. Five arms, each bounded by :data:`SWEEP_BATCH`:
+
+a. **abandon** unpaid rows past the quote TTL (``drafting``/``screening``/``quoted``) and
+   ``awaiting_payment`` rows only once their Payme intent is EXPIRED or CANCELLED plus a
+   10-minute grace — never on a clock of our own that could disagree with the intent (§2.6);
+b. **start** ``paid`` rows older than two minutes (a burned or lost ``media_start``);
+c. **re-drive** ``screening`` rows that never reached a verdict; ``queued``/``generating``
+   rows whose heartbeat (``updated_at``) is stale — per unfinished variant, the next submit,
+   a poll, a fetch or the fan-in, whatever its latest attempt says is missing; and ``post``
+   rows whose output screen or delivery was lost;
+d. **fail** paid jobs past their SKU deadline (§3.5), through the state-guarded path, with one
+   credit when they were paid for;
+e. **GPU hygiene** (§3.4): drop queue members whose job is finished or gone, and free a lock
+   held by an attempt that ended or has sat ``submitting`` for five minutes (marking it
+   ``ambiguous``, never re-posting it).
+
+Every re-enqueue takes the NEXT suffix — a bumped ``submit_seq``/``oscreen_seq``, or the sweep's
+own tick — never an id that ARQ might still be remembering (§3.3 "ARQ job ids").
+
+It never raises into the scheduler: an arm that fails is logged and counted, and the next run
+five minutes later is the retry.
+"""
+
+from __future__ import annotations
+
+import time
+from collections.abc import Mapping
+from datetime import datetime, timedelta
+from typing import Any, Final
+from uuid import UUID
+
+import sqlalchemy as sa
+
+from bayram.db.enums import (
+    MEDIA_TERMINAL_STATES,
+    MediaAttemptStage,
+    MediaAttemptStatus,
+    MediaCreditReason,
+    MediaJobState,
+    MediaKind,
+    MediaOutputRole,
+    MediaScreenDecision,
+    MediaSku,
+    PaymentIntentState,
+)
+from bayram.db.media import (
+    bump_seq,
+    latest_attempts,
+    list_outputs,
+    set_attempt_status,
+    transition,
+)
+from bayram.db.models.media_attempt import MediaAttemptRow
+from bayram.db.models.media_job import MediaJobRow
+from bayram.db.models.payment_intent import PaymentIntentRow
+from bayram.logging import get_logger
+from bayram.media.stages import (
+    MEDIA_CLEANUP_JOB,
+    MEDIA_DELIVER_JOB,
+    MEDIA_FETCH_JOB,
+    MEDIA_OUTPUT_SCREEN_JOB,
+    MEDIA_POLL_JOB,
+    MEDIA_SCREEN_JOB,
+    MEDIA_START_JOB,
+    MEDIA_SWEEP_JOB,
+    cleanup_job_id,
+    deliver_job_id,
+    fetch_job_id,
+    output_screen_job_id,
+    poll_job_id,
+    screen_job_id,
+    sku_deadline,
+    start_job_id,
+)
+from bayram.runtime.gpu_lock import parse_queue_member
+from bayram.runtime.media_jobs import (
+    MediaErrorCode,
+    MediaRuntime,
+    enqueue_stage,
+    enqueue_submit,
+    fail_job,
+    image_fan_in,
+    is_attempt_final,
+    media_runtime,
+)
+
+__all__ = [
+    "MEDIA_SWEEP_CRON_MINUTES",
+    "SWEEP_BATCH",
+    "STARTABLE_AFTER",
+    "STALE_HEARTBEAT",
+    "media_sweep",
+    "sweep_media",
+]
+
+_LOG = get_logger(__name__)
+
+#: Every five minutes on the :01 offset, which no other writer in this worker uses — the Payme
+#: sweep owns the multiples of five and the broadcast sweep :04, :09, … — except that :31 is
+#: the workspace sweep's, so that one run moves to :32. Every other offset collides with
+#: retention (:17), the activity snapshot (:07) or the vendor poll (:43).
+MEDIA_SWEEP_CRON_MINUTES: Final[tuple[int, ...]] = (1, 6, 11, 16, 21, 26, 32, 36, 41, 46, 51, 56)
+
+#: Rows per arm per run. A backlog is worked off in five-minute bites.
+SWEEP_BATCH: Final[int] = 100
+
+#: §3.3 (b): a paid row this old has not been started by the path that paid it.
+STARTABLE_AFTER: Final[timedelta] = timedelta(minutes=2)
+
+#: §3.3 (c): no stage touched a working row for this long, so its chain is presumed dead.
+#: Longer than the slowest heartbeat (a video poll every 15 s, a waiting submit every 15 s).
+STALE_HEARTBEAT: Final[timedelta] = timedelta(minutes=3)
+
+#: A ``post`` row whose output screen went missing. Longer than the 2-minute guard retry.
+_STALE_POST: Final[timedelta] = timedelta(minutes=10)
+
+#: A ``screening`` row with no verdict this long after its last write lost its screen job.
+_STALE_SCREEN: Final[timedelta] = timedelta(minutes=10)
+
+#: §3.4: a lock held by a ``submitting`` attempt this old is a worker that died mid-POST.
+_SUBMITTING_LOCK_MAX: Final[timedelta] = timedelta(minutes=5)
+
+#: §2.6: an ``awaiting_payment`` row is abandoned only this long after its intent ended.
+_INTENT_GRACE: Final[timedelta] = timedelta(minutes=10)
+
+#: The states whose deadline runs (§3.5). ``held`` waits on a human and has its own 24 h SLA
+#: (M3.2); ``delivering`` is a send in flight.
+_DEADLINE_STATES: Final[tuple[MediaJobState, ...]] = (
+    MediaJobState.PAID,
+    MediaJobState.QUEUED,
+    MediaJobState.GENERATING,
+    MediaJobState.POST,
+)
+_QUOTE_STATES: Final[tuple[MediaJobState, ...]] = (
+    MediaJobState.DRAFTING,
+    MediaJobState.SCREENING,
+    MediaJobState.QUOTED,
+)
+_ENDED_INTENT_STATES: Final[tuple[PaymentIntentState, ...]] = (
+    PaymentIntentState.EXPIRED,
+    PaymentIntentState.CANCELLED,
+)
+_ENDED_ATTEMPT_STATES: Final[frozenset[MediaAttemptStatus]] = frozenset(
+    {MediaAttemptStatus.FAILED, MediaAttemptStatus.REJECTED, MediaAttemptStatus.AMBIGUOUS}
+)
+_STAGE_FOR_KIND: Final[Mapping[MediaKind, MediaAttemptStage]] = {
+    MediaKind.IMAGE: MediaAttemptStage.IMAGE,
+    MediaKind.VIDEO: MediaAttemptStage.VIDEO,
+}
+#: Poll ticks handed out by the sweep start here, far above any tick a live chain reaches,
+#: and move with the sweep's own tick so each run's id is new.
+_SWEEP_POLL_TICK_BASE: Final[int] = 1_000_000
+
+
+def _tick(now: datetime) -> int:
+    """The sweep's own monotonic suffix: whole minutes since the epoch."""
+    return int(now.timestamp() // 60)
+
+
+async def _abandon(rt: MediaRuntime, now: datetime) -> int:
+    quote_cutoff = now - timedelta(seconds=rt.settings.media_quote_ttl_s)
+    intent_cutoff = now - _INTENT_GRACE
+    orphan_cutoff = now - timedelta(seconds=rt.settings.payme_intent_ttl_s) - _INTENT_GRACE
+    async with rt.sessions() as session:
+        stale_quotes = (
+            await session.scalars(
+                sa.select(MediaJobRow.id)
+                .where(MediaJobRow.state.in_(_QUOTE_STATES), MediaJobRow.created_at < quote_cutoff)
+                .limit(SWEEP_BATCH)
+            )
+        ).all()
+        ended_intent = (
+            sa.select(PaymentIntentRow.id)
+            .where(
+                PaymentIntentRow.id == MediaJobRow.payment_intent_id,
+                PaymentIntentRow.state.in_(_ENDED_INTENT_STATES),
+                PaymentIntentRow.valid_until < intent_cutoff,
+            )
+            .exists()
+        )
+        stale_payments = (
+            await session.scalars(
+                sa.select(MediaJobRow.id)
+                .where(
+                    MediaJobRow.state == MediaJobState.AWAITING_PAYMENT,
+                    sa.or_(
+                        ended_intent,
+                        # No intent recorded at all: nothing can ever settle it. Wait out the
+                        # longest an intent could have lived, then let it go.
+                        sa.and_(
+                            MediaJobRow.payment_intent_id.is_(None),
+                            MediaJobRow.updated_at < orphan_cutoff,
+                        ),
+                    ),
+                )
+                .limit(SWEEP_BATCH)
+            )
+        ).all()
+    abandoned = 0
+    for job_id, expected in [
+        *((job_id, _QUOTE_STATES) for job_id in stale_quotes),
+        *((job_id, (MediaJobState.AWAITING_PAYMENT,)) for job_id in stale_payments),
+    ]:
+        async with rt.sessions.begin() as session:
+            moved = await transition(
+                session, job_id, expected=expected, to=MediaJobState.ABANDONED, now=now
+            )
+        if moved:
+            abandoned += 1
+            await enqueue_stage(rt, MEDIA_CLEANUP_JOB, str(job_id), job_id=cleanup_job_id(job_id))
+    return abandoned
+
+
+async def _start_paid(rt: MediaRuntime, now: datetime) -> int:
+    async with rt.sessions() as session:
+        ids = (
+            await session.scalars(
+                sa.select(MediaJobRow.id)
+                .where(
+                    MediaJobRow.state == MediaJobState.PAID,
+                    MediaJobRow.paid_at < now - STARTABLE_AFTER,
+                )
+                .limit(SWEEP_BATCH)
+            )
+        ).all()
+    tick = _tick(now)
+    for job_id in ids:
+        await enqueue_stage(
+            rt, MEDIA_START_JOB, str(job_id), tick, job_id=start_job_id(job_id, tick)
+        )
+    return len(ids)
+
+
+async def _redrive_variant(
+    rt: MediaRuntime, job: MediaJobRow, variant: int, latest: MediaAttemptRow | None, tick: int
+) -> None:
+    if latest is None:
+        await enqueue_submit(rt, job.id, variant, 1, defer_s=0.0)
+    elif latest.status is MediaAttemptStatus.SUBMITTING:
+        # The submit handler decides between "in flight" and "crashed before the POST".
+        await enqueue_submit(rt, job.id, variant, latest.attempt, defer_s=0.0)
+    elif latest.status is MediaAttemptStatus.SUBMITTED:
+        poll_tick = _SWEEP_POLL_TICK_BASE + tick
+        await enqueue_stage(
+            rt,
+            MEDIA_POLL_JOB,
+            str(job.id),
+            variant,
+            latest.attempt,
+            poll_tick,
+            job_id=poll_job_id(job.id, variant, latest.attempt, poll_tick),
+        )
+    elif latest.status is MediaAttemptStatus.SUCCEEDED:
+        await enqueue_stage(
+            rt,
+            MEDIA_FETCH_JOB,
+            str(job.id),
+            variant,
+            latest.attempt,
+            job_id=fetch_job_id(job.id, variant, latest.attempt),
+        )
+    elif not is_attempt_final(latest, rt.settings.media_max_attempts):
+        await enqueue_submit(rt, job.id, variant, latest.attempt + 1, defer_s=0.0)
+
+
+async def _redrive(rt: MediaRuntime, now: datetime) -> int:
+    async with rt.sessions() as session:
+        working = (
+            await session.scalars(
+                sa.select(MediaJobRow)
+                .where(
+                    MediaJobRow.state.in_((MediaJobState.QUEUED, MediaJobState.GENERATING)),
+                    MediaJobRow.updated_at < now - STALE_HEARTBEAT,
+                )
+                .limit(SWEEP_BATCH)
+            )
+        ).all()
+        stuck_post = (
+            await session.execute(
+                sa.select(MediaJobRow.id, MediaJobRow.output_decision)
+                .where(
+                    MediaJobRow.state == MediaJobState.POST,
+                    MediaJobRow.updated_at < now - _STALE_POST,
+                )
+                .limit(SWEEP_BATCH)
+            )
+        ).all()
+        # A screen that never reached a verdict (the job died, or the enqueue was lost). A tray
+        # that is ``busy`` for capacity carries a decision and waits for the customer's 🔁.
+        unscreened = (
+            await session.scalars(
+                sa.select(MediaJobRow.id)
+                .where(
+                    MediaJobRow.state == MediaJobState.SCREENING,
+                    MediaJobRow.screen_decision.is_(None),
+                    MediaJobRow.updated_at < now - _STALE_SCREEN,
+                )
+                .limit(SWEEP_BATCH)
+            )
+        ).all()
+    tick = _tick(now)
+    for job_id in unscreened:
+        await enqueue_stage(
+            rt, MEDIA_SCREEN_JOB, str(job_id), tick, job_id=screen_job_id(job_id, tick)
+        )
+    for job in working:
+        if job.kind is not MediaKind.IMAGE:
+            continue  # M4: the video chain re-drives its own producers.
+        async with rt.sessions() as session:
+            latest = await latest_attempts(session, job.id, stage=_STAGE_FOR_KIND[job.kind])
+            done = {
+                output.variant
+                for output in await list_outputs(session, job.id, role=MediaOutputRole.IMAGE)
+            }
+        for variant in range(job.outputs_requested):
+            if variant not in done:
+                await _redrive_variant(rt, job, variant, latest.get(variant), tick)
+        # Every variant may already be finished with the fan-in lost; it is idempotent.
+        await image_fan_in(rt, job.id)
+    for job_id, decision in stuck_post:
+        if decision is MediaScreenDecision.ALLOW:
+            # Screened and allowed; the delivery enqueue was lost.
+            await enqueue_stage(rt, MEDIA_DELIVER_JOB, str(job_id), job_id=deliver_job_id(job_id))
+            continue
+        async with rt.sessions.begin() as session:
+            seq = await bump_seq(session, job_id, column="oscreen_seq", now=now)
+        if seq is not None:
+            await enqueue_stage(
+                rt,
+                MEDIA_OUTPUT_SCREEN_JOB,
+                str(job_id),
+                seq,
+                job_id=output_screen_job_id(job_id, seq),
+            )
+    return len(unscreened) + len(working) + len(stuck_post)
+
+
+async def _fail_past_deadline(rt: MediaRuntime, now: datetime) -> int:
+    failed = 0
+    for sku in MediaSku:
+        cutoff = now - sku_deadline(rt.settings, sku)
+        async with rt.sessions() as session:
+            ids = (
+                await session.scalars(
+                    sa.select(MediaJobRow.id)
+                    .where(
+                        MediaJobRow.sku == sku,
+                        MediaJobRow.state.in_(_DEADLINE_STATES),
+                        MediaJobRow.paid_at < cutoff,
+                    )
+                    .limit(SWEEP_BATCH)
+                )
+            ).all()
+        for job_id in ids:
+            if await fail_job(
+                rt,
+                job_id,
+                expected=_DEADLINE_STATES,
+                error_code=MediaErrorCode.DEADLINE,
+                refund=MediaCreditReason.DEADLINE,
+            ):
+                failed += 1
+    return failed
+
+
+async def _gpu_hygiene(rt: MediaRuntime, now: datetime) -> int:
+    fixed = 0
+    members = await rt.gpu.members()
+    parsed = {member: parse_queue_member(member) for member in members}
+    job_ids = {found[0] for found in parsed.values() if found is not None}
+    async with rt.sessions() as session:
+        live = (
+            set(
+                (
+                    await session.scalars(
+                        sa.select(MediaJobRow.id).where(
+                            MediaJobRow.id.in_(job_ids),
+                            MediaJobRow.state.not_in(tuple(MEDIA_TERMINAL_STATES)),
+                        )
+                    )
+                ).all()
+            )
+            if job_ids
+            else set()
+        )
+    gone = [member for member, found in parsed.items() if found is None or found[0] not in live]
+    if gone:
+        await rt.gpu.leave(*gone)
+        fixed += len(gone)
+    holder = await rt.gpu.holder()
+    if holder is None:
+        return fixed
+    try:
+        attempt_id: UUID | None = UUID(holder)
+    except ValueError:
+        attempt_id = None
+    async with rt.sessions() as session:
+        row = await session.get(MediaAttemptRow, attempt_id) if attempt_id is not None else None
+    if row is None or row.status in _ENDED_ATTEMPT_STATES:
+        if await rt.gpu.release(holder):
+            fixed += 1
+    elif (
+        row.status is MediaAttemptStatus.SUBMITTING
+        and row.remote_id is None
+        and row.created_at < now - _SUBMITTING_LOCK_MAX
+    ):
+        async with rt.sessions.begin() as session:
+            await set_attempt_status(
+                session,
+                row.id,
+                expected=(MediaAttemptStatus.SUBMITTING,),
+                status=MediaAttemptStatus.AMBIGUOUS,
+                now=now,
+                error_code=MediaErrorCode.CRASHED_BEFORE_POST.value,
+            )
+        if await rt.gpu.release(holder):
+            fixed += 1
+    return fixed
+
+
+async def sweep_media(rt: MediaRuntime, *, now: datetime | None = None) -> dict[str, Any]:
+    """Run the five arms once. Each arm's failure is contained and reported."""
+    at = now or rt.clock()
+    summary: dict[str, Any] = {}
+    errors: list[str] = []
+    for name, arm in (
+        ("abandoned", _abandon),
+        ("started", _start_paid),
+        ("redriven", _redrive),
+        ("deadline_failed", _fail_past_deadline),
+        ("gpu_fixed", _gpu_hygiene),
+    ):
+        try:
+            summary[name] = await arm(rt, at)
+        except Exception as exc:
+            _LOG.error(
+                "a media sweep arm failed", extra={"arm": name, "failure": repr(exc)}, exc_info=exc
+            )
+            summary[name] = 0
+            errors.append(name)
+    summary["errors"] = errors
+    return summary
+
+
+async def media_sweep(ctx: Mapping[str, Any]) -> dict[str, Any]:
+    """The cron entry point. Raises only ``PipelineError`` for a mis-wired worker."""
+    rt = media_runtime(ctx)
+    started = time.monotonic()
+    summary = await sweep_media(rt)
+    summary["duration_ms"] = int((time.monotonic() - started) * 1000)
+    _LOG.info("media sweep finished", extra=summary)
+    return summary
+
+
+assert media_sweep.__name__ == MEDIA_SWEEP_JOB

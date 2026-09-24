@@ -825,4 +825,49 @@ CATALOGUE: Final[dict[str, str]] = {
         "📨 <code>{ref}</code> murojaatiga qoʻshildi. Uni koʻrayotgan odamlar buni ham "
         "koʻradi, javob esa shu yerga keladi."
     ),
+    # -- media: the screens the WORKER draws (IMAGE_VIDEO_SPEC §2.3.3, §3.3) ----------
+    # The quote, refusal and busy trays are edits the worker makes to the compose tray;
+    # progress is one status message it edits; the delivery is a new message so it
+    # notifies. Prices are interpolated, never written here (bot/pricing.py).
+    "button.media.pay": "💳 Toʻlash",
+    "button.media.use_credit": "🎟️ Kreditdan foydalanish",
+    "button.media.beta_free": "🎁 Beta: bepul",
+    "button.media.edit": "✏️ Tahrirlash",
+    "button.media.cancel": "✖️ Bekor qilish",
+    "button.media.retry_later": "🔁 Qayta urinish",
+    "button.media.again": "🔁 Yana yaratish",
+    "media.image.quote": (
+        "🖼️ <b>2 ta rasm</b> · {aspect} · <b>{price} soʻm</b>\nTaxminan {eta} ichida tayyor boʻladi."
+    ),
+    "media.refused": "🚫 Buni yarata olmaymiz. Iltimos, tavsif yoki rasmlarni oʻzgartiring.",
+    "media.compose.unsupported": (
+        "⚠️ Fayllardan birini ishlatib boʻlmaydi. Oddiy rasm yuboring (JPEG, PNG yoki "
+        "WebP), animatsiya emas."
+    ),
+    "media.busy": (
+        "⏳ Studiyamiz hozir toʻla band. Keyinroq urinib koʻring — sizdan pul olinmadi."
+    ),
+    "media.progress.queued": "✅ Toʻlandi. Navbatda #{pos}-siz, taxminan {eta}.",
+    "media.progress.queued_free": "✅ Qabul qilindi. Navbatda #{pos}-siz, taxminan {eta}.",
+    "media.progress.rendering": "🎨 Yaratilmoqda… taxminan {minutes} daqiqa qoldi.",
+    "media.image.delivered": "@bayram_uzbot yordamida sunʼiy intellekt bilan yaratildi.",
+    "media.delivered.again": (
+        "✨ Yana bittasini xohlaysizmi? 🔁 tavsifni saqlaydi — rasmlarni qayta yuboring."
+    ),
+    "media.failed.refunded": (
+        "😔 Kechirasiz — bu safar amalga oshmadi. Balansingizga 1 ta kredit ({kind}) "
+        "qoʻshildi; istalgan vaqtda foydalaning."
+    ),
+    "media.failed.beta": (
+        "😔 Kechirasiz — bu safar amalga oshmadi. Bu bepul beta soʻrov edi; yana bepul "
+        "urinib koʻrishingiz mumkin."
+    ),
+    "media.failed": "😔 Kechirasiz — bu safar amalga oshmadi.",
+    "media.kind.image": "rasm",
+    "media.kind.video": "video",
+    "media.image.partial": "Ikki rasmdan birini yaratib boʻlmadi.",
+    "media.image.partial_refunded": (
+        "Ikki rasmdan birini yaratib boʻlmadi — balansingizga 1 ta kredit ({kind}) qoʻshildi."
+    ),
+    "media.eta.minutes": "{minutes} daqiqa",
 }

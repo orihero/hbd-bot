@@ -19,6 +19,17 @@ from aiogram.fsm.storage.memory import MemoryStorage
 import bayram.main as main_module
 from bayram.config import Settings
 from bayram.errors import ConfigError
+from bayram.media.stages import (
+    MEDIA_CLEANUP_JOB,
+    MEDIA_DELIVER_JOB,
+    MEDIA_FETCH_JOB,
+    MEDIA_OUTPUT_SCREEN_JOB,
+    MEDIA_POLL_JOB,
+    MEDIA_SCREEN_JOB,
+    MEDIA_START_JOB,
+    MEDIA_SUBMIT_JOB,
+    MEDIA_SWEEP_JOB,
+)
 from bayram.runtime.container import build_container
 from bayram.runtime.jobs import (
     ACTIVITY_SNAPSHOT_JOB_NAME,
@@ -239,6 +250,18 @@ async def test_the_worker_registers_the_job_the_submitter_enqueues(settings: Set
         # bot was already sitting in; a rename that silently unregistered this job would leave
         # every such selection on "checking…" for ever.
         SUPPORT_VERIFY_JOB_NAME,
+        # The media stage chain (IMAGE_VIDEO_SPEC §3.3). The BOT enqueues the first two and
+        # the Payme settlement will enqueue ``media_start`` (M5), each by the name
+        # ``bayram.media.stages`` spells — so a rename here strands a paid request.
+        MEDIA_SCREEN_JOB,
+        MEDIA_START_JOB,
+        MEDIA_SUBMIT_JOB,
+        MEDIA_POLL_JOB,
+        MEDIA_FETCH_JOB,
+        MEDIA_OUTPUT_SCREEN_JOB,
+        MEDIA_DELIVER_JOB,
+        MEDIA_CLEANUP_JOB,
+        MEDIA_SWEEP_JOB,
     ]
     assert worker_settings.max_jobs == settings.worker_concurrency
     assert worker_settings.job_timeout == settings.queue_job_timeout_s

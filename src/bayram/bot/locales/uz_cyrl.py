@@ -812,4 +812,47 @@ CATALOGUE: Final[dict[str, str]] = {
         "📨 <code>{ref}</code> мурожаатига қўшилди. Уни кўраётган одамлар буни ҳам кўради, "
         "жавоб эса шу ерга келади."
     ),
+    # -- media: the screens the WORKER draws (IMAGE_VIDEO_SPEC §2.3.3, §3.3) ----------
+    # The quote, refusal and busy trays are edits the worker makes to the compose tray;
+    # progress is one status message it edits; the delivery is a new message so it
+    # notifies. Prices are interpolated, never written here (bot/pricing.py).
+    "button.media.pay": "💳 Тўлаш",
+    "button.media.use_credit": "🎟️ Кредитдан фойдаланиш",
+    "button.media.beta_free": "🎁 Бета: бепул",
+    "button.media.edit": "✏️ Таҳрирлаш",
+    "button.media.cancel": "✖️ Бекор қилиш",
+    "button.media.retry_later": "🔁 Қайта уриниш",
+    "button.media.again": "🔁 Яна яратиш",
+    "media.image.quote": (
+        "🖼️ <b>2 та расм</b> · {aspect} · <b>{price} сўм</b>\nТахминан {eta} ичида тайёр бўлади."
+    ),
+    "media.refused": "🚫 Буни ярата олмаймиз. Илтимос, тавсиф ёки расмларни ўзгартиринг.",
+    "media.compose.unsupported": (
+        "⚠️ Файллардан бирини ишлатиб бўлмайди. Оддий расм юборинг (JPEG, PNG ёки "
+        "WebP), анимация эмас."
+    ),
+    "media.busy": "⏳ Студиямиз ҳозир тўла банд. Кейинроқ уриниб кўринг — сиздан пул олинмади.",
+    "media.progress.queued": "✅ Тўланди. Навбатда #{pos}-сиз, тахминан {eta}.",
+    "media.progress.queued_free": "✅ Қабул қилинди. Навбатда #{pos}-сиз, тахминан {eta}.",
+    "media.progress.rendering": "🎨 Яратилмоқда… тахминан {minutes} дақиқа қолди.",
+    "media.image.delivered": "@bayram_uzbot ёрдамида сунъий интеллект билан яратилди.",
+    "media.delivered.again": (
+        "✨ Яна биттасини хоҳлайсизми? 🔁 тавсифни сақлайди — расмларни қайта юборинг."
+    ),
+    "media.failed.refunded": (
+        "😔 Кечирасиз — бу сафар амалга ошмади. Балансингизга 1 та кредит ({kind}) "
+        "қўшилди; исталган вақтда фойдаланинг."
+    ),
+    "media.failed.beta": (
+        "😔 Кечирасиз — бу сафар амалга ошмади. Бу бепул бета сўров эди; яна бепул "
+        "уриниб кўришингиз мумкин."
+    ),
+    "media.failed": "😔 Кечирасиз — бу сафар амалга ошмади.",
+    "media.kind.image": "расм",
+    "media.kind.video": "видео",
+    "media.image.partial": "Икки расмдан бирини яратиб бўлмади.",
+    "media.image.partial_refunded": (
+        "Икки расмдан бирини яратиб бўлмади — балансингизга 1 та кредит ({kind}) қўшилди."
+    ),
+    "media.eta.minutes": "{minutes} дақиқа",
 }

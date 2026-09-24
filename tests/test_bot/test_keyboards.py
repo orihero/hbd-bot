@@ -24,6 +24,7 @@ covering one half.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from uuid import UUID
 
 import pytest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
@@ -46,6 +47,10 @@ from bayram.bot.keyboards import (
     lyrics_keyboard,
     lyrics_writing_keyboard,
     main_menu_keyboard,
+    media_again_keyboard,
+    media_busy_keyboard,
+    media_quote_keyboard,
+    media_refused_keyboard,
     name_confirm_keyboard,
     name_prompt_keyboard,
     note_keyboard,
@@ -102,6 +107,9 @@ SAMPLE_PRICING: Pricing = Pricing(
 #: ``bayram.payme.link``, because this module is imported at MODULE SCOPE by
 #: ``test_locale_contract.py`` and the keyboard register must not drag a payment package into
 #: the import graph of the catalogue tests.
+#: Any id will do: the media keyboards are measured for their labels, not their payloads.
+SAMPLE_MEDIA_JOB = UUID("0b8f4c3e-5a1d-4e2f-9c7b-3d6a8e1f2b4c")
+
 SAMPLE_CHECKOUT_URL = (
     "https://checkout.paycom.uz/bT01ODdmNzJjNzJjYWMwZDE2MmM3MjJhZTI7YWMub3JkZXJfaWQ9MTk3O2E9NTAw"
 )
@@ -192,6 +200,19 @@ def every_keyboard(language: Language) -> Iterator[tuple[str, InlineKeyboardMark
     yield "settings", settings_keyboard(language)
     yield "terms", terms_keyboard(language)
     yield "terms_under_the_full_text", terms_keyboard(language, is_read_full_offered=False)
+    yield (
+        "media_quote",
+        media_quote_keyboard(
+            language,
+            SAMPLE_MEDIA_JOB,
+            is_pay_offered=True,
+            is_credit_offered=True,
+            is_beta_offered=True,
+        ),
+    )
+    yield "media_refused", media_refused_keyboard(language, SAMPLE_MEDIA_JOB)
+    yield "media_busy", media_busy_keyboard(language, SAMPLE_MEDIA_JOB)
+    yield "media_again", media_again_keyboard(language, SAMPLE_MEDIA_JOB)
 
 
 def every_reply_keyboard(language: Language) -> Iterator[tuple[str, ReplyKeyboardMarkup]]:

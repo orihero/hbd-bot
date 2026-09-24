@@ -777,4 +777,44 @@ CATALOGUE: Final[dict[str, str]] = {
         "📨 Добавлено к обращению <code>{ref}</code>. Те, кто им занимается, это видят, а "
         "ответ придёт сюда."
     ),
+    # -- media: the screens the WORKER draws (IMAGE_VIDEO_SPEC §2.3.3, §3.3) ----------
+    # The quote, refusal and busy trays are edits the worker makes to the compose tray;
+    # progress is one status message it edits; the delivery is a new message so it
+    # notifies. Prices are interpolated, never written here (bot/pricing.py).
+    "button.media.pay": "💳 Оплатить",
+    "button.media.use_credit": "🎟️ Использовать кредит",
+    "button.media.beta_free": "🎁 Бета: бесплатно",
+    "button.media.edit": "✏️ Изменить",
+    "button.media.cancel": "✖️ Отменить",
+    "button.media.retry_later": "🔁 Попробовать снова",
+    "button.media.again": "🔁 Создать ещё",
+    "media.image.quote": (
+        "🖼️ <b>2 изображения</b> · {aspect} · <b>{price} сум</b>\nБудет готово примерно через {eta}."
+    ),
+    "media.refused": ("🚫 Это мы сделать не можем. Пожалуйста, измените описание или фотографии."),
+    "media.compose.unsupported": (
+        "⚠️ Один из файлов не подходит. Пришлите обычные фото (JPEG, PNG или WebP), не анимацию."
+    ),
+    "media.busy": "⏳ Сейчас студия полностью занята. Попробуйте позже — деньги не списаны.",
+    "media.progress.queued": "✅ Оплачено. Вы #{pos} в очереди, примерно {eta}.",
+    "media.progress.queued_free": "✅ Принято. Вы #{pos} в очереди, примерно {eta}.",
+    "media.progress.rendering": "🎨 Создаём… осталось примерно {minutes} мин.",
+    "media.image.delivered": "Создано ИИ в @bayram_uzbot.",
+    "media.delivered.again": "✨ Хотите ещё? 🔁 сохранит описание — фото пришлите заново.",
+    "media.failed.refunded": (
+        "😔 Извините — не получилось. Мы добавили на ваш баланс 1 кредит ({kind}); "
+        "используйте его в любое время."
+    ),
+    "media.failed.beta": (
+        "😔 Извините — не получилось. Это был бесплатный бета-запрос; можно "
+        "попробовать ещё раз бесплатно."
+    ),
+    "media.failed": "😔 Извините — не получилось.",
+    "media.kind.image": "изображение",
+    "media.kind.video": "видео",
+    "media.image.partial": "Одно из двух изображений создать не удалось.",
+    "media.image.partial_refunded": (
+        "Одно из двух изображений создать не удалось — мы добавили на ваш баланс 1 кредит ({kind})."
+    ),
+    "media.eta.minutes": "{minutes} мин",
 }

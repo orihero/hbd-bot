@@ -7,6 +7,8 @@ of raising inside one. That is the boundary validation for everything a button c
 
 from __future__ import annotations
 
+import base64
+import binascii
 from enum import StrEnum
 from typing import Final
 from uuid import UUID
@@ -27,6 +29,10 @@ __all__ = [
     "SupportCB",
     "TermsAction",
     "TermsCB",
+    "MediaAction",
+    "MediaCB",
+    "pack_job_ref",
+    "read_job_ref",
     "NO_REFERENCE",
     "pack_reference",
     "read_reference",
@@ -220,6 +226,58 @@ class TermsCB(CallbackData, prefix="trm"):
     #: The version pair the screen was drawn for, as ``TermsVersions.stamp``. Checked on
     #: ACCEPT only; empty on 📄, which records nothing.
     v: str = ""
+
+
+class MediaAction(StrEnum):
+    """The post-freeze media buttons (IMAGE_VIDEO_SPEC §2, §2.3.3). Short: packed into 64 bytes.
+
+    Drawn by the WORKER (the quote, refusal, busy and failure screens are edits it makes to the
+    tray, §3.3) and handled by the bot's media router (M2.5). Every one carries the
+    ``media_jobs.id`` and is registered WITHOUT a state filter: the FSM may be cleared or days
+    old, so the handler reads the row — owner and state — and answers ``media.stale`` when the
+    press no longer fits it.
+    """
+
+    #: 💳 Pay — only on a live-paid rail (§2.5).
+    PAY = "pay"
+    #: 🎟 Use a refund credit of this SKU.
+    CREDIT = "cred"
+    #: 🎁 Free beta — only off a live-paid rail, only for the allowlist, re-checked at press.
+    BETA = "beta"
+    #: ✏️ Edit: the row is cancelled and compose reopens from the draft (§2.3.1).
+    EDIT = "edit"
+    #: ✖️ Cancel the request.
+    CANCEL = "cancel"
+    #: 🔁 Try again on a busy tray: re-runs screening/capability on the SAME frozen row.
+    RETRY = "retry"
+    #: 🔁 Again after delivery or a failure: a fresh compose pre-filled with the prompt and
+    #: aspect (never the photos, O16).
+    AGAIN = "again"
+
+
+class MediaCB(CallbackData, prefix="med"):
+    """``med:<action>:<22-char job ref>`` — at most 35 of the 64 bytes (§2 "Callbacks")."""
+
+    action: MediaAction
+    #: :func:`pack_job_ref` of the ``media_jobs.id``.
+    job: str
+
+
+def pack_job_ref(job_id: UUID) -> str:
+    """A ``media_jobs.id`` as 22 characters of unpadded base64url (§2 "Callbacks")."""
+    return base64.urlsafe_b64encode(job_id.bytes).rstrip(b"=").decode("ascii")
+
+
+def read_job_ref(value: str) -> UUID | None:
+    """The id back out of :attr:`MediaCB.job`; ``None`` for anything that is not one. Never
+    raises, for :func:`read_reference`'s reason."""
+    if len(value) != 22:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(value + "==")
+    except (binascii.Error, ValueError):
+        return None
+    return UUID(bytes=raw) if len(raw) == 16 else None
 
 
 def pack_reference(value: UUID | None) -> str:

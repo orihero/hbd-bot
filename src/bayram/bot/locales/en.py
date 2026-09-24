@@ -826,4 +826,48 @@ CATALOGUE: Final[dict[str, str]] = {
         "📨 Added to ticket <code>{ref}</code>. The people working on it can see it, and the "
         "answer comes back here."
     ),
+    # -- media: the screens the WORKER draws (IMAGE_VIDEO_SPEC §2.3.3, §3.3) ----------
+    # The quote, refusal and busy trays are edits the worker makes to the compose tray;
+    # progress is one status message it edits; the delivery is a new message so it
+    # notifies. Prices are interpolated, never written here (bot/pricing.py).
+    "button.media.pay": "💳 Pay",
+    "button.media.use_credit": "🎟️ Use my credit",
+    "button.media.beta_free": "🎁 Beta: make it free",
+    "button.media.edit": "✏️ Edit",
+    "button.media.cancel": "✖️ Cancel",
+    "button.media.retry_later": "🔁 Try again",
+    "button.media.again": "🔁 Make another",
+    "media.image.quote": (
+        "🖼️ <b>2 images</b> · {aspect} · <b>{price} UZS</b>\nReady in about {eta}."
+    ),
+    "media.refused": "🚫 We can't make this one. Please change your description or photos.",
+    "media.compose.unsupported": (
+        "⚠️ One of the files can't be used. Please send ordinary photos (JPEG, PNG or "
+        "WebP), not animations."
+    ),
+    "media.busy": (
+        "⏳ Our studio is fully booked right now. Please try again later — you have "
+        "not been charged."
+    ),
+    "media.progress.queued": "✅ Paid. You're #{pos} in line, about {eta}.",
+    "media.progress.queued_free": "✅ Accepted. You're #{pos} in line, about {eta}.",
+    "media.progress.rendering": "🎨 Creating… about {minutes} min left.",
+    "media.image.delivered": "Made with AI by @bayram_uzbot.",
+    "media.delivered.again": (
+        "✨ Want another? 🔁 keeps your description — attach the photos again."
+    ),
+    "media.failed.refunded": (
+        "😔 Sorry — this one failed. We've added 1 {kind} credit to your balance; use it any time."
+    ),
+    "media.failed.beta": (
+        "😔 Sorry — this one failed. It was a free beta request; you can try again for free."
+    ),
+    "media.failed": "😔 Sorry — this one failed.",
+    "media.kind.image": "image",
+    "media.kind.video": "video",
+    "media.image.partial": "One of the two images could not be made.",
+    "media.image.partial_refunded": (
+        "One of the two images could not be made — we've added 1 {kind} credit to your balance."
+    ),
+    "media.eta.minutes": "{minutes} min",
 }

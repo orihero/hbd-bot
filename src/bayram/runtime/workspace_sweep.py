@@ -31,9 +31,8 @@ file. The sweep deletes what it can PROVE is finished, never what it merely cann
 
 **Two namespaces, one rule.** Legacy song workspaces are ``var/workspace/{order_id}/``;
 media jobs get ``var/workspace/media/{job_id}/`` (IMAGE_VIDEO_SPEC §3.6). Each namespace has
-its own "which of these ids are finished" lookup. The media one answers "none" until the
-``media_jobs`` table exists (M2): with no table there is no terminal state to read, and a
-sweep that guessed would be deleting a paid job's frames on a hunch.
+its own "which of these ids are finished" lookup; the media one reads ``media_jobs``
+(:func:`finished_media_jobs_lookup`), so a paid job's frames are never deleted on a hunch.
 
 **Why 24 hours and not the 7-day ``EPHEMERAL`` period.** The workspace is not a record, it is
 scratch: delivery reads it once, archival copies it once, and both happen within minutes of
@@ -72,7 +71,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bayram.contracts import AssetKind, OrderState
 from bayram.db.base import utc_now
+from bayram.db.enums import MEDIA_TERMINAL_STATES
 from bayram.db.models import AssetRow, OrderRow
+from bayram.db.models.media_job import MediaJobRow
 from bayram.errors import PipelineError
 from bayram.logging import get_logger
 from bayram.runtime.container import AppContainer
@@ -86,6 +87,7 @@ __all__ = [
     "FinishedLookup",
     "WorkspaceSweepReport",
     "finished_media_jobs_before_m2",
+    "finished_media_jobs_lookup",
     "finished_orders_lookup",
     "run_workspace_sweep",
     "sweep_workspace",
@@ -391,12 +393,38 @@ def finished_orders_lookup(session_factory: async_sessionmaker[AsyncSession]) ->
     return lookup
 
 
-async def finished_media_jobs_before_m2(ids: frozenset[UUID]) -> frozenset[UUID]:
-    """No media job is finished, because no media job table exists yet.
+def finished_media_jobs_lookup(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> FinishedLookup:
+    """Media jobs that are terminal or gone (IMAGE_VIDEO_SPEC §3.3). Only the LIVE are read.
 
-    Nothing writes ``var/workspace/media/`` before M2 either, so this keeps nothing that
-    anyone made. M2.4 replaces it with a ``media_jobs`` read shaped like
-    :func:`finished_orders_lookup` (IMAGE_VIDEO_SPEC §3.3); until then, keep — never guess.
+    Shaped like :func:`finished_orders_lookup`: an id with no row is finished (retention or
+    ``/forget`` already removed it). A terminal job's workspace holds nothing a later stage
+    reads — delivery and the output screen work from the stored copies — so, unlike a song,
+    there is no "sent but never received" exception to keep.
+    """
+
+    async def lookup(ids: frozenset[UUID]) -> frozenset[UUID]:
+        live: set[UUID] = set()
+        async with session_factory() as session:
+            for batch in _batches(ids):
+                rows = await session.execute(
+                    sa.select(MediaJobRow.id).where(
+                        MediaJobRow.id.in_(batch),
+                        MediaJobRow.state.not_in(tuple(MEDIA_TERMINAL_STATES)),
+                    )
+                )
+                live.update(rows.scalars().all())
+        return frozenset(ids - live)
+
+    return lookup
+
+
+async def finished_media_jobs_before_m2(ids: frozenset[UUID]) -> frozenset[UUID]:
+    """A lookup that finds NO media job finished: keeps every media workspace.
+
+    What the sweep used before ``media_jobs`` existed; the tests still use it where the media
+    namespace is not what they measure. The cron uses :func:`finished_media_jobs_lookup`.
     """
     del ids
     return frozenset()
@@ -441,7 +469,7 @@ async def run_workspace_sweep(
     """Sweep the worker's workspace once and return a JSON-safe summary.
 
     ``now`` is injectable so a test can move a day forward instead of waiting for it, and
-    ``finished_media_jobs`` so a test can stand in for the M2 lookup. ARQ's ``cron()``
+    ``finished_media_jobs`` so a test can stand in for the ``media_jobs`` lookup. ARQ's ``cron()``
     passes neither. Raises only ``PipelineError`` for a mis-wired worker.
     """
     container = _require_container(ctx)
@@ -452,7 +480,8 @@ async def run_workspace_sweep(
             container.workspace_root,
             now=now or utc_now(),
             finished_orders=finished_orders_lookup(container.require_session_factory()),
-            finished_media_jobs=finished_media_jobs or finished_media_jobs_before_m2,
+            finished_media_jobs=finished_media_jobs
+            or finished_media_jobs_lookup(container.require_session_factory()),
         )
     except Exception as exc:
         # Fail closed. Every lookup runs before the first removal, so a database that did

@@ -817,6 +817,29 @@ class Settings(BaseSettings):
     #: for tests — boot refuses it with any SKU offered unless ``use_fake_providers`` (§4.5).
     media_moderator: MediaModeratorName = Field(default="gateway")
 
+    # -- media: the stage chain (IMAGE_VIDEO_SPEC §3.3–§3.5) ------------------
+    #: How long a frozen, unpaid request (``drafting``/``screening``/``quoted``) lives before
+    #: ``media_sweep`` abandons it and ``media_cleanup`` deletes its uploads (§2.6, §3.5).
+    media_quote_ttl_s: int = Field(default=86_400, ge=600, le=7 * 86_400)
+    #: Paid → delivered, per SKU (§3.5). Past it the job fails and, if it was paid for, one
+    #: SKU-scoped credit is granted. Every ETA shown at quote must fit inside it (NFR-20).
+    media_image_deadline_s: int = Field(default=2_700, ge=300, le=86_400)
+    media_video_standard_deadline_s: int = Field(default=14_400, ge=600, le=86_400)
+    media_video_fast_deadline_s: int = Field(default=1_800, ge=300, le=86_400)
+    #: Generation attempts per variant on the same backend (§3.3 "Retries"). An ambiguous
+    #: attempt counts as one, so a second ``unknown`` ends the variant (§4.2).
+    media_max_attempts: int = Field(default=2, ge=1, le=5)
+    #: Counted from the gateway reporting ``running`` only — queue time is not render time
+    #: (§3.5). Past it the attempt is ``failed`` and the retry policy decides.
+    media_image_render_timeout_s: int = Field(default=300, ge=30, le=3_600)
+    media_video_render_timeout_s: int = Field(default=2_400, ge=60, le=7_200)
+    #: Sampler steps sent to the gateway; always explicit (§4.2). 25 is the step count the
+    #: 31–43 s flux2 measurement was taken at.
+    media_image_steps: int = Field(default=25, ge=1, le=100)
+    media_video_steps: int = Field(default=20, ge=1, le=100)
+    #: img2img strength for a request with photos (§1.3): 0.5–0.7 keeps the subject.
+    media_image_denoise: float = Field(default=0.6, gt=0.0, le=1.0)
+
     # -- the local generation gateway (IMAGE_VIDEO_SPEC §4.2, §9.1) ----------
     #: HTTPS through the tunnel (§9.1). Empty with a SKU offered on ``local`` refuses to boot.
     genai_base_url: str = Field(default="", max_length=255)
