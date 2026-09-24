@@ -108,3 +108,13 @@ def test_env_example_documents_every_media_setting_with_an_empty_secret() -> Non
     ):
         assert f"\nBAYRAM_{field.upper()}=" in text, field
     assert "\nBAYRAM_GENAI_API_KEY=\n" in text
+
+
+def test_the_reference_cap_stops_where_the_collage_layouts_stop() -> None:
+    # A 1-ref backend composites the photos, and §4.4 lays out at most four.
+    from bayram.media.composite import MAX_COLLAGE_PHOTOS
+
+    assert _build().media_max_reference_images == MAX_COLLAGE_PHOTOS
+    assert _build(media_max_reference_images=MAX_COLLAGE_PHOTOS).media_max_reference_images == 4
+    with pytest.raises(ConfigError):
+        _build(media_max_reference_images=MAX_COLLAGE_PHOTOS + 1)

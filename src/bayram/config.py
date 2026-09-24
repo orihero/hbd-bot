@@ -810,8 +810,9 @@ class Settings(BaseSettings):
     #: because a margin cannot be proved in two currencies with no rate between them. The
     #: admin panel's ``BAYRAM_ADMIN_UZS_PER_USD`` lives in another process's dotenv (D19).
     media_uzs_per_usd: float | None = Field(default=None, gt=0, le=1_000_000)
-    #: Photos a customer may attach to one request (§1.3). A 1-ref backend gets a collage.
-    media_max_reference_images: int = Field(default=4, ge=0, le=10)
+    #: Photos a customer may attach to one request (§1.3). A 1-ref backend gets a collage,
+    #: whose layouts stop at four (§4.4, ``media.composite.MAX_COLLAGE_PHOTOS``).
+    media_max_reference_images: int = Field(default=4, ge=0, le=4)
     #: ``gateway`` screens on the owner's 5090 (D24, M3); ``fake`` allows everything and is
     #: for tests — boot refuses it with any SKU offered unless ``use_fake_providers`` (§4.5).
     media_moderator: MediaModeratorName = Field(default="gateway")
