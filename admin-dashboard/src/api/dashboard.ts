@@ -81,6 +81,12 @@ export const VENDOR_VALUES = [
   "gemini",
   "openai_compatible",
   "fake",
+  // IMAGE_VIDEO_SPEC §3.2.3 — the media products' vendors.
+  "local_genai",
+  "higgsfield",
+  "fal",
+  "gemini_tts",
+  "gateway_guard",
 ] as const;
 export const vendorSchema = z.enum(VENDOR_VALUES);
 export type Vendor = z.infer<typeof vendorSchema>;
@@ -93,6 +99,10 @@ export const VENDOR_OPERATION_VALUES = [
   "transcription",
   "chat_completion",
   "health",
+  // IMAGE_VIDEO_SPEC §3.2.3 — the media products' operations.
+  "image_generate",
+  "video_generate",
+  "safety_classify",
 ] as const;
 export const vendorOperationSchema = z.enum(VENDOR_OPERATION_VALUES);
 export type VendorOperation = z.infer<typeof vendorOperationSchema>;

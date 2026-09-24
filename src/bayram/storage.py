@@ -39,6 +39,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import re
 import stat as stat_module
 import tempfile
 from collections.abc import AsyncIterator
@@ -55,6 +56,8 @@ __all__ = [
     "RANGE_CHUNK_BYTES",
     "COPY_CHUNK_BYTES",
     "archive_key",
+    "media_key",
+    "MEDIA_FILENAME",
 ]
 
 _LOG = get_logger(__name__)
@@ -94,6 +97,24 @@ def archive_key(order_id: object, filename: str) -> str:
     class, so it survives ``LocalFileStorage`` being replaced by an S3 backend.
     """
     return f"orders/{order_id}/{filename}"
+
+
+#: What a media object's filename may look like (IMAGE_VIDEO_SPEC §3.6): the pattern the purge
+#: already holds archive filenames to. Narrow on purpose — the key it builds is handed straight
+#: to an object store's ``delete`` by the purge and by ``/forget``.
+MEDIA_FILENAME: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
+def media_key(job_id: object, *, is_output: bool, filename: str) -> str:
+    """The ONE spelling of a media object's key: ``media/{job_id}/{in|out}/{filename}``.
+
+    Beside :func:`archive_key` and under the same archive root, so the admin's read-only mount
+    sees media unchanged (IMAGE_VIDEO_SPEC §3.6). Raises ``ValueError`` on a filename that is
+    not :data:`MEDIA_FILENAME`: the caller names the file, so a bad one is a bug, not data.
+    """
+    if not MEDIA_FILENAME.match(filename):
+        raise ValueError(f"media filename {filename!r} does not match {MEDIA_FILENAME.pattern}")
+    return f"media/{job_id}/{'out' if is_output else 'in'}/{filename}"
 
 
 def _invalid_key(key: str, reason: str) -> Err:

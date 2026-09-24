@@ -52,6 +52,7 @@ from bayram.bot.pricing import Pricing
 from bayram.checkout import STUB_PROVIDER_NAME
 from bayram.config import FOREIGN_SECRET_ENV_VARS, Settings, env_file, load_settings
 from bayram.contracts import Err
+from bayram.db.media_erasure import SqlMediaEraser
 from bayram.db.support_tickets import SqlSupportTickets
 from bayram.db.terms import SqlTermsLedger
 from bayram.errors import BayramError, ConfigError
@@ -522,6 +523,13 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         # The same cache on its own, so /forget drops ``terms:ok:{tg}`` with the gate OFF too
         # (IMAGE_VIDEO_SPEC §9.3). ``None`` on the demo path, which has no Redis.
         terms_cache=pool,
+        # The media arm of /forget (IMAGE_VIDEO_SPEC §9.3): rows in one transaction, then the
+        # objects, from the SAME storage the archive and the avatars use.
+        media_erasure=(
+            SqlMediaEraser(container.session_factory, storage=container.storage)
+            if container.session_factory is not None
+            else None
+        ),
     )
     # The lock that makes a state filter a real gate. Built from the same Redis as the
     # storage, so it holds across every process that could handle this chat.

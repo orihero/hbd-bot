@@ -176,6 +176,13 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
         "name_records",
         "admin_audit_log",
         "chat_messages",
+        # Revision 0031 (IMAGE_VIDEO_SPEC §3.2.4): the customer's own prompt, narration and
+        # voice transcript on ``text_expires_at``, and their photos, voice notes and the
+        # images and videos made from them on ``expires_at``. Legal-hold rows carry a second
+        # clock, ``legal_hold_expires_at``, read by its own purge arm.
+        "media_jobs",
+        "media_inputs",
+        "media_outputs",
     }
     # ``vendor_usage`` (revision 0016) is deliberately in NEITHER set. It holds no personal
     # data to be clocked or erased: every column is a closed enum, an integer, a machine id
@@ -435,7 +442,20 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     #: documented erasure route and a silent exemption — and ``test_audit_retention.py``'s
     #: ``_clocks_in_the_schema`` keys off ``*_expires_at``, so it ignores this table by
     #: construction and needs no edit.
-    tables_erased_on_request = {"user_profiles"}
+    #:
+    #: ``media_credit_balances`` (revision 0031) is here rather than above, although
+    #: IMAGE_VIDEO_SPEC §3.2.4 lists it with the personal-data tables: it has no clock and must
+    #: not acquire one — a spendable balance does not age out — and ``/forget`` DELETEs the row
+    #: (``bayram.db.media_erasure.forget_media``), so the absence of the row is the erasure
+    #: record, exactly ``user_profiles``' route.
+    #:
+    #: ``media_purchases`` and ``media_credit_ledger`` (revision 0031) are in NEITHER set, by
+    #: the THIRD ROUTE ``terms_acceptances`` takes above: an id, a SKU, an amount, a closed
+    #: reason, a machine reference and a clock — nothing about a person but the id, which
+    #: ``/forget`` nulls, and a 400-day cutoff then bounds the anonymised remainder only.
+    #: ``media_attempts`` is in neither set on ``vendor_usage``' argument: no personal data at
+    #: all, a 400-day cutoff on ``created_at``.
+    tables_erased_on_request = {"user_profiles", "media_credit_balances"}
 
     # Act
     missing = [

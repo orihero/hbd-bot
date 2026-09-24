@@ -698,6 +698,17 @@ table per run (`DEFAULT_PURGE_BATCH_SIZE`, db/purge.py:204) — 12 000 a day per
 > acceptances `/forget` has already anonymised, so it stays at zero until someone who accepted
 > the Terms asks to be forgotten and 400 days pass from that `/forget` (`anonymised_at`, not
 > the acceptance). The host line below predates it.
+>
+> **2026-09-24: twenty-nine.** Revision 0031 adds nine media counters (IMAGE_VIDEO_SPEC §3.2.4),
+> between `terms_acceptances_deleted` and `stale_debits_settled`: `media_input_holds_deleted` and
+> `media_output_holds_deleted` run first (legal-hold rows past their own ≤72 h clock — each
+> deletion also logs a WARNING `legal hold expired; held media deleted`), then
+> `media_inputs_deleted`, `media_outputs_deleted`, `media_job_texts_purged`, `media_jobs_deleted`
+> (unpaid terminal requests with nothing held), and the three 400-day cutoffs
+> `media_attempts_deleted`, `media_purchases_deleted`, `media_credit_entries_deleted` (receipts
+> and ledger rows only once `/forget` has anonymised them). Media object keys join
+> `storage_keys`, so `storage_keys_returned`/`storage_keys_deleted` now cover media bytes too.
+> All nine stay at zero until media is offered. The host line below predates them.
 
 `[HOST 2026-09-11]` All nineteen appear in the live line, which is the cheapest proof that the
 installed wheel matches this list:

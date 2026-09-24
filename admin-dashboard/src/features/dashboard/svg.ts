@@ -292,6 +292,11 @@ export const VENDOR_LABEL: Record<Vendor, string> = {
   gemini: "GEMINI",
   openai_compatible: "OPENAI",
   fake: "FAKE",
+  local_genai: "LOCAL GPU",
+  higgsfield: "HIGGSFIELD",
+  fal: "FAL",
+  gemini_tts: "GEMINI TTS",
+  gateway_guard: "GUARD",
 };
 
 /* ---------------------------------------------------------------------------

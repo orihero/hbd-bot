@@ -331,8 +331,13 @@ async def handle_forget(message: Message, state: FSMContext, deps: BotDeps) -> N
     erased = await _forget_credits(deps, telegram_user_id)
     torn_up = await _forget_tickets(deps, telegram_user_id)
     unaccepted = await _forget_terms_cache(deps, telegram_user_id)
+    unmade = await _forget_media(deps, telegram_user_id)
     failure = next(
-        (result for result in (forgotten, erased, torn_up, unaccepted) if isinstance(result, Err)),
+        (
+            result
+            for result in (forgotten, erased, torn_up, unaccepted, unmade)
+            if isinstance(result, Err)
+        ),
         None,
     )
     if isinstance(failure, Err):
@@ -431,6 +436,23 @@ async def _forget_terms_cache(deps: BotDeps, telegram_user_id: int | None) -> Re
             return forgotten
     if deps.terms_cache is not None:
         return await forget_terms_cache(deps.terms_cache, telegram_user_id)
+    return ok(None)
+
+
+async def _forget_media(deps: BotDeps, telegram_user_id: int | None) -> Result[None]:
+    """Erase the photos, voice notes, images, videos and prompts (IMAGE_VIDEO_SPEC §9.3).
+
+    The same shape as its neighbours: an unwired eraser and an unknown sender both succeed,
+    and a failure is reported rather than papered over. Rows under legal hold (§6.7) are the
+    one thing this deliberately leaves; they go on their own ≤72-hour clock.
+    """
+    eraser = deps.media_erasure
+    if eraser is None or telegram_user_id is None:
+        return ok(None)
+    erased = await eraser.forget_media(telegram_user_id)
+    if isinstance(erased, Err):
+        _LOG.error("the media record could not be erased", extra=erased.error.to_log_dict())
+        return erased
     return ok(None)
 
 

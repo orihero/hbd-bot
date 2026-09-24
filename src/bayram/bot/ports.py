@@ -13,7 +13,7 @@ from typing import Protocol, runtime_checkable
 
 from bayram.contracts import Order, Result
 
-__all__ = ["OrderSubmitter", "SupportTicketEraser", "Clock", "utc_now"]
+__all__ = ["OrderSubmitter", "SupportTicketEraser", "MediaEraser", "Clock", "utc_now"]
 
 #: Supplies "now". Injected so a state transition is assertable against a fixed instant.
 type Clock = Callable[[], datetime]
@@ -69,3 +69,17 @@ class SupportTicketEraser(Protocol):
     """
 
     async def forget_tickets(self, telegram_user_id: int) -> Result[int]: ...
+
+
+@runtime_checkable
+class MediaEraser(Protocol):
+    """The ``/forget`` arm for the image and video products (IMAGE_VIDEO_SPEC §9.3).
+
+    Deletes every upload and output this account has — rows and objects — except rows under
+    legal hold (§6.7), nulls the words it wrote, cancels its unpaid requests, marks its paid
+    unfinished ones so they are not delivered, deletes its refund balances and anonymises its
+    receipts and ledger. Returns how many objects were handed for deletion, for the log.
+    Idempotent: ``/forget`` is documented as safe to send again when one arm fails.
+    """
+
+    async def forget_media(self, telegram_user_id: int) -> Result[int]: ...

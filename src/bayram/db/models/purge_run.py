@@ -119,13 +119,26 @@ class PurgeRunRow(Base):
     #: the schema, one row per account per campaign, so a sweep that silently stops keeping up
     #: shows here as a small figure beside a large backlog long before it shows anywhere else.
     #: A sweep whose count is not stored is a backlog the panel reports as zero.
-    broadcast_recipients_deleted: Mapped[int] = mapped_column(
-        sa.Integer, nullable=False, default=0
-    )
+    broadcast_recipients_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
     #: ANONYMISED ``terms_acceptances`` past their 400-day cutoff (revision 0030). An
     #: identified acceptance is never swept — it is a live account's lawful-basis record
     #: (IMAGE_VIDEO_SPEC §3.2.1) — so this counts only what ``/forget`` has already reached.
     terms_acceptances_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: The media products' sweeps (revision 0031, IMAGE_VIDEO_SPEC §3.2.4). Nine numbers, not
+    #: one, for this table's own reason: a legal-hold deletion, an upload that outlived its
+    #: 24-hour backstop and a receipt aged out are three different facts an auditor asks
+    #: about separately. The first six are clocks over personal data; the last three are
+    #: cutoffs over telemetry and anonymised receipts.
+    media_inputs_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    media_outputs_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    #: Legal-hold rows past their own ≤72 h clock (§6.7). Each also writes a WARNING line.
+    media_input_holds_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    media_output_holds_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    media_job_texts_purged: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    media_jobs_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    media_attempts_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    media_purchases_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
+    media_credit_entries_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
 
     # -- bytes --------------------------------------------------------------
     #: Keys ``purge_expired`` handed back, i.e. rows whose objects are now orphaned.

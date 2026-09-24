@@ -894,6 +894,11 @@ const COMPONENT_LABEL: Record<string, string> = {
   gemini_fallback: "Gemini (fallback)",
   openai_compatible: "OpenAI-compatible",
   fake: "Fake vendor",
+  local_genai: "Local GPU gateway",
+  higgsfield: "Higgsfield",
+  fal: "fal",
+  gemini_tts: "Gemini TTS",
+  gateway_guard: "Guard models",
 };
 
 function componentLabel(component: string): string {
@@ -1308,6 +1313,9 @@ const OPERATION_LABEL: Record<VendorOperation, string> = {
   transcription: "STT",
   chat_completion: "CHAT",
   health: "HEALTH",
+  image_generate: "IMAGE",
+  video_generate: "VIDEO",
+  safety_classify: "GUARD",
 };
 
 /**

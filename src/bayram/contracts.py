@@ -305,6 +305,16 @@ class Vendor(StrEnum):
     GEMINI = "gemini"
     OPENAI_COMPATIBLE = "openai_compatible"
     FAKE = "fake"
+    # --- image and video products (IMAGE_VIDEO_SPEC §3.2.3) ---------------------------
+    #: The owner's own GPU gateway (flux2, Wan). Billed by nobody; recorded so GPU time is.
+    LOCAL_GENAI = "local_genai"
+    HIGGSFIELD = "higgsfield"
+    FAL = "fal"
+    #: Gemini speech, separate from ``GEMINI`` because the TTS key pool is its own set of
+    #: projects (D23, O8) and its own invoice.
+    GEMINI_TTS = "gemini_tts"
+    #: The guard models on the same gateway (D24, O10).
+    GATEWAY_GUARD = "gateway_guard"
 
 
 class VendorOperation(StrEnum):
@@ -327,6 +337,11 @@ class VendorOperation(StrEnum):
     TRANSCRIPTION = "transcription"
     CHAT_COMPLETION = "chat_completion"
     HEALTH = "health"
+    # --- image and video products (IMAGE_VIDEO_SPEC §3.2.3). Speech and transcription
+    # reuse the two members above.
+    IMAGE_GENERATE = "image_generate"
+    VIDEO_GENERATE = "video_generate"
+    SAFETY_CLASSIFY = "safety_classify"
 
 
 class UsageTask(StrEnum):
@@ -349,6 +364,14 @@ class UsageTask(StrEnum):
     SONG = "song"
     NAME_VERIFICATION = "name_verification"
     GREETING_SPEECH = "greeting_speech"
+    # --- image and video products (IMAGE_VIDEO_SPEC §3.2.3). A media call carries a
+    # ``vendor_usage.media_job_id`` rather than an ``order_id``.
+    MEDIA_SCREEN = "media_screen"
+    MEDIA_SCRIPT = "media_script"
+    MEDIA_IMAGE = "media_image"
+    MEDIA_VIDEO = "media_video"
+    MEDIA_TTS = "media_tts"
+    MEDIA_OUTPUT_SCREEN = "media_output_screen"
 
 
 class BalanceUnit(StrEnum):

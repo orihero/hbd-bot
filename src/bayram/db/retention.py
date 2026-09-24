@@ -56,6 +56,16 @@ class RetentionClass(StrEnum):
     PAID_AUDIO = "paid_audio"
     FREE_OUTPUT = "free_output"
     EPHEMERAL = "ephemeral"
+    #: An uploaded photo or voice note, or the collage built from them (IMAGE_VIDEO_SPEC
+    #: §3.2.4, O16). Deleted at delivery; the clock is a backstop counted in HOURS.
+    MEDIA_INPUT = "media_input"
+    #: A generated image or video — or an intermediate, which carries a 24-hour clock.
+    MEDIA_OUTPUT = "media_output"
+    #: CSAM-class material kept, encrypted, pending the escalation owner's reporting
+    #: decision (IMAGE_VIDEO_SPEC §6.7, Q16). Skipped by every ordinary sweep and by
+    #: ``media_cleanup``; its own clock is ``legal_hold_expires_at``, at most
+    #: :attr:`RetentionPolicy.media_legal_hold_max_hours`.
+    LEGAL_HOLD = "legal_hold"
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,10 +126,32 @@ class RetentionPolicy:
                 return self.free_output_days
             case RetentionClass.EPHEMERAL:
                 return self.ephemeral_days
+            case RetentionClass.MEDIA_OUTPUT:
+                return self.media_output_days
+            case RetentionClass.MEDIA_INPUT | RetentionClass.LEGAL_HOLD:
+                # Hour-denominated: a day count here would round a 24- or 72-hour promise
+                # up or down. Their clocks are the three ``media_*_expires_at`` below.
+                raise ValueError(f"{retention_class} is counted in hours, not days")
 
     def expires_at(self, anchor: datetime, retention_class: RetentionClass) -> datetime:
         """The single place an asset expiry is derived. ``anchor`` is delivery or creation."""
         return anchor + timedelta(days=self.days_for(retention_class))
+
+    def media_input_expires_at(self, anchor: datetime) -> datetime:
+        """An upload's pre-payment backstop: ``created_at`` + 24 h (IMAGE_VIDEO_SPEC §3.2.2)."""
+        return anchor + timedelta(hours=self.media_input_max_hours)
+
+    def media_output_expires_at(self, anchor: datetime) -> datetime:
+        """A delivered image or video, and the prompt behind it: 30 days by default (Q2)."""
+        return anchor + timedelta(days=self.media_output_days)
+
+    def media_intermediate_expires_at(self, anchor: datetime) -> datetime:
+        """``video_raw`` and ``narration``: the same 24 hours as an upload (§3.2.4)."""
+        return anchor + timedelta(hours=self.media_input_max_hours)
+
+    def media_legal_hold_expires_at(self, anchor: datetime) -> datetime:
+        """The CSAM-class hold, counted from the block: at most 72 hours (§6.7, Q16)."""
+        return anchor + timedelta(hours=self.media_legal_hold_max_hours)
 
     def brief_text_expires_at(self, anchor: datetime) -> datetime:
         return anchor + timedelta(days=self.brief_text_days)

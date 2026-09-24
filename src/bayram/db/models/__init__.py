@@ -26,6 +26,11 @@ from bayram.db.models.credit_account import CreditAccountRow
 from bayram.db.models.credit_ledger import CreditLedgerRow
 from bayram.db.models.generation_attempt import GenerationAttemptRow
 from bayram.db.models.lyric_budget import LyricBudgetRow
+from bayram.db.models.media_attempt import MediaAttemptRow
+from bayram.db.models.media_credit import MediaCreditBalanceRow, MediaCreditLedgerRow
+from bayram.db.models.media_input import MediaInputRow, MediaOutputRow
+from bayram.db.models.media_job import MediaJobRow
+from bayram.db.models.media_purchase import MediaPurchaseRow
 from bayram.db.models.name_record import NameRecordRow
 from bayram.db.models.order import OrderRow
 from bayram.db.models.payme_rpc_log import PaymeRpcLogRow
@@ -77,4 +82,11 @@ __all__ = [
     "SupportTicketRow",
     "SupportTicketEventRow",
     "TermsAcceptanceRow",
+    "MediaJobRow",
+    "MediaInputRow",
+    "MediaOutputRow",
+    "MediaAttemptRow",
+    "MediaPurchaseRow",
+    "MediaCreditLedgerRow",
+    "MediaCreditBalanceRow",
 ]

@@ -13,7 +13,7 @@ from typing import Final
 
 from bayram.bot.chatlog import ChatRecorder
 from bayram.bot.payment import DEFAULT_CURRENCY, FREE_AMOUNT_MINOR, NoopPaymentProvider
-from bayram.bot.ports import Clock, OrderSubmitter, SupportTicketEraser, utc_now
+from bayram.bot.ports import Clock, MediaEraser, OrderSubmitter, SupportTicketEraser, utc_now
 from bayram.bot.pricing import Pricing
 from bayram.bot_chats import BotChatDirectory
 from bayram.checkout import (
@@ -296,3 +296,7 @@ class BotDeps:
     #: longer names. ``None`` on the demo path, where the gate's own in-process cache is all
     #: there is. Trailing and defaulted, for the reason ``terms`` gives.
     terms_cache: TermsCache | None = None
+    #: The ``/forget`` arm for the media tables and their objects (IMAGE_VIDEO_SPEC §9.3).
+    #: ``None`` on a deployment with no database, which has never stored an upload. Trailing
+    #: and defaulted, for the reason ``terms`` gives.
+    media_erasure: MediaEraser | None = None
