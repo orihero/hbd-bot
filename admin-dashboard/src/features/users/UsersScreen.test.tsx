@@ -425,7 +425,7 @@ describe("UsersScreen — sorting is the server's, and only where the server all
 });
 
 describe("UsersScreen — the audience count", () => {
-  it("states reachable and the two overlapping skips without ever adding them up", async () => {
+  it("states the matched count alone — the overlapping skips are the wizard's line, not this panel's", async () => {
     const user = userEvent.setup();
     renderScreen(`/users?segment=${encodeURIComponent(encodeSegment(DELIVERED_AT_LEAST_3))}`);
     await lastRequest();
@@ -433,11 +433,7 @@ describe("UsersScreen — the audience count", () => {
     await user.click(screen.getByRole("button", { name: /^Filters/u }));
 
     expect(await screen.findByText("42 accounts match this segment")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "40 of them can be messaged. 1 are barred by us and 2 have blocked the bot — the two overlap, so never add them together.",
-      ),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/can be messaged/u)).not.toBeInTheDocument();
   });
 
   it("is not asked for at all on an unfiltered list nobody has opened the panel on", async () => {

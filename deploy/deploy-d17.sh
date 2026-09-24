@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # deploy-d17.sh — ship DECISIONS.md D17 (a settled payment starts the song) to abdu-test.
-#
+# RETIRED 2026-09-19 — superseded by deploy/bayram-release. DO NOT RUN. See the footer below.
 # Run as root, once:   sudo bash /tmp/deploy-d17.sh
 #
 # It is IDEMPOTENT. A rerun re-dumps the database, finds `alembic upgrade head` a no-op,
@@ -27,7 +27,7 @@
 # no migration, and NOT a downgrade of 0026: dropping those columns while the feature is on
 # would take the at-most-once latch away with it.
 
-set -euo pipefail
+printf '%s\n' '' 'REFUSED: deploy-d17.sh is RETIRED (2026-09-19) and will not run.' '' '  It is superseded IN FULL. Use the release tool instead:' '      sudo /opt/bayram/sbin/bayram-release deploy' '' '  WHY THIS IS A HARD REFUSAL, NOT A WARNING: this file pins the wheel' '  bayram_bot-0.1.0-20260915 (:32), which is OLDER than the wheel live on' '  abdu-test (bayram_bot-0.1.0rc1, deployed 2026-09-17, schema head 0028).' '  Running it would pg_dump the database, run `alembic upgrade head`, install that' '  stale wheel over the live one and restart all four units -- rolling the host' '  BACKWARDS.' '' '  There is no override: no environment variable, no --force, no escape hatch. It is' '  retired IN PLACE, rather than deleted, so that it can still be READ. Read it; do' '  not run it.' '' >&2; if (return 0 2>/dev/null); then return 1; fi; exit 1  # replaces `set -euo pipefail` in place -- everything below is unreachable by design.
 
 WHEEL=/tmp/bayram_bot-0.1.0-20260915-py3-none-any.whl
 MIGRATION=/tmp/20260914_1000_0026_add_intent_resume_marker.py
@@ -103,3 +103,35 @@ echo "DONE. D17 is live: a settled Payme payment now starts the song."
 echo "Rollback without a deploy:"
 echo "  echo 'BAYRAM_AUTO_RENDER_ON_PAYMENT=false' >> $ENVFILE && systemctl restart bayram-worker"
 echo "Backup taken at: $BACKUP"
+
+# ----------------------------------------------------------------------------------------------
+# RETIRED 2026-09-19. DO NOT RUN THIS FILE.
+#
+# It is kept verbatim, at its ORIGINAL LINE NUMBERS, as a citation target: deploy/bayram-release
+# references :17-20, :46-49, :55, :59, :62, :65, :81 and :82 to explain what it inherited and
+# what it changed. deploy/README.md records the same decision, and the same reasoning, for
+# first-install-proposal.md. EDITING RULE: replace a line in place, or append below this block.
+# Never insert, never reflow — every :NN citation into this file would move silently.
+#
+# WHAT REPLACED EACH BEAT, all of it in deploy/bayram-release:
+#   0/6 preflight     the bundle carries its revisions WITH the wheel, so the hand `install`
+#                     of a migration file at :48 has nothing left to do
+#   1/6 backup        the same pg_dump, and the same `test -s` empty-gzip guard, carried over
+#   2/6 + 3/6 migrate and it ASSERTS `alembic current` against the manifest head, where :65
+#                     only echoed the expected revision into a banner and hoped
+#   4/6 install       `pip install --force-reinstall --no-deps` then `pip check`, still one
+#                     indivisible step, for the pillow reason stated at :70-73
+#   5/6 restart       four SEPARATE restarts in 04-release.md §6 order (admin first), not the
+#                     single four-argument `systemctl restart` at :81 — which is one systemd
+#                     transaction whose argument order guarantees nothing — plus an NRestarts
+#                     comparison across the settle window to catch a crash loop
+#   6/6 verify        loopback /readyz probes on 8080 and 8091, in place of the inline python
+#                     assertions at :89-99
+#
+# NOTHING IN THIS FILE IS UNREPLACED. It held no capability bayram-release lacks; it is retired
+# rather than deleted for its citations alone.
+#
+# THE D17 ROLLBACK LEVER IS UNCHANGED, AND IT IS NOT A DEPLOY: set
+# BAYRAM_AUTO_RENDER_ON_PAYMENT=false in /etc/bayram/bayram.env and restart bayram-worker. Do
+# NOT `alembic downgrade` 0026 — :25-28 says why.
+# ----------------------------------------------------------------------------------------------

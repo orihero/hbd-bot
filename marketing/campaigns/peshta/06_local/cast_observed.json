@@ -1,0 +1,944 @@
+{
+ "_doc": "Observed cast and wardrobe of the master reel, built ONLY from extracted frames. Where a document and a frame disagreed, the frame won and the disagreement is recorded. No real person or TV-character name appears anywhere in this file; characters are addressed as M1, F1, CORPS_A, CORPS_B.",
+ "source_of_truth": "the delivered 43-second master reel in marketing/campaigns/peshta/ (1080x1920, 30/1 CFR, 1290 frames, 43.000s, h264 High, yuv420p, bt709; sha256 prefix recorded below). Its legacy filename contains a forbidden IP token, so it is deliberately not reproduced in this file.",
+ "source_sha256_prefix": "481e006c2cd5234b",
+ "method": {
+  "frames_dir": "marketing/campaigns/peshta/06_local/a_frames/",
+  "frames_extracted_by_this_pass": 64,
+  "frames_actually_viewed": 64,
+  "frames_inferred_not_viewed": 0,
+  "frame_indices_viewed": [
+   2,
+   5,
+   20,
+   34,
+   45,
+   55,
+   66,
+   80,
+   100,
+   111,
+   140,
+   160,
+   175,
+   225,
+   260,
+   290,
+   325,
+   350,
+   370,
+   405,
+   428,
+   455,
+   470,
+   495,
+   540,
+   560,
+   572,
+   600,
+   620,
+   645,
+   685,
+   722,
+   755,
+   780,
+   800,
+   825,
+   845,
+   860,
+   880,
+   895,
+   912,
+   935,
+   960,
+   985,
+   1010,
+   1040,
+   1070,
+   1080,
+   1090,
+   1098,
+   1110,
+   1122,
+   1130,
+   1150,
+   1180,
+   1192,
+   1200,
+   1215,
+   1228,
+   1240,
+   1245,
+   1250,
+   1265,
+   1285
+  ],
+  "note": "Frame indices are 0-based ffmpeg select indices. Seconds are always index/30. No seconds figure was copied from any document."
+ },
+ "macro_windows": {
+  "01": {
+   "frames": "0-67",
+   "seconds": "0.000-2.267"
+  },
+  "02": {
+   "frames": "68-155",
+   "seconds": "2.267-5.200"
+  },
+  "03": {
+   "frames": "156-269",
+   "seconds": "5.200-9.000"
+  },
+  "04": {
+   "frames": "270-354",
+   "seconds": "9.000-11.833"
+  },
+  "05": {
+   "frames": "355-432",
+   "seconds": "11.833-14.433"
+  },
+  "06": {
+   "frames": "433-577",
+   "seconds": "14.433-19.267"
+  },
+  "07": {
+   "frames": "578-764",
+   "seconds": "19.267-25.500"
+  },
+  "08": {
+   "frames": "765-898",
+   "seconds": "25.500-29.967"
+  },
+  "09": {
+   "frames": "899-1076",
+   "seconds": "29.967-35.900"
+  },
+  "10": {
+   "frames": "1077-1124",
+   "seconds": "35.900-37.500"
+  },
+  "11": {
+   "frames": "1125-1289",
+   "seconds": "37.500-43.000"
+  }
+ },
+ "characters": {
+  "M1": {
+   "role": "male lead, original fictional archetype",
+   "oneline": "A broad-shouldered Mediterranean-looking man in his forties with a heavy jaw, thick blue-black hair slicked into a high pompadour and a black suit over an open cream shirt - but the render swaps him for a slimmer, fairer, stubbled man about fifteen years younger in windows 03 and 06, and gives him a full dark beard under a wide-brim hat in the canyon.",
+   "render_is_inconsistent": true,
+   "observed_appearance": {
+    "summary": "Three distinguishable male faces carry the lead across the reel. They share a black-suit-and-open-shirt silhouette and a slicked-back hairline, and nothing else reliably.",
+    "variant_A_dominant": {
+     "seen_in_windows": [
+      "01",
+      "02",
+      "04",
+      "05",
+      "07",
+      "11"
+     ],
+     "evidence_frames": [
+      55,
+      66,
+      140,
+      325,
+      350,
+      405,
+      428,
+      600,
+      620,
+      685,
+      755,
+      1150,
+      1180,
+      1192,
+      1240,
+      1245,
+      1250,
+      1265,
+      1285
+     ],
+     "build": "tall, broad through the shoulders and chest, thick-necked, heavy-set but not soft; reads athletic-heavy",
+     "apparent_age_band": "40-52",
+     "face_shape": "wide, square, heavy square jaw and a strong chin; broad cheekbones; deep nasolabial folds; prominent straight high-bridged nose",
+     "hair": "very thick, near-black with a warm dark-brown cast, swept straight back off a high forehead into a full pompadour with a small quiff at the crown; sides kept close over the ears; visibly glossed/pomaded",
+     "facial_hair": "clean-shaven to a faint dark shadow; no moustache, no beard",
+     "brows_eyes": "heavy, straight, near-black brows; deep-set dark eyes with pronounced lids and under-eye shadow",
+     "skin": "olive to tan, matte, weathered around the eyes",
+     "distinguishing_features": "gold-cased wristwatch on the left wrist (frames 55, 66, 140); no scar, no cleft chin, no earring, no visible tattoo or jewellery beyond the watch"
+    },
+    "variant_B_younger": {
+     "seen_in_windows": [
+      "03",
+      "06"
+     ],
+     "evidence_frames": [
+      160,
+      175,
+      225,
+      260,
+      495,
+      540,
+      560,
+      572
+     ],
+     "build": "noticeably slimmer and narrower through the shoulders than variant A",
+     "apparent_age_band": "27-35",
+     "face_shape": "longer oval face, lighter jaw, narrower chin, higher and sharper cheekbones",
+     "hair": "mid warm-brown (clearly lighter than variant A), worn longer, swept back and tucked behind the ears so it breaks over the collar",
+     "facial_hair": "short light-brown/auburn stubble beard and moustache, evenly grown, roughly 3-5mm",
+     "skin": "fair to light olive, warmer and less weathered",
+     "distinguishing_features": "no watch visible; black belt with a small silver rectangular buckle"
+    },
+    "variant_C_canyon": {
+     "seen_in_windows": [
+      "08",
+      "09"
+     ],
+     "evidence_frames": [
+      780,
+      800,
+      860,
+      880,
+      895,
+      935,
+      960,
+      1010,
+      1040
+     ],
+     "build": "medium-heavy, between A and B",
+     "apparent_age_band": "33-45",
+     "face_shape": "mostly shadowed under a wide hat brim; strong nose and jaw, reads closer to variant A",
+     "hair": "concealed by the hat throughout; a dark sideburn is visible",
+     "facial_hair": "a full dark beard, denser and longer than variant B's stubble - present in every canyon frame and in none of the studio frames",
+     "skin": "tan, sunlit, hard shadow under the brim"
+    }
+   },
+   "verbatim_block": "Figure 1 is a broad-shouldered man in his mid-forties, thick-necked and heavy through the chest. Olive, weathered skin. A wide square face with a heavy jaw, strong chin, broad cheekbones and a prominent straight high-bridged nose. Deep-set dark eyes under heavy straight near-black brows. Very thick blue-black hair, glossed and swept straight back off a high forehead into a full pompadour with a small quiff. Clean-shaven, faint dark shadow. A gold-cased wristwatch on his left wrist.",
+   "verbatim_block_word_count": 82
+  },
+  "F1": {
+   "role": "female lead, original fictional archetype",
+   "oneline": "A striking woman in her late twenties with olive skin, very strong straight dark brows, full matte lips and dark hair scraped back with loose curled tendrils - canonically in cream ribbed knit or black under gold or pearl ropes, though the render swaps her face outright in windows 01, 02, 06 and 07.",
+   "render_is_inconsistent": true,
+   "observed_appearance": {
+    "summary": "One face recurs and carries the most screen time (windows 04, 05, 10, 11); four other women read as visibly different people in windows 01, 02, 06 and 07. Treat the recurring one as F1 and the rest as documented drift.",
+    "canonical_F1": {
+     "seen_in_windows": [
+      "04",
+      "05",
+      "10",
+      "11"
+     ],
+     "evidence_frames": [
+      290,
+      370,
+      1090,
+      1098,
+      1110,
+      1122,
+      1130
+     ],
+     "build": "slim, long-necked, narrow shoulders, long arms",
+     "apparent_age_band": "25-32",
+     "face_shape": "oval tapering to a defined chin; high wide cheekbones; straight nose with a slightly rounded tip",
+     "hair": "dark brown to near-black, centre-parted and pulled back tight into a low knot, with two or three loose corkscrew tendrils falling at the temples and jaw",
+     "brows_eyes": "very strong, straight, thick dark brows with almost no arch - the single most identifiable feature; large brown eyes, heavy upper lid, defined lash line",
+     "lips": "full, wide, matte brick-red to red-brown",
+     "skin": "warm olive to tan, faint freckling across the nose bridge and cheeks (frames 1090, 1098)",
+     "facial_hair": "n/a",
+     "distinguishing_features": "no visible tattoo, no scar, no earrings in most frames; a plain band ring on one hand (frame 1090)"
+    },
+    "drift_face_w01": {
+     "window": "01",
+     "evidence_frames": [
+      2,
+      5
+     ],
+     "description": "an older, longer-faced woman, roughly 35-45, hair scraped back extremely flat, wide-set light hazel eyes and a wide thin-lipped mouth, hand clapped over her mouth in shock, phone in the other hand. Lit by a hard cool rim that washes the hairline pale. Reads as a different person from canonical F1."
+    },
+    "drift_face_w02": {
+     "window": "02",
+     "evidence_frames": [
+      80,
+      100,
+      111
+     ],
+     "description": "a mid-twenties woman with long loose dark-brown waves worn down, warm fair skin, softer rounded cheeks, thick natural brows, hazel-brown eyes and a broad open smile showing teeth. Clearly younger and softer than canonical F1, and the only F-figure in the reel whose hair is worn loose and long."
+    },
+    "drift_face_w06": {
+     "window": "06",
+     "evidence_frames": [
+      455,
+      470
+     ],
+     "description": "a pale, fair woman with ash-blonde to light-brown hair scraped back, a narrow face, pale eyes and thin brows - the fairest woman in the reel. Reclining on the steps. Reads as a different person again."
+    },
+    "drift_face_w07": {
+     "window": "07",
+     "evidence_frames": [
+      600,
+      620,
+      645,
+      722
+     ],
+     "description": "a mid-twenties woman, fair-to-light-olive, dark brown hair centre-parted and rolled into a low chignon, arched (not straight) brows, smaller mouth, softer jaw. Closest of the drift faces to canonical F1 but the brow shape and jaw differ consistently."
+    }
+   },
+   "verbatim_block": "Figure 2 is a slim, long-necked woman in her late twenties with warm olive skin and faint freckling across the nose. An oval face tapering to a defined chin, high wide cheekbones, a straight nose. Very strong, thick, almost perfectly straight dark brows over large brown eyes with heavy upper lids. Full wide lips in matte brick red. Dark brown hair centre-parted and pulled back into a low tight knot, two loose corkscrew tendrils falling at the temples.",
+   "verbatim_block_word_count": 78
+  },
+  "CORPS_A": {
+   "role": "studio corps on the red cyclorama, original fictional archetypes",
+   "present_in_windows": [
+    "01",
+    "02",
+    "03",
+    "04",
+    "05",
+    "06",
+    "07",
+    "11"
+   ],
+   "evidence_frames": [
+    20,
+    34,
+    45,
+    160,
+    175,
+    225,
+    405,
+    428,
+    540,
+    560,
+    572,
+    685,
+    1150,
+    1180,
+    1192
+   ],
+   "headcount": "4 to 8 visible at once depending on framing; reads as a troupe of roughly 8-10. Predominantly female, with at least one male-read figure (frame 405, frame 495 background).",
+   "wardrobe": "floor-length matte-black high-neck long-sleeve gowns, uniformly cut, no ornament except an occasional thin gold chain at the throat; black shoes hidden under the hem. In the mid-shots of window 03 they read as long black coats over black trousers rather than gowns.",
+   "headwear": "black wide-brim fedoras/gaucho-brim hats in windows 01, 02, 03, 04, 05, 07 and 11 - and NO hats at all in window 06, where the same corps appears bare-headed with hair scraped back into flat buns.",
+   "faces_legible": "partly. In wides (frames 20, 45, 428, 572) the faces are small, dark and unreadable under the brims. In mid-shots (frames 160, 685, 1180) several faces are fully legible - young, pale-to-olive, neutral expressions, hair scraped back.",
+   "verbatim_block": "Background figures: a troupe of tall dancers in identical floor-length matte-black high-neck long-sleeve gowns, hair scraped flat, standing in two flanking files on a red floor."
+  },
+  "CORPS_B": {
+   "role": "canyon corps, original fictional archetypes",
+   "present_in_windows": [
+    "08",
+    "09"
+   ],
+   "present": true,
+   "evidence_frames": [
+    825,
+    845,
+    860,
+    880,
+    895,
+    912,
+    935,
+    960,
+    985,
+    1010,
+    1070,
+    1080
+   ],
+   "headcount": "8 to 12 visible; roughly 4 flanking each side of the lead plus stragglers. Mixed male and female.",
+   "wardrobe": "head-to-toe cream/off-white: a boxy unstructured single-breasted jacket over matching wide straight trousers, cream shirt beneath; some jackets cropped at the waist exposing a strip of midriff (frame 1070). Matte heavy cotton or gabardine, no ornament, no visible footwear detail.",
+   "headwear": "cream/white cloth head-wraps on every figure, covering all hair and the ears, knotted or tucked at the nape. This is the reel's only universal headwear.",
+   "faces_legible": "INCONSISTENT, and this is a real finding. In frame 825 two faces are completely legible - a young man and a young woman, pale, neutral. In frames 912, 960, 985 and 1070 the wrap is pulled fully across the face, leaving a blank featureless white oval where the face should be. Both treatments appear inside window 09.",
+   "verbatim_block": "Background figures: a line of dancers in head-to-toe cream, boxy unstructured jackets over wide trousers, all hair hidden under close cream cloth head-wraps, spaced among red cube plinths on pale sand."
+  },
+  "OTHER_FIGURE_VEILED": {
+   "role": "an unnamed featured female figure that no project document mentions",
+   "window": "11",
+   "frames": "1198-1238",
+   "seconds": "39.933-41.267",
+   "duration_frames": 41,
+   "duration_seconds": 1.367,
+   "evidence_frames": [
+    1200,
+    1215,
+    1228
+   ],
+   "description": "A slim, fair-skinned woman seated side-on low on the red velvet steps, weight on one straight arm, one leg extended. She wears a pale ivory/champagne sleeveless dress with a high funnel neck and a curved tubular cord looping over each shoulder like a yoke; the skirt is full, mid-calf, and sweeps across the step. Her entire head is bound in a sheer ivory gauze veil that covers the hair completely and passes over the eyes, nose and mouth and down around the throat. The gauze is translucent: the shape of her features shows through but is smeared and indistinct, and the render leaves visible artefacting where the face should resolve. Arms, shoulders and legs are bare. No jewellery. She is lit warm from frame left with a cool edge on the veil.",
+   "verbatim_block": "Figure 3 is a slim fair-skinned woman seated low on red velvet steps in a pale ivory sleeveless dress with a high funnel neck, a curved cord looping over each shoulder, and a full mid-calf skirt. Her whole head is wrapped in sheer ivory gauze that covers her hair and passes over her eyes and mouth, so her features read only as soft shapes through the cloth. Bare arms and legs, no jewellery."
+  }
+ },
+ "per_window_wardrobe": {
+  "01": {
+   "seconds": "0.000-2.267",
+   "setups_seen": 3,
+   "M1": {
+    "present": true,
+    "frames": [
+     20,
+     34,
+     45,
+     55,
+     66
+    ],
+    "garment": "single-breasted black two-button suit, notch lapel, matte wool; cream/ivory open-collar shirt, top two buttons undone; black trousers; black patent oxfords",
+    "colour": "black with cream shirt",
+    "fabric": "matte wool suiting, soft cream poplin shirt",
+    "headwear": "SPLIT WITHIN THE WINDOW - dark near-black wide-brim hat, flat crown with a shallow dent, worn in the wide setup (frames 20, 34, 45); BARE-HEADED in the medium setup from roughly frame 46 on (frame 55, frame 66)",
+    "accessories": "gold-cased wristwatch, left wrist"
+   },
+   "F1": {
+    "present": true,
+    "frames": [
+     2,
+     5
+    ],
+    "garment": "black sleeveless mock-neck top, close-fitting",
+    "colour": "black",
+    "fabric": "fine matte jersey",
+    "headwear": "none",
+    "accessories": "several fine gold chains layered over the chest, one long; a slim ring; holding a phone"
+   },
+   "CORPS_A": {
+    "present": true,
+    "garment": "floor-length black high-neck long-sleeve gowns",
+    "headwear": "black wide-brim fedoras",
+    "note": "two figures each side of the red velvet steps"
+   }
+  },
+  "02": {
+   "seconds": "2.267-5.200",
+   "setups_seen": 2,
+   "M1": {
+    "present": true,
+    "frames": [
+     100,
+     111,
+     140
+    ],
+    "garment": "black two-button suit, white open-collar shirt",
+    "colour": "black with white shirt",
+    "fabric": "matte wool, crisp cotton shirt",
+    "headwear": "CREAM/IVORY WIDE-BRIM PANAMA-STYLE FEDORA with a black grosgrain band - a different hat from window 01's dark one",
+    "accessories": "large gold-cased wristwatch on a gold bracelet, left wrist"
+   },
+   "F1": {
+    "present": true,
+    "frames": [
+     80,
+     100,
+     111
+    ],
+    "garment": "ivory/off-white boat-neck cap-sleeve shift dress, knee length",
+    "colour": "ivory",
+    "fabric": "heavy matte crepe",
+    "headwear": "none",
+    "accessories": "none; holds a large bouquet of deep red roses; ivory ankle-strap stiletto sandals"
+   },
+   "CORPS_A": {
+    "present": false
+   }
+  },
+  "03": {
+   "seconds": "5.200-9.000",
+   "setups_seen": 2,
+   "M1": {
+    "present": true,
+    "frames": [
+     160,
+     175,
+     225,
+     260
+    ],
+    "garment": "long black tailcoat/frock coat with squared padded epaulettes carrying black bullion fringe; white open-collar shirt; black trousers; black belt with small silver buckle; black boots",
+    "colour": "black with white shirt",
+    "fabric": "matte wool, silk-corded epaulettes",
+    "headwear": "NONE - bare-headed throughout",
+    "accessories": "none visible",
+    "note": "this window is carried by the younger, stubbled, lighter-haired M1 variant"
+   },
+   "F1": {
+    "present": false
+   },
+   "CORPS_A": {
+    "present": true,
+    "garment": "long black coats over black trousers/gowns",
+    "headwear": "black wide-brim fedoras"
+   }
+  },
+  "04": {
+   "seconds": "9.000-11.833",
+   "setups_seen": 2,
+   "M1": {
+    "present": true,
+    "frames": [
+     325,
+     350
+    ],
+    "garment": "black military-cut tunic, high closed front, squared padded epaulettes, no visible frogging; white spread-collar shirt worn open over it; black trousers",
+    "colour": "black with white shirt",
+    "fabric": "matte wool gabardine",
+    "headwear": "NONE",
+    "accessories": "none visible"
+   },
+   "F1": {
+    "present": true,
+    "frames": [
+     290
+    ],
+    "garment": "cream ribbed knit high-neck long-sleeve top, close-fitting",
+    "colour": "cream/ecru",
+    "fabric": "fine rib knit",
+    "headwear": "none",
+    "accessories": "multiple fine gold chains draped across the chest and over one shoulder in a harness arrangement"
+   },
+   "CORPS_A": {
+    "present": true,
+    "note": "one dark silhouette frame-left only"
+   }
+  },
+  "05": {
+   "seconds": "11.833-14.433",
+   "setups_seen": 2,
+   "M1": {
+    "present": true,
+    "frames": [
+     405,
+     428
+    ],
+    "garment": "black two-button suit, cream/ivory open-collar shirt, black trousers, black patent oxfords",
+    "colour": "black with cream shirt",
+    "fabric": "matte wool",
+    "headwear": "NONE",
+    "accessories": "none visible"
+   },
+   "F1": {
+    "present": true,
+    "frames": [
+     370
+    ],
+    "garment": "ivory sleeveless ribbed knit top, high neck",
+    "colour": "ivory",
+    "fabric": "rib knit",
+    "headwear": "none",
+    "accessories": "heavy twisted gold rope chains looped across the chest and over the shoulder",
+    "lighting_note": "hard cool cyan-white rim light along the hair and left shoulder"
+   },
+   "CORPS_A": {
+    "present": true,
+    "garment": "floor-length black gowns",
+    "headwear": "black wide-brim fedoras"
+   }
+  },
+  "06": {
+   "seconds": "14.433-19.267",
+   "setups_seen": 4,
+   "M1": {
+    "present": true,
+    "frames": [
+     495,
+     540,
+     560,
+     572
+    ],
+    "garment": "black two-button suit, crisp white open-collar shirt, black trousers with a black belt and small silver buckle, black oxfords",
+    "colour": "black with white shirt",
+    "fabric": "matte wool",
+    "headwear": "NONE",
+    "accessories": "none visible",
+    "note": "younger, stubbled, lighter-haired M1 variant again"
+   },
+   "F1": {
+    "present": false,
+    "note": "the woman in this window (frames 455, 470) is a distinct fair, ash-blonde figure, not canonical F1"
+   },
+   "other_female": {
+    "present": true,
+    "frames": [
+     455,
+     470
+    ],
+    "garment": "black long-sleeve minidress with a flared skirt",
+    "colour": "black",
+    "fabric": "matte crepe",
+    "headwear": "none",
+    "accessories": "flat gold chain-link choker, three stacked gold bangles on one wrist, thin gold ankle chain, black block-heel shoes"
+   },
+   "CORPS_A": {
+    "present": true,
+    "garment": "floor-length black high-neck gowns",
+    "headwear": "NONE - the corps is bare-headed in this window only, hair scraped into flat buns"
+   }
+  },
+  "07": {
+   "seconds": "19.267-25.500",
+   "setups_seen": 6,
+   "M1": {
+    "present": true,
+    "frames": [
+     600,
+     620,
+     685,
+     755
+    ],
+    "garment": "black military/hussar tunic with squared gold-edged epaulettes and a heavy looped gold cord aiguillette swagged across the left breast; gold rectangular belt buckle; white open-collar shirt; black trousers; black oxfords",
+    "colour": "black with gold trim and white shirt",
+    "fabric": "matte wool with bullion cord",
+    "headwear": "NONE",
+    "accessories": "dark wristwatch, right wrist (frame 620); holds a golden round flatbread up beside his face in frame 755"
+   },
+   "F1": {
+    "present": true,
+    "frames": [
+     600,
+     620,
+     645,
+     722
+    ],
+    "garment": "black sleeveless dress, high round neck, with black tubular cord straps looping over and around the shoulders in a harness; long black skirt with a deep slit",
+    "colour": "black",
+    "fabric": "matte crepe with corded trim",
+    "headwear": "none",
+    "accessories": "black ankle-strap stiletto sandals; holds a large bouquet of deep red roses",
+    "note": "played by the window-07 drift face, not canonical F1"
+   },
+   "CORPS_A": {
+    "present": true,
+    "garment": "floor-length black high-neck gowns",
+    "headwear": "black wide-brim fedoras - hats are back"
+   }
+  },
+  "08": {
+   "seconds": "25.500-29.967",
+   "setups_seen": 7,
+   "location": "EXTERIOR sunlit eroded sandstone canyon, deep blue sky, sand floor, red cube plinths and a freestanding red door/portal frame",
+   "M1": {
+    "present": true,
+    "frames": [
+     780,
+     800,
+     860,
+     880
+    ],
+    "garment": "navy/near-black double-breasted peacoat, silver buttons, worn open; white shirt with a cream silk neck scarf knotted at the throat; black belt with a silver buckle; black trousers; black oxfords",
+    "colour": "navy with white and cream",
+    "fabric": "heavy melton wool coat, cotton shirt, silk scarf",
+    "headwear": "DARK CHARCOAL/NEAR-BLACK WIDE-BRIM FEDORA, worn throughout the window",
+    "accessories": "cream neck scarf"
+   },
+   "F1": {
+    "present": false
+   },
+   "CORPS_B": {
+    "present": true,
+    "garment": "cream boxy jackets over cream wide trousers and cream shirts",
+    "headwear": "cream cloth head-wraps covering all hair",
+    "faces": "legible in the close frame 825; covered in others"
+   }
+  },
+  "09": {
+   "seconds": "29.967-35.900",
+   "setups_seen": 10,
+   "location": "same canyon exterior",
+   "M1": {
+    "present": true,
+    "frames": [
+     935,
+     960,
+     1010,
+     1040
+    ],
+    "garment": "navy zip-front bomber jacket with a black ribbed collar, black ribbed cuffs and black hem band; cream shirt beneath; black scarf at the neck; black trousers; black oxfords",
+    "colour": "navy with black trim",
+    "fabric": "smooth technical or gabardine shell with knit trim",
+    "headwear": "SAME DARK WIDE-BRIM FEDORA, worn throughout",
+    "accessories": "black neck scarf; full dark beard"
+   },
+   "F1": {
+    "present": false
+   },
+   "CORPS_B": {
+    "present": true,
+    "garment": "cream boxy jackets and wide trousers, some jackets cropped at the waist",
+    "headwear": "cream head-wraps; several pulled fully across the face leaving a blank white oval",
+    "faces": "inconsistent - fully covered in frames 912, 960, 985, 1070"
+   }
+  },
+  "10": {
+   "seconds": "35.900-37.500",
+   "setups_seen": 5,
+   "framing_note": "This window is NOT a wide full-body seated shot. It opens on a blurred canyon whip-pan (frame 1080) and then holds a TIGHT FACE CLOSE-UP of F1 (frames 1090, 1098) with no headroom to speak of, plus a split/mirror composite (frame 1110).",
+   "M1": {
+    "present": false
+   },
+   "F1": {
+    "present": true,
+    "frames": [
+     1090,
+     1098,
+     1110,
+     1122
+    ],
+    "garment": "black long-sleeve high-shouldered top worn over a cream ribbed knit turtleneck; the cream polo neck stands above the black collar and cream ribbed cuffs turn back over the black sleeves; black skirt or trousers below",
+    "colour": "black over cream",
+    "fabric": "matte crepe over fine rib knit",
+    "headwear": "none",
+    "accessories": "three or four long ropes of large white and grey pearls hung in loops across the chest; a plain band ring"
+   },
+   "CORPS": {
+    "present": false
+   }
+  },
+  "11": {
+   "seconds": "37.500-43.000",
+   "setups_seen": 5,
+   "contents_note": "Five distinct setups, not one hero pose. F1 on the steps continues in unbroken from window 10; then M1 on the plinth; then a VEILED WOMAN in ivory on the steps; then M1 returns.",
+   "M1": {
+    "present": true,
+    "frames": [
+     1150,
+     1180,
+     1192,
+     1240,
+     1245,
+     1250,
+     1265,
+     1285
+    ],
+    "garment": "black two-button suit, cream/ivory open-collar shirt, black trousers, black patent oxfords",
+    "colour": "black with cream shirt",
+    "fabric": "matte wool",
+    "headwear": "NONE",
+    "accessories": "white shirt cuff turned back over the jacket sleeve at the left wrist"
+   },
+   "F1": {
+    "present": true,
+    "frames": [
+     1130
+    ],
+    "garment": "black long-sleeve top over a cream ribbed turtleneck, cream turn-back cuffs, long black skirt",
+    "colour": "black over cream",
+    "fabric": "matte crepe over rib knit",
+    "headwear": "none",
+    "accessories": "a single rope of white pearls; seated low on the red velvet steps hugging one shoulder"
+   },
+   "veiled_woman": {
+    "present": true,
+    "frames": [
+     1200,
+     1215,
+     1228
+    ],
+    "range_frames": "1198-1238",
+    "range_seconds": "39.933-41.267",
+    "garment": "pale ivory/champagne sleeveless dress, high funnel neck, curved tubular cords looping over each shoulder, full mid-calf skirt",
+    "colour": "ivory/champagne",
+    "fabric": "matte cotton or heavy silk",
+    "headwear": "FULL SHEER IVORY GAUZE VEIL wrapping the entire head - hair, eyes, nose, mouth and throat - translucent enough to show the shape of the features but not to resolve them",
+    "accessories": "none; bare arms and legs, bare feet not visible"
+   },
+   "CORPS_A": {
+    "present": true,
+    "garment": "floor-length black high-neck gowns",
+    "headwear": "black wide-brim fedoras"
+   }
+  }
+ },
+ "headwear_table": {
+  "_legend": "Per macro window, per character. 'none' is recorded explicitly. This table contradicts the old 'NO HAT' canon in six places.",
+  "01": {
+   "M1": "dark near-black wide-brim hat in the wide setup (frames 20,34,45), then NONE from ~frame 46 (frames 55,66) - the hat comes off inside the window",
+   "F1": "none",
+   "CORPS_A": "black wide-brim fedoras"
+  },
+  "02": {
+   "M1": "cream/ivory wide-brim Panama fedora with a black band",
+   "F1": "none",
+   "CORPS_A": "n/a"
+  },
+  "03": {
+   "M1": "none",
+   "F1": "n/a",
+   "CORPS_A": "black wide-brim fedoras"
+  },
+  "04": {
+   "M1": "none",
+   "F1": "none",
+   "CORPS_A": "black wide-brim fedoras (silhouette)"
+  },
+  "05": {
+   "M1": "none",
+   "F1": "none",
+   "CORPS_A": "black wide-brim fedoras"
+  },
+  "06": {
+   "M1": "none",
+   "F1": "n/a (other female: none)",
+   "CORPS_A": "NONE - bare-headed, the only window where the studio corps has no hats"
+  },
+  "07": {
+   "M1": "none",
+   "F1": "none",
+   "CORPS_A": "black wide-brim fedoras"
+  },
+  "08": {
+   "M1": "dark charcoal wide-brim fedora, worn throughout",
+   "F1": "n/a",
+   "CORPS_B": "cream cloth head-wraps"
+  },
+  "09": {
+   "M1": "dark charcoal wide-brim fedora, worn throughout",
+   "F1": "n/a",
+   "CORPS_B": "cream cloth head-wraps, several pulled fully over the face"
+  },
+  "10": {
+   "M1": "n/a",
+   "F1": "none",
+   "CORPS": "n/a"
+  },
+  "11": {
+   "M1": "none",
+   "F1": "none",
+   "veiled_woman": "full sheer ivory gauze veil over the entire head and face",
+   "CORPS_A": "black wide-brim fedoras"
+  }
+ },
+ "continuity_breaks": [
+  {
+   "id": "CB01",
+   "severity": "high",
+   "window": "01",
+   "frames": "20-45 vs 55-66",
+   "seconds": "0.667-1.500 vs 1.833-2.200",
+   "what": "M1 wears a dark wide-brim hat in the wide setup and is bare-headed in the medium setup, inside a single macro window. The hat is never seen coming off."
+  },
+  {
+   "id": "CB02",
+   "severity": "high",
+   "windows": [
+    "01",
+    "02"
+   ],
+   "frames": "34 vs 111",
+   "seconds": "1.133 vs 3.700",
+   "what": "M1's hat changes colour and type across the window boundary: dark near-black flat-crown wide-brim at 1.133s, cream/ivory Panama with a black grosgrain band at 3.700s. Both contradict the 'NO HAT' wardrobe canon."
+  },
+  {
+   "id": "CB03",
+   "severity": "high",
+   "windows": [
+    "03",
+    "06"
+   ],
+   "frames": "175,225,260,495,540,560,572",
+   "what": "M1's FACE changes. Windows 03 and 06 are carried by a man roughly fifteen years younger, slimmer, with mid-brown (not blue-black) longer hair and a light-brown stubble beard. Windows 01, 02, 04, 05, 07 and 11 use a heavier, clean-shaven, near-black-haired man in his forties. The suit is identical, the person is not."
+  },
+  {
+   "id": "CB04",
+   "severity": "high",
+   "windows": [
+    "08",
+    "09"
+   ],
+   "frames": "800,935",
+   "what": "M1 gains a full dark beard for the canyon windows and loses it again for the studio. Neither studio variant has a full beard."
+  },
+  {
+   "id": "CB05",
+   "severity": "high",
+   "windows": [
+    "01",
+    "02",
+    "04",
+    "05",
+    "06",
+    "07",
+    "10",
+    "11"
+   ],
+   "what": "F1's face changes at least five times. Canonical F1 (strong straight brows, olive, tendrils) holds windows 04, 05, 10 and 11. Window 01 shows an older long-faced woman, window 02 a younger woman with long loose waves, window 06 a pale ash-blonde, window 07 a softer-jawed woman with arched brows. None of the project documents record more than one F1."
+  },
+  {
+   "id": "CB06",
+   "severity": "medium",
+   "windows": [
+    "05",
+    "06",
+    "07"
+   ],
+   "frames": "428,540,685",
+   "what": "CORPS_A loses its hats for window 06 and gets them back for window 07, with no shot motivating the change."
+  },
+  {
+   "id": "CB07",
+   "severity": "medium",
+   "window": "09",
+   "frames": "825 vs 912,960,985,1070",
+   "what": "CORPS_B's head-wrap covers the face entirely in some shots and sits behind the hairline showing a fully legible face in others, within the same location and costume."
+  },
+  {
+   "id": "CB08",
+   "severity": "medium",
+   "windows": [
+    "07",
+    "08",
+    "09"
+   ],
+   "what": "M1's outerwear changes three times in twelve seconds with no transition: gold-frogged hussar tunic, then navy double-breasted peacoat with a cream cravat, then a navy zip bomber with a black scarf."
+  },
+  {
+   "id": "CB09",
+   "severity": "low",
+   "windows": [
+    "01",
+    "02"
+   ],
+   "frames": "55 vs 495",
+   "what": "M1's shirt drifts between cream/ivory (windows 01, 02, 05, 11) and crisp white (windows 03, 06, 07)."
+  },
+  {
+   "id": "CB10",
+   "severity": "low",
+   "windows": [
+    "07",
+    "09"
+   ],
+   "frames": "66 vs 620",
+   "what": "M1's wristwatch moves wrists and changes: gold-cased on the left wrist in windows 01/02, dark-cased on the right wrist in window 07."
+  },
+  {
+   "id": "CB11",
+   "severity": "low",
+   "windows": [
+    "10",
+    "11"
+   ],
+   "frames": "1122 vs 1130",
+   "what": "The 10/11 macro boundary at frame 1125 is not a cut. The F1-on-the-steps setup runs unbroken across it (frame 1122 and frame 1130 are the same shot). The window boundary is an edit-list artefact, not a visual event."
+  }
+ ],
+ "surprises": [
+  "There IS a hard cool cyan-white rim light in the master, contrary to the brief's 'no cyan rim anywhere'. It is unmistakable on the hairline and shoulder of the woman at frames 2 and 5, and on the hair and left shoulder of F1 at frame 370. The frame wins: the rim exists, it is just confined to the close-ups and does not appear in the wides, where the key is warm and neutral.",
+  "The reel has TWO locations, not one. Windows 08 and 09 (frames 765-1076, 25.500-35.900s) are a sunlit exterior: an eroded pale sandstone/loess canyon wall, deep blue sky, sand floor, scattered matte red cube plinths and a freestanding red door/portal frame standing in the open. No document in the project describes this.",
+  "The transition into the canyon at frame 780 is played through a red doorway/portal: a red vertical frame slides across the studio red and opens onto the canyon, so the red set piece is the wipe.",
+  "Window 02 is a composite, not a plain shot. A rectangular inset of the wide couple-on-the-steps is laid over an extreme close-up of F1's chin and neck (frames 100, 111), with both layers live.",
+  "The same composite device recurs at frame 1110: a split/mirror layout with two differently scaled copies of F1's close-up side by side in one frame.",
+  "M1 holds a golden round flatbread up beside his grinning face at frame 755 (25.167s). A food prop, present nowhere in the documented shot list.",
+  "The veiled woman is real and more extreme than reported. Frames 1198-1238 (39.933-41.267s, 41 frames): a slim fair woman on the red steps in an ivory funnel-neck dress with shoulder cords, her ENTIRE HEAD wrapped in sheer ivory gauze that passes over eyes, nose and mouth. It is not a hair veil; the face is obscured, and the render leaves visible artefacting where the features should resolve.",
+  "CORPS_B is faceless in several shots. The cream head-wrap is pulled fully across the face in frames 912, 960, 985 and 1070, giving a blank white oval. This is a strong visual motif no document mentions and it will need an explicit prompt decision in the rebuild.",
+  "M1's wardrobe is five distinct costumes, not one suit: plain black suit, black tailcoat with black bullion-fringe epaulettes, plain black epauletted tunic, gold-frogged hussar tunic with a gold belt buckle, navy double-breasted peacoat with a cream cravat, and a navy zip bomber with a black scarf.",
+  "Neither of the two old identity documents matches the render. There is no cropped matte crop, no 8mm beard and no scar through the left eyebrow on any male figure in any frame viewed; there is also no cleft chin. The dominant M1 has a full slicked pompadour and is clean-shaven; the secondary M1 has longer mid-brown hair and a stubble beard. Both old sheets describe people who are not in this film."
+ ],
+ "rebuild_notes": {
+  "identity_bar": "The master itself does not hold one face for M1 or for F1. The bar for the local rebuild is therefore 'no worse than the master', which means: hold the canonical M1 and canonical F1 described above across all eleven windows. Doing so will be an IMPROVEMENT on the master, not a deviation from it, and should be called out as such in the A/B.",
+  "headwear_decision_required": "Three headwear states must be chosen deliberately per window rather than inherited from the 'NO HAT' canon: dark wide-brim (windows 01-wide, 08, 09), cream Panama (window 02), bare (everything else). CORPS_A hats on/off per the table. CORPS_B head-wraps always.",
+  "do_not_reuse": "marketing/campaigns/peshta/06_local/shot_bible.json and marketing/campaigns/peshta/06_local/identity_sheet.json both describe casts that are not in the master and must not seed any prompt."
+ },
+ "_BOUNDARY_CORRECTION": {
+  "severity": "read before using per_window_wardrobe",
+  "problem": "This file keys its per-window tables to the DOCUMENTED macro boundaries (…, 1077, 1125). Those are wrong. subshots.json bisected them against master frames and measured (…, 1086, 1135).",
+  "concrete_effect": "Frames 1077-1085 are labelled 'window 10' here but are still macro 09 — the DESERT set. Macro 10 is the red-studio face close-up. So this file's window-10 wardrobe row spans 9 frames of desert footage, and a studio close-up prompt built from it could inherit desert wardrobe (cream hooded corps).",
+  "authority": "marketing/campaigns/peshta/06_local/subshots.json is the sole authority for frame boundaries. Measured macro starts: 0, 69, 158, 273, 359, 438, 584, 772, 907, 1086, 1135, end 1290.",
+  "what_is_still_good_here": "The OBSERVATIONS — who is present, wardrobe, headwear, the continuity breaks, the surprises — were made by looking at frames and are unaffected. Only the frame RANGES attached to them are off, and only at the last two boundaries (+9 and +10); the earlier ones drift by 1-7 frames.",
+  "note": "This file already half-caught it: see continuity break CB11, which records that the 10/11 boundary at frame 1125 is not a cut at all.",
+  "how_to_recheck": "ffmpeg -ss <frame/30> -i ../final_polat_peshta_reel.mp4 -frames:v 1 out.png, then look at it. The frame wins."
+ }
+}

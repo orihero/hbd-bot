@@ -1,0 +1,20 @@
+ts	asset	attempt	tool	model	params_digest	job_id	quoted	actual	balance_after	gate	verdict	note
+2026-09-19T11:41:13Z	AUD	01	generate_image	soul_2	2:3/2k/count4	-	1	1	-	GATE1	pending	audition
+2026-09-19T11:41:13Z	AUD	02	generate_image	soul_2	2:3/2k/count4	-	1	1	-	GATE1	pending	audition
+2026-09-19T11:42:29Z	REF_M1	01	select	-	-	c86ada17	0	0	-	GATE1	PASS	scar left brow OK
+2026-09-19T11:42:29Z	REF_F1	01	select	-	-	6c16ff39	0	0	-	GATE1	PASS	mark right cheek OK
+2026-09-19T12:10:04Z	S-A11	e01-02	generate_image	nano_banana_pro	9:16/2k/count2	d866aa93,580c9a88	4	4	962.58	GATE4	PASS(e02)	elements path works
+2026-09-19T12:10:04Z	S-A09	a01-02	generate_image	soul_2	9:16/2k/count2	e6521a1b,e7090c56	2	2	962.58	GATE4	PASS(a02)	lateral bank correct
+2026-09-19T12:10:04Z	PILOT	a01	generate_video	wan2_7	9:16/4s/1080p	b042cc7d	10	10	962.58	GATE6	PASS	sync +0.999 @0ms
+2026-09-19T12:32:42Z	KEYS	a01-a02	generate_image	mixed	9:16/2k/24img	-	44	44	-	GATE4	PASS 14/14	4 rescued by a02
+2026-09-19T12:32:42Z	K1	a01	generate_video	kling3_0	8s/std/off	d6b589f2	12	12	-	GATE8	pending	-
+2026-09-19T12:32:42Z	K5	a01	generate_video	kling3_0	5s/std/off	7db8cef1	7.5	7.5	-	GATE8	pending	-
+2026-09-19T12:32:42Z	K2	a01	generate_video	kling3_0	5s/std/off	eb22b256	7.5	7.5	-	GATE8	pending	-
+2026-09-19T12:32:42Z	K4	a01	generate_video	kling3_0	5s/std/off	ca8da0d3	7.5	7.5	-	GATE8	pending	-
+2026-09-19T12:32:42Z	K6	a01	generate_video	kling3_0	4s/std/off	7466aefc	6	6	-	GATE8	pending	-
+2026-09-19T12:32:42Z	LS-C	a01	generate_video	wan2_7	5s/1080p	8c05bedd	12.5	12.5	-	GATE7	pending	-
+2026-09-19T12:42:31Z	LS-A	a01	generate_video	wan2_7	11s/1080p	5a26b5a4	27.5	27.5	-	GATE7	PASS	corr+0.999@0ms
+2026-09-19T12:42:31Z	LS-B	a01	generate_video	wan2_7	7s/1080p	892b4f6b	17.5	17.5	-	GATE7	PASS	corr+0.999@0ms
+2026-09-19T12:42:31Z	LS-D	a01	generate_video	wan2_7	5s/1080p	60015954	12.5	12.5	-	GATE7	PASS	corr+0.998@0ms
+2026-09-19T12:42:31Z	K3	a01	generate_video	kling3_0	5s/std/off	56b2919a	7.5	7.5	-	GATE8	PASS	-
+2026-09-19T12:42:31Z	MASTER	-	ffmpeg	-	1080x1920/30/1290f	-	0	0	-	GATE10	PASS	43.000s -14.1LUFS

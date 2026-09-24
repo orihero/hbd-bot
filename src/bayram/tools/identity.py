@@ -17,8 +17,9 @@ otherwise look like it had done something.
 nothing else, and Telegram's error for a PNG is a generic 400 that says nothing about the
 format. Converting here would mean an image library in the dependency set for a command
 run twice a year, so a non-JPEG is refused with the one-line ``sips`` invocation that fixes
-it. ``brand/avatar-telegram.jpg`` is the flattened cut of the brand avatar, kept next to
-its PNG for exactly this call.
+it. ``marketing/brand/Logo-Bot.jpg`` is the flattened cut of the logo, kept next to its PNG
+for exactly this call; re-cut it whenever the logo changes, or the bot's picture drifts from
+the cover art every song ships with.
 
 **Every locale is separate, and this tool writes one.** ``setMyName`` and both description
 setters take a ``language_code``; writing with none sets the DEFAULT text every client
@@ -132,7 +133,7 @@ def _parse(argv: Sequence[str]) -> argparse.Namespace:
     change.add_argument(
         "--photo",
         default=None,
-        help="path to a square JPEG, e.g. brand/avatar-telegram.jpg. Not localisable.",
+        help="path to a square JPEG, e.g. marketing/brand/Logo-Bot.jpg. Not localisable.",
     )
     return parser.parse_args(argv)
 

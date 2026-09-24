@@ -1,0 +1,137 @@
+{
+ "_meta": {
+  "purpose": "Cost model for the local rebuild. Corrects a LINEAR assumption that would badly mis-estimate the budget. Any render_budget.json that models i2v cost as linear in frame count is WRONG until the measurements below land.",
+  "status": "HYPOTHESIS PENDING MEASUREMENT - do not put these numbers in front of the user as fact",
+  "captured": "2026-09-19",
+  "source": "specific-tasks, reasoning from HunyuanVideo 1.5 architecture plus its own measured 121-frame run"
+ },
+ "the_correction": {
+  "naive_assumption": "More sub-shots = longer render. 35 short units must cost more than 14 long ones.",
+  "why_it_may_be_backwards": "HunyuanVideo 1.5 is a DiT with full 3D attention. Step cost scales roughly with the SQUARE of token count, and token count scales with latent frames. The VAE compresses 4x temporally: 121 frames -> 31 latent frames, 49 -> 13, 33 -> 9. If attention dominates, a 49-frame step should cost about (13/31)^2 = 0.18 of a 121-frame step, NOT the 0.40 a linear model predicts.",
+  "implication": "Short clips may be ~2.3x cheaper PER SECOND OF FINISHED VIDEO. 35 short units could be CHEAPER than 14 long ones - possibly ~2.5 h of sampling rather than ~12 h.",
+  "counterweight": "Fixed overhead does not shrink: ~55 s model staging on a cold start, plus text encode and VAE decode per run. The real question is where the quadratic saving and the fixed overhead cross over.",
+  "measurement_in_flight": "121 (running), then 49, then 33, all 720x1280, chained behind BM1, each polling /queue so queue wait cannot contaminate timing. Three points separate fixed from variable cost and test whether the curve is actually linear.",
+  "measurement_caveat": "The 49 and 33 runs start WARM (model already staged by BM1) so they do not pay the ~55 s cold start. That is the honest production condition for back-to-back shots, but do not subtract a cold start from them. Warm and cold to be reported separately."
+ },
+ "line_items_previously_missed": [
+  {
+   "id": "COST-01",
+   "item": "One Flux.2 keyframe PER SUB-SHOT, not per macro shot",
+   "detail": "The 14-unit plan implied ~14 stills plus a 6-image character sheet. At ~30-40 sub-shots it is ~35 stills. At the measured ~107 s per Flux.2 image that is roughly an extra hour.",
+   "status": "a real line item, not a rounding error",
+   "reopens": "The Flux.2 Turbo LoRA (2.57 GiB, 20 steps -> 8) was declined at 14 stills. At 35 stills the trade is closer. Still declined by default - it degrades the character sheet, which every downstream generation inherits - but worth reopening if the user picks the full reel."
+  },
+  {
+   "id": "COST-02",
+   "item": "Character consistency gets WORSE as sub-shots multiply - this is a QUALITY risk, not a time cost",
+   "detail": "Identity is carried only by Flux.2 multi-reference. No LoRA, no IP-Adapter, no InstantID on this box. 35 independently generated stills is 35 chances to drift, and a hard cut every 1-2 seconds places those drifts directly adjacent on screen where the eye compares them. 14 longer units hide drift simply by cutting less often.",
+   "why_it_matters": "The sub-shot count interacts badly with the one capability this hardware lacks. This is the single biggest quality risk in the project and it is NOT fixed by any of the four pending downloads."
+  },
+  {
+   "id": "COST-03",
+   "item": "The veiled figure in shot 11 is a THIRD LEAD, not a prop",
+   "detail": "~1.4 s of a veiled woman in an ivory dress on the red steps, mentioned in no project document. If she is in the reel she needs her own character sheet.",
+   "action": "cast_observed.json must decide: third sheet, or is she F1 veiled?"
+  },
+  {
+   "id": "COST-04",
+   "item": "The identity text itself must be rebuilt from frames, not just the shot list",
+   "detail": "The old identity sheet was derived from the same prompts that produced the wrong bible. Hats appearing at 1.13 s and 3.70 s against a 'NO HAT' canon means the wardrobe block would have been actively FIGHTING the reference image. The byte-for-byte invariant list needs re-deriving from master frames."
+  }
+ ],
+ "recommended_first_deliverable": {
+  "what": "A 3-4 sub-shot VERTICAL SLICE through the FULL pipeline - sheet, keyframe, i2v, SR, RIFE, mux",
+  "why": "It exposes every integration failure for about an hour of GPU and tells the user what the quality ceiling actually is before they commit to twelve hours. Worth more than the whole reel rendered once.",
+  "converges_from": "independently recommended by specific-tasks and by this session's budget agent",
+  "blocked_by": "the full-pipeline version needs the 1080p upsampler and RIFE, so it is gated on the user's download decision"
+ },
+ "zero_download_experiment": {
+  "what": "Character sheet + 3-4 keyframes generated from it, on Flux.2 only. Look at whether it is the same person across all of them.",
+  "why_now": "This tests the single biggest quality risk (COST-02) and needs NONE of the four pending downloads - Flux.2 and its multi-reference path are fully present today.",
+  "cost": "roughly 20-30 minutes of GPU",
+  "decides": "If Flux.2 multi-reference cannot hold one face across 4 independently generated stills, no amount of video-model quality or downloaded weights rescues the project, and the user should know that before spending anything else.",
+  "blocked_by": "needs cast_observed.json first - the identity text must come from master frames, not from the discredited prompt-derived sheet"
+ },
+ "VALIDATED_MODEL": {
+  "status": "VALIDATED 2026-09-19 — supersedes the hypothesis block below and the earlier coefficients",
+  "formula": "seconds_per_step = 0.05036 * L^2 + 0.28451 * L,  where L = latent frames = (n24 + 3) / 4",
+  "fitted_on": "two clean points, both starting with ~31 GB free: L=9 (33 frames) at 6.64 s/step, L=13 (49 frames) at 12.21 s/step",
+  "validation": {
+   "test": "extrapolate to L=31 (121 frames), 2.4x beyond the fitted range, and compare to two independent measurements",
+   "predicted": 57.22,
+   "measured": [
+    56.76,
+    56.66
+   ],
+   "error_pct": 0.99,
+   "why_it_counts": "The fit has zero degrees of freedom — two parameters through two points reproduce both by construction. Agreeing to 1% at 2.4x extrapolation is therefore a real out-of-sample test, not a restatement of the fit.",
+   "out_of_sample_points": {
+    "note": "Fitted on L=9 and L=13 ONLY. Every row below is a genuine out-of-sample prediction.",
+    "L2_5frames": {
+     "predicted": 0.771,
+     "measured": 0.775,
+     "error_pct": 0.5
+    },
+    "L4_13frames": {
+     "predicted": 1.944,
+     "measured": 1.94,
+     "error_pct": -0.2
+    },
+    "L31_121frames": {
+     "predicted": 57.22,
+     "measured": 56.66,
+     "error_pct": -1.0
+    },
+    "span": "L=2 to L=31 is a 15.5x range in latent frames and ~75x in step cost, predicted within 1% throughout.",
+    "totals_s": {
+     "5f": 16.98,
+     "13f": 52.16,
+     "33f": 141.8,
+     "49f": 259.96,
+     "121f": [
+      1283.7,
+      1324.3
+     ]
+    }
+   }
+  },
+  "overhead": {
+   "resident": "max(2, 1.700*L - 6.300) seconds. Measured: 33 frames -> 9.0 s, 49 frames -> 15.8 s, model already loaded.",
+   "cold": "147-191 s — dominated by loading the 15.5 GB model.",
+   "THE_OPERATIONAL_RULE": "KEEP THE MODEL RESIDENT ACROSS ALL 38 UNITS. Cycling it costs ~170 s per unit, which across 38 units is +1.72 h — MORE THAN THE ENTIRE 1.28 h SAMPLING BUDGET. Whatever the driver does, it must not unload between units.",
+   "CORRECTION": "Do NOT model overhead as a function of L — the earlier max(2, 1.7L-6.3) fit was coincidental. Measured: 5f->2.0s (model resident), 13f->14.2s (had to load), 33f->9.0s (resident), 49f->15.8s (loaded), 121f->147-191s (loaded, 15.5 GB). Overhead is governed by whether the model is already in memory, not by frame count. Model it as ~2-16 s warm plus a cold-load penalty on eviction."
+  },
+  "budget_38_subshots": {
+   "i2v_hours_resident": 1.28,
+   "i2v_hours_if_cycled": 3.0,
+   "mean_min_per_subshot": 2.0,
+   "longest_unit_min": 4.3,
+   "excludes": [
+    "stills (BM3 unmeasured)",
+    "SR (never timed)",
+    "RIFE (never timed)",
+    "re-rolls"
+   ],
+   "peer_independent_recompute": {
+    "i2v_sampling_h": 1.2,
+    "warm_overhead_h": 0.11,
+    "i2v_total_h": 1.31,
+    "agrees_with_this_session": 1.28,
+    "note": "Two independent recomputes, 2% apart. The earlier 1.29 h was right by two errors cancelling; this one is right on validated coefficients."
+   }
+  },
+  "superseded_coefficients": {
+   "values": "a=0.06406, b=0.10568",
+   "why_wrong": "Fitted on a 33-frame figure of 6.14 s/step that was read off a progress bar mid-run — it was the FIRST step, not the average. The true average is 6.64. The linear term came out ~2.7x too small.",
+   "would_have_predicted": "64.84 s/step at L=31, i.e. +14.4% against measurement.",
+   "why_the_headline_survived_anyway": "The stiffer sampling curve and a lighter, frame-proportional overhead very nearly cancelled: 1.28 h against the earlier 1.29 h. A coincidence, not a vindication — the next job to reuse these coefficients would not get that cancellation."
+  }
+ },
+ "DOWNLOAD_PRIORITY_FINAL": {
+  "note": "THIRD and final ordering. The first two were argued from SPEED and then from FEASIBILITY-via-VRAM; both rested on model streaming being expensive, which the clean re-run disproved (56.76 vs 56.66 s/step with 2.3x the free VRAM — a 0.18% difference). This ordering rests on what is IMPOSSIBLE without each file, which is not a performance claim and does not move.",
+  "1_latent_upsampler": "BLOCKS THE SPEC. Without it 1080x1920 is unreachable at all.",
+  "2_rife": "BLOCKS THE SPEC. Without it 30 fps CFR is unreachable; 24->30 without interpolation judders, on a dance video.",
+  "3_sigclip": "QUALITY. Keyframe adherence, which is exactly where identity has no safety net on this hardware.",
+  "4_qwen_fp8_scaled": "NOW OPTIONAL. Frees ~6.7 GiB. Buys NO measurable speed. This build has no 121-frame units and has headroom to spare at L=4-13."
+ }
+}

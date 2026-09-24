@@ -23,56 +23,61 @@ on a host.
 > origin-firewall caller allowlist) are not merely unimplemented, they are **impossible** in
 > the topology that exists. See §4.
 
-> **NAMING: THE HOST STILL SAYS `hbd`, THIS REPOSITORY NOW SAYS `bayram`, AND BOTH ARE CURRENT.**
-> Verified 2026-09-10. On `aizu` the units are `hbd-payme.service`, `hbd-bot.service`,
-> `hbd-worker.service`, `hbd-admin.service`; the dotenv files are `/etc/hbd/payme.env`,
-> `/etc/hbd/hbd.env`, `/etc/hbd/hbd-admin.env`; the virtualenv is `/opt/hbd/venv`; the service
-> user and group are `hbd`; every environment variable is prefixed `HBD_`; and the installed
-> package is `hbd`, which is why the running `ExecStart` reads `-m uvicorn hbd.payme.app:app`.
-> The working tree has been renamed to `bayram` throughout — package, unit files, variable
-> prefix, paths — and **no service on this host runs it**.
+> **NAMING: THE CUTOVER IS DONE. THE HOST AND THIS REPOSITORY BOTH SAY `bayram`.** Corrected
+> 2026-09-19; the correction is dated because everything this box said before it was written
+> against a host that no longer exists in that state. The `hbd` → `bayram` cutover completed and
+> was verified on **2026-09-14**, and the four `bayram-*` units — `bayram-payme.service`,
+> `bayram-bot.service`, `bayram-worker.service`, `bayram-admin.service` — have been live and
+> active since `[HOST 2026-09-14]` ([`10-rename-cutover.md`](10-rename-cutover.md) §4.7, which is
+> the record of the window and of what it left behind). The unit this page is about names its own
+> dotenv — `Environment=BAYRAM_PAYME_ENV_FILE=/etc/bayram/payme.env`, `User`/`Group` `bayram`,
+> `ExecStart=/opt/bayram/venv/bin/python -m uvicorn bayram.payme.app:app`
+> (`deploy/systemd/bayram-payme.service`; undated, so a claim about this repository's file rather
+> than about the machine). This page is written in that naming, and — unlike every earlier
+> revision of this box — a command typed out of it needs no translation at the shell prompt.
 >
-> **That last sentence was "the rename has not been deployed" until 2026-09-11, and it is worth
-> keeping the superseded version in view, because the host is no longer in the state it
-> describes.** `[HOST 2026-09-11]` a cutover was attempted on 2026-09-10 and stopped part-way:
-> `/etc/bayram/` exists and holds `bayram.env` (1148 B), `bayram-admin.env` (11213 B) and
-> `payme.env` (361 B), each `0640 root:hbd`, all stamped 14:06; `/opt/bayram/venv` exists, built
-> 14:06–14:07, with the package `bayram` and `bayram_bot-0.1.0.dist-info` installed in it. What
-> did **not** happen is the part that decides which code runs: there is no `bayram-*.service`
-> file in `/etc/systemd/system/`, no `bayram` OS user or group, and all four `hbd-*` units are
-> `enabled` and `active`. **Every running `ExecStart` still names `hbd`, and every running
-> process still reads `/etc/hbd/*.env`.** So the host today is neither pre-rename nor
-> post-rename — it is mid-rename, with a complete `bayram` install that nothing executes. §11.6 is
-> the gateway's share of that, and [`10-rename-cutover.md`](10-rename-cutover.md) is the whole of
-> it.
+> **The trap this box used to carry has inverted, and the old wording now points a reader at
+> exactly the wrong file.** Until 2026-09-14 `/etc/bayram/payme.env` was a real file holding real
+> values that nothing read; since the cutover it is *the* file the gateway reads, and
+> `/etc/hbd/payme.env` is the one whose edits change nothing, raise nothing and log nothing.
+> `[HOST 2026-09-19]` `/etc/bayram/payme.env` is on the machine and is the file in which
+> `BAYRAM_PAYME_PROBE_TOKEN` is found to be undeclared
+> ([`00-host-inventory.md`](00-host-inventory.md) row 24). **That it is the file the gateway
+> *reads* is an inference from the unit above, not a reading of the running one** — nobody has
+> taken a `systemctl cat bayram-payme` since the cutover
+> ([`10-rename-cutover.md`](10-rename-cutover.md) §4.6), so the installed unit's `Environment=`
+> line is unverified. The habit the old wording taught is the
+> half worth keeping, because it survives the inversion: read `env_file` off the boot line (§2.1)
+> before believing any edit took, rather than trusting a path somebody wrote down — this box
+> included.
 >
-> **The immediate trap this creates.** `/etc/bayram/payme.env` is now a real file holding real
-> values, and it is **not** the file the gateway reads: the unit says
-> `Environment=HBD_PAYME_ENV_FILE=/etc/hbd/payme.env` `[HOST 2026-09-11]`. Editing the
-> `bayram`-spelled file changes nothing, raises nothing and logs nothing — the exact failure
-> shape §11.6 is about, arriving a step earlier than anybody planned for. Check the boot line
-> (§2.1) for `env_file` before believing any edit took.
+> **Two consequences for reading the rest of this page.** The `hbd-*.service` unit files were not
+> deleted: they are still in `/etc/systemd/system`, merely `disabled` (§4.7 of the cutover page),
+> so a command that names one still resolves and tells you nothing whatever about what is running.
+> And **a release is now an ordinary wheel upgrade** — §11.4's ordering, performed against the
+> `bayram` names — not a cutover. §11.6 was written as what the *next* release had to do; that
+> release happened on 2026-09-14, and the section is now history rather than instruction. Command
+> blocks quoting observed host output keep the host's names as they stood on the day they were
+> taken, `hbd-*` included, and **must not be swept**: they are transcripts, not identifiers, and
+> most of them predate the cutover.
 >
-> This page is written in the repository's naming because the rest of the tree is; wherever you
-> are about to type a command at a shell prompt on `aizu`, substitute `hbd` for `bayram` until the
-> cutover has actually completed — which, as of 2026-09-11, it has not. Command blocks quoting observed host output keep the host's names
-> deliberately and **must not be swept**: they are transcripts, not identifiers.
->
-> Do not trust this paragraph over the machine. One command settles which prefix is live, and
-> it is the right first move on any host whose history you do not know:
+> Do not trust this paragraph over the machine. One command settles which prefix is live, and it
+> is still the right first move on any host whose history you do not know:
 >
 > ```bash
 > ssh aizu 'systemctl list-units --type=service --all "*payme*" "*-bot.service" | cat; ls -d /opt/*/venv /etc/*/payme.env 2>/dev/null'
 > ```
 >
-> **The glob is doing more work than it was written to do, and that is now the point.** It was a
-> "which prefix is live" probe; since 2026-09-10 it answers *both* — `[HOST 2026-09-11]` the
-> second half prints `/opt/bayram/venv /opt/hbd/venv /etc/bayram/payme.env /etc/hbd/payme.env`,
-> four paths under two names, while the first half prints only `hbd-*` units. **Read the two
-> halves together: the units decide what runs, the directories only say what exists.** Any
-> verification that looks at one root and concludes from it — and `09-payme-go-live.md` §2's
-> first verification command did exactly that until it was widened — cannot see this state at
-> all.
+> **The glob is doing more work than it was written to do, and that is still the point.** It was a
+> "which prefix is live" probe; from 2026-09-10 it answered *both* — `[HOST 2026-09-11]` the second
+> half printed `/opt/bayram/venv /opt/hbd/venv /etc/bayram/payme.env /etc/hbd/payme.env`, four
+> paths under two names, while the first half printed only `hbd-*` units. **Read the two halves
+> together: the units decide what runs, the directories only say what exists.** That is precisely
+> the distinction the cutover moved: both roots are still on the disk, so the second half answers
+> much as it did, and it is the *unit* half that now reads `bayram-*`. Any verification that looks
+> at one root and concludes from it — and `09-payme-go-live.md` §2's first verification command did
+> exactly that until it was widened — could not see the mid-rename state at all, and would not see
+> a half-finished future one either.
 
 > **Two switches, two questions, and only one of them is on.** `BAYRAM_PAYME_ENABLED` governs
 > whether the **gateway daemon runs**. `BAYRAM_CHECKOUT_PROVIDER` governs whether the **rail
@@ -178,7 +183,7 @@ empty** — `total 8`, only `.` and `..` — and `/srv/bayram` does not exist; n
 `/etc/bayram/admin.env`, because the host's cutover named that file `bayram-admin.env`. **Three
 filename schemes for three dotenv files are now in circulation** — the host's
 (`bayram.env` / `bayram-admin.env`), these three units' (`bot.env` / `admin.env`, which
-`03-provisioning.md` §6 also carries, at `docs/deployment/03-provisioning.md:358-359`), and the
+[`03-provisioning.md`](03-provisioning.md) §6 also carries), and the
 payme unit's, which matches the host's. Whoever writes the rename document picks one and records
 the other two as dead; this page does not pick for them.
 
@@ -459,6 +464,17 @@ migration does not reproduce it.
 > is usually a `pg_dump` away, and only a question about live state — connections, settings,
 > sessions — actually needs `psql`.**
 >
+> **CAVEAT 2026-09-19 — this recipe depends on a grant classified SUSPECT and scheduled for an
+> owner decision.** `(postgres) NOPASSWD: /usr/bin/pg_dump hbd` has **no script consumer**: every
+> candidate caller runs as root, and **root needs no sudoers entry to `sudo -u postgres`** at all;
+> the three `deploy-*.sh` were retired 2026-09-19; and the `bayram-backup` timer that would be the
+> one scheduled caller is not installed on this host. It survives **only** as the sanctioned human
+> read-path this page documents — which is why `deploy/prune-stale-sudo-grants.sh` keeps it by
+> default and removes it only on the explicit `--drop-pg-dump`. **If that flag is ever used, every
+> `pg_dump`-based recipe on this page stops working and there is no narrower replacement**; the
+> fallback is an interactive `sudo` with a password. Whoever makes that call should read this
+> section first.
+>
 > Two things about the route are worth knowing before you reach for it. **It is the whole
 > database, including every customer row**, so it belongs in a pipe to `grep`, never on a
 > terminal and never into a file on the host. And the NOPASSWD rule matches the **exact argument
@@ -475,6 +491,31 @@ migration does not reproduce it.
 > `/etc/caddy/Caddyfile`; `caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile`;
 > and `pg_dump hbd` as `postgres`. **`psql` is not on it** — that is the drop-in doing its job,
 > authorising a deploy rather than arbitrary database access.
+>
+> **STALE THE MOMENT `deploy/prune-stale-sudo-grants.sh` RUNS — and it has not run yet.** The list
+> above is a faithful `[HOST 2026-09-11]` transcript and is left as one. But the drop-in it
+> describes is scheduled for replacement, and when that lands the following go away:
+> `Cmnd_Alias HBD_ROLLBACK` (ten verbs), the two `hbd-*` vectors in `UNITS_NOW`, the four
+> `systemctl status bayram-*` verbs, the whole `journalctl -u bayram-* *` alias, `tee
+> /etc/bayram/payme.env`, and `tee /etc/caddy/Caddyfile`. The Caddy `reload` / `restart` /
+> `validate` verbs do **not** go away — they **move**, out of `hbd-deploy` and into
+> `deploy/sudoers.d/bayram-deploy`, so that `hbd-deploy` can be pruned without taking the Payme
+> front end's operational verbs with it.
+>
+> Two of those removals are worth knowing the *reason* for, because the reason is a measurement
+> rather than a policy: `developer` is in group `adm`, so an unprivileged `journalctl -n 1 -u
+> bayram-payme` and an unprivileged `systemctl status bayram-payme` both **work** on this host.
+> Those grants were not load-bearing at all — and the `journalctl` one carried an fnmatch
+> wildcard (`-u bayram-payme *`), i.e. a pager-shell-escape surface, for nothing.
+>
+> **`tee /etc/caddy/Caddyfile` is DROPPED, not re-homed**, deliberately: it is an unattended root
+> write of arbitrary content into the front end of the Payme callback path, no repo script calls
+> it, and a human still has `(ALL:ALL) ALL` with a password. The one-line re-add is recorded in
+> `deploy/sudoers.d/bayram-deploy`'s header, and `plan` says `DROPPED` out loud before anything is
+> removed. Pair it with the `caddy validate` verb in the runbook if the owner wants it back.
+>
+> **And none of this is containment until the blanket rule goes** —
+> [`00-host-inventory.md`](00-host-inventory.md) row 52.
 >
 > Three corrections to the earlier wording, all of them about not over-claiming: this list was
 > described as *"read in full off `sudo -l`"* and attributed to `/etc/sudoers.d/hbd-deploy`, and
@@ -1340,7 +1381,10 @@ that they are missing.
 `hbd-bot`/`hbd-worker`/`hbd-admin`, `caddy` reload/restart, `caddy validate` with its exact flags,
 `tee` of `/etc/hbd/payme.env` and `/etc/caddy/Caddyfile`, `journalctl -u hbd-payme *`, and
 `pg_dump hbd` as `postgres`. §3.2 carries the list verbatim as of `[HOST 2026-09-11]`, with what
-`sudo -l` can and cannot tell you about which file a rule came from. **The "only `restart`" is
+`sudo -l` can and cannot tell you about which file a rule came from — **and with the 2026-09-19
+note on which of those verbs `deploy/prune-stale-sudo-grants.sh` removes, which it re-homes into
+`bayram-deploy`, and why "narrows a specific list" stopped being true of this host on 2026-09-17.
+Read that note before quoting this paragraph.** **The "only `restart`" is
 load-bearing and is easy to read past**: there is no NOPASSWD `stop`, `disable` or `enable` for
 the bot, the worker or the admin API, so any procedure that stops or re-enables those three
 prompts for a password — half of the rename cutover included (§11.6). The drop-in is revoked with

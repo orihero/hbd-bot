@@ -4,7 +4,7 @@
  * ## Where the look comes from
  *
  * The PlanIQ kit has no sidebar. Its dashboard navigates from a HORIZONTAL pill bar
- * (.openpencil-export/navbar-light.jsx, node 0:7758), so this file is a translation rather
+ * (reference/openpencil-export/navbar-light.jsx, node 0:7758), so this file is a translation rather
  * than a transcription. What is carried over verbatim is the part that makes it recognisably
  * the same product as the sign-in screen: the white card ground on the #F6F6F6 page, the
  * generous radius, the 40px mark + wordmark lockup, and — exactly — the item itself:

@@ -50,7 +50,6 @@ import {
   isSegmentGroup,
   isSegmentRule,
   isSegmentEmpty,
-  segmentDepth,
   type MatchMode,
   type Segment,
   type SegmentNode,
@@ -142,7 +141,6 @@ export function SegmentBuilder({
   const [focusAddKey, setFocusAddKey] = useState<string | null>(null);
 
   const ruleCount = countRules(value);
-  const depth = segmentDepth(value);
   const isFull = ruleCount >= limits.maxRules;
 
   /**
@@ -193,15 +191,6 @@ export function SegmentBuilder({
         <h3 className="m-0 text-[16px] font-semibold leading-[21.856px] tracking-[-0.32px] text-ink-900">
           {t("segments.title")}
         </h3>
-        <p className={CONTROL_HINT_CLASS}>{t("segments.description")}</p>
-        <p className={CONTROL_HINT_CLASS}>
-          {t("segments.summary", {
-            rules: ruleCount,
-            maxRules: limits.maxRules,
-            depth,
-            maxDepth: limits.maxDepth,
-          })}
-        </p>
         {showFreezeNote ? (
           <p className="m-0 max-w-[62ch] text-[12px] font-semibold leading-[1.35] text-ink-900">
             {t("segments.frozenNote")}
@@ -231,8 +220,7 @@ export function SegmentBuilder({
 
       {isSegmentEmpty(value) ? (
         <p role="status" className="m-0 max-w-[62ch] text-[12px] leading-[1.35] text-ink-900">
-          <span className="font-semibold">{t("segments.everyone")}</span>{" "}
-          {t("segments.everyoneWarning")}
+          <span className="font-semibold">{t("segments.everyone")}</span>
         </p>
       ) : null}
 
@@ -242,7 +230,6 @@ export function SegmentBuilder({
         <SortControl
           value={value}
           fields={fields}
-          fieldIndex={fieldIndex}
           disabled={disabled}
           t={t}
           onChange={(sort) => {
@@ -508,27 +495,24 @@ function AddButton({
  *
  * An absent sort DROPS the key rather than writing the registry's default into it, so an
  * unfiltered, unsorted document is no `?segment=` at all and the plain list keeps one cache
- * key. The two notes under the control are the two things an operator gets wrong here: a sort
- * is not a filter, and an aggregate sort is what makes the exact total refuse to run beside it.
+ * key. Choosing an aggregate key still makes the exact total refuse to run beside it; the
+ * refusal is stated where it happens, in the subtitle over the table, not pre-announced here.
  */
 function SortControl({
   value,
   fields,
-  fieldIndex,
   disabled,
   t,
   onChange,
 }: {
   readonly value: Segment;
   readonly fields: readonly SegmentFieldView[];
-  readonly fieldIndex: ReadonlyMap<string, SegmentFieldView>;
   readonly disabled: boolean;
   readonly t: Translate;
   readonly onChange: (sort: SegmentSort | null) => void;
 }): JSX.Element {
   const sortable = fields.filter((field) => field.sortable);
   const current = value.sort ?? null;
-  const chosen = current === null ? null : (fieldIndex.get(current.key) ?? null);
 
   return (
     <div className="flex flex-col gap-2 rounded-card border border-stroke bg-card px-3 py-3">
@@ -575,13 +559,6 @@ function SortControl({
           </select>
         </label>
       </div>
-      <p className={CONTROL_HINT_CLASS}>{t("segments.sort.narrowsNothing")}</p>
-      {chosen?.isAggregate === true ? (
-        <>
-          <p className={CONTROL_HINT_CLASS}>{t("segments.sort.aggregateCost")}</p>
-          <p className={CONTROL_HINT_CLASS}>{t("segments.sort.nullsSortLow")}</p>
-        </>
-      ) : null}
     </div>
   );
 }

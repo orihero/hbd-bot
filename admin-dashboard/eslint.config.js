@@ -42,6 +42,23 @@ export default tseslint.config(
     rules: { "no-restricted-globals": "off" },
   },
   {
+    /* The built-shell CSP gate. It is not under src/, so the block above never reached it and
+       `eslint .` reported green on a file nobody was linting — the same silence that let it go
+       untypechecked. It is a security gate, so it is held to src/'s type-aware rules, parsed
+       against tsconfig.node.json (the project that now includes it) rather than tsconfig.json
+       (which includes only src). Node globals, not browser: it runs under `tsx`. */
+    files: ["tests/built-shell-csp.ts"],
+    extends: [js.configs.recommended, ...tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      ecmaVersion: 2022,
+      globals: globals.node,
+      parserOptions: {
+        project: ["./tsconfig.node.json"],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+  },
+  {
     files: ["*.config.ts", "*.config.js"],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     languageOptions: {

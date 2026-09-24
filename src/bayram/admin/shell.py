@@ -1,19 +1,37 @@
-"""The SPA shell as a one-substitution template: the per-response style nonce, and nothing else.
+r"""The SPA shell as a one-substitution template: the per-response style nonce, and nothing else.
 
 ``SecurityHeadersMiddleware`` mints a fresh style nonce for every response and publishes it
 on the request state. Until this module existed, **nothing read it**: the policy said
 ``style-src 'self' 'nonce-<per-response>'`` and the bundle never learned the value, so every
 ``<style>`` element the SPA injects at runtime was blocked.
 
-That is not hypothetical and it is not about React's ``style={{}}`` props. Inline style
-*attributes* are set through the CSSOM (``node.style.setProperty``), which CSP does not
-police, so Radix's positioning works fine under the policy. What breaks is the one thing
-that is a real ``<style>`` **element**: ``react-remove-scroll`` — mounted by every Radix
-modal — asks ``react-style-singleton`` to inject a stylesheet carrying
-``.with-scroll-bars-hidden { overflow: hidden !important }`` and the scrollbar-gutter
-compensation. With no nonce on it the policy blocks it, the operator's background keeps
-scrolling under an open confirm dialog, and the only signal is a console violation nobody is
-watching.
+**The nonce currently reaches no consumer, and that is correct — audited 2026-09-19.** The
+paragraph that used to stand here named ``react-remove-scroll`` (mounted by every Radix
+modal, injecting its scroll-lock stylesheet through ``react-style-singleton``) as the thing
+blocked without a nonce, and cited a ``src/lib/csp.ts`` that calls ``get-nonce``'s
+``setNonce``. All of that was true of ``admin-ui/``, the legacy console deleted on
+2026-09-16. It has never been true of ``admin-dashboard/``, which is what ships: Radix,
+``react-remove-scroll``, ``react-style-singleton`` and ``get-nonce`` are not dependencies and
+are not installed even transitively, and the built bundle contains no
+``createElement("style")``, no ``insertRule``, no ``adoptedStyleSheets`` and no
+``__webpack_nonce__``. Its three dialogs (``components/ConfirmDialog.tsx``,
+``features/support/SupportGroupDialog.tsx``, ``features/reveal/DialogShell.tsx``) lock
+scrolling by assigning ``document.body.style.overflow`` — the CSSOM, which CSP does not
+police — so the background-keeps-scrolling symptom this module was written to prevent cannot
+occur. A consumer built today would read the meta and hand the value to nobody. **Do not
+port one back on the strength of this docstring alone.**
+
+What the substitution still buys is that the day a dependency *does* inject a ``<style>``
+element, the nonce is already in the document and the fix is one module rather than a
+policy change. Re-check before building anything on it::
+
+    grep -rE 'createElement\("style"|insertRule|adoptedStyleSheets' \
+        src/bayram/admin/static/assets/*.js
+
+The distinction that made the old paragraph subtle is still worth keeping: style
+*attributes* — React's ``style={{}}``, and any library positioning a popover with
+``node.style.setProperty`` — go through the CSSOM and are not policed. Only a real
+``<style>`` **element** appended to the document is. Do not "fix" ``style={{}}`` call sites.
 
 **The shape.** ``admin-dashboard/index.html`` ships a meta element whose ``content`` is the literal
 :data:`CSP_NONCE_PLACEHOLDER`; this module swaps that token for the response's nonce as the
@@ -54,7 +72,10 @@ _LOGGER: Final = get_logger(__name__)
 #: renaming it on one side alone fails the suite rather than a browser.
 CSP_NONCE_PLACEHOLDER: Final[str] = "__BAYRAM_CSP_NONCE__"
 
-#: The ``name`` of the meta element the SPA reads at boot (``src/lib/csp.ts``).
+#: The ``name`` of the meta element this module stamps the nonce into. **No SPA code reads
+#: it today** — the consumer the previous wording named (``src/lib/csp.ts``) never existed in
+#: ``admin-dashboard/``; it belonged to the deleted ``admin-ui/``. See the module docstring
+#: before writing one.
 CSP_NONCE_META_NAME: Final[str] = "csp-nonce"
 
 #: base64url, which is all ``secrets.token_urlsafe`` produces. Anything else could close the

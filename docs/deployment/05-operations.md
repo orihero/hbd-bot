@@ -16,17 +16,17 @@ needs both halves and needs to know which is which:
 | `[HOST 2026-09-10]` / `[HOST 2026-09-11]` | A read-only command was run against `aizu` (machine `abdu-test`) on that date and the quote is faithful to its output. |
 | `[UNPROVEN]` | Nobody has established it, and the blocker is named. Preferred here over a confident guess, every time. |
 
-> **THE HOST IS PRE-RENAME AND THAT IS CORRECT.** `[HOST 2026-09-10]` On `abdu-test` the
-> units are `hbd-bot`, `hbd-worker`, `hbd-admin`, `hbd-payme`; the dotenv files are
-> `/etc/hbd/hbd.env`, `/etc/hbd/hbd-admin.env`, `/etc/hbd/payme.env`; the virtualenv is
-> `/opt/hbd/venv`; the installed distribution is `hbd_bot-0.1.0` and the importable package is
-> `hbd`; every variable is prefixed `HBD_`; the database is `hbd`. This repository has been
-> renamed to `bayram` throughout and **that rename has not been deployed** — the wheel that
-> would do it is staged at `/opt/hbd/release/bayram_bot-0.1.0-py3-none-any.whl` beside
-> `cutover-to-bayram.sh`, both dated 2026-09-10, and neither has run. So **every `python -m
-> bayram.…` command on this page is typed `python -m hbd.…` at a shell on that box, and every
-> `BAYRAM_` variable is `HBD_`**, until `08-payme.md` §11.6 has been executed. Do not
-> "correct" a host name to `bayram`; do not quote a `bayram` path as though it existed there.
+> **CORRECTED 2026-09-19 — THE HOST IS POST-RENAME, AND THIS BLOCK SAID THE OPPOSITE UNTIL
+> TODAY.** What stood here was a faithful `[HOST 2026-09-10]` reading — units `hbd-*`,
+> `/etc/hbd/*.env`, `/opt/hbd/venv`, prefix `HBD_` — that closed by telling the reader to type
+> every `bayram` command as `hbd` and never to quote a `bayram` path, because the staged wheel
+> and `cutover-to-bayram.sh` had not run. **They ran.** The cutover completed and was verified
+> **2026-09-14**: the four `bayram-*` units have been live and active since, the rollback window
+> closed with them, and a release here is now an ordinary wheel upgrade
+> ([`10-rename-cutover.md`](10-rename-cutover.md), [`08-payme.md`](08-payme.md) §11.4). Live now:
+> `bayram-bot`/`-worker`/`-admin`/`-payme`, `/etc/bayram/{bayram.env,bayram-admin.env,payme.env}`,
+> prefix `BAYRAM_`. **The database, the roles, the OS user and `/var/backups/hbd` keep the old
+> name on purpose** (`10-rename-cutover.md` §3.11), so an `hbd` spelling below is not stale.
 >
 > One command settles which prefix is live on a host whose history you do not know:
 >
@@ -41,9 +41,9 @@ repository cannot know what collects a process's stdout. On `abdu-test` the answ
 **systemd's journal and nothing else**, and `developer` is in `adm`, so no `sudo` is needed:
 
 ```bash
-ssh aizu 'journalctl -u hbd-admin  -o cat | grep admin.boot.ok'
-ssh aizu 'journalctl -u hbd-worker -o cat | grep "retention sweep finished"'
-ssh aizu 'journalctl -u hbd-payme  -o cat | grep payme.boot.ok'
+ssh aizu 'journalctl -u bayram-admin  -o cat | grep admin.boot.ok'
+ssh aizu 'journalctl -u bayram-worker -o cat | grep "retention sweep finished"'
+ssh aizu 'journalctl -u bayram-payme  -o cat | grep payme.boot.ok'
 ```
 
 `-o cat` is what strips systemd's own prefix and leaves the application's JSON line intact.
@@ -547,6 +547,11 @@ stamps an allowance period and so never stops being due (config.py:516-524).
 > no `hbd` archive, no Redis and no HMAC key. An operator who reads `list-timers`, sees a
 > nightly backup and stops reading has drawn exactly the wrong conclusion. See *Backup and
 > restore*, below.
+>
+> **RE-VERIFIED 2026-09-19 and unchanged.** `deploy/install-bayram-backup.sh` has been in this
+> repository since 2026-09-16 and would create `bayram-backup.timer`, but it has **still never
+> been run on the host**: no such unit, nothing for it in `list-timers`. `aizu-backup.timer` is
+> still the only nightly timer on the box and still belongs to somebody else.
 
 **Five** ARQ cron entries exist, all of them registered on the **worker** and nowhere else
 (runtime/jobs.py:820-963 — the five `cron(` calls are at :821, :854, :875, :909 and :951).
@@ -1160,6 +1165,41 @@ looks like a backup is somebody else's.** `[HOST 2026-09-11]`
   `HBD_ADMIN_AUDIT_HMAC_KEY`. And the one that is covered is covered by hand, on the days
   somebody happened to run a release script.
 
+> **THE SCHEDULED BACKUP IS WRITTEN AND STILL NOT INSTALLED. Both halves of that sentence
+> matter.** `[HOST 2026-09-19]`, read-only: there is **no `bayram-backup` unit in
+> `/etc/systemd/system`**, **nothing for it in `systemctl list-timers`**, and `/opt/bayram/sbin`
+> holds only `bayram-release`. Every sentence above this callout is therefore still true of the
+> host today. What changed is only that the fix is now a script somebody runs rather than work
+> somebody has to do:
+>
+> ```bash
+> scp deploy/install-bayram-backup.sh aizu:/tmp/install-bayram-backup.sh
+> ssh -t aizu 'sudo bash /tmp/install-bayram-backup.sh'
+> ssh aizu 'sudo systemctl list-timers bayram-backup.timer --no-pager && sudo /opt/bayram/sbin/bayram-backup status'
+> ```
+>
+> **Re-stage and run it in one breath.** A copy has sat in `/tmp` on that host since 2026-09-17
+> without being run; `/tmp` is world-writable and the copy is developer-owned, so do not trust
+> the one that is already there. The installer is idempotent — a rerun that changes nothing
+> reports "unchanged" — and it **never clobbers a filled-in destination**, because it writes
+> `/etc/bayram/backup-offbox.env` only if that file is absent.
+>
+> What it installs: a nightly `pg_dump | gzip` under a flock, 14 local dailies kept, a sentinel
+> at `/var/lib/bayram-backup/status.json`, an `OnFailure` notice, and — since 2026-09-19 — an
+> **off-box copy that is inert until a destination is configured**. Configuring one is a
+> separate, deliberate step and an owner decision: `sudoedit /etc/bayram/backup-offbox.env`
+> (read `.example` beside it first), **then re-run the installer**, which is what writes the
+> socket drop-in the unit needs to reach a network at all. The transports, the verify-after-
+> upload rule and the three destination options are argued in
+> [`11-ci-cd.md`](11-ci-cd.md) §2, item 4.
+>
+> Two things this does **not** fix, so that nobody reads the timer as more than it is. It dumps
+> **Postgres only** — the archive, Redis and the audit HMAC key of the four items below remain
+> covered by nothing. And `/var/backups/bayram` already collects `pre-*.sql.gz` from
+> `bayram-release`, while the nightly prune is deliberately scoped to the `bayram-daily-` prefix:
+> **nothing rotates the pre-release dumps at all**, so the directory the timer is about to fill
+> is already growing unbounded from another source.
+
 ### What must be in a backup for it to be sufficient
 
 Four things, and three of them are not the database.
@@ -1314,7 +1354,40 @@ idempotent, so this costs nothing when the grants did survive.
 > `"upgrade head"` as a single argument, so the alembic fallback is the path that actually ran.
 >
 > Still open: whether `pg_dump`'s defaults on this host bring ACLs back, and where an off-box
-> copy of any of these dumps lives. Nothing on the machine answers the second one.
+> copy of any of these dumps lives. ~~Nothing on the machine answers the second one.~~
+>
+> **The second one stopped being unanswerable on 2026-09-19 — it is now unanswered rather than
+> unanswerable, and those are different.** There is a file whose whole job is to hold that
+> answer: **`/etc/bayram/backup-offbox.env`**, `root:root` `0600`, written by
+> `deploy/install-bayram-backup.sh`. `BAYRAM_BACKUP_OFFBOX_MODE` names the transport (empty,
+> `s3`, `rsync` or `command`) and `BAYRAM_BACKUP_OFFBOX_DEST` names the place. Set them and the
+> question has an answer on the machine, where an operator at 2 a.m. can read it; leave them
+> empty and the honest answer is "nowhere", which is what the nightly run then logs in so many
+> words. `/etc/bayram/backup-offbox.env.example` beside it documents every variable and is
+> rebuilt by the installer on every run, so it cannot drift from the code that reads it.
+>
+> Two commands report the state without reading the file:
+>
+> ```bash
+> ssh aizu 'sudo /opt/bayram/sbin/bayram-backup status'       # "offbox": not-configured | ok | failed | unknown
+> ssh aizu 'sudo /opt/bayram/sbin/bayram-backup check-offbox' # silent + exit 0 until a destination exists
+> ```
+>
+> `status` reports four values and only four. `not-configured` is the deliberate state, not a
+> fault — which is why plain `bayram-backup check` **stays green** on it and why the assertion
+> lives in the separate opt-in `check-offbox` verb, which exits 4 only when a destination **is**
+> configured and the last copy did not report `ok`. `unknown` is what the `OnFailure` notice
+> reports when the run died: it used to say `not-configured`, which is a confident lie when a
+> configured push is exactly what failed.
+>
+> **Off-box RETENTION is the destination's job, and this is the part people assume wrong.** The
+> script prunes only the local 14 dailies and **never deletes anything remote**, on purpose. A
+> bucket lifecycle rule, or a cron at the far end, is what stops the remote copy growing without
+> bound — nothing on this host will do it for you.
+>
+> **None of this is running.** The installer has still never been run on `abdu-test` (verified
+> read-only 2026-09-19), so there is no nightly dump to copy anywhere yet. See *Backup and
+> restore*, above.
 
 ```
 # 4. The archive. Rows and bytes are backed up by two different mechanisms and can be

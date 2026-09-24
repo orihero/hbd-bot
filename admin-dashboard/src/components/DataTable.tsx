@@ -7,7 +7,7 @@ import { Skeleton } from "./Skeleton";
 /**
  * The kit's Task List, made generic.
  *
- * Metrics are measured from `.openpencil-export/task-list.jsx`, not chosen: white card at
+ * Metrics are measured from `reference/openpencil-export/task-list.jsx`, not chosen: white card at
  * radius 15 with the overflow clipped, a 16/400/-0.64 header in --ink-300, and a 12/600/-0.36
  * cell in --ink-800 with an optional 12/400 second line in --cell-2. Screens that need that
  * second line take `CELL_SECONDARY_CLASS` from here rather than re-deriving three numbers.

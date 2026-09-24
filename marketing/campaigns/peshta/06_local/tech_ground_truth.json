@@ -1,0 +1,1040 @@
+{
+  "master_audio": {
+    "path": "audio/Xamdam_Sobirov_Peshta_27s_to_1m10s.mp3",
+    "codec": "mp3",
+    "codec_long": "MP3 (MPEG audio layer 3)",
+    "sample_rate_hz": 48000,
+    "channels": 2,
+    "channel_layout": "stereo",
+    "sample_fmt": "fltp",
+    "stream_bit_rate_bps": 320000,
+    "container_bit_rate_bps": 320462,
+    "stream_duration_s": 43.0,
+    "container_duration_s": 43.0,
+    "container_start_time_s": 0.023021,
+    "decoded_pcm_samples_at_22050": 948150,
+    "decoded_duration_s": 43.0,
+    "size_bytes": 1722488,
+    "tags": {
+      "major_brand": "isom",
+      "minor_version": "512",
+      "compatible_brands": "isomiso2mp41",
+      "comment": "made with suno; created=2026-09-18T12:46:27Z; id=bf67f0b3-a962-45ea-8bec-8c27a7ca9e74",
+      "encoder": "Lavf63.1.101"
+    },
+    "is_exactly_43_000s": true,
+    "note": "start_time 0.023021 s is the MP3 decoder-delay offset the container reports; the DECODED stream is exactly 43.000000 s (948150 samples @ 22050 Hz). 43.000 s x 30 fps = exactly 1290 frames."
+  },
+  "higgsfield_master": {
+    "path": "final_polat_peshta_reel.mp4",
+    "exists": true,
+    "size_bytes": 33325964,
+    "container_duration_s": 43.0,
+    "container_bit_rate_bps": 6200179,
+    "video": {
+      "codec": "h264",
+      "profile": "High",
+      "width": 1080,
+      "height": 1920,
+      "sample_aspect_ratio": "1:1",
+      "display_aspect_ratio": "9:16",
+      "pix_fmt": "yuv420p",
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "cfr": true,
+      "duration_s": 43.0,
+      "nb_frames_header": 1290,
+      "nb_frames_decoded": 1290,
+      "bit_rate_bps": 5865484,
+      "color_space": "bt709",
+      "color_range": "tv"
+    },
+    "frames_over_fps_s": 43.0,
+    "audio": {
+      "codec": "aac",
+      "profile": "LC",
+      "sample_rate_hz": 48000,
+      "channels": 2,
+      "channel_layout": "stereo",
+      "duration_s": 43.0,
+      "bit_rate_bps": 325558
+    }
+  },
+  "captioned_master": {
+    "path": "final_polat_peshta_reel_captioned.mp4",
+    "exists": true,
+    "size_bytes": 35215254,
+    "container_duration_s": 43.0,
+    "container_bit_rate_bps": 6551675,
+    "video": {
+      "codec": "h264",
+      "profile": "High",
+      "width": 1080,
+      "height": 1920,
+      "sample_aspect_ratio": "1:1",
+      "display_aspect_ratio": "9:16",
+      "pix_fmt": "yuv420p",
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "cfr": true,
+      "duration_s": 43.0,
+      "nb_frames_header": 1290,
+      "nb_frames_decoded": 1290,
+      "bit_rate_bps": 6216981,
+      "color_space": "bt709",
+      "color_range": "tv"
+    },
+    "frames_over_fps_s": 43.0,
+    "audio": {
+      "codec": "aac",
+      "profile": "LC",
+      "sample_rate_hz": 48000,
+      "channels": 2,
+      "channel_layout": "stereo",
+      "duration_s": 43.0,
+      "bit_rate_bps": 325558
+    },
+    "note": "Caption + CTA burn-in of the same master; added to FINAL_RECREATION_REPORT 5 while this probe was running. Same 1290 frames / 43.000 s / 1080x1920 / 30 fps CFR."
+  },
+  "driving_clips": [
+    {
+      "name": "clip_01_verse1_setup.mp4",
+      "index": 1,
+      "width": 1080,
+      "height": 1920,
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "container_duration_s": 2.266667,
+      "frames": 68,
+      "duration_from_frames_s": 2.266667,
+      "measured_window_s": [
+        0.0,
+        2.266667
+      ],
+      "doc_window_s": [
+        0.0,
+        2.256
+      ],
+      "doc_duration_s": 2.256,
+      "delta_duration_s": 0.010667,
+      "delta_start_s": 0.0,
+      "delta_end_s": 0.010667,
+      "has_audio": false,
+      "nearest_beat_s": 0.2612,
+      "cut_offset_from_beat_s": -0.2612
+    },
+    {
+      "name": "clip_02_hook_duo_roses.mp4",
+      "index": 2,
+      "width": 1080,
+      "height": 1920,
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "container_duration_s": 2.933333,
+      "frames": 88,
+      "duration_from_frames_s": 2.933333,
+      "measured_window_s": [
+        2.266667,
+        5.2
+      ],
+      "doc_window_s": [
+        2.256,
+        5.176
+      ],
+      "doc_duration_s": 2.92,
+      "delta_duration_s": 0.013333,
+      "delta_start_s": 0.010667,
+      "delta_end_s": 0.024,
+      "has_audio": false,
+      "nearest_beat_s": 2.1446,
+      "cut_offset_from_beat_s": 0.1221
+    },
+    {
+      "name": "clip_03_chorus_drop_hero.mp4",
+      "index": 3,
+      "width": 1080,
+      "height": 1920,
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "container_duration_s": 3.8,
+      "frames": 114,
+      "duration_from_frames_s": 3.8,
+      "measured_window_s": [
+        5.2,
+        9.0
+      ],
+      "doc_window_s": [
+        5.176,
+        8.976
+      ],
+      "doc_duration_s": 3.8,
+      "delta_duration_s": -0.0,
+      "delta_start_s": 0.024,
+      "delta_end_s": 0.024,
+      "has_audio": false,
+      "nearest_beat_s": 5.2834,
+      "cut_offset_from_beat_s": -0.0834
+    },
+    {
+      "name": "clip_04_call_response_1.mp4",
+      "index": 4,
+      "width": 1080,
+      "height": 1920,
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "container_duration_s": 2.833333,
+      "frames": 85,
+      "duration_from_frames_s": 2.833333,
+      "measured_window_s": [
+        9.0,
+        11.833333
+      ],
+      "doc_window_s": [
+        8.976,
+        11.816
+      ],
+      "doc_duration_s": 2.84,
+      "delta_duration_s": -0.006667,
+      "delta_start_s": 0.024,
+      "delta_end_s": 0.017333,
+      "has_audio": false,
+      "nearest_beat_s": 9.0501,
+      "cut_offset_from_beat_s": -0.0501
+    },
+    {
+      "name": "clip_05_call_response_2.mp4",
+      "index": 5,
+      "width": 1080,
+      "height": 1920,
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "container_duration_s": 2.6,
+      "frames": 78,
+      "duration_from_frames_s": 2.6,
+      "measured_window_s": [
+        11.833333,
+        14.433333
+      ],
+      "doc_window_s": [
+        11.816,
+        14.416
+      ],
+      "doc_duration_s": 2.6,
+      "delta_duration_s": 0.0,
+      "delta_start_s": 0.017333,
+      "delta_end_s": 0.017333,
+      "has_audio": false,
+      "nearest_beat_s": 11.5612,
+      "cut_offset_from_beat_s": 0.2721
+    },
+    {
+      "name": "clip_06_strophe_swagger_strut.mp4",
+      "index": 6,
+      "width": 1080,
+      "height": 1920,
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "container_duration_s": 4.833333,
+      "frames": 145,
+      "duration_from_frames_s": 4.833333,
+      "measured_window_s": [
+        14.433333,
+        19.266667
+      ],
+      "doc_window_s": [
+        14.416,
+        19.256
+      ],
+      "doc_duration_s": 4.84,
+      "delta_duration_s": -0.006667,
+      "delta_start_s": 0.017333,
+      "delta_end_s": 0.010667,
+      "has_audio": false,
+      "nearest_beat_s": 14.7001,
+      "cut_offset_from_beat_s": -0.2668
+    },
+    {
+      "name": "clip_07_duo_charm_finger_wag.mp4",
+      "index": 7,
+      "width": 1080,
+      "height": 1920,
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "container_duration_s": 6.233333,
+      "frames": 187,
+      "duration_from_frames_s": 6.233333,
+      "measured_window_s": [
+        19.266667,
+        25.5
+      ],
+      "doc_window_s": [
+        19.256,
+        25.496
+      ],
+      "doc_duration_s": 6.24,
+      "delta_duration_s": -0.006667,
+      "delta_start_s": 0.010667,
+      "delta_end_s": 0.004,
+      "has_audio": false,
+      "nearest_beat_s": 19.0946,
+      "cut_offset_from_beat_s": 0.1721
+    },
+    {
+      "name": "clip_08_canyon_transition_stomp.mp4",
+      "index": 8,
+      "width": 1080,
+      "height": 1920,
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "container_duration_s": 4.466667,
+      "frames": 134,
+      "duration_from_frames_s": 4.466667,
+      "measured_window_s": [
+        25.5,
+        29.966667
+      ],
+      "doc_window_s": [
+        25.496,
+        29.976
+      ],
+      "doc_duration_s": 4.48,
+      "delta_duration_s": -0.013333,
+      "delta_start_s": 0.004,
+      "delta_end_s": -0.009333,
+      "has_audio": false,
+      "nearest_beat_s": 25.3723,
+      "cut_offset_from_beat_s": 0.1277
+    },
+    {
+      "name": "clip_09_canyon_double_point.mp4",
+      "index": 9,
+      "width": 1080,
+      "height": 1920,
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "container_duration_s": 5.933008,
+      "frames": 178,
+      "duration_from_frames_s": 5.933333,
+      "measured_window_s": [
+        29.966667,
+        35.9
+      ],
+      "doc_window_s": [
+        29.976,
+        35.896
+      ],
+      "doc_duration_s": 5.92,
+      "delta_duration_s": 0.013333,
+      "delta_start_s": -0.009333,
+      "delta_end_s": 0.004,
+      "has_audio": false,
+      "nearest_beat_s": 29.7668,
+      "cut_offset_from_beat_s": 0.1999
+    },
+    {
+      "name": "clip_10_elif_red_steps.mp4",
+      "index": 10,
+      "width": 1080,
+      "height": 1920,
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "container_duration_s": 1.6,
+      "frames": 48,
+      "duration_from_frames_s": 1.6,
+      "measured_window_s": [
+        35.9,
+        37.5
+      ],
+      "doc_window_s": [
+        35.896,
+        37.496
+      ],
+      "doc_duration_s": 1.6,
+      "delta_duration_s": -0.0,
+      "delta_start_s": 0.004,
+      "delta_end_s": 0.004,
+      "has_audio": false,
+      "nearest_beat_s": 36.0446,
+      "cut_offset_from_beat_s": -0.1446
+    },
+    {
+      "name": "clip_11_polat_hero_outro.mp4",
+      "index": 11,
+      "width": 1080,
+      "height": 1920,
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "container_duration_s": 5.5,
+      "frames": 165,
+      "duration_from_frames_s": 5.5,
+      "measured_window_s": [
+        37.5,
+        43.0
+      ],
+      "doc_window_s": [
+        37.496,
+        43.0
+      ],
+      "doc_duration_s": 5.504,
+      "delta_duration_s": -0.004,
+      "delta_start_s": 0.004,
+      "delta_end_s": 0.0,
+      "has_audio": false,
+      "nearest_beat_s": 37.3001,
+      "cut_offset_from_beat_s": 0.1999
+    }
+  ],
+  "driving_clips_summary": {
+    "count": 11,
+    "total_frames": 1290,
+    "total_duration_s": 43.0,
+    "matches_master_frame_count": true,
+    "all_1080x1920": true,
+    "all_30fps_cfr": true,
+    "max_abs_delta_duration_s": 0.013333,
+    "max_abs_delta_boundary_s": 0.024
+  },
+  "alt_build": {
+    "path": "05_build/build/reel_peshta_1080x1920.mp4",
+    "exists": true,
+    "size_bytes": 48847570,
+    "container_duration_s": 43.0,
+    "container_bit_rate_bps": 9087920,
+    "video": {
+      "codec": "h264",
+      "profile": "High",
+      "width": 1080,
+      "height": 1920,
+      "sample_aspect_ratio": "1:1",
+      "display_aspect_ratio": "9:16",
+      "pix_fmt": "yuv420p",
+      "r_frame_rate": "30/1",
+      "avg_frame_rate": "30/1",
+      "cfr": true,
+      "duration_s": 43.0,
+      "nb_frames_header": 1290,
+      "nb_frames_decoded": 1290,
+      "bit_rate_bps": 8815823,
+      "color_space": "bt709",
+      "color_range": "tv"
+    },
+    "frames_over_fps_s": 43.0,
+    "audio": {
+      "codec": "aac",
+      "profile": "LC",
+      "sample_rate_hz": 48000,
+      "channels": 2,
+      "channel_layout": "stereo",
+      "duration_s": 43.0,
+      "bit_rate_bps": 263452
+    },
+    "concat_entries": 32,
+    "note": "A DIFFERENT, 32-shot assembly of the same 43 s / 1290 frames. Same container spec as the Higgsfield master, higher video bitrate. Not the delivered master."
+  },
+  "beat_grid": {
+    "analysis_libraries_available": false,
+    "analysis_libraries_checked": [
+      "numpy",
+      "scipy",
+      "librosa",
+      "soundfile",
+      "aubio",
+      "madmom"
+    ],
+    "method": "marketing/campaigns/peshta/bpm_detect.py detect() -- pure stdlib, two-band half-wave-rectified log flux envelope at 344.53 Hz + harmonic autocorrelation, peak refined on the 16th ACF peak",
+    "source": "audio/Xamdam_Sobirov_Peshta_27s_to_1m10s.mp3",
+    "decoded_duration_s": 43.0,
+    "bpm": 95.575,
+    "bpm_coarse_winner": 95.703,
+    "confidence": "MEDIUM",
+    "confidence_metrics": {
+      "acf_peak": 0.2681,
+      "peak_over_mean": 8.064,
+      "margin_over_unrelated_lag": 1.368,
+      "envelope_crest": 9.911,
+      "inter_onset_disagreement_beats": 0.2117
+    },
+    "confidence_note": "MEDIUM, not HIGH: margin 1.37 is under the 1.50 bar and the DOUBLE-tempo candidate 191.41 BPM scores 0.4233 against the winner's 0.4411. Treat 95.58 and 191.16 as the same grid at two subdivisions; cut on the 95.58 beat and it also lands on the 191 grid.",
+    "candidates": [
+      {
+        "bpm": 95.7,
+        "lag_frames": 216,
+        "score": 0.4411
+      },
+      {
+        "bpm": 191.41,
+        "lag_frames": 108,
+        "score": 0.4233
+      },
+      {
+        "bpm": 127.6,
+        "lag_frames": 162,
+        "score": 0.3536
+      },
+      {
+        "bpm": 63.8,
+        "lag_frames": 324,
+        "score": 0.3292
+      },
+      {
+        "bpm": 76.56,
+        "lag_frames": 270,
+        "score": 0.3223
+      }
+    ],
+    "beat_period_s": 0.627778,
+    "bar_period_s": 2.511111,
+    "first_beat_s": 0.2612,
+    "beat_count": 69,
+    "beats_s": [
+      0.2612,
+      0.889,
+      1.5168,
+      2.1446,
+      2.7723,
+      3.4001,
+      4.0279,
+      4.6557,
+      5.2834,
+      5.9112,
+      6.539,
+      7.1668,
+      7.7946,
+      8.4223,
+      9.0501,
+      9.6779,
+      10.3057,
+      10.9334,
+      11.5612,
+      12.189,
+      12.8168,
+      13.4446,
+      14.0723,
+      14.7001,
+      15.3279,
+      15.9557,
+      16.5834,
+      17.2112,
+      17.839,
+      18.4668,
+      19.0946,
+      19.7223,
+      20.3501,
+      20.9779,
+      21.6057,
+      22.2334,
+      22.8612,
+      23.489,
+      24.1168,
+      24.7446,
+      25.3723,
+      26.0001,
+      26.6279,
+      27.2557,
+      27.8834,
+      28.5112,
+      29.139,
+      29.7668,
+      30.3946,
+      31.0223,
+      31.6501,
+      32.2779,
+      32.9057,
+      33.5334,
+      34.1612,
+      34.789,
+      35.4168,
+      36.0446,
+      36.6723,
+      37.3001,
+      37.9279,
+      38.5557,
+      39.1834,
+      39.8112,
+      40.439,
+      41.0668,
+      41.6946,
+      42.3223,
+      42.9501
+    ],
+    "beat_frames_30fps": [
+      8,
+      27,
+      46,
+      64,
+      83,
+      102,
+      121,
+      140,
+      159,
+      177,
+      196,
+      215,
+      234,
+      253,
+      272,
+      290,
+      309,
+      328,
+      347,
+      366,
+      385,
+      403,
+      422,
+      441,
+      460,
+      479,
+      498,
+      516,
+      535,
+      554,
+      573,
+      592,
+      611,
+      629,
+      648,
+      667,
+      686,
+      705,
+      724,
+      742,
+      761,
+      780,
+      799,
+      818,
+      837,
+      855,
+      874,
+      893,
+      912,
+      931,
+      950,
+      968,
+      987,
+      1006,
+      1025,
+      1044,
+      1063,
+      1081,
+      1100,
+      1119,
+      1138,
+      1157,
+      1176,
+      1194,
+      1213,
+      1232,
+      1251,
+      1270,
+      1289
+    ],
+    "downbeats_s": [
+      0.2612,
+      2.7723,
+      5.2834,
+      7.7946,
+      10.3057,
+      12.8168,
+      15.3279,
+      17.839,
+      20.3501,
+      22.8612,
+      25.3723,
+      27.8834,
+      30.3946,
+      32.9057,
+      35.4168,
+      37.9279,
+      40.439,
+      42.9501
+    ],
+    "downbeat_frames_30fps": [
+      8,
+      83,
+      159,
+      234,
+      309,
+      385,
+      460,
+      535,
+      611,
+      686,
+      761,
+      837,
+      912,
+      987,
+      1063,
+      1138,
+      1213,
+      1289
+    ],
+    "strongest_downbeats": [
+      {
+        "t_s": 15.3279,
+        "strength": 3.06,
+        "frame_30fps": 460
+      },
+      {
+        "t_s": 10.3057,
+        "strength": 2.8272,
+        "frame_30fps": 309
+      },
+      {
+        "t_s": 40.439,
+        "strength": 2.6236,
+        "frame_30fps": 1213
+      },
+      {
+        "t_s": 17.839,
+        "strength": 2.5084,
+        "frame_30fps": 535
+      },
+      {
+        "t_s": 5.2834,
+        "strength": 2.4029,
+        "frame_30fps": 159
+      },
+      {
+        "t_s": 35.4168,
+        "strength": 2.1957,
+        "frame_30fps": 1063
+      },
+      {
+        "t_s": 22.8612,
+        "strength": 2.1073,
+        "frame_30fps": 686
+      },
+      {
+        "t_s": 12.8168,
+        "strength": 2.053,
+        "frame_30fps": 385
+      }
+    ],
+    "drop_candidates": [
+      {
+        "t_s": 25.3723,
+        "frame_30fps": 761,
+        "step_up": 0.1036,
+        "after_mean": 0.4728
+      },
+      {
+        "t_s": 12.8168,
+        "frame_30fps": 385,
+        "step_up": 0.0973,
+        "after_mean": 0.5676
+      },
+      {
+        "t_s": 7.7946,
+        "frame_30fps": 234,
+        "step_up": 0.0542,
+        "after_mean": 0.5046
+      },
+      {
+        "t_s": 32.9057,
+        "frame_30fps": 987,
+        "step_up": 0.0359,
+        "after_mean": 0.4573
+      },
+      {
+        "t_s": 30.3946,
+        "frame_30fps": 912,
+        "step_up": 0.0316,
+        "after_mean": 0.4686
+      },
+      {
+        "t_s": 10.3057,
+        "frame_30fps": 309,
+        "step_up": 0.0266,
+        "after_mean": 0.5312
+      }
+    ],
+    "strongest_transients": [
+      {
+        "t_s": 2.2901,
+        "strength": 4.516,
+        "frame_30fps": 69
+      },
+      {
+        "t_s": 1.2161,
+        "strength": 4.199,
+        "frame_30fps": 36
+      },
+      {
+        "t_s": 11.5258,
+        "strength": 3.929,
+        "frame_30fps": 346
+      },
+      {
+        "t_s": 2.1217,
+        "strength": 3.903,
+        "frame_30fps": 64
+      },
+      {
+        "t_s": 8.0747,
+        "strength": 3.701,
+        "frame_30fps": 242
+      },
+      {
+        "t_s": 14.8666,
+        "strength": 3.475,
+        "frame_30fps": 446
+      },
+      {
+        "t_s": 7.4478,
+        "strength": 3.368,
+        "frame_30fps": 223
+      },
+      {
+        "t_s": 1.8402,
+        "strength": 3.235,
+        "frame_30fps": 55
+      },
+      {
+        "t_s": 24.1168,
+        "strength": 3.214,
+        "frame_30fps": 724
+      },
+      {
+        "t_s": 29.1381,
+        "strength": 3.213,
+        "frame_30fps": 874
+      },
+      {
+        "t_s": 4.3508,
+        "strength": 3.122,
+        "frame_30fps": 131
+      },
+      {
+        "t_s": 9.3722,
+        "strength": 3.119,
+        "frame_30fps": 281
+      },
+      {
+        "t_s": 15.3368,
+        "strength": 3.06,
+        "frame_30fps": 460
+      },
+      {
+        "t_s": 18.6108,
+        "strength": 2.946,
+        "frame_30fps": 558
+      },
+      {
+        "t_s": 41.8511,
+        "strength": 2.876,
+        "frame_30fps": 1256
+      },
+      {
+        "t_s": 9.8453,
+        "strength": 2.867,
+        "frame_30fps": 295
+      },
+      {
+        "t_s": 7.3346,
+        "strength": 2.828,
+        "frame_30fps": 220
+      },
+      {
+        "t_s": 10.3155,
+        "strength": 2.827,
+        "frame_30fps": 309
+      },
+      {
+        "t_s": 19.1042,
+        "strength": 2.792,
+        "frame_30fps": 573
+      },
+      {
+        "t_s": 15.0233,
+        "strength": 2.767,
+        "frame_30fps": 451
+      }
+    ],
+    "per_second_envelope_mean": [
+      0.4472,
+      0.5079,
+      0.5427,
+      0.3962,
+      0.4504,
+      0.4321,
+      0.4688,
+      0.5537,
+      0.5455,
+      0.4146,
+      0.4117,
+      0.5845,
+      0.5974,
+      0.5359,
+      0.5694,
+      0.4237,
+      0.4677,
+      0.6263,
+      0.4469,
+      0.4555,
+      0.3956,
+      0.3689,
+      0.4003,
+      0.3566,
+      0.3506,
+      0.4123,
+      0.4821,
+      0.524,
+      0.4339,
+      0.3531,
+      0.4376,
+      0.4736,
+      0.4945,
+      0.4225,
+      0.455,
+      0.4364,
+      0.4733,
+      0.4832,
+      0.4921,
+      0.3883,
+      0.3974,
+      0.3513,
+      0.3349
+    ],
+    "per_second_overall_mean": 0.4557,
+    "shot_boundaries_vs_beats": [
+      {
+        "shot": 1,
+        "cut_s": 0.0,
+        "cut_frame_30fps": 0,
+        "nearest_beat_s": 0.2612,
+        "offset_s": -0.2612
+      },
+      {
+        "shot": 2,
+        "cut_s": 2.266667,
+        "cut_frame_30fps": 68,
+        "nearest_beat_s": 2.1446,
+        "offset_s": 0.1221
+      },
+      {
+        "shot": 3,
+        "cut_s": 5.2,
+        "cut_frame_30fps": 156,
+        "nearest_beat_s": 5.2834,
+        "offset_s": -0.0834
+      },
+      {
+        "shot": 4,
+        "cut_s": 9.0,
+        "cut_frame_30fps": 270,
+        "nearest_beat_s": 9.0501,
+        "offset_s": -0.0501
+      },
+      {
+        "shot": 5,
+        "cut_s": 11.833333,
+        "cut_frame_30fps": 355,
+        "nearest_beat_s": 11.5612,
+        "offset_s": 0.2721
+      },
+      {
+        "shot": 6,
+        "cut_s": 14.433333,
+        "cut_frame_30fps": 433,
+        "nearest_beat_s": 14.7001,
+        "offset_s": -0.2668
+      },
+      {
+        "shot": 7,
+        "cut_s": 19.266667,
+        "cut_frame_30fps": 578,
+        "nearest_beat_s": 19.0946,
+        "offset_s": 0.1721
+      },
+      {
+        "shot": 8,
+        "cut_s": 25.5,
+        "cut_frame_30fps": 765,
+        "nearest_beat_s": 25.3723,
+        "offset_s": 0.1277
+      },
+      {
+        "shot": 9,
+        "cut_s": 29.966667,
+        "cut_frame_30fps": 899,
+        "nearest_beat_s": 29.7668,
+        "offset_s": 0.1999
+      },
+      {
+        "shot": 10,
+        "cut_s": 35.9,
+        "cut_frame_30fps": 1077,
+        "nearest_beat_s": 36.0446,
+        "offset_s": -0.1446
+      },
+      {
+        "shot": 11,
+        "cut_s": 37.5,
+        "cut_frame_30fps": 1125,
+        "nearest_beat_s": 37.3001,
+        "offset_s": 0.1999
+      }
+    ],
+    "shot_boundaries_on_beat_count": 1,
+    "shot_boundaries_on_beat_note": "1 of 11 existing Higgsfield cuts land within +-80 ms of a detected beat. The existing edit was cut to shot content, NOT to this grid."
+  },
+  "doc_claims_checked": [
+    {
+      "claim": "FINAL_RECREATION_REPORT 2: master is 43.000 s / 1290 frames / 1080x1920 / 30 fps CFR",
+      "verdict": "CONFIRMED"
+    },
+    {
+      "claim": "FINAL_RECREATION_REPORT 2: moov atom at byte offset 32 (faststart)",
+      "verdict": "CONFIRMED",
+      "measured": "ftyp@0 size 32, moov@32 size 48191"
+    },
+    {
+      "claim": "FINAL_RECREATION_REPORT 2: zero black frames",
+      "verdict": "CONFIRMED",
+      "measured": "ffmpeg blackdetect d=0.05 pix_th=0.10 reported nothing"
+    },
+    {
+      "claim": "FINAL_RECREATION_REPORT 2: audio AAC-LC 48 kHz stereo 325 kbps",
+      "verdict": "CONFIRMED",
+      "measured": "aac LC 48000 Hz stereo 325558 bps"
+    },
+    {
+      "claim": "FINAL_RECREATION_REPORT 3: per-shot 'Calibrated Window' seconds",
+      "verdict": "DISAGREES",
+      "measured": "Frame-quantised boundaries drift up to +24 ms (shots 02 and 03 end at 5.200 / 9.000 s, the doc says 5.176 / 8.976). Every shot's frame COUNT is right and the 11 sum to exactly 1290; only the seconds column is wrong.",
+      "authoritative": "frame counts, not seconds"
+    },
+    {
+      "claim": "driving_clips/SHOT_TABLE.md 'Frames (30fps)' column",
+      "verdict": "CONFIRMED",
+      "measured": "68/88/114/85/78/145/187/134/178/48/165 - matches ffprobe decode exactly. SHOT_TABLE's own seconds column carries the same rounding error as the report."
+    },
+    {
+      "claim": "FINAL_RECREATION_REPORT header: master audio lives at /Users/ai/Downloads/... (also SHOT_TABLE 'Master Audio')",
+      "verdict": "DISAGREES",
+      "measured": "Both docs cite a Downloads path outside the repo. The in-repo copy marketing/campaigns/peshta/audio/Xamdam_Sobirov_Peshta_27s_to_1m10s.mp3 is byte-identical in size (1722488). Cite the in-repo path; the Downloads one is not portable."
+    },
+    {
+      "claim": "SHOT_TABLE / report: beat drop at rel 6.920 s (frame 208)",
+      "verdict": "UNCONFIRMED",
+      "measured": "frame 208 at 30 fps is 6.9333 s, not 6.920 s (0.4 frame apart). 6.920 s is not on the detected beat grid either - nearest beat 7.1668 s, -0.247 s away. The 1 s flux envelope shows no energy step there (6-7 s reads 0.4688 against the 43 s mean 0.4557); the strongest bar-line step-up is at 25.372 s. The drop is a doc assertion carried over from the SOURCE video (34.184 s), not something measurable in this Suno parody master.",
+      "doc_frame": 208
+    },
+    {
+      "claim": "FINAL_RECREATION_REPORT 5: captioned master 33.58 MB, 1080x1920, 30 fps CFR, 1290 frames",
+      "verdict": "CONFIRMED",
+      "measured": "35215254 bytes = 33.58 MiB, 1080x1920, 30/1 CFR, 1290 frames, 43.000 s, video 6216981 bps, audio aac 48 kHz stereo 325558 bps"
+    },
+    {
+      "claim": "FINAL_RECREATION_REPORT 5: 'Line 5 slams on 6.92s sub-bass drop'",
+      "verdict": "UNCONFIRMED",
+      "measured": "Same unmeasurable drop as above - no flux step at 6.92 s."
+    }
+  ],
+  "_meta": {
+    "generated_by": "marketing/campaigns/peshta/06_local/probe_ground_truth.py",
+    "ffprobe": "ffprobe version 9.0.1 Copyright (c) 2007-2026 the FFmpeg developers",
+    "all_values_measured": true,
+    "fps_assumed_for_frame_math": 30.0
+  }
+}

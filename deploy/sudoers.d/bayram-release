@@ -49,6 +49,16 @@ developer ALL=(root) NOPASSWD: BAYRAM_RELEASE_RO
 # that is the moment to revisit this line, not before.
 developer ALL=(root) PASSWD: BAYRAM_RELEASE_RW
 
+# LOAD ORDER IS WHY THAT `PASSWD:` LINE STILL MEANS ANYTHING — DO NOT RENAME THIS FILE.
+# sudo reads /etc/sudoers.d in lexical order and the LAST match wins. The live order today is
+# 90-developer-nopasswd, README, aizu-deploy, bayram-deploy, bayram-release. The first of those
+# contains `developer ALL=(ALL) NOPASSWD:ALL` (see the section below), and the only reason the
+# three write verbs above still prompt for a password is that `bayram-release` sorts AFTER
+# `90-`. Confirmed in `sudo -n -l`, which lists them as PASSWD. Rename this drop-in to anything
+# sorting earlier — `05-bayram-release`, say — and deploy, rollback and backup silently become
+# passwordless. Once 90-developer-nopasswd is gone the point is moot; until then it is load
+# bearing.
+
 # --- what is deliberately NOT granted ----------------------------------------
 # NO pg_dump grant. The predecessor scripts run `sudo -u postgres pg_dump hbd`, and granting
 # that to the deploy account would be the largest standing data-exposure grant on the box: it
@@ -78,16 +88,18 @@ developer ALL=(root) PASSWD: BAYRAM_RELEASE_RW
 # provider's out-of-band console, not ssh.
 
 # ============================================================================
-# THE LIVE GRANTS, READ 2026-09-16. THIS FILE'S ORIGINAL PREMISE WAS WRONG.
+# THE LIVE GRANTS, READ 2026-09-16 AND RE-READ 2026-09-19. UPDATED IN PLACE.
 # ============================================================================
-# `sudo -n -l` on abdu-test was finally run, and it answers the question this file was written
-# around. Two corrections, and the second is a security finding.
+# `sudo -n -l` on abdu-test answered the question this file was written around. Two
+# corrections, and the second is a security finding. Both were re-measured on 2026-09-19 and
+# the second one has got WORSE since it was written; read to the end before acting on it.
 #
-# CORRECTION 1 — the bayram-* units ARE granted. This file previously warned that the live set
-# might name only hbd-* units and cover none of the four now running. It does not: there is an
-# extensive NOPASSWD block covering enable/disable/start/stop/restart/status/is-active on all
-# four bayram-*.service units, alongside a stale set of hbd-* grants for units that no longer
-# exist. The stale half is clutter and should be removed; the bayram half already works.
+# CORRECTION 1 — the bayram-* units ARE granted, and this is still true. This file previously
+# warned that the live set might name only hbd-* units and cover none of the four now running.
+# It does not: /etc/sudoers.d/bayram-deploy carries enable/disable/start/stop/restart/is-active
+# on all four bayram-*.service units. The stale hbd-* half that sat beside them was removed on
+# 2026-09-19, along with the `status` and wildcard-`journalctl` verbs; that file's own header
+# records each removal and the exact line to put it back.
 #
 # CORRECTION 2 — the first line of the grant list is:
 #
@@ -99,51 +111,84 @@ developer ALL=(root) PASSWD: BAYRAM_RELEASE_RW
 # through a path somebody can audit rather than through `sudo -i`.
 #
 # ----------------------------------------------------------------------------
-# A PASSWORDLESS ROOT ESCALATION EXISTS TODAY. FIX IT BEFORE ANYTHING ELSE.
+# THE 2026-09-16 ESCALATION WAS CLOSED. A WORSE ONE REPLACED IT THE NEXT DAY.
 # ----------------------------------------------------------------------------
-# The live set contains:
+# WHAT THIS SECTION USED TO SAY, and what became of it. The live set contained
 #
 #     (root) NOPASSWD: /usr/bin/bash /opt/hbd/deploy-payme.sh
 #
-# and on the host, verified 2026-09-16:
+# pointing at a file `developer` owned, in a directory `developer` owned — passwordless root.
+# THAT FIX LANDED: the grant is absent from /etc/sudoers.d/hbd-deploy and from `sudo -n -l`,
+# re-read 2026-09-19.
 #
-#     -rwxr-xr-x 1 developer developer  434  /opt/hbd/deploy-payme.sh
-#     drwxr-xr-x 5 developer developer 4096  /opt/hbd
+# IT WAS THEN MADE MOOT. /etc/sudoers.d/90-developer-nopasswd — `-r--r----- root root`, 33
+# bytes, mtime 2026-09-17 13:55, i.e. the day AFTER that audit and hours after this file was
+# installed at 09:17 — contains exactly one line:
 #
-# `developer` OWNS the file that sudo will execute as root without a password, and owns the
-# directory it sits in. Writing anything into that path and running it is root, with no
-# password and no prompt.
+#     developer ALL=(ALL) NOPASSWD:ALL
 #
-# Severity, stated precisely and not inflated: `developer` already has `(ALL:ALL) ALL`, so this
-# is not "no root" becoming "root" — it is PASSWORD-PROTECTED root becoming PASSWORDLESS root.
-# That still matters on a host that terminates payment callbacks. Anything running AS developer
-# — a stolen ssh key, a compromised process, any unattended automation — gets root without
-# knowing the password, and the `use_pty` audit intent in the Defaults line is bypassed.
+# Not inferred from a listing. Verified executable on 2026-09-19:
 #
-# THE FIX, one line, no new machinery: delete that grant. It exists to run a per-feature deploy
-# script that `deploy/bayram-release` replaces. If something like it must stay in the interim,
-# the file it points at has to be root-owned and not writable by its invoker:
+#     $ ssh aizu 'sudo -n /usr/bin/id -u'
+#     0
 #
-#     sudo chown root:root /opt/hbd/deploy-payme.sh
-#     sudo chmod 0755     /opt/hbd/deploy-payme.sh
+# That is strictly worse than the grant it superseded: the old one was passwordless root
+# through one named script, this is passwordless root through anything. Every scoped grant on
+# this host, including the `PASSWD:` line above, is cosmetic while it exists — the only reason
+# that line still prompts is load order, which is the note beside it.
 #
-# The same rule applies to every NOPASSWD grant naming a script path: THE TARGET MUST NOT BE
-# WRITABLE BY THE ACCOUNT BEING GRANTED. Note that `/opt/bayram` is correctly root:root, which
-# is why this file installs the release script there and not into the old `/opt/hbd` tree.
+# THE TARGET OF THE OLD GRANT IS STILL HAZARDOUS IN SHAPE. /opt/hbd/deploy-payme.sh remains
+# `developer:developer 0755` inside a `developer`-owned /opt/hbd, so re-adding a grant for it
+# would reopen the same hole. The rule that closed it stands, and it is the rule, not the
+# instance, that matters: THE TARGET MUST NOT BE WRITABLE BY THE ACCOUNT BEING GRANTED. Note
+# that /opt/bayram and /opt/bayram/sbin/bayram-release are correctly root:root, which is why
+# this file installs the release script there and not into the old /opt/hbd tree.
+#
+# REMOVING THE BLANKET RULE WILL NOT LOCK ANYONE OUT — checked before recommending it.
+# `passwd -S developer` reports `developer P ...` and /etc/shadow holds a real yescrypt hash,
+# so the `(ALL:ALL) ALL` password path works. This matters because it is the ONLY root path
+# left: /root/.ssh/authorized_keys is zero bytes and sshd reports `permitrootlogin
+# without-password`.
+#
+# It IS a behaviour change for humans, not only hygiene: every ad-hoc `ssh aizu 'sudo ...'`
+# without `-t` starts failing on a password prompt it cannot answer. That is why
+# deploy/prune-stale-sudo-grants.sh puts the removal behind its own `--drop-blanket` flag —
+# the clutter cleanup is not held hostage to that decision, and the two acts are separately
+# reversible.
 #
 # ----------------------------------------------------------------------------
-# TWO MORE GRANTS WORTH A DECISION (neither is an escalation; both are exposure)
+# THE TWO GRANTS THAT NEEDED A DECISION — both answered 2026-09-19
 # ----------------------------------------------------------------------------
-#   (root) NOPASSWD: /usr/bin/tee /etc/bayram/payme.env
-#     A root write of arbitrary content into a credential file (root:hbd 0640) read by the
-#     payme gateway. It exists so a human can install that file without a password. Consider
-#     requiring a password for it, or dropping it now that the file is installed.
+#   (root) NOPASSWD: /usr/bin/tee /etc/bayram/payme.env      -> REMOVED
+#     Four checks say it is NOT an escalation: /etc/bayram is root:root 0755 so the path
+#     cannot be swapped, the argument is exact so the target cannot be redirected,
+#     /usr/bin/tee is root:root, and the consumer bayram-payme.service runs `User=hbd
+#     NoNewPrivileges=true` reading the path from `Environment=BAYRAM_PAYME_ENV_FILE=` rather
+#     than systemd `EnvironmentFile=`. It was removed anyway, as an INTEGRITY grant over the
+#     payment boundary: it is a standing, passwordless ability to replace the Payme merchant
+#     verification key, and whoever sets that key can forge inbound callbacks against our own
+#     ledger. Second, smaller reason: if the file were ever absent, `tee` would create it at
+#     0666 & umask and publish the cashbox key world-readable. Full note, with the line to put
+#     it back, in deploy/sudoers.d/bayram-deploy.
 #
-#   (postgres) NOPASSWD: /usr/bin/pg_dump hbd
-#     Exactly the standing data-exposure grant the "what is deliberately NOT granted" section
-#     above argues against — and it is already live. It lets a non-root account dump every
-#     customer record, payment and recipient name to anywhere it can write. `bayram-release`
-#     does its own dump as root and does not need this. Consider removing it.
+#   (postgres) NOPASSWD: /usr/bin/pg_dump hbd                -> NOTHING DEPENDS ON IT
+#     The "what is deliberately NOT granted" section above argues against exactly this grant,
+#     and it is live in /etc/sudoers.d/hbd-deploy. The 2026-09-19 survey went looking for the
+#     caller that needs it and there is none: deploy/bayram-release requires EUID 0 before it
+#     reaches its own `sudo -u postgres pg_dump`, deploy/install-bayram-backup.sh likewise
+#     requires root before both its probe and its dump, and deploy-support.sh, deploy-d17.sh,
+#     deploy-payme.sh and cutover-to-bayram.sh are all `Run as root, once: sudo bash ...` —
+#     the first three now carrying `RETIRED 2026-09-19 — superseded by deploy/bayram-release.
+#     DO NOT RUN.` A process already at uid 0 needs no sudoers entry to become postgres. The
+#     nightly backup timer is not a consumer either: it is not installed on this host at all
+#     (/etc/systemd/system/bayram-backup* does not exist; the only backup timer running is
+#     aizu-backup.timer, a different product).
+#     So this is not "consider removing" any more — nothing breaks when it goes. It is still
+#     an OWNER DECISION rather than a cleanup, because docs/deployment/08-payme.md documents
+#     it in several places as the sanctioned read path into production data for debugging.
+#     Removing it is a workflow change as well as a security fix, which is why
+#     deploy/prune-stale-sudo-grants.sh keeps it by default and deletes it only on
+#     `--drop-pg-dump`.
 #
 # None of the above should be changed while you are the only session on the box. Keep a second
 # root shell open, as the validation section says.

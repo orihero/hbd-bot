@@ -24,16 +24,16 @@ mean exactly three different things:
 Postgres, and the contents of `/var/lib/hbd` (mode `0750 hbd:hbd`, untraversable from
 `developer`). Every variable this page cannot see is marked, never guessed.
 
-**The host is PRE-RENAME and that is correct.** Units are `hbd-bot`, `hbd-worker`,
-`hbd-admin`, `hbd-payme`; paths are `/etc/hbd/*.env`, `/opt/hbd/venv`, `/var/lib/hbd`; the
-installed package is `hbd`; the environment prefix is `HBD_`; the database is `hbd`. This
-**repository** is post-rename (`src/bayram`, `BAYRAM_`). Both are right at once. Every code
-claim below is spelled `bayram`/`BAYRAM_` because that is what the tree says; every host
-claim is spelled `hbd`/`HBD_` because that is what the machine says. **Do not sweep this page
-with a rename pass** — a blind rename has already corrupted host facts in this tree once
-(`00-host-inventory.md`, finding 7). The cutover script is staged at
-`/opt/hbd/cutover-to-bayram.sh` and **has not run** `[HOST 2026-09-10]`, so the divergence is
-live, not historical.
+**CORRECTED 2026-09-19 — the host is POST-RENAME, and the paragraph that stood here was
+exactly backwards.** The cutover ran. `abdu-test` now serves `bayram-bot`, `bayram-worker`,
+`bayram-admin` and `bayram-payme` out of `/opt/bayram/venv`, reading `/etc/bayram/bayram.env`,
+`bayram-admin.env` and `payme.env` with every key spelled `BAYRAM_`, and no `hbd-*` unit
+survives (`deploy/README.md`, verified read-only 2026-09-19). What did **not** move is what
+still makes a blind rename pass wrong: the OS account `hbd`, `/var/lib/hbd`, `/var/log/hbd`
+and the database `hbd` all stay (`deploy/cutover-to-bayram.sh:11-18`). The divergence is
+therefore **historical**. Every host reading below is stamped `[HOST 2026-09-10]` or
+`[HOST 2026-09-11]` and was taken before the cutover; nothing on this page has been re-read
+against the machine since, so read its unit and path names with that substitution in hand.
 
 [00-host-inventory.md](00-host-inventory.md) is the inventory of record and **wins** wherever
 it disagrees with this page; where a fact is fully developed there, this page points at it by
@@ -117,10 +117,11 @@ hbd-payme`, each confirmed live by a PID owned by user `hbd` in `ps`:
 ```
 
 Four lines, four modules, one interpreter, and the module paths are spelled `hbd.*` because
-the installed package is `hbd` — see the naming note in the STATUS block above. The shape the
-paragraph above predicts is exactly the shape the host has: an interpreter path plus `-m`, with
-no console script anywhere, and the admin and gateway bind addresses living on the command
-line rather than in any configuration file.
+the installed package was `hbd` when this was read; the cutover has since replaced it with the
+`bayram` wheel — see the corrected STATUS block above. The shape the paragraph above predicts
+is exactly the shape the host has: an interpreter path plus `-m`, with no console script
+anywhere, and the admin and gateway bind addresses living on the command line rather than in
+any configuration file.
 
 The by-hand commands stay three. `bootstrap` leaves no trace anything else reports, and whether
 it has ever been run on this host is still `[UNPROVEN]` — the only evidence would be a row in
@@ -252,11 +253,15 @@ retention is the distro default and the only bound is disk. `journalctl` needs n
 > **The units on the host and the units in `deploy/systemd/` are different files and only one
 > of them runs anything.** `deploy/systemd/bayram-*.service` and
 > `deploy/first-install-proposal.md` propose `bayram-*` unit names, a `/srv/bayram` checkout,
-> `User=bayram` and `/etc/bayram/*.env`. **None of those exist on this machine**: `/srv` is
-> empty, the install is a wheel, and the units are the four `hbd-*` files above
-> `[HOST 2026-09-10]`. Read `deploy/` as the post-rename target state — the cutover script
-> staged at `/opt/hbd/cutover-to-bayram.sh` is what would produce it, and it **has not run**.
-> Do not quote a `bayram` path as though it were a host fact.
+> `User=bayram` and `/etc/bayram/*.env`. On 2026-09-10 none of those existed: `/srv` was
+> empty, the install was a wheel, and the units were the four `hbd-*` files above
+> `[HOST 2026-09-10]`. **CORRECTED 2026-09-19 — the cutover has since run**, so the `bayram-*`
+> unit names and `/etc/bayram/*.env` are host facts now (`deploy/README.md`, verified
+> read-only 2026-09-19). What survives the correction is the sharper half: the units the
+> cutover wrote keep `User=hbd` and `WorkingDirectory=/var/lib/hbd`, and `/srv/bayram` has
+> never existed here (`deploy/cutover-to-bayram.sh:11-18`). Read `deploy/systemd/` as a
+> proposal the cutover did not adopt, and the `hbd-*` readings below as the machine as it
+> stood before it ran.
 
 ## What talks to what
 
@@ -927,7 +932,7 @@ because the question is what tells you why the answer matters:
 
 | Was asked | Answer |
 | --- | --- |
-| whether the VPS uses systemd, and whether `bayram-bot`/`bayram-worker`/`bayram-admin` exist under the names and paths `deploy/systemd/*.service` proposes | **systemd, yes — under the PRE-RENAME names.** Four units `hbd-bot`, `hbd-worker`, `hbd-admin`, `hbd-payme` in `/etc/systemd/system/`, `root:root 0644`, `User=hbd`, `WorkingDirectory=/var/lib/hbd`. The proposal's `bayram-*` names, `/srv/bayram` checkout and `/etc/bayram` paths **do not exist**. |
+| whether the VPS uses systemd, and whether `bayram-bot`/`bayram-worker`/`bayram-admin` exist under the names and paths `deploy/systemd/*.service` proposes | **systemd, yes — and, since the cutover, under the `bayram-*` names.** On 2026-09-10/11 the four units were `hbd-bot`, `hbd-worker`, `hbd-admin`, `hbd-payme` in `/etc/systemd/system/`, `root:root 0644`, `User=hbd`, `WorkingDirectory=/var/lib/hbd`, and the proposal's `bayram-*` names, `/srv/bayram` checkout and `/etc/bayram` paths did not exist. **Corrected 2026-09-19:** the cutover has since run, so `/etc/bayram` and `/etc/systemd/system/bayram-{bot,worker,admin,payme}.service` do exist and those four are the units that are `active` (`deploy/README.md`, verified read-only 2026-09-19). What is still true is the sharper half of the original answer: `deploy/systemd/*.service` is **not** what runs there. Those four propose `User=bayram` and a `/srv/bayram` checkout, and `/srv/bayram` has never existed on this host; the units the cutover wrote keep `User=hbd` and `WorkingDirectory=/var/lib/hbd` (`deploy/cutover-to-bayram.sh:11-18`). |
 | whether all the processes run there at all, on one box or several | **Four, one box (`abdu-test`), all active**, sharing one PostgreSQL 16 and one Redis 7.0.15 on loopback. |
 | what terminates TLS in front of the admin API, whether it adds HSTS, and whether it appends or replaces `X-Forwarded-For` | **Cloudflare terminates TLS**; a tunnel (`aizu-vds`) speaks plain HTTP to `127.0.0.1:80`; Caddy v2.11.4 proxies to `:8080`. **Caddy adds `Strict-Transport-Security: max-age=86400`**, no `includeSubDomains`, no `preload`; the application adds none — proven by comparing a response through Caddy with one straight to `:8080`, not merely asserted from `src/bayram/admin/middleware/security_headers.py:73-77`. The `X-Forwarded-For` half is not settled — see the wall below. |
 | the working directory, and therefore whether the bot's `Path.cwd()/var` and the admin's `admin_data_root` resolve to the same path | **`/var/lib/hbd` on all four units**, and the bot resolves `workspace: /var/lib/hbd/var/workspace`. The two roots agree **by construction** unless `HBD_ADMIN_DATA_ROOT` overrides the panel's — which is the one residual unknown here. |

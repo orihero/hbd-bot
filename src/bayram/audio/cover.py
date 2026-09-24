@@ -10,7 +10,7 @@ missing dependency is a build failure rather than a lost song.
 
 **The cover is one image, shipped whole, and it is deliberately not composed here.** It
 already carries the handle, the product's name and its own typography, set by whoever draws
-``brand/Logo-Bot.png``. Drawing text over it in Pillow would put two typefaces on one
+``marketing/brand/Logo-Bot.png``. Drawing text over it in Pillow would put two typefaces on one
 picture and re-state a handle the artwork states better — and it would make the brand's own
 file a background rather than the deliverable. So this module resizes and encodes; it does
 not lay anything out. Changing the cover means replacing the PNG, with no code change and
@@ -25,8 +25,8 @@ still carried three other ways — the ID3 tags, the caption and the archived ly
 so dropping it from the picture costs the watermark nothing (:mod:`bayram.watermark`).
 
 **Why it is a copy of the brand file rather than a reference to it.** The application ships
-as a wheel and ``brand/`` is not packaged, so the bytes have to live under
-:data:`_COVER_PACKAGE`. It is a byte-for-byte copy of ``brand/Logo-Bot.png``, and
+as a wheel and ``marketing/brand/`` is not packaged, so the bytes have to live under
+:data:`_COVER_PACKAGE`. It is a byte-for-byte copy of ``marketing/brand/Logo-Bot.png``, and
 ``test_cover.py`` asserts the two are identical — a redraw that forgets to re-copy fails a
 test rather than shipping a stranger last month's artwork. The full 1254x1254 source is
 shipped rather than a pre-scaled cut so that byte-identity is the test, instead of a
@@ -79,7 +79,7 @@ COVER_SUFFIX: Final[str] = ".jpg"
 #: error rather than a silently artwork-less message.
 COVER_MAX_BYTES: Final[int] = 200_000
 
-#: The cover artwork, as package data: a byte-for-byte copy of ``brand/Logo-Bot.png``. See
+#: The cover artwork, as package data: a byte-for-byte copy of ``marketing/brand/Logo-Bot.png``. See
 #: the module docstring for why it is copied rather than referenced, and ``test_cover.py``
 #: for the test that keeps the two in step.
 _COVER_PACKAGE: Final[str] = "bayram.audio.assets"
@@ -149,7 +149,7 @@ def _draw(staged: Path, *, size: int) -> None:
     into ``GeneratedAsset.sha256``: the resampling filter has to be a decision this file
     records, not whatever the installed version happens to prefer.
 
-    The centre crop is not currently doing anything — ``brand/Logo-Bot.png`` is square, so
+    The centre crop is not currently doing anything — ``marketing/brand/Logo-Bot.png`` is square, so
     the crop box is the whole image — and it is here for the day somebody replaces that file
     with a rectangle. Without it a non-square source would be *stretched* to fit, which
     distorts a face and a wordmark and would ship looking like a bug rather than a swap.

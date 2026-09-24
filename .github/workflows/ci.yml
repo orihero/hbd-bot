@@ -1,7 +1,7 @@
 # The gate this repository has described in prose since TEST_INFRA.md §7.3 and never had.
 #
 # WHAT IT IS AND IS NOT. This runs the two gates the Makefile already defines — `make check`
-# (ruff, mypy --strict, the unit suite under the 80% coverage floor) and the console's four
+# (ruff, mypy --strict, the unit suite under the 80% coverage floor) and the console's six
 # scripts — on every push and pull request. It is deliberately NOT a deploy: see
 # `docs/deployment/11-ci-cd.md` for why production stays operator-triggered on this host.
 #
@@ -158,6 +158,27 @@ jobs:
       # this is a gate rather than a nuisance — and it stays honest as new tiers are added.
       - name: Localization key-parity suite
         run: npm run test:e2e:strict
+
+      # LAST, deliberately. These two are the newest gates and the most likely to fail on
+      # something unrelated to the code under review; putting them after the suites above
+      # means a build break cannot hide a vitest result, which is the same reason the steps
+      # above are separate rather than chained with `&&`.
+      #
+      # CI HAS NEVER BUILT THE SPA. `npm run typecheck` is `tsc --noEmit`; a production build
+      # that fails — a bad import, a plugin that throws, an asset Rollup cannot resolve — was
+      # caught by nothing until this step, and was found on the host instead.
+      - name: Production build
+        run: npm run build
+
+      # The document the panel actually serves is `src/bayram/admin/static/index.html`, which
+      # `.gitignore:63` excludes and which only the step above produces. `tests/test_admin/
+      # test_csp_shape.py` asserts the CSP directive by directive and audits the SOURCE shell
+      # for code the policy would refuse, but it can never see what Vite emitted — so a plugin
+      # that starts injecting an inline `<script>` (the shape `@vitejs/plugin-legacy` has), or
+      # a head rewrite that drops the `__BAYRAM_CSP_NONCE__` placeholder, is visible here and
+      # nowhere else in this repository. It fails, never skips, when the build output is absent.
+      - name: The built shell satisfies the CSP
+        run: npm run check:built-shell
 
   migration-safety:
     name: Migrations — additive-only
@@ -344,16 +365,58 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [python, node, migration-safety]
     if: always()
+    # Every other job in this file bounds itself; this one did not. A required check with no
+    # clock is the one job whose hang cannot be waited out — it blocks the merge button until
+    # somebody notices and cancels by hand. Five minutes is generous for three string compares.
+    timeout-minutes: 5
     steps:
       - name: Require the gates that must not be skipped
         run: |
+          # ACCUMULATE, THEN EXIT — do not turn these back into bare `test` calls. GitHub runs
+          # a step under `bash -e`, so the first failing `test` ends the step and the operator
+          # is told about exactly one broken dependency. When python AND node both fail, that
+          # costs a whole CI round trip to discover the second one. Every result is judged and
+          # printed before anything exits.
+          failed=""
+
           echo "python=${{ needs.python.result }}"
           echo "node=${{ needs.node.result }}"
           echo "migration-safety=${{ needs.migration-safety.result }}"
-          test "${{ needs.python.result }}" = "success"
-          test "${{ needs.node.result }}" = "success"
-          # Skipped is legitimate here: the job only runs on pull_request.
+          echo
+
+          # `always()` above means this job runs even when a dependency failed, was cancelled
+          # or was skipped — so every result must be judged explicitly. Anything that is not
+          # `success` here is a failure: without that, a skipped dependency reads as success
+          # and this check goes green when the suite never ran.
+          for job in python node; do
+            case "$job" in
+              python) result="${{ needs.python.result }}" ;;
+              node)   result="${{ needs.node.result }}" ;;
+            esac
+            if [ "$result" = "success" ]; then
+              echo "OK       $job = $result"
+            else
+              echo "REQUIRED $job = $result"
+              failed="$failed $job"
+            fi
+          done
+
+          # Skipped is legitimate for THIS job only: it runs on pull_request alone
+          # (see its `if:` above), so a push build legitimately never starts it.
           case "${{ needs.migration-safety.result }}" in
-            success|skipped) ;;
-            *) exit 1 ;;
+            success) echo "OK       migration-safety = success" ;;
+            skipped) echo "OK       migration-safety = skipped (pull_request only)" ;;
+            *)       echo "REQUIRED migration-safety = ${{ needs.migration-safety.result }}"
+                     failed="$failed migration-safety" ;;
           esac
+
+          # `integration` is deliberately NOT a dependency of this job. It is opt-in behind the
+          # `run-integration` label and has not been green long enough to block a merge; the
+          # comment on that job explains when to promote it. Adding it here is the whole edit.
+          if [ -n "$failed" ]; then
+            echo
+            echo "gate FAILED — these did not succeed:$failed"
+            exit 1
+          fi
+          echo
+          echo "gate passed."

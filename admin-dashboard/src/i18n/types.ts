@@ -612,12 +612,6 @@ export interface UsersTranslations {
     readonly zeroOrNever: string;
     readonly languageJoin: string;
   };
-  /** The one sentence under each filter control that says what it does to the request. */
-  readonly hints: {
-    readonly blocked: string;
-    readonly language: string;
-    readonly accountCreated: string;
-  };
   /** The toolbar's subtitle, which is a claim about the read and never about the rows. */
   readonly subtitles: {
     readonly reading: string;
@@ -640,23 +634,19 @@ export interface UsersTranslations {
   };
   /** The advanced segment section inside the filter panel. */
   readonly segment: {
-    readonly heading: string;
-    readonly description: string;
     /** Names the builder region for assistive tech, on this screen specifically. */
     readonly builderLabel: string;
   };
   /**
    * The audience count under the builder.
    *
-   * It counts the SEGMENT alone (`/segments/preview` takes `?segment=` and nothing else), and
-   * `matched`, `skippedBlocked` and `skippedBotBlocked` overlap — only `reachable` is the
-   * complement. No string here may add two of them together.
+   * It counts the SEGMENT alone (`/segments/preview` takes `?segment=` and nothing else), so
+   * `matched` is the only population this panel states. The reachable count and the two
+   * overlapping skips belong to the campaign wizard, which is where a send is approved.
    */
   readonly audience: {
     readonly counting: string;
     readonly matched: string;
-    readonly reachable: string;
-    readonly quickFiltersExcluded: string;
     readonly failed: string;
     readonly forbidden: string;
   };
@@ -1455,13 +1445,10 @@ export interface RevealTranslations {
  */
 export interface SegmentsTranslations {
   readonly title: string;
-  readonly description: string;
   readonly builderLabel: string;
   readonly everyone: string;
-  readonly everyoneWarning: string;
   readonly frozenNote: string;
   readonly readOnlyNote: string;
-  readonly summary: string;
   readonly addRule: string;
   readonly addGroup: string;
   readonly removeRule: string;
@@ -1553,9 +1540,6 @@ export interface SegmentsTranslations {
     readonly asc: string;
     readonly desc: string;
     readonly registryDefault: string;
-    readonly narrowsNothing: string;
-    readonly aggregateCost: string;
-    readonly nullsSortLow: string;
   };
   readonly issues: {
     readonly heading: string;

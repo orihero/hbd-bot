@@ -1,15 +1,51 @@
 # The hbd → bayram rename cutover
 
-> **STATUS — written 2026-09-11, checked against the host the same day.** This page is the
-> document [`08-payme.md`](08-payme.md) §11.6 demanded — *"give it its own document, its own
-> window, and its own rollback plan"* — and the runbook behind Gate A of
+> **DONE — the cutover ran on 2026-09-14, and this page is now the record of it rather than the
+> plan for it.** The four `bayram-*` units are what runs the product on `abdu-test`; `/opt/bayram`
+> holds the venv, `/etc/bayram/*.env` the configuration, and `BAYRAM_` is the prefix on both
+> sides of the divergence this page was written to get across. **A release on this host is today an
+> ordinary wheel upgrade through `bayram-release`** ([`11-ci-cd.md`](11-ci-cd.md),
+> [`08-payme.md`](08-payme.md) §11.4) — never this page, and never `cutover-to-bayram.sh`, which
+> `deploy/README.md` keeps deliberately as the rollback reference and as the record of which paths
+> and accounts did *not* move.
+>
+> **What ran, what verified it, and what this page still cannot say about it, as of 2026-09-19:**
+>
+> - **The blocking precondition was cleared first.** §4.1's `GRANT` landed somewhere between
+>   2026-09-11 and 2026-09-14: the query that returned `f|f|0024` on the 11th returned **`t|t|0025`**
+>   `[HOST 2026-09-14]` — both privileges present on schema `public`, and the head moved from `0024`
+>   to `0025` ([`00-host-inventory.md`](00-host-inventory.md) row 50, *"RESOLVED 2026-09-14"*).
+> - **The wheel that the script names is the 09-14 build**,
+>   `bayram_bot-0.1.0-20260914-py3-none-any.whl`, `sha256 b5682d1f…c15bcf`
+>   (`deploy/cutover-to-bayram.sh:38,42`) `[TREE 2026-09-19]`.
+> - **Verification passed on 2026-09-14.** That is `deploy/sudoers.d/bayram-deploy:10` saying so, in
+>   the header of the file whose own edit had been made to wait on it; §4.7 and §8.3 below record
+>   the same date from the other end. **Which of §7's nine checks were run, and by whom, nobody
+>   wrote down**, and this page will not invent it. Treat §7 as the suite that would re-establish
+>   the claim, not as the transcript of one that was kept.
+> - **The rollback window closed with it**, and §6 is retained rather than retired, because the old
+>   units were disabled rather than deleted. Whether they are *still* there is less settled than it
+>   ought to be — two files in this tree, both dated 2026-09-19, disagree about it — and §6 carries
+>   both readings and the one command that would settle them.
+> - **By what route the 09-14 run actually went — the staged script, or §5's steps by hand — is
+>   `[UNPROVEN]`.** Nobody took a journal transcript of it while it was cheap to take, the way §2.1
+>   was taken for the failure. That is the one debt this page cannot pay off from here.
+>
+> **The 2026-09-10 attempt below is neither deleted nor decoration.** It failed, it took all four
+> processes down for 2 min 54 s, and the afternoon spent reading the journal afterwards is what
+> produced §4.1 — without which the 09-14 run would have died in the same place.
+
+> **STATUS — written 2026-09-11, checked against the host the same day; outcome added 2026-09-19.**
+> This page is the document [`08-payme.md`](08-payme.md) §11.6 demanded — *"give it its own
+> document, its own window, and its own rollback plan"* — and the runbook behind Gate A of
 > [`09-payme-go-live.md`](09-payme-go-live.md) §2, which is a gate board and was never meant to
 > carry the steps.
 >
-> **The operation has already been attempted once. It failed, it took all four processes down
-> for 2 min 54 s, and its half-built debris is on the host right now.** §2 is the transcript,
-> §2.3 is the root cause, and it is not a bug in the script: **the cutover starts with a
-> `GRANT`, not with the script.** Nobody had established that before this page was written.
+> **The operation had already been attempted once when this page was written, and that attempt
+> failed**: it took all four processes down for 2 min 54 s and left its half-built debris on the
+> host. §2 is the transcript, §2.3 is the root cause, and it is not a bug in the script: **the
+> cutover starts with a `GRANT`, not with the script.** Nobody had established that before this page
+> was written, and establishing it is what made the 09-14 run possible.
 >
 > ### The four marks
 >
@@ -31,13 +67,22 @@
 >   have to be one fact rather than two, and collapsing such a check to either `[HOST]` or
 >   `[TREE]` would throw away the half that makes it worth anything.
 >
-> **The host is PRE-RENAME and that is correct.** Every host command below is spelled `hbd`,
-> `HBD_`, `/etc/hbd`, `/opt/hbd` because that is what the machine says. Every source citation is
-> spelled `bayram`, `BAYRAM_` because that is what this tree says. Both are right at once — the
-> argument is [`09-payme-go-live.md`](09-payme-go-live.md) §1.2. **Do not sweep this page with a
-> rename pass.** A blind rename has already turned verified host facts into fiction in this tree
-> once ([`00-host-inventory.md`](00-host-inventory.md), finding 7), and this is the one page
-> where both spellings are deliberately present on the same line.
+> **CORRECTED 2026-09-19 — the host was PRE-RENAME when this page was written, and it is not any
+> more.** This paragraph used to open *"The host is PRE-RENAME and that is correct"* and to tell the
+> reader that every host command spelled `hbd`, `HBD_`, `/etc/hbd`, `/opt/hbd` was what the machine
+> said while every source citation spelled `bayram`, `BAYRAM_` was what this tree said — both right
+> at once, the argument being [`09-payme-go-live.md`](09-payme-go-live.md) §1.2. The second half
+> still holds. The first is now a **date** rather than a state: **every `hbd`-spelled host fact
+> below is a faithful reading of the machine as it stood on 2026-09-10/09-11**, and none of them
+> describes it now. The live spellings are `bayram-*`, `/etc/bayram/*.env`, `/opt/bayram`, and
+> `BAYRAM_` on both sides of a wall that no longer exists.
+>
+> **Still do not sweep this page with a rename pass**, for a reason that has inverted rather than
+> lapsed. A blind rename has already turned verified host facts into fiction in this tree once
+> ([`00-host-inventory.md`](00-host-inventory.md), finding 7) — and here it would do something
+> worse than mislead: it would rewrite the evidence of a failure into a description of the machine
+> that replaced it, and §2.1 is the only transcript of that failure anybody took. Re-spell a row
+> only when you have re-read it under its new name, and leave the rest dated.
 >
 > **Nothing on this page renames the database.** §3.11 argues why.
 
@@ -46,21 +91,29 @@
 ## 0. How to read this page
 
 §1 is the argument — read it even if you think you know it, because the failure mode it names is
-*payments visible, endpoint gone*. §2 is what happened on 2026-09-10 and what state the machine
-is in today. §3 is the inventory: everything that moves, everything that stays, and the nine
-Redis key strings that move silently. §4 is the preconditions — the window cannot open until all
-of them are true, and one of them is a `GRANT` nobody has issued. §5 is the ordered cutover. §6
-is the rollback and the point of no return. §7 is the verification suite, including the
-settlement rehearsal re-run that [`09-payme-go-live.md`](09-payme-go-live.md) §4.0 already says
-this gate reopens for. §8 is the trap list.
+*payments visible, endpoint gone*. §2 is what happened on 2026-09-10 and what state the machine was
+in on 2026-09-11, the day this page was checked against it. §3 is the inventory: everything that
+moves, everything that stays, and the nine Redis key strings that move silently. §4 is the
+preconditions — the window could not open until all of them were true, and one of them was a `GRANT`
+nobody had issued, which is exactly where the 09-10 attempt died. §5 is the ordered cutover. §6 is
+the rollback and the point of no return. §7 is the verification suite, including the settlement
+rehearsal re-run that [`09-payme-go-live.md`](09-payme-go-live.md) §4.0 already says this gate
+reopens for. §8 is the trap list.
 
-**There is a script, it is staged on the host, and this page is not a wrapper around it.**
+**Read §1 through §5 and §7 through §9 in the past tense.** The window opened and closed on
+2026-09-14, and the block at the top of this page is the outcome; what follows is deliberately kept
+in the voice it was written in, because a runbook rewritten into a summary stops being checkable and
+the transcripts are the most valuable thing here. **§6 is the exception** — it is still operable and
+it carries its own note about what closing the window did and did not change.
+
+**There was a script, it was staged on the host, and this page is not a wrapper around it.**
 `/opt/hbd/cutover-to-bayram.sh` (9 271 bytes, `developer:developer` `0755`, dated 2026-09-10
-14:03) is byte-identical to `deploy/cutover-to-bayram.sh` in this tree — `md5sum` agrees,
-`c01caf751134f9d3d7e8c9a6f6d7bafa` `[HOST+TREE 2026-09-11]`. It is a good script and its header
-is the best writing on this subject anybody has produced; §5 cites it by line throughout. But it
-does **not** do six of the things this page says must happen, and §5.0 lists them. Read this page
-and then read the script; do not run the script and then read this page.
+14:03) was byte-identical to `deploy/cutover-to-bayram.sh` in this tree — `md5sum` agreed,
+`c01caf751134f9d3d7e8c9a6f6d7bafa` `[HOST+TREE 2026-09-11]`; the tree copy has been edited since,
+so that hash dates rather than describes it. It is a good script and its header is the best writing
+on this subject anybody has produced; §5 cites it by line throughout. But it did **not** do six of
+the things this page says must happen, and §5.0 lists them. Read this page and then read the script;
+do not run the script and then read this page.
 
 ---
 
@@ -147,7 +200,7 @@ of those fail without an error message.
 
 ---
 
-## 2. It has been attempted. Read this before you schedule anything.
+## 2. It was attempted once before it worked, and that attempt is why §4.1 exists
 
 ### 2.1 The transcript, 2026-09-10
 
@@ -167,7 +220,7 @@ trail and the filesystem.
 | 14:06–14:07 | fresh venv built at `/opt/bayram/venv`; the `bayram` wheel installed | `direct_url.json`, `sha256=84cf7ec4…87c984` |
 | 14:07 | migrations copied; alembic executed as root | root-owned `__pycache__/env.cpython-312.pyc` |
 | **14:07:26.883** | **`hbd@hbd ERROR: no schema has been selected to create in at character 15`**, `STATEMENT: CREATE TABLE alembic_version (…)` | `/var/log/postgresql/postgresql-16-main.log:414-415` |
-| — | step 6 never ran: **no `bayram-*.service` file was ever written and the journal has never mentioned one** | `ls /etc/systemd/system`; `journalctl \| grep -c "bayram-.*\.service"` → `0` |
+| — | step 6 never ran **in that attempt**: no `bayram-*.service` file had been written, and as of 2026-09-11 the journal had never mentioned one. The four that run the product today were written by the 2026-09-14 run | `ls /etc/systemd/system`; `journalctl \| grep -c "bayram-.*\.service"` → `0`, both `[HOST 2026-09-11]` |
 | 14:08:00–14:08:01 | an operator recovered by hand: three `systemctl restart` and one `systemctl start`, through the `NOPASSWD` verbs | `sudo[163966,163969,163972,163975]` |
 | 14:24–14:33 | the `alembic_version` revision and the owner role's grants probed repeatedly; `sudo -u postgres psql` refused for want of a password at 14:24:44 | `sudo` audit trail |
 | 14:28:31 | `/opt/hbd/deploy-payme.sh` **repointed** at a new `diagnose.sh` — see §8.4 | file mtimes; `sudo[171314]` |
@@ -177,7 +230,7 @@ script's own stage `2/9` *stops* the fleet, and a stopped unit is not a failed o
 [`04-release.md`](04-release.md) §0.4 warning 3 — `502` to `admin.bayrambot.uz` at 14:05:12,
 14:06:12 and 14:07:12.
 
-### 2.2 What is on the machine right now, and what it is not
+### 2.2 What was on the machine on 2026-09-11, and what it was not
 
 `[HOST 2026-09-11]`:
 
@@ -189,7 +242,7 @@ script's own stage `2/9` *stops* the fleet, and a stopped unit is not a failed o
 /opt/bayram/venv                              ← a real venv; `import bayram` succeeds
 /opt/bayram/migrations                        ← a copy
 /opt/bayram/migrations/migrations             ← a SECOND copy, inside the first (§8.6)
-/etc/systemd/system/bayram-*.service          ← DOES NOT EXIST, and never has
+/etc/systemd/system/bayram-*.service          ← DID NOT EXIST on this date (see below)
 ```
 
 Two consequences an operator must hold at once. **The debris is inert** — no unit points at it,
@@ -205,6 +258,29 @@ directory is now world-listable where `/etc/hbd` is not, and that is `chmod 0755
 root:hbd`, so `developer` cannot even `stat` the originals to compare mtimes. Treat
 `/etc/bayram/*` as a 2026-09-10 snapshot, never as the configuration — §5 step 5 rewrites all
 three from source for this reason.
+
+> **AND THEN IT STOPPED BEING DEBRIS (noted 2026-09-19).** The 09-14 run promoted three of the four
+> kinds of thing in that listing into the live system. **The three `/etc/bayram` env files** —
+> `bayram.env` and `bayram-admin.env` through `EnvironmentFile=`, `payme.env` through the gateway's
+> pointer (§3.2) — are now the configuration the running units read, not a snapshot of one:
+> [`02-configuration.md`](02-configuration.md) greps
+> `/etc/bayram/bayram-admin.env` on the host and quotes the result `[HOST 2026-09-19]`;
+> `/opt/bayram/venv` is the venv every `ExecStart` names (`deploy/cutover-to-bayram.sh:168-199`);
+> and the last line's `bayram-*.service`, which did not exist when this listing was taken, is four
+> files that are `enabled` and `active running` (`deploy/sudoers.d/bayram-deploy:20-27`
+> `[HOST 2026-09-19]`). **The sentence above that mattered most — *treat `/etc/bayram/*` as a
+> 2026-09-10 snapshot, never as the configuration* — has therefore inverted**, and step 5 rewriting
+> all three from source is what earned the inversion.
+>
+> **Two lines did not convert, and both are still owed an hour.** The `0755` on `/etc/bayram` (§8.7)
+> is unfixed in the script — `chmod 0755 "$NEW_ETC"` is still there at `:86` `[TREE 2026-09-19]` —
+> and it is now the `0755` on the *only* configuration directory this host has, not on a copy of
+> one, which is a worse fact than §8.7 was written to describe. The nested
+> `/opt/bayram/migrations/migrations` (§8.6) may or may not still be there: the script in this tree
+> now opens that stage with `rm -rf "$NEW_ROOT/migrations"` (`:118`) `[TREE 2026-09-19]`, so a
+> script-driven 09-14 run would have swept it — but the route that run took is exactly the thing
+> nobody recorded. Neither line has been re-read on the machine since 2026-09-11, and both are
+> `[UNPROVEN]` today.
 
 ### 2.3 Why it failed, which nobody had established
 
@@ -578,9 +654,28 @@ re-argued.
 
 ---
 
-## 4. Preconditions — the window does not open until all seven are true
+## 4. Preconditions — the window did not open until all seven were true
 
-The first one is new, is not in the script, and is why the last attempt failed.
+The first one was new, is not in the script, and is why the 2026-09-10 attempt failed.
+
+> **THE WINDOW OPENED AND CLOSED, AND ONLY THE FIRST OF THESE SEVEN LEFT EVIDENCE BEHIND
+> (2026-09-19).** §4.1 is settled, and settled from a live session rather than inferred: the query
+> that returned `f|f|0024` on 2026-09-11 returned **`t|t|0025`** `[HOST 2026-09-14]`
+> ([`00-host-inventory.md`](00-host-inventory.md) row 50). Both privileges present, and the head
+> moved. **By what route the `GRANT` was issued, nobody wrote down** — row 50 says so in as many
+> words, and it is §4.1 below that asked the window to record it, so this is the page's own
+> instruction going unheeded rather than somebody else's.
+>
+> The other six are in a weaker position than "satisfied": the cutover completed, so enough of them
+> were true on the day, but no record of §4.2–§4.7 being checked survives. Two are worth naming
+> exactly. **§4.6's four downgrades are fixed in `deploy/cutover-to-bayram.sh` as it stands in this
+> tree today** — `common()` carries `PrivateDevices`, `ReadWritePaths` is appended only by the bot
+> and the worker, the gateway is passed `always` with `TimeoutStopSec=90` and keeps its three extra
+> directives (`:142-203`) `[TREE 2026-09-19]` — but **whether the four units on the host carry that
+> corrected block has never been read back**, and §7.1 is not the check that would answer it;
+> `systemctl cat bayram-payme` in full is. **And §4.7 was not satisfied in the window at all**: the
+> transitional drop-in naming both unit sets was written, the narrowing it deferred waited until
+> 2026-09-19, and as §4.7's own note says, it is still not applied to the host.
 
 ### 4.1 The owner role must be able to create in schema `public`
 
@@ -682,9 +777,44 @@ is the one the next person reads.
 install it at step 8, and delete the `hbd-*` half only after §7 has passed.** A rollback that
 needs a password it does not have is not a rollback.
 
+> **DONE IN THE REPOSITORY, 2026-09-19 — the deletion this section defers was made, and this note
+> records why the deferral expired.** `deploy/sudoers.d/bayram-deploy` is now the post-cutover
+> file: `Cmnd_Alias HBD_ROLLBACK` (ten verbs) and the two `hbd-*` vectors in `UNITS_NOW` are
+> removed, and the header carries a per-removal record with the evidence and the exact line to put
+> each one back.
+>
+> **The reason those grants were stale is NOT that they pointed at nothing.** That is the obvious
+> reading and it is wrong: the four `hbd-*.service` unit files are still in `/etc/systemd/system`,
+> merely `disabled`, so the grants resolved perfectly well. **They are stale because the rollback
+> window closed on 2026-09-14** — the cutover was verified and the four `bayram-*` units have been
+> live and active since. A grant kept for a rollback nobody will perform is not a dead pointer; it
+> is a live grant with no remaining purpose, which is a different and slightly worse thing.
+>
+> **Nothing was widened**, and one thing was moved rather than removed: the three still-live Caddy
+> verbs (`reload`, `restart`, `caddy validate`, all exact and wildcard-free) were re-homed out of
+> `hbd-deploy` into `bayram-deploy` so `hbd-deploy` can be pruned without taking the Payme front
+> end's operational verbs with it. **Still not applied on the host** —
+> `deploy/prune-stale-sudo-grants.sh` is how it lands, `plan` first, and
+> [`07-security.md`](07-security.md) carries the preconditions and the owner decisions.
+
 ---
 
 ## 5. The ordered cutover
+
+> **THIS IS THE RECORD OF AN OPERATION, NOT AN INSTRUCTION TO PERFORM ONE (2026-09-19).** The
+> window opened and closed on 2026-09-14. The steps below are kept in the imperative they were
+> written in, because that is the form in which they stay checkable and because §6 still needs a
+> reader to know what step 5 did to `/etc/bayram` and what step 6 did to `/opt/bayram/venv`. But
+> **nobody should schedule a window from this section again**: a release on this host is an
+> ordinary wheel upgrade through `bayram-release` ([`11-ci-cd.md`](11-ci-cd.md),
+> [`08-payme.md`](08-payme.md) §11.4), and a rename that has already happened does not happen
+> twice.
+>
+> **Which of these steps the 09-14 run actually performed, and in what order, is `[UNPROVEN]`.**
+> No transcript of it was taken. §2.1 is as detailed as it is only because the *failure* was worth
+> an afternoon of journal reading and the success, being a success, was not — which is the ordinary
+> way a good operation ends up worse documented than a bad one. Read §5.0's six omissions as the
+> list of things that had to be done around the script, not as a claim about what was.
 
 ### 5.0 What the staged script does NOT do
 
@@ -849,6 +979,34 @@ not closed until §7.8 has passed.
 ---
 
 ## 6. Rollback, the half that does not roll back, and the point of no return
+
+> **THE ROLLBACK WINDOW CLOSED ON 2026-09-14, AND THIS SECTION IS KEPT ANYWAY (noted 2026-09-19).**
+> Not out of sentiment, and not as history: the two commands in §6.1 are believed to still
+> *resolve*. `deploy/sudoers.d/bayram-deploy:20-27` records the four `hbd-*.service` files as
+> present in `/etc/systemd/system` and `disabled` rather than deleted, measured on 2026-09-19 — in
+> the header of the very file whose `HBD_ROLLBACK` grants were removed that same day *because* they
+> still resolved and not because they pointed at nothing. So what closed is not the possibility of
+> going back. It is the cheapness of it.
+>
+> **One caveat, and it is exactly the kind this page exists to name.** `deploy/README.md` says, of
+> the same date and the same machine, that *"no `hbd-*` unit survives (verified read-only
+> 2026-09-19)"*. The two statements cannot both be right, they were written the same day, and
+> nothing in this tree settles which reading of `systemctl` produced which. **§6.1 is therefore
+> `[UNPROVEN]` as an operable procedure** until somebody runs `ls /etc/systemd/system/hbd-*.service`
+> and `systemctl list-unit-files 'hbd-*'` on the host and writes down the output. Do that before
+> relying on this section, not during the incident that makes you want it.
+>
+> **And the price has changed regardless.** Five days of production settlements have been written
+> under the new name — [`../../marketing/strategy/04-production-pack.md`](../../marketing/strategy/04-production-pack.md)
+> counts fourteen since 2026-09-14 — so §6.2's Redis row and its idempotency row now apply in the
+> reverse direction with the full force they were written with, against real money rather than
+> against a rehearsal. The `HBD_ROLLBACK` verbs are also gone from the drop-in *in this tree*
+> (§4.7), though that edit is not applied on the host yet, so whether §6.1 still needs the password
+> §6.1 already warns about depends on which of the two files `/etc/sudoers.d` currently holds.
+> **Going back is a decision with an owner, not the window's own escape hatch** — which is
+> precisely what §6.3 said it would become. Read §6.3's four irreversible items before anyone
+> reaches for §6.1; item 2, the money that moved under the new name, has stopped being
+> hypothetical.
 
 ### 6.1 The rollback, which is two commands
 
@@ -1092,6 +1250,15 @@ have (§4.2). **Afterwards:** every routine restart, and every `journalctl -u` t
 written to allow, needs interactive `sudo` — so the next incident is slower for a reason nobody
 will connect to a rename. §4.7's answer is a drop-in naming both sets, narrowed to the new one
 only after §7 passes.
+
+> **The narrowing happened in the repository on 2026-09-19 — see §4.7 for what was removed and
+> why the `hbd-*` half was stale (the rollback window closing on 2026-09-14, not a dead pointer).
+> Two of this section's worries were also measured away rather than fixed**: `developer` is in
+> group `adm`, so an unprivileged `journalctl -u bayram-payme` and an unprivileged `systemctl
+> status bayram-payme` both work on this host. The `journalctl` and `systemctl status` grants this
+> section counted as operationally load-bearing were not load-bearing at all, so retiring them
+> makes no incident slower. The verbs that genuinely needed a home — the three Caddy ones — moved
+> into `bayram-deploy` rather than being dropped.
 
 ### 8.4 `/opt/hbd/deploy-payme.sh` is a privileged path whose meaning changed twice in 26 minutes
 

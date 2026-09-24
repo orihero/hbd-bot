@@ -34,7 +34,7 @@ set -uo pipefail
 # `WHEEL=<path>` when staging a newer one, and check the hash rather than the name.
 #   2026-09-11  build: sha256 ef4cb2668d9ee9d9c98007d2f5cee0477084dd5d119c35d123c3280c58d0f73d
 #   2026-09-11b build: sha256 b29d7924149087752b4bfa3434e500ee71bdb118b6dfead649ac7cfe0d62da21
-#     (b is the artwork cover: brand/Logo-Bot.png whole, replacing the drawn text block)
+#     (b is the artwork cover: marketing/brand/Logo-Bot.png whole, replacing the drawn text block)
 #   2026-09-14  build: sha256 b5682d1f63455470a2f71489820c675264ea106844e81a20b45bcd1d26c15bcf
 #     (the dashboard copy diet and the measured ElevenLabs runway. It CONTAINS 20260911b's
 #      artwork cover, so it supersedes rather than competes with it — the two differ by the

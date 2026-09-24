@@ -6,7 +6,7 @@ import { cn } from "@/lib/cn";
  * The kit's Projects toolbar: an 82px white bar at radius 15 with a 1px --stroke edge, a
  * title/subtitle block on the left, filter controls in the middle behind a vertical rule, and
  * the actions on the right behind another. Every measurement is from
- * `.openpencil-export/projects-toolbar.jsx`.
+ * `reference/openpencil-export/projects-toolbar.jsx`.
  *
  * The one departure is that the bar WRAPS. The kit draws a 1392px canvas and positions each
  * child absolutely; a real console gets resized, and a toolbar that overflows takes its

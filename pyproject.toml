@@ -57,14 +57,14 @@ dependencies = [
     # library, and the alternative was a hand-rolled PNG encoder.
     #
     # NO FONT IS INVOLVED. Since 2026-09-11 the cover draws no text at all: it is
-    # `src/bayram/audio/assets/cover.png` — a byte-for-byte copy of `brand/Logo-Bot.png` —
+    # `src/bayram/audio/assets/cover.png` — a byte-for-byte copy of `marketing/brand/Logo-Bot.png` —
     # centre-cropped, resized to 320x320 and JPEG-encoded as the thumbnail of every song.
     # The artwork states the handle in its own typography, so Pillow is doing resampling and
     # encoding here, nothing else. (The >=10.4 floor predates this and was about
     # `ImageFont.load_default(size=...)` returning a scalable face; it is kept because
     # nothing argues for lowering it, not because a font is still needed.)
     #
-    # The image is vendored because the application ships as a wheel and `brand/` is not
+    # The image is vendored because the application ships as a wheel and `marketing/brand/` is not
     # packaged. The full 1254x1254 source is shipped rather than a pre-scaled cut so that
     # `tests/test_audio/test_cover.py` can assert BYTE-IDENTITY with the brand file — a
     # resampled copy could not be compared that way across Pillow versions. That test is

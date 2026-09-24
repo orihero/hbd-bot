@@ -2,7 +2,7 @@
  * `POST /api/reveal` and `POST /api/auth/step-up` — the only path by which a masked value
  * on this surface becomes plaintext, and the re-authentication that unlocks it.
  *
- * Transcribed from `.openpencil-export/users-generations-openapi.json`, `admin/routers/
+ * Transcribed from `reference/openpencil-export/users-generations-openapi.json`, `admin/routers/
  * reveal.py`, `admin/schemas/reveal.py` and `admin/deps.py`.
  *
  * ## Four ordered steps, and the order is the control

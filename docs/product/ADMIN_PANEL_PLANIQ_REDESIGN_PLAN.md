@@ -1,8 +1,52 @@
 # PlanIQ reskin — admin console migration plan
 
+> **STATUS 2026-09-19 — THE BROWSER GATE IS DELIBERATELY NOT BEING RESTORED. Read this before
+> acting on any `playwright` reference below.** Six other files in the repository still say the word,
+> but five of them say it only to record that the suite is gone (`Makefile`, `README.md`,
+> `docs/README.md`, `DECISIONS.md` D15, `docs/deployment/04-release.md`) and the sixth,
+> `docs/product/ADMIN_PANEL_PLAN.md`, still *requires* a smoke flow (§7 Q8). This page is the one
+> that reads throughout as if the harness were live, and it does so a dozen times — in the CI chain
+> (`lint → typecheck → vitest → tokens:check → build → playwright`), in `playwright.config.ts`
+> pins, in per-workstream DoDs. **That harness no longer exists.** It was deleted with `admin-ui`
+> (`DECISIONS.md`, and commit `5a4f90f`): roughly **2,050 lines** across `admin-ui/e2e/` and
+> `tests/e2e/serve_admin_e2e.py`.
+>
+> **Why it is not simply put back.** Its `webServer.command` was a *Python module*, not
+> `vite preview` — because the CSP header this suite exists to assert comes from
+> `SecurityHeadersMiddleware` and `vite preview` does not emit one. Restoring the gate therefore
+> means standing up **both toolchains in one runner**, not adding a devDependency.
+>
+> **What replaced it, and what the replacement cannot see.** `tests/test_admin/test_csp_shape.py`
+> (30 tests, in the existing `python` job) parses the served header into `{directive: sources}` and
+> compares by **equality** rather than containment — `"script-src 'self'" in policy` is true of
+> `script-src 'self' 'unsafe-inline'`, which is the hole it closes — and audits the real
+> `admin-dashboard/index.html`, served through the real app, with an `html.parser` subclass rather
+> than a regex. The `node` job then runs `npm run build && npm run check:built-shell`
+> (`admin-dashboard/tests/built-shell-csp.ts`, jsdom), which is the only thing anywhere that can
+> see the **built** shell, since `src/bayram/admin/static/` is gitignored
+> ([`../deployment/11-ci-cd.md`](../deployment/11-ci-cd.md) §1).
+>
+> **Neither can see a policy that is too STRICT.** They prove the header is the exact string it is
+> meant to be and that the served document asks for nothing that string forbids. They do **not**
+> prove a real engine parsed and *enforced* it, and they are structurally blind to the opposite
+> regression — a policy silently refusing something the app needs at runtime. Only a browser
+> collecting `securitypolicyviolation` events catches that class. Today that set is empty: nothing
+> in `admin-dashboard` injects a `<style>` element, reads the `csp-nonce` meta, calls
+> `new Function`, opens a Worker or fetches off-origin, and **the nonce in `style-src` has no
+> consumer at all**.
+>
+> **The trigger to revisit is concrete, and it is the day `admin-dashboard` gains any of:** Radix,
+> Headless UI, `react-remove-scroll`, emotion, styled-components, a Worker, or an off-origin
+> `connect-src`. *Corrected 2026-09-19:* that trigger is written into **one** module docstring, not
+> two. `tests/test_admin/test_csp_shape.py:40` names the list in full, in the paragraph that also
+> names the empty set; the jsdom half, `admin-dashboard/tests/built-shell-csp.ts`, carries the
+> "WHAT IT CANNOT SEE" argument but not the list — `grep -c Radix` on it returns **0**. So the
+> trigger survives the deletion of this page on the Python side only, and the TypeScript half should
+> be given the same paragraph before anyone relies on it being in both places.
+
 **Axis note.** This lane is `PQ-1 … PQ10`. It is deliberately a *fourth* name because three already
 collide: `docs/product/ADMIN_PANEL_PLAN.md` §14 uses Phases 1–7 (feature delivery),
-`docs/product/ADMIN_PANEL_AUDIT_AND_REDESIGN_PLAN.md` §6 uses Phases 1–3 (defect fixes), and WS0–WS8 exists
+`docs/audits/ADMIN_PANEL_AUDIT_AND_REDESIGN_PLAN.md` §6 uses Phases 1–3 (defect fixes), and WS0–WS8 exists
 only in user memory and appears in no file in this repo. `PQ*` is orthogonal to all three: it changes
 how the console *looks*, never what it *knows*. Where a PQ workstream touches a screen, it touches the
 container and not the data.
@@ -465,6 +509,32 @@ test files.
 ---
 
 ## 4. Workstreams
+
+> **SUPERSEDED 2026-09-19 — §4 and §5 are written against a tree that no longer exists.** Every
+> workstream below names files under `admin-ui/src/…`, and `admin-ui` was deleted on **2026-09-16**
+> (commit `5a4f90f`, *chore(admin-ui): delete the legacy console and everything pointing at it*), under
+> `DECISIONS.md` D15 — *the console is `admin-dashboard`; `admin-ui` is not where features land*.
+> `ls admin-ui` today answers *No such file
+> or directory*. PQ-1's definition of done — "`git status --porcelain admin-ui` is clean" — is
+> therefore not merely unmet but unevaluable, and so is the **101 files / 1409 tests** baseline that
+> every later DoD is expressed relative to: the suite that produced that number went with the tree.
+>
+> **The console that ships is `admin-dashboard/`, and it is a different tree, not a renamed one.** It
+> has no `features/orders/` and no `features/vendors/`, and the string `Drawer` does not occur anywhere
+> under `admin-dashboard/src/` — so PQ0's `OrdersScreen.tsx` conversion, PQ4's 40 card sites and PQ5's
+> `Drawer` restyle have no call sites to land on. Nothing below is a work order any more.
+>
+> **What is still worth reading here is the reasoning, not the file lists.** §1–§3 are unaffected and
+> stay live: their colour arithmetic is the rationale behind the shipped
+> `admin-dashboard/src/styles/tokens.css`. Below this line, read each workstream as a record of *what
+> problem was judged worth solving, and at what measured cost* — the 16.12:1 black-on-green label, the
+> 3.78–4.30:1 ring that gives the button back its shape, the 38.8 rgbDistance that keeps the hue layer
+> still, the 40 role-bar assertions PlanIQ's literal dark ramp fails. Those were computed once, against
+> a harness that no longer exists, and are recoverable from nowhere else; that is why this half is
+> marked rather than deleted. Anyone acting on a workstream re-derives its call sites against
+> `admin-dashboard/` first.
+>
+> The numbering does not move. `BROADCAST_SPEC` §7 Q1 cites §PQ6 by name.
 
 Ordered so the console ships after every one.
 
@@ -1258,7 +1328,8 @@ with no 24rem panel stealing width.
 **Goal.** Make the reskin auditable and revertable.
 
 **Changes.**
-- **NEW** `docs/product/ADMIN_PANEL_PLANIQ_MIGRATION.md` — the as-built record, with the axis relationship in
+- **NEW** `docs/product/ADMIN_PANEL_PLANIQ_MIGRATION.md` — **a PQ9 deliverable, not yet written; do
+  not follow this as a link** — the as-built record, with the axis relationship in
   its first paragraph and each workstream naming the PlanIQ node ids it adopted *and rejected*.
 - `e2e/smoke.spec.ts` — a step walking all 12 rail routes asserting each renders **exactly one `<h1>`
   and at least one heading at level 2**. The first draft asserted `[data-section]`, an attribute that
@@ -1334,6 +1405,14 @@ not the spec.
 ---
 
 ## 5. Migration waves
+
+> **SUPERSEDED 2026-09-19, on §4's grounds.** The waves sequence the workstreams above, so they
+> inherit their staleness exactly: W0 is PQ-1 committing a deleted tree, and every later wave's "what
+> the console looks like after" describes `admin-ui` rendering it. The revert story is the part that
+> fails hardest — a tranche tag on a tree that was removed wholesale in `5a4f90f` is not a rollback
+> point. The table is kept because the *ordering argument* it encodes is still the right one for any
+> future reskin: net before palette, palette before geometry, primitives before restyle, chrome before
+> screens.
 
 Waves are a narrative for stakeholders; **the revert unit is the tranche tag, not the wave**, because
 PQ4 and PQ8 are each larger than W1 and W2 combined.
@@ -1463,17 +1542,40 @@ ship together or neither does.
    `PeekDrawer` taking a `Fact` list worth it across those three? Their payloads differ enough that
    forcing it may be worse than three thin call sites on the same `Drawer`.
 
-7. **Is a `/dashboard` route coming?** `docs/research/DASHBOARD_METRICS_RESEARCH.md` proposes 51 cards across 7
-   sections and `docs/mockups/dashboard-mockup-full.html` is 5 273 lines, but no route exists and the doc says
-   it is explicitly *not* the Live screen. If it is landing, it is the best possible target for
-   PlanIQ's dashboard archetype and PQ4/PQ7 are its prerequisites — it should lead the migration rather
-   than follow it. Note also that `docs/mockups/dashboard-mockup.html` already hit this plan's central wall
+7. **Is a `/dashboard` route coming?** **Answered 2026-09-19** — it came, and it came as `/`.
+   `docs/research/DASHBOARD_METRICS_RESEARCH.md` proposes 51 cards across 7 sections and
+   `docs/mockups/dashboard-mockup-full.html` is 5 273 lines, and the doc says it is explicitly *not* the
+   Live screen; when this question was written, no route existed. One does now, in the *other* console:
+   `admin-dashboard/src/app/navItems.ts:84-86` carries `key: "dashboard"` at `href: PATH.dashboard`, and
+   `admin-dashboard/src/app/paths.ts:12` defines that as **`/`** — so it is the index route rather than a
+   `/dashboard` path, which is why a grep for the literal string finds nothing. It is rendered by
+   `admin-dashboard/src/features/dashboard/`, four sections deep today (Audience, Finances, Performance,
+   Vendor). What the answer does *not* give this plan is the thing the question was hoping for: it landed
+   on `admin-dashboard`, where PQ4 and PQ7 have no call sites, so it neither leads this migration nor
+   follows it — it sits outside it entirely. The colour warning below is why the item is kept whole
+   rather than struck. Note also that `docs/mockups/dashboard-mockup.html` already hit this plan's central wall
    independently: it defines `--accent-deep: #218C3B` for its LIVE chip, which measures **3.86:1** on
    its own tint — under the text bar. (The same hex is fine as this plan's 1px button ring, which is a
    3:1 graphic, and is exactly why the two uses must not be conflated.) **Treat the mockup as a
    trustworthy layout and rhythm reference and an untrustworthy colour source.**
 
-8. **Who owns the CI chain?** PQ1 introduces `tokens:check`, `e2e:appearance` and `e2e:gallery` into a
-   `lint → typecheck → vitest → tokens:check → build → playwright` sequence that has never been run
-   end-to-end in this repo. Confirm whether that chain is being created here or already exists
-   elsewhere, and who is on the hook when the gallery baselines need regenerating.
+8. **Who owns the CI chain?** **Answered 2026-09-19** — a chain exists, and it is not this one.
+   `.github/workflows/ci.yml` runs on push, and
+   [`../deployment/11-ci-cd.md`](../deployment/11-ci-cd.md) §1 is its account — the same page
+   this document's STATUS block already cites for the gitignored built shell. Its console job is
+   `typecheck → lint → test:unit → test:e2e:strict` (the locale key-parity suite, not a browser)
+   `→ build → check:built-shell`, beside a Python job, an additive-only migration check, an opt-in
+   integration job, and a `gate` job that aggregates their results. None of `tokens:check`,
+   `e2e:appearance` or `e2e:gallery` exists as an npm script, and no CI job runs a browser. So the
+   sequence quoted above was never created, and nobody is on the hook for regenerating gallery
+   baselines because there are none. **One contradiction outlives this answer and is not ours to
+   close:** `docs/product/ADMIN_PANEL_PLAN.md` still lists "one Playwright smoke flow" among
+   `admin-dashboard`'s deliverables and "Playwright smoke passes **with the production CSP applied**,
+   including a correctly-positioned Radix dialog" among its acceptance criteria. That is a live
+   requirement in another lane against a harness this repository no longer has — and, by the STATUS
+   block's own trigger, a Radix dialog is precisely the arrival that would make a browser gate worth
+   its cost again. It needs an owner's decision, not a footnote here.
+   The live question underneath the original one is narrower, and 11-ci-cd.md §1 states it: `gate` is
+   deliberately **not yet a required check**, pending hosted-runner numbers matching the local ones.
+   Deployment is a separate ownership question and is settled elsewhere on purpose — push does **not**
+   deploy; a release is one command, `bayram-release`, run by a human on the host (11-ci-cd.md §2–§3).

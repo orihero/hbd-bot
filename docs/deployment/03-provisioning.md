@@ -47,11 +47,15 @@ Same convention as [`01-architecture.md`](01-architecture.md)'s status block:
   from `developer`, and `psql` is behind a password the `NOPASSWD` drop-in deliberately does not
   grant. **Those questions are not open for lack of looking.**
 
-**The host is PRE-RENAME and that is correct.** Every *target-shape* command in this document is
-spelled `bayram` / `BAYRAM_` / `/srv/bayram` because that is what this tree says; every *observed*
-host fact is spelled `hbd` / `HBD_` / `/opt/hbd` because that is what the machine says. Both are
-right at once — [`09-payme-go-live.md`](09-payme-go-live.md) §1.2. **Do not sweep this page with
-a rename pass.**
+**Target shape versus observed host.** Every *target-shape* command in this document is spelled
+`bayram` / `BAYRAM_` / `/srv/bayram` because that is what this tree says; every *observed* host
+fact is spelled `hbd` / `HBD_` / `/opt/hbd` because that is what the machine said on the date
+stamped beside it. Both are right at once — [`09-payme-go-live.md`](09-payme-go-live.md) §1.2.
+The host is no longer pre-rename: the cutover ran and was verified on 2026-09-14, and the four
+`bayram-*` units are what run ([`10-rename-cutover.md`](10-rename-cutover.md)). **Do not sweep
+this page with a rename pass even so** — the service account, its group and both state paths
+deliberately stayed `hbd` (§3.3 there), so `User=hbd`, `/var/lib/hbd` and `0640 root:hbd` are
+current facts, not stale spellings. Corrected 2026-09-19.
 
 > **SUPERSEDED 2026-09-10, kept because it dates the change.** This document said, until
 > 2026-09-10: *"Nobody who wrote this has access to `aizu`. Everything below is what the code in
@@ -901,7 +905,7 @@ ls /srv/bayram/src/bayram/admin/static/assets | head
 >
 > ```bash
 > grep -c __HBD_CSP_NONCE__ /opt/hbd/venv/lib/python3.12/site-packages/hbd/admin/static/index.html
-> #   1        (and __BAYRAM_CSP_NONCE__ → 0, because the host is pre-rename)
+> #   1        (and __BAYRAM_CSP_NONCE__ → 0 — the host was pre-rename when this was read)
 > ls  /opt/hbd/venv/lib/python3.12/site-packages/hbd/admin/static/assets | wc -l
 > #   22       index-CizC0Esy.css, index-D9iMG-RF.js, index-D9iMG-RF.js.map, logo-DCc7YfOk.png,
 > #            six Manrope woff2, twelve Outfit woff/woff2
@@ -1340,13 +1344,52 @@ right, the control is sound. A CIDR typo fails the boot and names the variable
 
 ### Set a probe token, or nothing can observe this deployment
 
-```
-BAYRAM_ADMIN_PROBE_TOKEN=<a long random string>
+There are **two** probe tokens, not one, and they must not share a value:
+
+| Variable | Lives in, on this host | State `[HOST 2026-09-19]` |
+| --- | --- | --- |
+| `BAYRAM_ADMIN_PROBE_TOKEN` | `/etc/bayram/bayram-admin.env` — the admin unit's `EnvironmentFile`, `0640 root:hbd` | declared **exactly once, and EMPTY** |
+| `BAYRAM_PAYME_PROBE_TOKEN` | `/etc/bayram/payme.env` | **not declared at all** |
+
+Generate them with a real generator, never by typing:
+
+```bash
+openssl rand -hex 32
 ```
 
-There are exactly two health endpoints in the tree, both on the admin API, and neither the bot
-nor the worker exposes any HTTP probe at all — supervision of those two can only be
-process-level.
+**Do not do this by hand.** `deploy/set-probe-tokens.sh` does the whole of it in one run —
+generates two independent tokens, backs both env files up to `/var/backups/bayram/env`, writes
+atomically through a temp file in the same directory with `chown`/`chmod --reference` off the
+original so the existing `0640 root:hbd` is preserved **verbatim** (the group is `hbd`, not
+`bayram`; "correcting" it would break every unit), restarts the two units, and then **proves**
+the tokens took by reading the gated body back. It prints the tokens once, to stdout only.
+
+```bash
+scp deploy/set-probe-tokens.sh aizu:/tmp/set-probe-tokens.sh
+ssh -t aizu 'sudo bash /tmp/set-probe-tokens.sh'
+ssh -t aizu 'rm -f /tmp/set-probe-tokens.sh'
+```
+
+`--rotate` replaces values that are already set (without it, a non-empty value is a refusal, not
+an overwrite). `--admin-only` skips the payme half entirely — **use it if the settlement rail
+must not be touched**: under `DECISIONS.md` D17 a successful Payme payment auto-queues the
+render, so restarting `bayram-payme` is a live settlement action and must not happen
+mid-settlement or during a certification slot. `--yes` skips the prompt.
+
+**Whichever route you take, the unit must be restarted.** Each process reads its env file at
+`exec` time only, so a token that is set but not restarted into is **indistinguishable from an
+unset one** from outside. That specific drift is the one thing `bayram-release verify` can now
+catch on its own — see [`04-release.md`](04-release.md) §7.
+
+~~There are exactly two health endpoints in the tree, both on the admin API~~ — **correction:
+there are four, two per HTTP process.** The Payme gateway serves its own `/healthz` and
+`/readyz` on `127.0.0.1:8091` (`src/bayram/payme/app.py:110-111`, `:550`, `:560`) with the same
+gating shape, which is why there is a second token at all. Neither the bot nor the worker
+exposes any HTTP probe — supervision of those two can only be process-level.
+
+The rest of this section describes the admin endpoints; the gateway's behave identically except
+that its gated body additionally reports `isSandbox`, whether the rail is pointed at real money
+([`07-security.md`](07-security.md)).
 
 `GET /healthz` is liveness: a bare 200 with an empty body that touches nothing
 (src/bayram/admin/routers/health.py:121-124). It learns nothing about Postgres or Redis, and it
@@ -1396,7 +1439,7 @@ Everything above, observed rather than assumed:
 | the audit chain is intact | the same call's `ok: true` **and** `isComplete: true` — the walk stops at 50 000 rows in batches of 500 (src/bayram/db/admin/audit.py:129, :132, and `is_ceiling_reached` at :647-654), so `ok` alone is not a verified whole chain | **`[UNPROVEN]`** — needs an ADMIN/OWNER session in the panel. Six `admin_audit_log` rows and one `audit_chain_anchors` row existed at the 14:06:53 dump, so there is a chain to verify `[HOST 2026-09-11]` |
 | the crons are running | rows in `purge_runs`: check `ran_at`, `is_batch_full`, and whether `storage_keys_returned` exceeds `storage_keys_deleted` | **PASS, indirectly.** Four `purge_runs` rows in the 14:06:53 dump, consistent with the hourly `:17` sweep having fired four times since the 09:24 rebuild. The column values are `[UNPROVEN]` without `psql` `[HOST 2026-09-11]` |
 | the data roots agree | open a delivered asset in the panel; a 404 with the row present is the symptom | **PASS by construction.** One `WorkingDirectory=/var/lib/hbd` on all four units. §10 `[HOST 2026-09-11]` |
-| a monitor can see failure | `/readyz` with the probe token returns `database`, `redis`, `configVersion` | **`[UNPROVEN]`.** Whether `HBD_ADMIN_PROBE_TOKEN` is set is behind `/etc/hbd` mode `0750`. Nothing on the box polls it — no timer, no cron `[HOST 2026-09-11]` |
+| a monitor can see failure | `/readyz` with the probe token returns `database`, `redis`, `configVersion` | ~~**`[UNPROVEN]`.** Whether `HBD_ADMIN_PROBE_TOKEN` is set is behind `/etc/hbd` mode `0750`.~~ **ANSWERED, AND IT IS A FAIL** `[HOST 2026-09-19]`: the live file is `/etc/bayram/bayram-admin.env` (`0640 root:hbd`) and it declares `BAYRAM_ADMIN_PROBE_TOKEN` **once, empty**; `/etc/bayram/payme.env` declares `BAYRAM_PAYME_PROBE_TOKEN` not at all. Fix with `deploy/set-probe-tokens.sh`. The second half of the old cell still stands unchanged: **nothing on the box polls it** — no timer, no cron — so the sole consumer is `bayram-release verify`, once per release |
 | **the deploy account's privileges are scoped** | `sudo -n -l` | **Scoped, and already wrong for the rename.** §10.1 `[HOST 2026-09-11]` |
 | **Redis survives a restart** | `redis-cli config get appendonly save` | **FAIL.** `appendonly no`, stock `save`. §5 `[HOST 2026-09-11]` |
 
@@ -1450,12 +1493,12 @@ different claims with two different owners:
 > `COPY` headers only, no customer rows read. **That a surveyor could do that at all is the
 > finding.**
 
-**The requirement exists; only the implementation is missing.** `docs/product/SCOPE_OF_WORK.md:716`
-(**ENV-6, MUST**) is "Nightly Postgres backup with PITR, 30-day retention, and **a restore
-drill executed and documented before launch**", and `:721` (**ENV-11, MUST**) specifies a
+**The requirement exists; only the implementation is missing.** `docs/product/SCOPE_OF_WORK.md`
+§6.8 (**ENV-6, MUST**) is "Nightly Postgres backup with PITR, 30-day retention, and **a restore
+drill executed and documented before launch**", and the same section's **ENV-11 (MUST)** specifies a
 five-step tested post-restore reconciliation — ledger and payments reconciled against each
 rail across the restore gap, Redis dedup sets rebuilt, already-delivered orders suppressed,
-`reminders.next_fire_at` recomputed, and a report published — with `:722` (ENV-12) requiring
+`reminders.next_fire_at` recomputed, and a report published — with **ENV-12** requiring
 the drill twice a year. So this is not an unstated requirement; it is a stated MUST that no
 code, script or deploy step in this checkout implements. Treat the list below as what that
 MUST has to cover — four things, three of which are not the database:
@@ -1543,7 +1586,7 @@ authentication failed for user "hbd_app"`, `… for user "hbd"` `[HOST 2026-09-1
 | § | The question | Blocker, and what would settle it |
 | --- | --- | --- |
 | §2 | Has `var/workspace` ever been cleaned, by anything? | `ls -la /var/lib/hbd` → `Permission denied` (`0750 hbd:hbd`; `developer` is not in the `hbd` group) `[HOST 2026-09-11]`. Needs `sudo du -sh /var/lib/hbd/var/workspace /var/lib/hbd/var/archive` and the sudo password. The only outside bound is the 38 GB root filesystem at 21% used (7.2 G of 38 G, 2026-09-11). **Worth a second attempt with an operator**, because the repository has no sweep for this tree at all and unbounded growth is the documented expectation. |
-| §11 | Is `BAYRAM_ADMIN_PROBE_TOKEN` set, and is anything polling `/readyz` with it? | The value is in `/etc/hbd/hbd-admin.env`, mode `0750` on its directory `[HOST 2026-09-11]`. The **second half is answered and is a no**: no timer and no cron polls anything. So even if the token is set, nothing uses it — which makes the first half the less interesting half. |
+| §11 | ~~Is `BAYRAM_ADMIN_PROBE_TOKEN` set~~ **BOTH HALVES ANSWERED 2026-09-19 — this row is no longer `[UNPROVEN]`**, and is left here because the reasoning in it was right | ~~The value is in `/etc/hbd/hbd-admin.env`, mode `0750` on its directory `[HOST 2026-09-11]`.~~ The live file is `/etc/bayram/bayram-admin.env`, `0640 root:hbd`, and **it declares the variable exactly once and EMPTY** `[HOST 2026-09-19]` — read with `sudo`, which the blanket grant makes possible and the 2026-09-11 pass did not have. `/etc/bayram/payme.env` does not declare `BAYRAM_PAYME_PROBE_TOKEN` at all. The **second half is answered and is still a no**: no timer and no cron polls anything, so even once the token is set nothing uses it except `bayram-release verify`. **The old cell's conclusion — that the first half is the less interesting half — has aged well and should be read before anyone calls "token set" a deliverable.** |
 | §10 | Does `max_connections` leave room above what the processes reserve? | `sudo -n -u postgres psql -Atc 'show max_connections'` → `sudo: a password is required`; the drop-in grants `pg_dump`, not `psql` `[HOST 2026-09-11]`. Note the arithmetic has changed since this section was written: it is now **four** processes, 30 + 30 + 10 + 5 = 75 against a stock 100 ([`08-payme.md`](08-payme.md) §3.1), leaving 25 rather than 30. |
 | §11 | Are `BAYRAM_ADMIN_TRUSTED_PROXY_HOPS` / `_CIDRS` set, or still `0` and empty? | `/etc/hbd` is unreadable `[HOST 2026-09-11]`. **But the correct values changed when the tunnel did and nothing reported it**: admin traffic is now two proxies deep, so whatever the file says must be checked against `hops=2, cidrs=127.0.0.1/32`. The `hbd-payme` journal shows the shape — every request logged `"peer_ip": "127.0.0.1"`. [`00-host-inventory.md`](00-host-inventory.md) row 23. |
 | §6 §4 | Which role does each process connect as, and is `BAYRAM_DB_MIGRATION_URL` set where the migration runner reads it? | Both are DSNs inside `/etc/hbd/*.env` `[HOST 2026-09-11]`. Partly moot: §4 establishes that `hbd_app` owns everything, so the REVOKE is not a control whichever role the panel uses. `deploy-payme.sh` sources `/etc/hbd/hbd.env` with `set -a` before calling alembic, so on this host the migration URL comes from the file either way. |

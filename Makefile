@@ -3,7 +3,8 @@
 #
 # THE GATES, AND WHICH ONE COVERS WHAT. `make check` is the Python half only — ruff, mypy
 # and the coverage run. It deliberately does NOT run `make ui-check`, the console's own gates
-# (tsc, eslint, vitest and the localization suite). Before a release, run both.
+# (tsc, eslint, vitest, the strict localization suite, the production build and the built-shell
+# CSP check). Before a release, run both.
 #
 # THERE IS NO BROWSER GATE. The Playwright suite lived in `admin-ui/`, the legacy console
 # removed on 2026-09-16, and it asserted on that console's own bundle and font pipeline — so
@@ -112,18 +113,42 @@ ui: ## Run the modern admin dashboard dev server on :5174, proxying /api to the 
 ui-build: ## Build the modern admin dashboard into src/bayram/admin/static/
 	cd $(UI) && npm run build
 
-# FOUR SCRIPTS, AND NEITHER RUNNER SUBSUMES THE OTHER. admin-dashboard splits its suites:
-# `test:unit` is vitest over `src/**/*.test.tsx` (the components), and `test` is the bespoke
-# tsx harness in `tests/run-all.ts` that asserts 100% key parity and interpolation-token
-# consistency across en/ru/uz. Running only one leaves the other guarded by nobody — which is
-# exactly what this target used to do.
+# SIX SCRIPTS, IN THE ORDER THE `node` JOB RUNS THEM, AND NO TWO OF THEM SUBSUME EACH OTHER.
+# This list is a copy of `.github/workflows/ci.yml`'s `node` job; when that job gains a step,
+# this line gains it too. It ran only the first four until 2026-09-19, which made the repo's
+# own local gate STRICTLY WEAKER than CI: a developer ran `make ui-check`, got green, pushed,
+# and CI went red on a step the local gate could not reach.
+#
+# What each one covers that no other does:
+#   typecheck          tsc --noEmit over both tsconfigs — types only, emits nothing.
+#   lint               eslint.
+#   test:unit          vitest over `src/**/*.test.tsx` — the components.
+#   test:e2e:strict    the bespoke tsx harness in `tests/run-all.ts`: 100% key parity and
+#                      interpolation-token consistency across en/ru/uz. THE STRICT VARIANT,
+#                      matching CI. Plain `npm test` is the same harness without `--strict`
+#                      and exits 0 with PENDING_IMPLEMENTATION assertions outstanding — so
+#                      running it here was a second way to be greener locally than in CI.
+#   build              vite build. Nothing above it can fail on a bad import, a plugin that
+#                      throws or an asset Rollup cannot resolve; CI never built the SPA at all
+#                      until this step existed, and such breaks were found on the host.
+#   check:built-shell  reads what vite just EMITTED (`src/bayram/admin/static/index.html`,
+#                      .gitignore'd) for code the panel's CSP would refuse. It needs `build`
+#                      to have run first and fails rather than skips when it has not. The
+#                      Python suite audits the SOURCE shell and structurally cannot see this
+#                      one, so an injected inline `<script>` or a dropped
+#                      `__BAYRAM_CSP_NONCE__` placeholder is visible here and nowhere else.
+#
+# The last two are last for CI's reason: they are the newest gates and the likeliest to fail on
+# something unrelated to the change under review, so a build break cannot hide a vitest result.
+# Unlike CI's separate steps this is an `&&` chain, so the first failure stops the rest.
 #
 # `tokens:check` is NOT here, and that is now simply because no such script exists: the
 # annotator (`tools/annotate-tokens.mts`) and the tokens.css it measured belonged to the legacy
 # console, removed on 2026-09-16. admin-dashboard has never declared one. If the contrast
 # contract is wanted back it has to be rebuilt against this package's stylesheet.
-ui-check: ## The deployed console's gates: typecheck, lint, vitest and the localization suite
-	cd $(UI) && npm run typecheck && npm run lint && npm run test:unit && npm test
+ui-check: ## The deployed console's CI gates: typecheck, lint, vitest, locales, build, built-shell CSP
+	cd $(UI) && npm run typecheck && npm run lint && npm run test:unit \
+		&& npm run test:e2e:strict && npm run build && npm run check:built-shell
 
 demo: ## One full kit, offline: no keys, no Redis, no Postgres, no spend
 	BAYRAM_USE_FAKE_PROVIDERS=1 $(PYTHON) -m bayram.demo

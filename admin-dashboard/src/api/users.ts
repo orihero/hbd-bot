@@ -1,6 +1,6 @@
 /**
  * The `/api/users/**` contract, transcribed from
- * `.openpencil-export/users-generations-openapi.json` (produced by `bayram/admin/routers/
+ * `reference/openpencil-export/users-generations-openapi.json` (produced by `bayram/admin/routers/
  * {users,credits}.py` and `bayram/admin/schemas/{users,credits,orders}.py`).
  *
  * Eight routes: one keyset list, four reads about one person, and three privileged writes.

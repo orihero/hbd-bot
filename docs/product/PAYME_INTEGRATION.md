@@ -15,14 +15,33 @@ run on the host, in what order, on 2026-09-09/10. And
 below — what an operator can see and press without a terminal, and, more usefully, what they
 deliberately cannot (**D14**).
 
-> **STATUS, 2026-09-10 — the gateway is DEPLOYED AND RUNNING, the rail is OFF, and no money has
-> ever moved through it.** Those are three separate facts and §8.6.3 is why all three can be
-> true at once. Verified on `aizu` on 2026-09-10, in the host's own pre-rename names:
-> `hbd-payme.service` is `active` and `enabled`,
+> **STATUS, 2026-09-10, its naming corrected 2026-09-19 — the gateway is DEPLOYED AND RUNNING,
+> the rail is OFF, and no money has ever moved through it.** Those are three separate facts and
+> §8.6.3 is why all three can be true at once. Verified on `aizu` on 2026-09-10, when the host
+> still carried its pre-rename names: `hbd-payme.service` was `active` and `enabled`,
 > running `-m uvicorn hbd.payme.app:app --host 127.0.0.1 --port 8091` as `User=hbd`, reachable
 > from the public internet as `https://pay.bayrambot.uz/payme`; the worker's `run_payme_sweep`
 > fires every five minutes — twelve times in the last hour, re-checked 2026-09-11 — and its
 > invariant arm reported three zeroes all that morning.
+>
+> **Read those unit and module names as a dated quotation, not as an address.** The `hbd` →
+> `bayram` cutover completed and was verified on **2026-09-14**, and the four `bayram-*` units
+> have been live and active since
+> ([`../deployment/10-rename-cutover.md`](../deployment/10-rename-cutover.md);
+> [`../deployment/00-host-inventory.md`](../deployment/00-host-inventory.md) row 46), so what
+> answers on that box today is `bayram-payme.service`, running
+> `/opt/bayram/venv/bin/python -m uvicorn bayram.payme.app:app --host 127.0.0.1 --port 8091` as
+> `User=bayram` against `/etc/bayram/payme.env` — all three read off
+> `deploy/systemd/bayram-payme.service` in this repository, which is a claim about this tree and
+> not about the machine. `/etc/bayram/payme.env` is on the machine and is the live secret store
+> (`[HOST 2026-09-19]`, [`../deployment/08-payme.md`](../deployment/08-payme.md)); that it is the
+> file the gateway *reads* is an inference from that unit rather than a reading of the installed
+> one, because nobody has taken a `systemctl cat bayram-payme` since the cutover — which is the
+> check the box at the head of §8 asks for before any of this is believed. A release is now an
+> ordinary wheel upgrade
+> ([`../deployment/08-payme.md`](../deployment/08-payme.md) §11.4) rather than a cutover.
+> **Nothing else in this block turns on the rename**: the gateway is still deployed, the rail is
+> still off, and no customer's money has moved yet.
 >
 > **Two corrections to this block, 2026-09-11, and the second one is a fact about the first.** The
 > revision: this block said the database was at `0024` on **2026-09-09** and that it had **not**
@@ -39,11 +58,17 @@ deliberately cannot (**D14**).
 > inside the rolling 24-hour window. **It will report three zeroes again at about 13:35 +05 that
 > same day**, when the rehearsal falls out of the window, and §8.5.1 is where that third kind of
 > zero is written up. And the checkout-provider
-> variable is unset in the deployed environment — read there under its **pre-rename** name,
-> `HBD_CHECKOUT_PROVIDER` (`BAYRAM_CHECKOUT_PROVIDER` in this repository), which is the trap the
-> warning at the head of §8 exists for — so the composition root takes its first branch and
-> builds `StubCheckoutProvider` (`src/bayram/runtime/container.py:358-361`). The bot issues no
-> Payme link at all.
+> variable is unset in the deployed environment — read there on 2026-09-11 under the name the
+> host carried that day, `HBD_CHECKOUT_PROVIDER`, and spelled `BAYRAM_CHECKOUT_PROVIDER` on both
+> sides since the cutover of 2026-09-14 — so the composition root takes its first branch and
+> builds `StubCheckoutProvider` (`src/bayram/runtime/container.py`, the branch guarded by
+> `settings.checkout_provider == STUB_PROVIDER_NAME`, at `:389-392` on 2026-09-19 — the
+> `:358-361` this block cited until today had drifted, which is why the branch is named here
+> rather than numbered). The
+> bot issues no Payme link at all. **That reading is 2026-09-11 and nothing since has recorded
+> the variable being set**; switching it on is the owner's decision of §8.6.2, not a pending
+> chore, and [`../deployment/08-payme.md`](../deployment/08-payme.md) is where the host-side
+> state of the two switches is kept.
 >
 > **Nothing below describes money that has moved** — no customer has been charged and the bot
 > still sells nothing. But the path `CreateTransaction → PerformTransaction → receipt and credit
@@ -528,39 +553,35 @@ kept here is what belongs to a specification rather than to a runbook: where the
 stands, the invariants that must hold at each step, what rollback does and does not undo, and
 the decisions taken while going live (§8.6).
 
-> **NAME TRAP, 2026-09-10 — the release running on `aizu` predates the `HBD_` → `BAYRAM_`
-> rename, and every variable in this section is spelled `HBD_*` there.** The running unit
-> carries `Environment=HBD_PAYME_ENV_FILE=/etc/hbd/payme.env` (read from `systemctl show
-> hbd-payme` on 2026-09-10) and the installed artefact is
-> `/opt/hbd/release/hbd_bot-0.1.0-20260909-py3-none-any.whl`. This matters more than a
-> cosmetic mismatch because **pydantic-settings ignores a variable it does not recognise
-> without saying so**: setting `BAYRAM_CHECKOUT_PROVIDER=payme` on that host today changes
-> nothing, raises nothing, logs nothing, and leaves the stub selling songs for free. Until the
-> release carrying the rename is installed, translate every `BAYRAM_` below to `HBD_` and every
-> `python -m bayram.…` to `python -m hbd.…`. Delete this box in the same change that ships the
-> rename to the host, and not before.
+> **NAMING, corrected 2026-09-19 — the trap this section used to open with has been retired,
+> because the condition it set for its own deletion has been met.** The box that stood here from
+> 2026-09-10 said the release running on `aizu` predated the `HBD_` → `BAYRAM_` rename, told the
+> reader to translate every `BAYRAM_` below to `HBD_` and every `python -m bayram.…` to
+> `python -m hbd.…`, and ended by saying it should be deleted "in the same change that ships the
+> rename to the host, and not before". That change shipped. The cutover completed and was
+> **verified on 2026-09-14**, the four `bayram-*` units have been live and active since, and a
+> release is now an ordinary wheel upgrade rather than a cutover
+> ([`../deployment/10-rename-cutover.md`](../deployment/10-rename-cutover.md);
+> [`../deployment/00-host-inventory.md`](../deployment/00-host-inventory.md) row 46;
+> [`../deployment/08-payme.md`](../deployment/08-payme.md) §11.4 for the ordering a release now
+> follows). **So the `BAYRAM_*` names used below are the host's names as well as this
+> repository's, and a command typed out of this section needs no translation at the prompt.**
 >
-> **The old-spelling strings in this box and in the STATUS block are verbatim host output read
-> on 2026-09-10, and they are the one thing in this tree a repository-wide rename must not
-> touch.** An earlier draft of this box was swept by one and came out reading «`BAYRAM_` →
-> `BAYRAM_`», pointing at a `/opt/bayram` **whose venv now exists and which no unit executes** —
-> a confident-looking instruction that fails at the first command. If the paths, unit names and
-> prefixes in this box match this repository's current names rather than the host's older ones,
-> the box has been corrupted by exactly that pass: `09-payme-go-live.md` is the authority, and the
-> fix is to restore it from the host rather than to edit it here.
+> **Two halves of that box were always worth more than its translation table, and they outlive
+> it.** The first is the mechanism: **pydantic-settings ignores a variable it does not recognise
+> without saying so**, so a prefix that does not match the running release changes nothing,
+> raises nothing and logs nothing. That hazard has not gone away, it has inverted — the file
+> whose edits now do nothing is `/etc/hbd/payme.env`, and the four `hbd-*.service` units were
+> left in `/etc/systemd/system` rather than deleted, merely `disabled`, so a command naming one
+> still resolves and still says nothing whatever about what is running
+> ([`../deployment/08-payme.md`](../deployment/08-payme.md)). The second is the habit: **the
+> cheap check is the unit, never the filesystem** — today
+> `systemctl cat bayram-payme | grep -E "ExecStart|ENV_FILE"` — and read `env_file` off the boot
+> line before believing that any edit to a dotenv took.
 >
-> **That example needed replacing on 2026-09-11, and the replacement is worse news than the
-> original.** It used to read *"pointing at an `/opt/bayram` that exists on no machine"*, which was
-> true until 2026-09-10 14:06. `[HOST 2026-09-11]` `/opt/bayram/venv` exists, with the `bayram`
-> package installed in it, and `/etc/bayram/payme.env` exists too — both left behind by a rename
-> cutover that aborted before writing a single unit file. **So a swept instruction no longer fails
-> at the first command: it succeeds, against a tree nothing runs.** `ls` confirms the path,
-> `/opt/bayram/venv/bin/python -c "import bayram"` works, and the gateway serving real traffic is
-> still `/opt/hbd/venv/bin/python -m uvicorn hbd.payme.app:app`. **The cheap check that
-> distinguishes them is the unit, never the filesystem** —
-> `systemctl cat hbd-payme | grep -E "ExecStart|ENV_FILE"` — and
-> [`../deployment/10-rename-cutover.md`](../deployment/10-rename-cutover.md) §2 and §3 are the
-> record of the attempt and the inventory of everything now duplicated under two names.
+> Host output quoted elsewhere in this document keeps whatever names the host carried on the day
+> it was read: the STATUS block's `hbd-payme` line is 2026-09-10 output and is dated as such.
+> Those are transcripts, not addresses, and they are not to be swept by a rename.
 
 ### 8.1 Where the sequence stands — verified on the host, 2026-09-10
 

@@ -41,7 +41,7 @@ account — is a credential whose compromise costs more than the spend it report
 refusal named its own reversal condition: *"if the prepaid figure is later judged worth a
 fifth secret, that is a separate decision with its own review; it must not arrive as an
 implementation detail of a dashboard tile."* **The owner has made that decision** (see
-``docs/decisions/DECISIONS.md``), for a reason ``/key`` cannot serve: an uncapped inference
+``DECISIONS.md D13``), for a reason ``/key`` cannot serve: an uncapped inference
 key reports ``limit: null``, and a panel that wants to draw REMAINING AS A FRACTION needs a
 denominator that only the prepaid pool has.
 

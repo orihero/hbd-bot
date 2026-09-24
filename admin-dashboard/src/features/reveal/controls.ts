@@ -2,7 +2,7 @@
  * The kit's controls, as class lists, so the two dialogs cannot drift apart from each other
  * or from the toolbar these buttons are measured off.
  *
- * Every number here is measured from `.openpencil-export/projects-toolbar.jsx`: both buttons
+ * Every number here is measured from `reference/openpencil-export/projects-toolbar.jsx`: both buttons
  * are 48 tall at 12/16 padding, radius 6, with an 18/500/-0.36 label; the secondary carries a
  * 1px #E8E8E8 stroke on white and the primary a #75FC96 ground. Colours are tokens, never
  * literals; the geometry is arbitrary values because it is geometry, not a decision.
