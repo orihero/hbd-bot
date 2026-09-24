@@ -150,10 +150,12 @@ one that deleted a ticket and then failed to delete its timeline would be worse 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from bayram.db.base import utc_now
 from bayram.db.churn import anonymise_bot_membership_events
 from bayram.db.credit_sql import rowcount_of
 from bayram.db.models.broadcast_recipient import BroadcastRecipientRow
@@ -240,7 +242,9 @@ class CreditErasure:
     terms_acceptances_anonymised: int = 0
 
 
-async def forget_account(session: AsyncSession, *, telegram_user_id: int) -> CreditErasure:
+async def forget_account(
+    session: AsyncSession, *, telegram_user_id: int, now: datetime | None = None
+) -> CreditErasure:
     """Erase what the credit tables hold about one Telegram account.
 
     Ordered receipts-first and balance-last on purpose. All ten statements run in the
@@ -263,7 +267,11 @@ async def forget_account(session: AsyncSession, *, telegram_user_id: int) -> Cre
     plans = await anonymise_plans(session, telegram_user_id=telegram_user_id)
     topups = await anonymise_topups(session, telegram_user_id=telegram_user_id)
     events = await anonymise_bot_membership_events(session, telegram_user_id=telegram_user_id)
-    acceptances = await anonymise_terms_acceptances(session, telegram_user_id=telegram_user_id)
+    # ``now`` stamps ``terms_acceptances.anonymised_at``, the clock the 400-day cutoff reads
+    # (IMAGE_VIDEO_SPEC §3.2.1). Defaulted so a caller without a clock still stamps the truth.
+    acceptances = await anonymise_terms_acceptances(
+        session, telegram_user_id=telegram_user_id, now=now if now is not None else utc_now()
+    )
     # Written here rather than behind a ``payme_sql`` helper because the redirect rail's own
     # query module is not a dependency of erasure: this arm must keep working — and keep
     # being asserted by test — on a deployment where ``BAYRAM_CHECKOUT_PROVIDER=stub`` and no

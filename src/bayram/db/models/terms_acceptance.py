@@ -27,9 +27,10 @@ outlive the account row.
 footing: identity leaves by ``/forget``'s anonymisation arm
 (:func:`bayram.db.credit_erasure.forget_account`), which nulls ``telegram_user_id`` in place —
 the UNIQUE tolerates any number of NULLs on both engines, so an anonymised row stops
-participating in it — and growth is bounded by a 400-day cutoff over ANONYMISED rows only
-(``bayram.db.purge.TERMS_ACCEPTANCE_RETENTION_DAYS``). An identified row is never swept: a
-live account's proof of acceptance must not age out while the account still uses the bot.
+participating in it — and growth is bounded by a 400-day cutoff over ANONYMISED rows only,
+counted from ``anonymised_at`` (``bayram.db.purge.TERMS_ACCEPTANCE_RETENTION_DAYS``). An
+identified row is never swept: a live account's proof of acceptance must not age out while the
+account still uses the bot.
 No column ends in ``*_expires_at`` because nothing here is a published per-row clock.
 """
 
@@ -95,10 +96,12 @@ class TermsAcceptanceRow(Base):
     language: Mapped[Language] = mapped_column(
         enum_type(Language, length=_LANGUAGE_LENGTH), nullable=False
     )
-    #: Indexed for the retention cutoff, which selects anonymised rows by this clock.
-    accepted_at: Mapped[datetime] = mapped_column(
-        UtcDateTime, nullable=False, default=utc_now, index=True
-    )
+    accepted_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utc_now)
+    #: When ``/forget`` took the account off this row; NULL while the row is identified.
+    #: Indexed for the retention cutoff, which counts its 400 days from HERE and not from
+    #: ``accepted_at``: IMAGE_VIDEO_SPEC §3.2.1 keeps the record 400 days after the account's
+    #: deletion, whenever the acceptance itself happened.
+    anonymised_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True, index=True)
     #: Which screen took the tap. Nullable as IMAGE_VIDEO_SPEC §3.2.1 specifies; the writer
     #: always supplies it.
     source: Mapped[TermsAcceptanceSource | None] = mapped_column(

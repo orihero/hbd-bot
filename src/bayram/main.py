@@ -51,6 +51,7 @@ from bayram.bot.ports import OrderSubmitter, SupportTicketEraser
 from bayram.bot.pricing import Pricing
 from bayram.checkout import STUB_PROVIDER_NAME
 from bayram.config import FOREIGN_SECRET_ENV_VARS, Settings, env_file, load_settings
+from bayram.contracts import Err
 from bayram.db.support_tickets import SqlSupportTickets
 from bayram.db.terms import SqlTermsLedger
 from bayram.errors import BayramError, ConfigError
@@ -410,6 +411,20 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         if container.session_factory is not None
         else None
     )
+    # THE TERMS GATE (IMAGE_VIDEO_SPEC §2.1), probed before the bot answers anyone. The gate
+    # fails OPEN on an unreadable ledger so a blip never silences the bot; the probe is what
+    # stops that posture from hiding a gate that can NEVER read — a missing revision 0030, a
+    # role without grants — which would leave every account ungated for ever (D20, D26).
+    terms_gate = build_terms_gate(settings, container, pool)
+    if terms_gate is not None:
+        probed = await terms_gate.probe()
+        if isinstance(probed, Err):
+            await _shutdown(container, bot, closeable)
+            raise ConfigError(
+                "BAYRAM_TERMS_VERSION is set but terms_acceptances cannot be read; apply the "
+                "migrations and grants, or unset the version pair",
+                cause=probed.error,
+            )
     deps = BotDeps(
         settings=settings,
         submitter=submitter,
@@ -503,7 +518,10 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         # THE TERMS GATE (IMAGE_VIDEO_SPEC §2.1). ``None`` unless a version pair is configured,
         # which is the default until counsel's sign-off — see :func:`build_terms_gate`. The
         # cache rides on the queue pool: the one Redis connection this process already opened.
-        terms=build_terms_gate(settings, container, pool),
+        terms=terms_gate,
+        # The same cache on its own, so /forget drops ``terms:ok:{tg}`` with the gate OFF too
+        # (IMAGE_VIDEO_SPEC §9.3). ``None`` on the demo path, which has no Redis.
+        terms_cache=pool,
     )
     # The lock that makes a state filter a real gate. Built from the same Redis as the
     # storage, so it holds across every process that could handle this chat.

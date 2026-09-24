@@ -12,7 +12,9 @@ account passes before first use (IMAGE_VIDEO_SPEC §2.1, D26): one APPEND-ONLY r
 ``UNIQUE (telegram_user_id, terms_version, privacy_version)`` so a double tap or a replayed
 update writes one row. That constraint leads with ``telegram_user_id``, so it doubles as the
 index the gate's lookup and ``/forget``'s anonymising ``UPDATE`` read; there is no separate
-single-column index on it. ``accepted_at`` IS indexed, for the retention cutoff.
+single-column index on it. ``anonymised_at`` IS indexed, for the retention cutoff, which counts
+400 days from the moment ``/forget`` anonymised the row (§3.2.1: "400 days after account
+deletion"), not from the acceptance.
 
 **``telegram_user_id`` is NULLABLE only so erasure has somewhere to go** — the third retention
 route (IMAGE_VIDEO_SPEC §3.2.4), ``broadcast_recipients``' shape: ``/forget`` nulls the id and
@@ -66,7 +68,7 @@ _UNIQUE_CONSTRAINT = "uq_terms_acceptances_account_versions"
 
 #: ``(column, unique)``, created through ``batch_op.f()`` so it takes ``NAMING_CONVENTION``'s
 #: ``ix`` template and matches the model's ``index=True``.
-_INDEXES: tuple[tuple[str, bool], ...] = (("accepted_at", False),)
+_INDEXES: tuple[tuple[str, bool], ...] = (("anonymised_at", False),)
 
 
 def upgrade() -> None:
@@ -91,6 +93,8 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("accepted_at", sa.DateTime(timezone=True), nullable=False),
+        # Set by /forget together with the NULL id; the retention cutoff's clock.
+        sa.Column("anonymised_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
             "source",
             sa.Enum(

@@ -63,7 +63,7 @@ from bayram.bot.states import Wizard
 from bayram.contracts import Err, Language, Result, SupportTicketSource, ok
 from bayram.db.retention import DEFAULT_RETENTION_POLICY
 from bayram.logging import get_logger
-from bayram.terms import TermsStanding
+from bayram.terms import TermsStanding, forget_terms_cache
 
 __all__ = ["build_router", "BOT_COMMANDS", "COMMAND_ORDER", "commands_for"]
 
@@ -171,6 +171,7 @@ async def handle_terms(message: Message, state: FSMContext, deps: BotDeps) -> No
     screen = terms_full_screen(
         language,
         version=gate.versions.label if gate is not None else "",
+        stamp=gate.versions.stamp if gate is not None else "",
         is_accept_offered=gate is not None and standing is not TermsStanding.ACCEPTED,
     )
     await message.answer(screen.text, reply_markup=screen.markup)
@@ -415,13 +416,22 @@ async def _forget_terms_cache(deps: BotDeps, telegram_user_id: int | None) -> Re
     inside ``forget_account``'s transaction, which is what ``_forget_credits`` calls. What that
     transaction cannot reach is the Redis entry in front of it, and without this a forgotten
     account would sail past the gate for up to a day on a cached acceptance whose row no longer
-    names them. The same shape as its neighbours: no gate and no sender both succeed, and a
-    failure is reported rather than papered over.
+    names them. The same shape as its neighbours: no sender succeeds, and a failure is
+    reported rather than papered over.
+
+    **Not conditional on the gate being on.** ``deps.terms_cache`` is wired whenever Redis is,
+    so the key goes even while the gate is switched off; an entry left from when it was on
+    would otherwise pass a forgotten account the day the owner switches it back.
     """
-    gate = deps.terms
-    if gate is None or telegram_user_id is None:
+    if telegram_user_id is None:
         return ok(None)
-    return await gate.forget(telegram_user_id)
+    if deps.terms is not None:
+        forgotten = await deps.terms.forget(telegram_user_id)
+        if isinstance(forgotten, Err) or deps.terms_cache is None:
+            return forgotten
+    if deps.terms_cache is not None:
+        return await forget_terms_cache(deps.terms_cache, telegram_user_id)
+    return ok(None)
 
 
 def build_router() -> Router:

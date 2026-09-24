@@ -52,7 +52,8 @@ substitute for it (see :data:`BROADCAST_RECIPIENT_RETENTION_DAYS`). The last row
 with the Terms gate (revision 0030, IMAGE_VIDEO_SPEC §3.2.1) and takes the same route with
 one narrowing: only ``terms_acceptances`` rows ``/forget`` has ALREADY anonymised are swept,
 because an identified acceptance is a live account's lawful-basis record and must not age
-out while the account still uses the bot (see :data:`TERMS_ACCEPTANCE_RETENTION_DAYS`).
+out while the account still uses the bot, and the 13 months count from the ``/forget``
+(``anonymised_at``), not from the acceptance (see :data:`TERMS_ACCEPTANCE_RETENTION_DAYS`).
 
 **THREE TABLES ADDED BY THE DASHBOARD WORK ARE DELIBERATELY UNSWEPT, and their absence from
 the table above is a decision rather than an oversight** — the same standing instruction the
@@ -319,7 +320,7 @@ PAYMENT_INTENT_RETENTION_DAYS: Final[int] = 400
 #: the row so a completed campaign's arithmetic does not change retroactively.
 BROADCAST_RECIPIENT_RETENTION_DAYS: Final[int] = 400
 
-#: How long an ANONYMISED ``terms_acceptances`` row is kept, counted from ``accepted_at``
+#: How long an ANONYMISED ``terms_acceptances`` row is kept, counted from ``anonymised_at``
 #: (IMAGE_VIDEO_SPEC §3.2.1, §3.2.4). Thirteen months, matching the cutoffs above.
 #:
 #: **The predicate is narrow on purpose, as :data:`PAYMENT_INTENT_RETENTION_DAYS`' is.** It
@@ -330,10 +331,10 @@ BROADCAST_RECIPIENT_RETENTION_DAYS: Final[int] = 400
 #: anonymisation arm (:mod:`bayram.db.credit_erasure`); this cutoff then bounds how long the
 #: anonymous remainder is kept.
 #:
-#: On ``accepted_at`` because the table has no record of WHEN it was anonymised, so an
-#: acceptance older than the cutoff is swept on the first run after ``/forget`` and a recent
-#: one waits out the remainder of its thirteen months. A CUTOFF, not a per-row clock, which is
-#: why no column on that table is named ``*_expires_at``.
+#: On ``anonymised_at`` — the instant ``/forget`` ran — and NOT on ``accepted_at``: §3.2.1
+#: bounds the record at "400 days after account deletion", so an acceptance two years old that
+#: is forgotten today is kept another thirteen months, not swept on the next run. A CUTOFF, not
+#: a per-row clock, which is why no column on that table is named ``*_expires_at``.
 TERMS_ACCEPTANCE_RETENTION_DAYS: Final[int] = 400
 
 
@@ -716,7 +717,7 @@ def _broadcast_recipients_due(cutoff: datetime) -> sa.ColumnElement[bool]:
 
 
 def _terms_acceptances_due(cutoff: datetime) -> sa.ColumnElement[bool]:
-    """ANONYMISED acceptances recorded before ``cutoff``.
+    """Acceptances ANONYMISED before ``cutoff``.
 
     The ``telegram_user_id IS NULL`` half is the whole decision — see
     :data:`TERMS_ACCEPTANCE_RETENTION_DAYS`. Without it this would delete a live account's
@@ -724,7 +725,7 @@ def _terms_acceptances_due(cutoff: datetime) -> sa.ColumnElement[bool]:
     """
     return sa.and_(
         TermsAcceptanceRow.telegram_user_id.is_(None),
-        TermsAcceptanceRow.accepted_at <= cutoff,
+        TermsAcceptanceRow.anonymised_at <= cutoff,
     )
 
 
@@ -1248,7 +1249,7 @@ async def _purge_broadcast_recipients(
 
 
 async def _purge_terms_acceptances(session: AsyncSession, *, cutoff: datetime, limit: int) -> int:
-    """Delete anonymised acceptances older than ``cutoff``. Bounded growth, not a legal clock.
+    """Delete acceptances anonymised before ``cutoff``. Bounded growth, not a legal clock.
 
     Only rows ``/forget`` has already stripped of their account are reachable — see
     :func:`_terms_acceptances_due` — so this can never take away a live account's proof that
@@ -1258,7 +1259,7 @@ async def _purge_terms_acceptances(session: AsyncSession, *, cutoff: datetime, l
         session,
         sa.select(TermsAcceptanceRow.id)
         .where(_terms_acceptances_due(cutoff))
-        .order_by(TermsAcceptanceRow.accepted_at)
+        .order_by(TermsAcceptanceRow.anonymised_at)
         .limit(limit),
     )
     if not due:

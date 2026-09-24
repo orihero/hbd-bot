@@ -21,6 +21,7 @@ is pinned in ``tests/test_db/test_terms_acceptances.py``):
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime
@@ -39,14 +40,18 @@ from bayram.bot.callbacks import (
     LanguageSlot,
     NavAction,
     NavCB,
+    SupportAction,
+    SupportCB,
     TermsAction,
     TermsCB,
+    pack_reference,
 )
 from bayram.bot.deps import BotDeps
 from bayram.bot.handlers.common import privacy_text
 from bayram.bot.handlers.submitting import ORDER_ID_KEY
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import MENU_SETTINGS_LABEL_KEY
+from bayram.bot.locales import CATALOGUES
 from bayram.bot.screens import (
     menu_screen,
     onboarding_contact_screen,
@@ -57,12 +62,22 @@ from bayram.bot.screens import (
 )
 from bayram.bot.states import Onboarding, Wizard
 from bayram.bot.terms_gate import TermsGateMiddleware
+from bayram.bot_chats import SupportGroupTarget
 from bayram.config import Settings
-from bayram.contracts import Language, Result, err, is_ok, ok
+from bayram.contracts import (
+    Language,
+    Result,
+    SupportTicketSource,
+    SupportTicketStatus,
+    err,
+    is_ok,
+    ok,
+)
 from bayram.db.retention import DEFAULT_RETENTION_POLICY
 from bayram.errors import BayramError, StorageError
 from bayram.main import build_terms_gate
 from bayram.terms import (
+    LEGAL_TEXT_FINGERPRINT,
     LEGAL_TEXT_IS_DRAFT,
     InMemoryTermsCache,
     TermsGate,
@@ -83,12 +98,21 @@ from tests.test_bot.conftest import (
     contact_update,
 )
 from tests.test_bot.test_credit_gate import FakeEntitlements
+from tests.test_bot.test_support import (
+    GROUP_CHAT_ID,
+    STAFF_USER_ID,
+    FakeBotChats,
+    FakeSupportTickets,
+    group_callback,
+    group_sends,
+    private_reply,
+)
 from tests.test_bot.test_wizard_flow import press, send, tap
 
 V1: Final[TermsVersions] = TermsVersions(terms="2026-10-01", privacy="2026-10-01")
 V2: Final[TermsVersions] = TermsVersions(terms="2026-11-01", privacy="2026-10-01")
 
-ACCEPT: Final[str] = TermsCB(action=TermsAction.ACCEPT).pack()
+ACCEPT: Final[str] = TermsCB(action=TermsAction.ACCEPT, v=V1.stamp).pack()
 READ_FULL: Final[str] = TermsCB(action=TermsAction.READ_FULL).pack()
 ENGLISH: Final[str] = LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack()
 
@@ -428,20 +452,145 @@ async def test_a_blocked_button_is_always_answered(
 
 
 async def test_support_and_the_reply_that_describes_it_both_pass(
-    dispatcher: Dispatcher, bot: Bot, session: RecordingSession, profiles: FakeProfiles
+    settings: Settings,
+    bot: Bot,
+    session: RecordingSession,
+    profiles: FakeProfiles,
+    gate: TermsGate,
 ) -> None:
     """A ticket is opened with a command and described with a reply; refusing the reply would
-    open a ticket nobody can fill in (IMAGE_VIDEO_SPEC §2.1)."""
+    open a ticket nobody can fill in (IMAGE_VIDEO_SPEC §2.1, §10 M1.2)."""
+    # Arrange — an onboarded customer who owes the Terms, with a real ticket store wired.
+    profiles.seed(USER_ID)
+    support = FakeSupportTickets()
+    deps = BotDeps(
+        settings=settings,
+        submitter=RecordingSubmitter(),
+        content=RecordingContentWriter(),
+        profiles=profiles,
+        support=support,
+        terms=gate,
+    )
+    dispatcher = build_dispatcher(deps, storage=MemoryStorage())
+
+    # Act
+    await send(dispatcher, bot, "/support")
+    prompt_id = support.only().prompt_message_id
+    assert prompt_id is not None, "/support opened no ticket"
+    await dispatcher.feed_update(bot, private_reply("The name was wrong", to_message_id=prompt_id))
+
+    # Assert — the ticket is described, and neither update was answered with the Terms.
+    ticket = support.only()
+    assert ticket.telegram_user_id == USER_ID
+    assert ticket.body == "The name was wrong"
+    assert ticket.described_at is not None
+    assert gate_text() not in shown(session)
+
+
+async def test_a_reply_to_the_bot_that_no_ticket_listens_for_is_stopped(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    session: RecordingSession,
+    state: FSMContext,
+    profiles: FakeProfiles,
+    content: RecordingContentWriter,
+) -> None:
+    """Only a reply ``ListeningTicket`` would claim passes. A reply to the note prompt is wizard
+    input and would reach the lyric writer with no acceptance on record (D26)."""
+    # Arrange
+    profiles.seed(USER_ID)
+    await state.set_state(Wizard.note)
+
+    # Act
+    await dispatcher.feed_update(bot, reply_to_the_bot("she loves the sea"))
+
+    # Assert
+    assert session.last_screen.text == gate_text()
+    assert content.calls == 0
+    assert await state.get_state() == Wizard.note.state
+
+
+async def test_a_wizard_language_button_is_stopped_and_the_writer_never_called(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    session: RecordingSession,
+    state: FSMContext,
+    profiles: FakeProfiles,
+    content: RecordingContentWriter,
+) -> None:
+    """``lang:out`` rewrites the lyric — a vendor LLM call carrying the brief. Only the settings
+    picker's ``lang:set`` is on the allowlist."""
+    # Arrange
+    profiles.seed(USER_ID)
+    await state.set_state(Wizard.output_language)
+
+    # Act
+    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.EN).pack())
+    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.RU).pack())
+
+    # Assert
+    assert content.calls == 0
+    assert toasts(session) == [translate("terms.required", Language.EN)] * 2
+    assert await state.get_state() == Wizard.output_language.state
+
+
+async def test_the_settings_language_picker_still_passes(
+    dispatcher: Dispatcher, bot: Bot, session: RecordingSession, profiles: FakeProfiles
+) -> None:
     # Arrange
     profiles.seed(USER_ID)
 
     # Act
-    await send(dispatcher, bot, "/support")
-    await dispatcher.feed_update(bot, reply_to_the_bot("The name was wrong"))
+    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.SETTINGS, code=Language.RU).pack())
 
-    # Assert — neither was answered with the Terms.
-    assert gate_text() not in shown(session)
-    assert session.calls, "the two updates reached nothing at all"
+    # Assert — not refused: no ``terms.required`` toast.
+    assert translate("terms.required", Language.EN) not in toasts(session)
+
+
+async def test_the_support_group_is_not_gated(
+    settings: Settings,
+    bot: Bot,
+    session: RecordingSession,
+    profiles: FakeProfiles,
+    gate: TermsGate,
+) -> None:
+    """A staffer who once used the bot and has not accepted the Terms can still work tickets,
+    and no Terms screen is ever posted into the staff room."""
+    # Arrange — the staffer is an onboarded account with no acceptance on record.
+    profiles.seed(STAFF_USER_ID)
+    support = FakeSupportTickets()
+    opened = await support.open_ticket(
+        telegram_user_id=USER_ID,
+        language=Language.EN,
+        source=SupportTicketSource.SUPPORT_COMMAND,
+        order_id=None,
+        now=FIXED_MOMENT,
+    )
+    assert is_ok(opened)
+    ticket = opened.value
+    deps = BotDeps(
+        settings=settings,
+        submitter=RecordingSubmitter(),
+        content=RecordingContentWriter(),
+        profiles=profiles,
+        support=support,
+        bot_chats=FakeBotChats(selected=SupportGroupTarget(chat_id=GROUP_CHAT_ID, thread_id=None)),
+        terms=gate,
+    )
+    dispatcher = build_dispatcher(deps, storage=MemoryStorage())
+
+    # Act
+    await dispatcher.feed_update(
+        bot,
+        group_callback(SupportCB(action=SupportAction.CLAIM, ref=pack_reference(ticket.id)).pack()),
+    )
+
+    # Assert — the claim reached ``handle_claim``, and nothing Terms-shaped went to the group.
+    claimed = support.only()
+    assert claimed.status is SupportTicketStatus.IN_PROGRESS
+    assert translate("terms.required", Language.EN) not in toasts(session)
+    assert all(gate_text(language) not in shown(session) for language in Language)
+    assert group_sends(session) == []
 
 
 @pytest.mark.parametrize("command", ["/privacy", "/forget", "/terms", "/help", "/cancel"])
@@ -858,10 +1007,135 @@ def test_the_draft_is_marked_draft_everywhere_it_is_shown(language: Language) ->
 def test_the_privacy_notice_names_media_retention_exactly_once(language: Language) -> None:
     """IMAGE_VIDEO_SPEC §2.1: the media periods are interpolated, and said once.
 
-    Measured with a policy whose two media numbers appear nowhere else in the notice, so a
-    count of one is the interpolation and not a coincidence with a song period.
+    Measured with a policy whose three media numbers appear nowhere else in the notice, so a
+    count of one is the interpolation and not a coincidence with a song period. The third is
+    the CSAM legal hold (O16, Q16, Appendix A.2 §6), the one exception to "deleted right after
+    delivery" that the notice must not leave out.
     """
-    policy = replace(DEFAULT_RETENTION_POLICY, media_input_max_hours=23, media_output_days=41)
+    policy = replace(
+        DEFAULT_RETENTION_POLICY,
+        media_input_max_hours=23,
+        media_output_days=41,
+        media_legal_hold_max_hours=67,
+    )
     text = privacy_text(language, policy)
     assert text.count("23") == 1
     assert text.count("41") == 1
+    assert text.count("67") == 1
+
+
+# ---------------------------------------------------------------------------
+# M1.R: a stale ✅, /forget with the gate off, the fail-closed question, the boot probe
+# ---------------------------------------------------------------------------
+async def test_a_button_drawn_before_a_version_bump_records_nothing(
+    settings: Settings,
+    bot: Bot,
+    session: RecordingSession,
+    profiles: FakeProfiles,
+    ledger: FakeTermsLedger,
+) -> None:
+    """A ✅ carrying V1's stamp, pressed after the owner wrote V2, would record acceptance of a
+    text the customer never saw. It redraws the current screen instead."""
+    # Arrange
+    profiles.seed(USER_ID)
+    deps = BotDeps(
+        settings=settings,
+        submitter=RecordingSubmitter(),
+        content=RecordingContentWriter(),
+        profiles=profiles,
+        terms=TermsGate(ledger, V2),
+    )
+    dispatcher = build_dispatcher(deps, storage=MemoryStorage())
+
+    # Act
+    await press(dispatcher, bot, ACCEPT)
+
+    # Assert — nothing recorded; the V2 screen, whose ✅ carries V2's stamp.
+    assert ledger.rows == []
+    assert session.last_screen.text == gate_text(versions=V2)
+    assert TermsCB(action=TermsAction.ACCEPT, v=V2.stamp).pack() in str(
+        session.last_screen.reply_markup
+    )
+
+    # And the fresh button records V2.
+    await press(dispatcher, bot, TermsCB(action=TermsAction.ACCEPT, v=V2.stamp).pack())
+    assert ledger.rows == [(USER_ID, V2, Language.EN, "gate")]
+
+
+def test_a_version_stamp_tells_pairs_apart_and_fits_a_callback() -> None:
+    assert V1.stamp != V2.stamp
+    assert len(TermsCB(action=TermsAction.ACCEPT, v=V1.stamp).pack().encode()) <= 64
+
+
+async def test_forget_drops_the_cache_entry_with_the_gate_switched_off(
+    settings: Settings, bot: Bot, session: RecordingSession, cache: InMemoryTermsCache
+) -> None:
+    """An entry written while the gate was on must not survive a /forget sent while it is off:
+    switching the gate back on inside the day would pass a forgotten account (§9.3)."""
+    # Arrange
+    await cache.set(terms_cache_key(USER_ID), V1.cache_value, ex=60)
+    deps = BotDeps(
+        settings=settings,
+        submitter=RecordingSubmitter(),
+        content=RecordingContentWriter(),
+        terms_cache=cache,
+    )
+    dispatcher = build_dispatcher(deps, storage=MemoryStorage())
+
+    # Act
+    await send(dispatcher, bot, "/forget")
+
+    # Assert
+    assert terms_cache_key(USER_ID) not in cache.values
+    assert session.last_screen.text == translate("privacy.forgotten", Language.UZ_LATN)
+
+
+async def test_require_fails_closed(ledger: FakeTermsLedger, cache: InMemoryTermsCache) -> None:
+    """The media paths' question (D20, D26): only an acceptance of the pair in force is Ok."""
+    # Arrange
+    gate = TermsGate(ledger, V1, cache=cache)
+
+    # Act / Assert — never accepted, then an older pair only: both refused.
+    assert not is_ok(await gate.require(USER_ID))
+    await ledger.accept(USER_ID, V2, language=Language.EN, source="gate")
+    assert not is_ok(await gate.require(USER_ID))
+    # Accepted: Ok, and cached.
+    await ledger.accept(USER_ID, V1, language=Language.EN, source="gate")
+    assert is_ok(await gate.require(USER_ID))
+    assert cache.values[terms_cache_key(USER_ID)] == V1.cache_value
+    # An unreadable ledger is a refusal, where ``standing`` would have let them through.
+    cache.values.clear()
+    ledger.failure = StorageError("the database is down")
+    assert not is_ok(await gate.require(USER_ID))
+    assert await gate.standing(USER_ID) is TermsStanding.ACCEPTED
+
+
+async def test_the_boot_probe_reports_an_unreadable_ledger(ledger: FakeTermsLedger) -> None:
+    gate = TermsGate(ledger, V1)
+    assert is_ok(await gate.probe())
+    ledger.failure = StorageError("relation terms_acceptances does not exist")
+    assert not is_ok(await gate.probe())
+
+
+def test_the_terms_version_is_stripped(settings_env: dict[str, str]) -> None:
+    configured = Settings(
+        _env_file=None,
+        telegram_bot_token=settings_env["BAYRAM_TELEGRAM_BOT_TOKEN"],
+        database_url=settings_env["BAYRAM_DATABASE_URL"],
+        terms_version=" 2026-10-01 ",
+        privacy_version="2026-10-01 ",
+    )
+    assert configured.terms_version == "2026-10-01"
+    assert configured.privacy_version == "2026-10-01"
+
+
+def test_the_legal_text_fingerprint_is_pinned() -> None:
+    """``bayram.terms.LEGAL_TEXT_FINGERPRINT`` is the deliberate record that the shipped text
+    changed. When this fails, the Terms or the Privacy Notice moved: update the constant AND
+    bump ``BAYRAM_TERMS_VERSION``/``BAYRAM_PRIVACY_VERSION`` in the release that ships it, or
+    nobody is asked to accept the new text."""
+    digest = hashlib.sha256()
+    for language in sorted(Language, key=lambda each: each.value):
+        for key in ("terms.full", "privacy.text"):
+            digest.update(f"{language.value}\0{key}\0{CATALOGUES[language][key]}\0".encode())
+    assert digest.hexdigest()[:16] == LEGAL_TEXT_FINGERPRINT

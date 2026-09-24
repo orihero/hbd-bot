@@ -814,7 +814,9 @@ class SqlCreditLedger:
         here as well as there.
         """
         async with self._sessions.begin() as session:
-            erased = await forget_account(session, telegram_user_id=telegram_user_id)
+            erased = await forget_account(
+                session, telegram_user_id=telegram_user_id, now=self._clock()
+            )
         _log.info(
             "credit record erased on request",
             extra={

@@ -368,12 +368,13 @@ def privacy_text(language: Language, policy: RetentionPolicy, *, version: str = 
     module's own rule — a notice that says thirty days while the job runs sixty is worse than
     no notice — is the reason.
 
-    **Six kwargs and no seventh.** ``privacy.text``'s placeholder set is fixed by
+    **Seven kwargs and no eighth.** ``privacy.text``'s placeholder set is fixed by
     ``tests/test_bot/test_i18n.py``, which asserts placeholder-set equality across the four
     catalogues; a kwarg with no matching placeholder would be silently dropped by
     ``i18n._SafeParams`` and would read, to whoever added it, as a period that simply never
-    appeared. The two media periods joined the four in M1.2, when this became the versioned
-    Privacy Notice (IMAGE_VIDEO_SPEC §2.1, Appendix A.2) rather than a retention list alone.
+    appeared. The media periods joined the four in M1.2 (the legal hold in M1.R, O16), when
+    this became the versioned Privacy Notice (IMAGE_VIDEO_SPEC §2.1, Appendix A.2) rather than
+    a retention list alone.
 
     **It is THE Privacy Notice, not one of two.** The notice the Terms gate asks customers to
     accept is this text: ``version`` is ``Settings.privacy_version`` and is printed under it,
@@ -388,6 +389,7 @@ def privacy_text(language: Language, policy: RetentionPolicy, *, version: str = 
         abandoned_draft_days=policy.abandoned_draft_days,
         media_input_hours=policy.media_input_max_hours,
         media_output_days=policy.media_output_days,
+        media_legal_hold_hours=policy.media_legal_hold_max_hours,
     )
     return with_legal_status(language, body, version=version)
 

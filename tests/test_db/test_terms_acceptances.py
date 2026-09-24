@@ -183,7 +183,7 @@ async def test_an_anonymised_acceptance_survives_until_the_cutoff_then_goes(
     # Arrange
     await _accept(sessions, clock)
     async with sessions.begin() as session:
-        await forget_account(session, telegram_user_id=_USER)
+        await forget_account(session, telegram_user_id=_USER, now=clock.now)
 
     # Act / Assert — one day inside the cutoff, kept.
     kept = await purge_expired(
@@ -200,6 +200,36 @@ async def test_an_anonymised_acceptance_survives_until_the_cutoff_then_goes(
     assert await _rows(sessions) == []
 
 
+async def test_the_cutoff_counts_from_the_forget_not_from_the_acceptance(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    """IMAGE_VIDEO_SPEC §3.2.1: kept "400 days after account deletion". An acceptance far older
+    than the cutoff, forgotten today, is still kept for the full 400 days."""
+    # Arrange — accepted 500 days ago, forgotten today.
+    await _accept(sessions, clock)
+    forgotten_at = clock.advance(days=500)
+    async with sessions.begin() as session:
+        await forget_account(session, telegram_user_id=_USER, now=forgotten_at)
+
+    # Act / Assert — the next run, and one day inside the cutoff: kept.
+    first = await purge_expired(sessions, now=clock.advance(days=1))
+    assert is_ok(first)
+    assert first.value.terms_acceptances_deleted == 0
+    kept = await purge_expired(
+        sessions, now=clock.advance(days=TERMS_ACCEPTANCE_RETENTION_DAYS - 2)
+    )
+    assert is_ok(kept)
+    assert kept.value.terms_acceptances_deleted == 0
+    [row] = await _rows(sessions)
+    assert row.anonymised_at == forgotten_at
+
+    # Act / Assert — 400 days after the /forget: swept.
+    swept = await purge_expired(sessions, now=clock.advance(days=2))
+    assert is_ok(swept)
+    assert swept.value.terms_acceptances_deleted == 1
+    assert await _rows(sessions) == []
+
+
 async def test_the_backlog_counts_exactly_what_the_sweep_would_take(
     sessions: async_sessionmaker[AsyncSession], clock: MovableClock
 ) -> None:
@@ -207,7 +237,7 @@ async def test_the_backlog_counts_exactly_what_the_sweep_would_take(
     await _accept(sessions, clock)
     await _accept(sessions, clock, user=_OTHER_USER)
     async with sessions.begin() as session:
-        await forget_account(session, telegram_user_id=_USER)
+        await forget_account(session, telegram_user_id=_USER, now=clock.now)
     later = clock.advance(days=TERMS_ACCEPTANCE_RETENTION_DAYS + 1)
 
     # Act

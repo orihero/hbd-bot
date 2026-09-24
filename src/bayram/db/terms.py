@@ -139,15 +139,20 @@ async def acceptance_standing(
     return TermsStanding.OUTDATED
 
 
-async def anonymise_terms_acceptances(session: AsyncSession, *, telegram_user_id: int) -> int:
-    """Strip the account off its acceptances, keeping every row. Rows touched.
+async def anonymise_terms_acceptances(
+    session: AsyncSession, *, telegram_user_id: int, now: datetime
+) -> int:
+    """Strip the account off its acceptances, keeping every row, and stamp when. Rows touched.
 
     The third retention route (IMAGE_VIDEO_SPEC §3.2.4), ``broadcast_recipients``' treatment:
     the id comes off and the versions, the language, the screen and the instant stay as an
     anonymous record that SOMEONE accepted that text then. Deleting instead would make the
     acceptance count for a version shrink retroactively by the number of people who have
     since asked to be forgotten. The anonymous row leaves on the 400-day cutoff in
-    :mod:`bayram.db.purge`.
+    :mod:`bayram.db.purge`, counted from ``anonymised_at`` — the instant written here — and
+    not from ``accepted_at``: IMAGE_VIDEO_SPEC §3.2.1 keeps the lawful-basis record 400 days
+    after the account's deletion, so an acceptance two years old that is forgotten today is
+    still kept for 400 days.
 
     The Redis cache ``terms:ok:{tg}`` is the caller's to delete in the same ``/forget`` arm
     (IMAGE_VIDEO_SPEC §9.3); without that, a forgotten account would skip the terms screen
@@ -156,7 +161,7 @@ async def anonymise_terms_acceptances(session: AsyncSession, *, telegram_user_id
     result = await session.execute(
         sa.update(TermsAcceptanceRow)
         .where(TermsAcceptanceRow.telegram_user_id == telegram_user_id)
-        .values(telegram_user_id=None)
+        .values(telegram_user_id=None, anonymised_at=now)
     )
     return rowcount_of(result)
 

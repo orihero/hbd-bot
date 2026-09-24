@@ -18,11 +18,22 @@ not exist, which is the shipped default.
 * the data-subject commands ``gate.ERASURE_COMMANDS`` exempts (``/privacy``, ``/forget``,
   ``/support``), and ``/start``, ``/terms``, ``/help``, ``/cancel``. Somebody asked to accept
   a text must be able to read it, ask what it means, erase themselves instead, or start over;
-* every ``trm:*`` callback — the ✅ and 📄 on the Terms screen itself — and the ``lang:*``
-  language picker, so the Terms can be re-read in another language before accepting;
-* a REPLY to one of the bot's own messages, through ``gate._is_answer_to_the_bot``. ``/support``
-  opens a ticket with a command and describes it with an ordinary reply, and a gate that let
-  the command through and refused the description would open a ticket nobody can fill in.
+* every ``trm:*`` callback — the ✅ and 📄 on the Terms screen itself — and the SETTINGS
+  language picker (``lang:set:*``), so the Terms can be re-read in another language before
+  accepting. Only that slot: the wizard's ``lang:ui`` and ``lang:out`` buttons advance a draft,
+  and ``lang:out`` rewrites the lyric — a vendor LLM call carrying the customer's brief — which
+  an account with no acceptance on record must not be able to trigger (D26);
+* a REPLY that a support ticket is listening for — exactly what ``support.ListeningTicket``
+  would claim (IMAGE_VIDEO_SPEC §2.1). ``/support`` opens a ticket with a command and describes
+  it with an ordinary reply, and a gate that let the command through and refused the
+  description would open a ticket nobody can fill in. Not every reply to the bot: a reply to
+  the note prompt is wizard input, and would reach the lyric writer. That check costs a ticket
+  lookup, so it runs only for an account the gate is about to refuse.
+
+**Private chats only.** Every router it protects is private-only; the support group's router
+is not, and its Claim and Resolve buttons belong to staff who may never have accepted anything
+as customers. A group update is not this gate's to stop, and a Terms screen posted into the
+staff room could not be accepted there anyway.
 
 **Where it stands down, because somebody else owns the question.** A customer who has not
 finished onboarding — by FSM state or by profile — is the onboarding router's: it asks
@@ -54,15 +65,17 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from aiogram import BaseMiddleware
+from aiogram.enums import ChatType
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
-from bayram.bot.callbacks import LanguageCB, TermsCB
+from bayram.bot.callbacks import LanguageCB, LanguageSlot, TermsCB
 from bayram.bot.deps import BotDeps
-from bayram.bot.gate import ERASURE_COMMANDS, _is_answer_to_the_bot
+from bayram.bot.gate import ERASURE_COMMANDS
 from bayram.bot.handlers.common import COMMAND_PREFIX, ui_language
 from bayram.bot.handlers.onboarding import load_identity
+from bayram.bot.handlers.support import ListeningTicket
 from bayram.bot.i18n import translate
 from bayram.bot.ports import Clock, utc_now
 from bayram.bot.screens import terms_screen
@@ -94,10 +107,11 @@ TERMS_NOTICE_WINDOW_S: Final[int] = 60
 #: The ``claim_notice`` purpose. Its own key, so it never shares a budget with ``error.*``.
 _NOTICE_PURPOSE: Final[str] = "terms.gate"
 
-#: Callback prefixes that always pass: the Terms screen's own buttons and the language picker.
+#: Callback prefixes that always pass: the Terms screen's own buttons and the SETTINGS
+#: language picker — not the wizard's two language slots (see the module docstring).
 _ALLOWED_CALLBACK_PREFIXES: Final[tuple[str, ...]] = (
     f"{TermsCB.__prefix__}:",
-    f"{LanguageCB.__prefix__}:",
+    f"{LanguageCB.__prefix__}:{LanguageSlot.SETTINGS.value}:",
 )
 
 #: Telegram 400s a callback answer over 200 characters.
@@ -157,7 +171,7 @@ class TermsGateMiddleware(BaseMiddleware):
     async def _decide(self, event: TelegramObject, data: dict[str, Any]) -> _Refusal | None:
         """``None`` to let the update through; else the refusal, never for ``ACCEPTED``."""
         deps = data.get("deps")
-        if not isinstance(deps, BotDeps) or deps.terms is None:
+        if not isinstance(deps, BotDeps) or deps.terms is None or not _is_private(event):
             return None
         user = getattr(event, "from_user", None)
         telegram_user_id = getattr(user, "id", None)
@@ -178,6 +192,9 @@ class TermsGateMiddleware(BaseMiddleware):
         identity = await load_identity(state, deps, telegram_user_id)
         if not identity.is_onboarded:
             # The onboarding router's customer: it asks language → terms → contact.
+            return None
+        if isinstance(event, Message) and await ListeningTicket()(event, deps):
+            # The description (or follow-up) of a ticket /support opened: see the docstring.
             return None
         _LOG.info(
             "an account that owes the terms was stopped",
@@ -221,13 +238,26 @@ class TermsGateMiddleware(BaseMiddleware):
             )
 
 
+def _is_private(event: TelegramObject) -> bool:
+    """Whether the update comes from a private chat — ``only_in_private``'s test, restated.
+
+    A callback whose message is gone (``None``, or inaccessible) is not known to be private
+    and is let through: the routers behind it apply their own chat filters.
+    """
+    if isinstance(event, Message):
+        return event.chat.type == ChatType.PRIVATE
+    if isinstance(event, CallbackQuery):
+        message = event.message
+        return message is not None and message.chat.type == ChatType.PRIVATE
+    return False
+
+
 def _is_allowed(event: TelegramObject) -> bool:
-    """The allowlist in the module docstring. Checkable from the update alone."""
+    """The free half of the allowlist in the module docstring, checkable from the update alone.
+    The support reply is the other half, in :meth:`TermsGateMiddleware._decide`."""
     if isinstance(event, CallbackQuery):
         return (event.data or "").startswith(_ALLOWED_CALLBACK_PREFIXES)
     if not isinstance(event, Message):
-        return True
-    if _is_answer_to_the_bot(event):
         return True
     text = event.text or event.caption or ""
     if not text.startswith(COMMAND_PREFIX):

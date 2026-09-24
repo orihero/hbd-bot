@@ -883,7 +883,7 @@ def settings_keyboard(language: Language) -> InlineKeyboardMarkup:
 
 
 def terms_keyboard(
-    language: Language, *, is_read_full_offered: bool = True
+    language: Language, *, stamp: str = "", is_read_full_offered: bool = True
 ) -> InlineKeyboardMarkup:
     """✅ I accept, and 📄 Read in full under it (IMAGE_VIDEO_SPEC §2.1).
 
@@ -893,13 +893,14 @@ def terms_keyboard(
     against the other's width.
 
     ``is_read_full_offered`` is false under the full text itself, where 📄 would redraw the
-    screen the customer is already reading.
+    screen the customer is already reading. ``stamp`` is ``TermsVersions.stamp`` for the pair
+    on screen, carried by ✅ so a tap after a version bump is recognised as stale.
     """
     builder = InlineKeyboardBuilder()
     builder.row(
         InlineKeyboardButton(
             text=translate("button.terms.accept", language),
-            callback_data=TermsCB(action=TermsAction.ACCEPT).pack(),
+            callback_data=TermsCB(action=TermsAction.ACCEPT, v=stamp).pack(),
         )
     )
     if is_read_full_offered:

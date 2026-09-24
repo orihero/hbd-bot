@@ -375,11 +375,14 @@ def terms_screen(
     parts = [opening, translate("terms.links", language)]
     if url:
         parts.append(translate("terms.url_line", language, url=url))
-    return Screen(with_legal_status(language, "\n\n".join(parts)), terms_keyboard(language))
+    return Screen(
+        with_legal_status(language, "\n\n".join(parts)),
+        terms_keyboard(language, stamp=versions.stamp),
+    )
 
 
 def terms_full_screen(
-    language: Language, *, version: str = "", is_accept_offered: bool = False
+    language: Language, *, version: str = "", stamp: str = "", is_accept_offered: bool = False
 ) -> Screen:
     """The whole Terms of Use (Appendix A.1), with ✅ under it when there is something to accept.
 
@@ -387,7 +390,11 @@ def terms_full_screen(
     and this account has not accepted the pair in force, because a button that records an
     acceptance nobody is being asked for is a lawful-basis row with no reason behind it.
     """
-    markup = terms_keyboard(language, is_read_full_offered=False) if is_accept_offered else None
+    markup = (
+        terms_keyboard(language, stamp=stamp, is_read_full_offered=False)
+        if is_accept_offered
+        else None
+    )
     return Screen(
         with_legal_status(language, translate("terms.full", language), version=version), markup
     )

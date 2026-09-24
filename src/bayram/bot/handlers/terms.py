@@ -58,8 +58,15 @@ TERMS_REQUIRED_KEY: Final[str] = "terms.required"
 _CALLBACK_ANSWER_MAX_CHARS: Final[int] = 200
 
 
-async def handle_terms_accept(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:
+async def handle_terms_accept(
+    callback: CallbackQuery, callback_data: TermsCB, state: FSMContext, deps: BotDeps
+) -> None:
     """✅ — record the acceptance, then carry on to whatever was next.
+
+    **Only for the pair the button was drawn for.** A ✅ whose ``v`` is not the stamp of the
+    pair in force was drawn before a version bump; recording it would claim acceptance of a
+    text the customer never saw, so it is answered with the current screen instead and records
+    nothing.
 
     **The record first, and a failed record does not advance.** The acceptance row is the
     lawful-basis evidence (D26); answering "thank you" over a failed write would let the
@@ -82,7 +89,18 @@ async def handle_terms_accept(callback: CallbackQuery, state: FSMContext, deps: 
     # — the language the customer chose rather than the operator default.
     identity = await load_identity(state, deps, user.id)
     language = identity.ui_language or await ui_language(state, deps)
-    if deps.terms is not None:
+    is_stale = deps.terms is not None and callback_data.v != deps.terms.versions.stamp
+    if is_stale:
+        standing = await terms_standing(deps, user.id)
+        if standing is not TermsStanding.ACCEPTED:
+            _LOG.info("a stale terms button was pressed; redrawing the current screen")
+            await callback.answer(
+                translate(TERMS_REQUIRED_KEY, language)[:_CALLBACK_ANSWER_MAX_CHARS]
+            )
+            await present_terms(callback, deps, language, standing=standing)
+            return
+        # Already accepted the pair in force some other way: nothing to record, carry on.
+    if deps.terms is not None and not is_stale:
         source: TermsSource = "gate" if identity.is_onboarded else "onboarding"
         accepted = await deps.terms.accept(user.id, language=language, source=source)
         if isinstance(accepted, Err):
@@ -130,6 +148,7 @@ async def handle_terms_read_full(callback: CallbackQuery, state: FSMContext, dep
         terms_full_screen(
             language,
             version=gate.versions.label if gate is not None else "",
+            stamp=gate.versions.stamp if gate is not None else "",
             is_accept_offered=gate is not None and standing is not TermsStanding.ACCEPTED,
         ),
     )

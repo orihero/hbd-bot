@@ -17,12 +17,20 @@ asks. That is the spec's default until counsel signs the text off (IMAGE_VIDEO_S
 the gate goes live when the owner writes a version, and a version bump is what re-prompts
 everyone. There is no second boolean to disagree with the versions.
 
-**Reads fail OPEN.** :meth:`TermsGate.standing` answers "accepted" when neither the cache nor
-the ledger can be read, logged at WARNING and never cached. The posture is
+**Reads fail OPEN for the song flow, and CLOSED for media.** :meth:`TermsGate.standing`
+answers "accepted" when neither the cache nor the ledger can be read, logged at ERROR (so it
+reaches alerting) and never cached. The posture is
 ``bot.gate.InboundGateMiddleware``'s and ``handlers.onboarding.load_identity``'s, for their
 reason: a database blip must not stop the bot answering anyone. What the gate protects is the
 lawful-basis RECORD, and the record is a write — :meth:`TermsGate.accept` is a ``Result`` and
 a failed write is shown to the customer, never papered over.
+
+That posture is bounded two ways. ``bayram.main`` probes the ledger once at boot and refuses to
+start with a version pair set when the probe fails, so a missing revision 0030 or a missing
+grant cannot leave the gate silently open for ever. And :meth:`TermsGate.require` is the
+fail-CLOSED question: per D20/D26 the Terms are the only control for real people in uploaded
+photos, so **every media path from M2 on — quote, submit, upload — must call it before an
+upload is accepted or any provider or guard call is made**, and treat its ``Err`` as a refusal.
 
 **The cache is ``terms:ok:{tg}``** (IMAGE_VIDEO_SPEC §2.1), valued with the version PAIR and
 held a day. Only a positive answer is cached: a negative one would be stale the instant the
@@ -33,17 +41,19 @@ again on its next message rather than a day later.
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, Final, Literal, Protocol, runtime_checkable
 
 from bayram.contracts import Language, Result, err, is_ok, ok
-from bayram.errors import StorageError
+from bayram.errors import StorageError, ValidationError
 from bayram.logging import get_logger
 
 __all__ = [
     "TERMS_CACHE_KEY_PREFIX",
     "TERMS_CACHE_TTL_S",
+    "LEGAL_TEXT_FINGERPRINT",
     "LEGAL_TEXT_IS_DRAFT",
     "TermsSource",
     "TermsStanding",
@@ -52,6 +62,7 @@ __all__ = [
     "TermsCache",
     "InMemoryTermsCache",
     "TermsGate",
+    "forget_terms_cache",
     "terms_cache_key",
 ]
 
@@ -71,6 +82,19 @@ TERMS_CACHE_TTL_S: Final[int] = 86_400
 #: catalogue text with the approved wording. It is a constant rather than a setting on purpose:
 #: "this text is approved" is a fact about the text in this build, not about a deployment.
 LEGAL_TEXT_IS_DRAFT: Final[bool] = True
+
+#: A fingerprint of the legal text this build ships: ``terms.full`` and ``privacy.text`` in all
+#: four catalogues (the recipe is in ``tests/test_bot/test_terms_gate.py``, which recomputes it
+#: and fails when it drifts). The versions a customer accepts are owner-written settings while
+#: the text ships in the wheel, so nothing else binds the two: a release that changed the text
+#: without bumping ``BAYRAM_TERMS_VERSION``/``BAYRAM_PRIVACY_VERSION`` would re-prompt nobody
+#: and leave rows claiming acceptance of a text that has since moved. Updating this constant is
+#: the deliberate act that says "the text changed" — and the release that ships it must bump
+#: the version pair. Not a boot check, because the env version cannot be derived from it.
+LEGAL_TEXT_FINGERPRINT: Final[str] = "60a521e4cce7ab82"
+
+#: The account :meth:`TermsGate.probe` asks about. Telegram ids start at 1.
+_PROBE_ACCOUNT: Final[int] = 0
 
 #: Which screen an acceptance happened on. The same two values as
 #: ``bayram.db.enums.TermsAcceptanceSource``, spelled as a ``Literal`` because this module may
@@ -106,6 +130,17 @@ class TermsVersions:
         return f"{self.terms}|{self.privacy}"
 
     @property
+    def stamp(self) -> str:
+        """A short fingerprint of the pair, carried on the ✅ button (``TermsCB.v``).
+
+        So that a ✅ drawn before a version bump is recognised as stale and answered with the
+        current screen, rather than recording acceptance of a pair the customer never saw.
+        Eight hex characters: the callback payload is capped at 64 bytes, and this only has to
+        tell the pair in force from the handful that came before it.
+        """
+        return hashlib.sha256(self.cache_value.encode("utf-8")).hexdigest()[:8]
+
+    @property
     def label(self) -> str:
         """How the pair is named to a customer: one version when both agree, else both."""
         return self.terms if self.terms == self.privacy else f"{self.terms} / {self.privacy}"
@@ -114,6 +149,28 @@ class TermsVersions:
 def terms_cache_key(telegram_user_id: int) -> str:
     """``terms:ok:{tg}``."""
     return f"{TERMS_CACHE_KEY_PREFIX}{telegram_user_id}"
+
+
+async def forget_terms_cache(cache: TermsCache, telegram_user_id: int) -> Result[None]:
+    """Delete ``terms:ok:{tg}`` (IMAGE_VIDEO_SPEC §9.3). An ``Err`` when Redis refused.
+
+    A free function as well as :meth:`TermsGate.forget` because ``/forget`` must drop the key
+    whether or not a gate is wired: an entry written while the gate was on outlives the gate
+    being switched off, and switching it back on within the day would otherwise let a
+    forgotten account through on an acceptance its anonymised row no longer names.
+    """
+    try:
+        await cache.delete(terms_cache_key(telegram_user_id))
+    except Exception as exc:
+        _LOG.error("the terms cache entry could not be deleted", extra={"detail": repr(exc)})
+        return err(
+            StorageError(
+                "the terms cache entry could not be deleted",
+                context={"telegram_user_id": telegram_user_id},
+                cause=exc,
+            )
+        )
+    return ok(None)
 
 
 @runtime_checkable
@@ -218,8 +275,9 @@ class TermsGate:
             return TermsStanding.ACCEPTED
         result = await self._ledger.standing(telegram_user_id, self.versions)
         if not is_ok(result):
-            # NOT cached, so the next update asks again rather than a blip becoming a day.
-            _LOG.warning(
+            # NOT cached, so the next update asks again rather than a blip becoming a day. ERROR,
+            # not WARNING: an open gate nobody notices is the failure this line exists to stop.
+            _LOG.error(
                 "the terms ledger could not be read; treating the account as accepted",
                 extra=result.error.to_log_dict(),
             )
@@ -227,6 +285,50 @@ class TermsGate:
         if result.value is TermsStanding.ACCEPTED:
             await self._remember(key)
         return result.value
+
+    async def probe(self) -> Result[None]:
+        """One ledger read, for the boot check in ``bayram.main``: ``Err`` when it cannot be
+        read at all — revision 0030 not applied, a role without grants on the table, no
+        database. The account asked about is ``0``, which Telegram never issues; the answer
+        is thrown away, only whether one came back matters."""
+        result = await self._ledger.standing(_PROBE_ACCOUNT, self.versions)
+        return ok(None) if is_ok(result) else err(result.error)
+
+    async def require(self, telegram_user_id: int) -> Result[None]:
+        """FAIL-CLOSED: ``Ok`` only when this account has accepted the pair in force.
+
+        The media paths' question (D20, D26), where an open gate means a face photo processed
+        with no lawful-basis record: ``NEVER``, ``OUTDATED`` and an unreadable ledger are all
+        an ``Err``. A cache hit on the current pair answers without the database, as
+        :meth:`standing` does; everything else asks the ledger, and only its answer counts.
+        """
+        key = terms_cache_key(telegram_user_id)
+        try:
+            cached = await self._cache.get(key)
+        except Exception as exc:
+            _LOG.warning("the terms cache could not be read", extra={"detail": repr(exc)})
+            cached = None
+        if _decoded(cached) == self.versions.cache_value:
+            return ok(None)
+        result = await self._ledger.standing(telegram_user_id, self.versions)
+        if not is_ok(result):
+            _LOG.error(
+                "the terms ledger could not be read; refusing (fail closed)",
+                extra=result.error.to_log_dict(),
+            )
+            return err(result.error)
+        if result.value is not TermsStanding.ACCEPTED:
+            return err(
+                ValidationError(
+                    "the terms in force have not been accepted",
+                    context={
+                        "telegram_user_id": telegram_user_id,
+                        "standing": result.value.value,
+                    },
+                )
+            )
+        await self._remember(key)
+        return ok(None)
 
     async def accept(
         self, telegram_user_id: int, *, language: Language, source: TermsSource
@@ -247,18 +349,7 @@ class TermsGate:
         Unlike the reads, a failed delete is reported: ``/forget`` promises the account is
         asked again, and a stale positive entry would skip it for up to a day.
         """
-        try:
-            await self._cache.delete(terms_cache_key(telegram_user_id))
-        except Exception as exc:
-            _LOG.error("the terms cache entry could not be deleted", extra={"detail": repr(exc)})
-            return err(
-                StorageError(
-                    "the terms cache entry could not be deleted",
-                    context={"telegram_user_id": telegram_user_id},
-                    cause=exc,
-                )
-            )
-        return ok(None)
+        return await forget_terms_cache(self._cache, telegram_user_id)
 
     async def _remember(self, key: str) -> None:
         try:

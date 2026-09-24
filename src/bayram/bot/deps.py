@@ -29,7 +29,7 @@ from bayram.entitlements import EntitlementStore
 from bayram.lyric_budget import LyricBudgetStore
 from bayram.pipeline.ports import ContentWriter
 from bayram.support import SupportTicketStore
-from bayram.terms import TermsGate
+from bayram.terms import TermsCache, TermsGate
 from bayram.user_profiles import UserProfileStore
 
 __all__ = ["BotDeps", "DEPS_KEY"]
@@ -289,3 +289,10 @@ class BotDeps:
     #: builds ``BotDeps`` by keyword, and a field inserted anywhere but the end, or without a
     #: default, breaks every construction site at once.
     terms: TermsGate | None = None
+    #: The ``terms:ok:{tg}`` cache on its own, wired WHETHER OR NOT a gate is (IMAGE_VIDEO_SPEC
+    #: §9.3). ``/forget`` deletes the key through it even with the gate switched off: an entry
+    #: written while the gate was on lives a day, and switching the gate back on inside that
+    #: day would otherwise pass a forgotten account on an acceptance its anonymised row no
+    #: longer names. ``None`` on the demo path, where the gate's own in-process cache is all
+    #: there is. Trailing and defaulted, for the reason ``terms`` gives.
+    terms_cache: TermsCache | None = None

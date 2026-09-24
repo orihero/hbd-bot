@@ -989,6 +989,13 @@ class Settings(BaseSettings):
             )
         return value
 
+    @field_validator("terms_version")
+    @classmethod
+    def _terms_version_is_stripped(cls, value: str) -> str:
+        """``"2026-10-01 "`` is ``"2026-10-01"``: a trailing space from a hand-edited ``.env``
+        would otherwise be recorded on every acceptance and compared on every read."""
+        return value.strip()
+
     @field_validator("privacy_version")
     @classmethod
     def _terms_versions_come_as_a_pair(cls, value: str, info: Any) -> str:

@@ -83,6 +83,11 @@ class RetentionPolicy:
     #: Generated images and videos, and the prompts behind them (IMAGE_VIDEO_SPEC Q2 — open;
     #: 30 days is the spec's default until the owner answers).
     media_output_days: int = 30
+    #: The CSAM-class exception to :attr:`media_input_max_hours` (IMAGE_VIDEO_SPEC §6.7, O16,
+    #: owner-confirmed Q16): the offending bytes are kept encrypted for at most this many hours
+    #: pending the escalation owner's reporting decision. The Privacy Notice quotes it
+    #: (Appendix A.2 §6), so the number lives here and not in the catalogues.
+    media_legal_hold_max_hours: int = 72
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -94,6 +99,7 @@ class RetentionPolicy:
             "recipient_identity_days",
             "media_input_max_hours",
             "media_output_days",
+            "media_legal_hold_max_hours",
         ):
             value = getattr(self, field_name)
             # ``bool`` is an ``int`` in Python, and ``True`` would silently mean "one day".

@@ -198,9 +198,10 @@ class SupportCB(CallbackData, prefix="sup"):
 class TermsAction(StrEnum):
     """The two buttons under the Terms screen (IMAGE_VIDEO_SPEC §2.1)."""
 
-    #: ✅ I accept. Records the acceptance of the version pair in force AT THE TAP, not the
-    #: one on screen — a button drawn before a version bump accepts the new pair, which is the
-    #: text ``/terms`` would now show. The payload therefore carries no version.
+    #: ✅ I accept. Records the acceptance of the version pair in force, and ONLY when it is
+    #: the pair the button was drawn for (``TermsCB.v``): a ✅ drawn before a version bump is
+    #: answered with the current screen instead, so nobody is recorded as accepting a text
+    #: they were never shown.
     ACCEPT = "ok"
     #: 📄 Read in full. Draws the whole Terms of Use over the summary.
     READ_FULL = "full"
@@ -216,6 +217,9 @@ class TermsCB(CallbackData, prefix="trm"):
     """
 
     action: TermsAction
+    #: The version pair the screen was drawn for, as ``TermsVersions.stamp``. Checked on
+    #: ACCEPT only; empty on 📄, which records nothing.
+    v: str = ""
 
 
 def pack_reference(value: UUID | None) -> str:
