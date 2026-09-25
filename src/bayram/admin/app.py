@@ -88,6 +88,7 @@ from bayram.admin.routers import (
     build_generations_router,
     build_health_router,
     build_login_router,
+    build_media_reviews_router,
     build_orders_router,
     build_payment_notify_router,
     build_rail_control_router,
@@ -495,6 +496,9 @@ def create_app(
     # ``generation_attempts`` and refuses to print a cost figure from either, and this one
     # reads a table built so it can.
     application.include_router(build_vendors_router())
+    # The media review queue (IMAGE_VIDEO_SPEC §6.6, §8): MEDIA_MODERATE on the router, and
+    # the refund's MODERATION_DECIDE step-up enforced in its handler on the review id.
+    application.include_router(build_media_reviews_router())
     application.include_router(build_assets_router())
     # ``assets.py`` ships two routers for the same reason ``users.py`` does: the two media
     # reveals stand on the REVEAL_MEDIA_READ cell, not on RECORDS_READ, and the guard is

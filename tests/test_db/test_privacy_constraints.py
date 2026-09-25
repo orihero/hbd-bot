@@ -455,6 +455,11 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     #: ``/forget`` nulls, and a 400-day cutoff then bounds the anonymised remainder only.
     #: ``media_attempts`` is in neither set on ``vendor_usage``' argument: no personal data at
     #: all, a 400-day cutoff on ``created_at``.
+    #:
+    #: ``moderation_reviews`` (revision 0032, IMAGE_VIDEO_SPEC §6.6) is in neither set on the
+    #: same argument: a job id, closed category codes, an OPERATOR's username, a closed reason
+    #: code and clocks — no customer text and no Telegram id. It cascades with its
+    #: ``media_jobs`` row, and ``due_at`` is an SLA, deliberately not spelled ``*_expires_at``.
     tables_erased_on_request = {"user_profiles", "media_credit_balances"}
 
     # Act

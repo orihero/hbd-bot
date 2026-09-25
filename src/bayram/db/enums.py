@@ -415,6 +415,16 @@ class AuditAction(StrEnum):
     USER_PURGE_FAILED = "user.purge.fail"
     MODERATION_APPROVE = "moderation.approve"
     MODERATION_REJECT = "moderation.reject"
+    #: The media review queue (IMAGE_VIDEO_SPEC §6.6, §8). A release is ``moderation.approve``
+    #: against ``subject_type="media_job"``. ``moderation.hold`` is an operator stopping a
+    #: screened output on its way out. A refund is TWO rows, per D14/D25: the INTENT
+    #: (``moderation.refund``) written in the transaction that records the decision, and the
+    #: OUTCOME (``moderation.refund.outcome``) written after the worker was asked to carry it
+    #: out — ``ok``, or ``error`` when the enqueue failed and ``media_sweep`` will. Longest is
+    #: 25 characters, inside ``ENUM_LENGTH`` (32).
+    MODERATION_HOLD = "moderation.hold"
+    MODERATION_REFUND = "moderation.refund"
+    MODERATION_REFUND_OUTCOME = "moderation.refund.outcome"
     CONFIG_VALIDATE = "config.validate"
     CONFIG_COMMIT = "config.commit"
     CONFIG_ROLLBACK = "config.rollback"
@@ -784,3 +794,29 @@ class MediaCreditReason(StrEnum):
     LATE_SETTLEMENT = "late_settlement"
     SPENT = "spent"
     ADMIN_CORRECTION = "admin_correction"
+
+
+class MediaReviewSource(StrEnum):
+    """Why a ``moderation_reviews`` row was opened (IMAGE_VIDEO_SPEC §6.6).
+
+    ``OUTPUT_REVIEW`` is the L4 guard answering ``review``; ``GUARD_UNAVAILABLE`` is the L4
+    guard not answering for 30 minutes (§6.4); ``MANUAL`` is an operator's hold. Appeals and
+    the 2% sampled audit are later sources and need no DDL (``VARCHAR``, no CHECK).
+    """
+
+    OUTPUT_REVIEW = "output_review"
+    GUARD_UNAVAILABLE = "guard_unavailable"
+    MANUAL = "manual"
+
+
+class MediaReviewDecision(StrEnum):
+    """How a review ended. NULL on the row is *pending* (§6.6).
+
+    ``RELEASED`` delivers the held outputs; ``BLOCKED`` confirms the block — the job fails
+    and a paid one gets one SKU-scoped credit (§7.5, D25); ``EXPIRED`` is the 24 h SLA
+    running out with nobody deciding, which ends exactly like ``BLOCKED``.
+    """
+
+    RELEASED = "released"
+    BLOCKED = "blocked"
+    EXPIRED = "expired"

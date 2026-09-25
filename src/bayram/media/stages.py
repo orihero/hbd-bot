@@ -41,6 +41,7 @@ __all__ = [
     "MEDIA_DELIVER_JOB",
     "MEDIA_CLEANUP_JOB",
     "MEDIA_SWEEP_JOB",
+    "MEDIA_REVIEW_JOB",
     "MEDIA_MUX_JOB",
     "MEDIA_TTS_JOB",
     "SKU_DEADLINE_FIELDS",
@@ -52,6 +53,7 @@ __all__ = [
     "output_screen_job_id",
     "deliver_job_id",
     "cleanup_job_id",
+    "review_job_id",
     "sku_deadline",
     "content_sha256",
 ]
@@ -65,6 +67,10 @@ MEDIA_OUTPUT_SCREEN_JOB: Final[str] = "media_output_screen"
 MEDIA_DELIVER_JOB: Final[str] = "media_deliver"
 MEDIA_CLEANUP_JOB: Final[str] = "media_cleanup"
 MEDIA_SWEEP_JOB: Final[str] = "media_sweep"
+#: Carries out an operator's (or the SLA's) decision on a held job (§6.6). The ADMIN process
+#: enqueues it and restates the string (``bayram.admin.queue``), which may not import this
+#: package's worker half; ``tests/test_admin/test_queue.py`` holds the two spellings together.
+MEDIA_REVIEW_JOB: Final[str] = "media_review_apply"
 #: Video stages, M4. Named now so the video fan-in has one spelling to enqueue; NOT registered
 #: in ``WorkerSettings`` until their functions exist, and ``media_start`` refuses a video job
 #: until then (``bayram.runtime.media_jobs``), so nothing enqueues them early.
@@ -111,12 +117,22 @@ def output_screen_job_id(job_id: UUID | str, seq: int) -> str:
     return f"{_prefix(job_id)}:oscreen:{seq}"
 
 
-def deliver_job_id(job_id: UUID | str) -> str:
-    return f"{_prefix(job_id)}:deliver"
+def deliver_job_id(job_id: UUID | str, n: int = 0) -> str:
+    """``n`` is 0 from the output screen; a release or the sweep's re-drive of a released
+    ``held`` job passes its own suffix, since the plain id may already have been spent."""
+    return f"{_prefix(job_id)}:deliver" if n == 0 else f"{_prefix(job_id)}:deliver:{n}"
 
 
 def cleanup_job_id(job_id: UUID | str) -> str:
     return f"{_prefix(job_id)}:cleanup"
+
+
+def review_job_id(review_id: UUID | str, n: int = 0) -> str:
+    """Keyed on the REVIEW, not the job: a job's review is decided once, and the id must be
+    the panel's and the sweep's alike. ``n`` is the sweep's tick when it re-drives a lost one.
+    Spelled again in ``bayram.admin.queue.job_id_for_media_review``."""
+    base = f"media:review:{review_id}"
+    return base if n == 0 else f"{base}:{n}"
 
 
 def sku_deadline(settings: Settings, sku: MediaSku) -> timedelta:

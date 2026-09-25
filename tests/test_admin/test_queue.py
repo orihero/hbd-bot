@@ -45,6 +45,7 @@ from bayram.admin.container import build_admin_container
 from bayram.admin.errors import status_for
 from bayram.admin.queue import (
     EXPAND_JOB_NAME,
+    MEDIA_REVIEW_JOB_NAME,
     PAYMENT_NOTIFY_JOB_NAME,
     SEND_JOB_NAME,
     SUPPORT_CARD_JOB_NAME,
@@ -55,6 +56,7 @@ from bayram.admin.queue import (
     ArqAdminQueue,
     NullAdminQueue,
     job_id_for_expand,
+    job_id_for_media_review,
     job_id_for_payment_notification,
     job_id_for_send,
     job_id_for_support_card,
@@ -64,6 +66,7 @@ from bayram.admin.queue import (
 )
 from bayram.contracts import Err, Ok, Result
 from bayram.errors import ErrorCode, StorageError
+from bayram.media.stages import MEDIA_REVIEW_JOB, review_job_id
 from bayram.runtime import broadcast_job as worker_module
 from bayram.runtime import payme_jobs, support_jobs
 from tests.test_admin.conftest import FakeRedis, make_settings
@@ -938,3 +941,28 @@ def test_the_restated_verify_job_name_matches_the_one_the_worker_registers() -> 
     registered = getattr(support_jobs, VERIFY_GROUP_JOB_NAME, None)
     assert registered is not None, "the worker names the job but registers no such coroutine"
     assert registered.__name__ == VERIFY_GROUP_JOB_NAME
+
+
+def test_the_media_review_job_is_spelled_as_the_worker_and_the_sweep_spell_it() -> None:
+    """IMAGE_VIDEO_SPEC §6.6: the panel restates the job name and the job id rather than import
+    them, and ``media_sweep`` re-drives a lost apply under the SAME id — so both halves must
+    agree byte for byte, or a decision is applied twice or answered by nobody."""
+    review_id = UUID(int=42)
+
+    assert MEDIA_REVIEW_JOB_NAME == MEDIA_REVIEW_JOB
+    assert job_id_for_media_review(review_id) == review_job_id(review_id)
+
+
+async def test_the_null_queue_records_a_media_review_by_its_review() -> None:
+    queue = NullAdminQueue()
+    review_id = UUID(int=43)
+
+    outcome = await queue.enqueue_media_review(review_id)
+
+    assert isinstance(outcome, Ok) and outcome.value == job_id_for_media_review(review_id)
+    [call] = queue.calls
+    assert (call.job, call.review_id, call.arguments) == (
+        MEDIA_REVIEW_JOB_NAME,
+        review_id,
+        (str(review_id),),
+    )

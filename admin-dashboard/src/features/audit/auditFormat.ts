@@ -192,6 +192,7 @@ export const SUBJECT_TYPE_LABELS: Readonly<Record<AuditSubjectType, string>> = {
   /* Two words, because "bot chat" is what it is and "chat" is already taken by a customer's
      private conversation with the bot. The underscore is an identifier, not a name. */
   bot_chat: "bot chat",
+  media_job: "media job",
 };
 
 /**
@@ -318,6 +319,9 @@ export const AUDIT_ACTION_FAMILY: Readonly<Record<AuditAction, AuditActionFamily
 
   "moderation.approve": "moderation",
   "moderation.reject": "moderation",
+  "moderation.hold": "moderation",
+  "moderation.refund": "moderation",
+  "moderation.refund.outcome": "moderation",
 
   "config.validate": "config",
   "config.commit": "config",

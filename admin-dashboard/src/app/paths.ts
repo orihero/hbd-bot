@@ -63,6 +63,8 @@ export const PATH = {
   railIntents: "/billing/intents",
   /** The router's PATTERN. Never navigate to this — call `intentDetailPath`. */
   railIntentDetail: "/billing/intents/:intentId",
+  /** The media review queue (IMAGE_VIDEO_SPEC §6.6). No detail route: a row is decided in place. */
+  mediaReviews: "/media/reviews",
   audit: "/audit",
   admins: "/admins",
 } as const;

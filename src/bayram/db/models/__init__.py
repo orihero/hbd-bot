@@ -31,6 +31,7 @@ from bayram.db.models.media_credit import MediaCreditBalanceRow, MediaCreditLedg
 from bayram.db.models.media_input import MediaInputRow, MediaOutputRow
 from bayram.db.models.media_job import MediaJobRow
 from bayram.db.models.media_purchase import MediaPurchaseRow
+from bayram.db.models.moderation_review import ModerationReviewRow
 from bayram.db.models.name_record import NameRecordRow
 from bayram.db.models.order import OrderRow
 from bayram.db.models.payme_rpc_log import PaymeRpcLogRow
@@ -87,6 +88,7 @@ __all__ = [
     "MediaOutputRow",
     "MediaAttemptRow",
     "MediaPurchaseRow",
+    "ModerationReviewRow",
     "MediaCreditLedgerRow",
     "MediaCreditBalanceRow",
 ]

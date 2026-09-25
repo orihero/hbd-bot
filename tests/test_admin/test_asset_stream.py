@@ -834,6 +834,8 @@ async def test_no_mounted_route_answers_with_a_text_plain_body(panel: Panel) -> 
         # the ticket namespace is the one that publishes a customer's free text in a body — so
         # it is exactly where a future ``text/plain`` would most plausibly appear.
         "ticket_id": uuid4(),
+        # The media review queue answers an empty list and a 404 for an unseeded review.
+        "review_id": uuid4(),
     }
 
     # Act / Assert

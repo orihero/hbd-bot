@@ -150,6 +150,9 @@ class Permission(StrEnum):
     #: Repointing where every future ticket card lands. ADMIN and OWNER, **not** SUPPORT, and
     #: a plain ``W`` with no step-up — see the matrix note, which argues both halves.
     SUPPORT_GROUP_WRITE = "support.group.write"
+    #: The media review queue (IMAGE_VIDEO_SPEC §6.6, §8): read it, hold, release. The ROLE
+    #: half of the refund, whose ``W+S`` cell is :attr:`MODERATION_DECIDE` — see the matrix.
+    MEDIA_MODERATE = "media.moderate"
 
 
 class StepUpAction(StrEnum):
@@ -656,6 +659,19 @@ RBAC_MATRIX: Final[Mapping[Permission, Mapping[AdminRole, Grant]]] = MappingProx
         # ``SUPPORT_GROUP_SELECT`` step-up enforced in the handler on the chat id it has read,
         # with this row left on the router — and NEVER adding a step-up here.
         Permission.SUPPORT_GROUP_WRITE: _row(admin=_W, owner=_W),
+        # ── The media review queue (IMAGE_VIDEO_SPEC §8), and the sixth split. ──────────
+        #
+        # §8 gives the queue ``media.moderate`` with "+ step-up for refund", and D25 puts the
+        # refund in D14's step-up class because it MINTS a credit. So this row is the ROLE
+        # half every route in ``routers/media_reviews.py`` declares — list, hold, release and
+        # refund — a plain ``W`` with no step-up, which is what makes it safe at the router.
+        # The refund's ``W+S`` is ``MODERATION_DECIDE``'s existing cell (ADMIN and OWNER),
+        # enforced in the handler through ``StepUpAction.MODERATION_DECIDE`` on the review id
+        # it has read. Release and hold carry no step-up: a release delivers what the
+        # customer paid for and a hold only stops a delivery, and neither mints anything.
+        # ADMIN and OWNER, not SUPPORT: deciding what may be delivered is not answering a
+        # ticket, and the rows show only codes and timings, never the prompt or the bytes.
+        Permission.MEDIA_MODERATE: _row(admin=_W, owner=_W),
     }
 )
 

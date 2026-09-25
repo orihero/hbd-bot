@@ -170,12 +170,16 @@ _MEDIA_TABLES: Final[frozenset[str]] = frozenset(
         "media_purchases",
         "media_credit_ledger",
         "media_credit_balances",
+        # Revision 0032 (IMAGE_VIDEO_SPEC §6.6): the review queue, and its one-pending-per-job
+        # latch below.
+        "moderation_reviews",
     }
 )
 _MEDIA_PARTIAL_INDEXES: Final[tuple[tuple[str, str], ...]] = (
     ("media_jobs", "ix_media_jobs_one_open_request"),
     ("media_credit_ledger", "ix_media_credit_ledger_one_refund_per_job"),
     ("media_credit_ledger", "ix_media_credit_ledger_one_spend_per_job"),
+    ("moderation_reviews", "ix_moderation_reviews_one_pending_per_job"),
 )
 
 #: The revision that adds the lyric the customer approves in the wizard, and the one it

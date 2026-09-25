@@ -1,8 +1,8 @@
 /**
  * Type-safe i18n schema and contract definitions for the Bayram Admin Dashboard.
  *
- * Covers 15 namespaces: common, nav, auth, dashboard, chats, users, generations,
- * audit, admins, errors, reveal, segments, broadcasts, billing, and support.
+ * Covers 16 namespaces: common, nav, auth, dashboard, chats, users, generations,
+ * audit, admins, errors, reveal, segments, broadcasts, billing, support and media.
  *
  * (The count above was written at 13 and stood while two namespaces were added under it. It is
  * corrected here rather than deleted, and `TranslationSchema` at the foot of this file is the
@@ -177,6 +177,7 @@ export interface NavTranslations {
     readonly broadcasts: string;
     /** The ticket queue. One rail entry, last above the rule, after Campaigns. */
     readonly support: string;
+    readonly mediaReviews: string;
     readonly audit: string;
     readonly admins: string;
   };
@@ -2718,6 +2719,74 @@ export interface SupportTranslations {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Namespace 16: Media review queue (IMAGE_VIDEO_SPEC §6.6, §8)                */
+/* -------------------------------------------------------------------------- */
+
+export interface MediaTranslations {
+  readonly reviews: {
+    readonly title: string;
+    readonly subtitle: string;
+    readonly pending: string;
+    readonly decided: string;
+    readonly loadFailed: string;
+    readonly emptyPending: string;
+    readonly emptyDecided: string;
+    readonly noCategories: string;
+    readonly notApplied: string;
+    readonly pendingLabel: string;
+    readonly reasonLabel: string;
+    readonly reasonHint: string;
+    readonly conflictTitle: string;
+    readonly conflictMessage: string;
+    readonly failedTitle: string;
+    readonly columns: {
+      readonly job: string;
+      readonly sku: string;
+      readonly source: string;
+      readonly categories: string;
+      readonly dueAt: string;
+      readonly decidedAt: string;
+      readonly actions: string;
+      readonly decision: string;
+    };
+    /** Keyed by the wire's `MediaSku` value. */
+    readonly sku: {
+      readonly image: string;
+      readonly video_standard: string;
+      readonly video_fast: string;
+    };
+    /** Keyed by the wire's `MediaReviewSource` value. */
+    readonly source: {
+      readonly output_review: string;
+      readonly guard_unavailable: string;
+      readonly manual: string;
+    };
+    /** Keyed by the wire's `MediaReviewDecision` value. */
+    readonly decision: {
+      readonly released: string;
+      readonly blocked: string;
+      readonly expired: string;
+    };
+    readonly release: {
+      readonly action: string;
+      readonly title: string;
+      /** `{job}` is our short job id, never customer content. */
+      readonly body: string;
+      readonly confirm: string;
+    };
+    readonly refund: {
+      readonly action: string;
+      readonly title: string;
+      readonly body: string;
+      /** A beta job was free: the refund fails it and mints nothing (§7.5). */
+      readonly bodyBeta: string;
+      readonly confirm: string;
+      readonly stepUpNote: string;
+    };
+  };
+}
+
+/* -------------------------------------------------------------------------- */
 /* Top-Level Canonical TranslationSchema                                      */
 /* -------------------------------------------------------------------------- */
 
@@ -2737,6 +2806,7 @@ export interface TranslationSchema {
   readonly broadcasts: BroadcastsTranslations;
   readonly billing: BillingTranslations;
   readonly support: SupportTranslations;
+  readonly media: MediaTranslations;
 }
 
 /* -------------------------------------------------------------------------- */

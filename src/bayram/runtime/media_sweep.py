@@ -4,7 +4,7 @@ IMAGE_VIDEO_SPEC §3.3 (the ``media_sweep`` row), §3.4, §3.5, §2.6. Every sta
 successor after committing, and an enqueue can be lost (Redis blipped, the worker was killed
 between the commit and the enqueue). Media jobs are not on the song debit path, so the song
 sweeps never see them: this is their only backstop, and it is what makes "the row is the
-promise, the queue is only the nudge" true. Six arms, each bounded by :data:`SWEEP_BATCH`:
+promise, the queue is only the nudge" true. Seven arms, each bounded by :data:`SWEEP_BATCH`:
 
 a. **abandon** unpaid rows past the quote TTL (``drafting``/``screening``/``quoted``) and
    ``awaiting_payment`` rows only once their Payme intent is EXPIRED or CANCELLED plus a
@@ -23,7 +23,10 @@ e. **GPU hygiene** (§3.4): drop queue members whose job is finished or gone; fr
    the job's other variant waiting, so it cannot tell that the head's own chain was lost;
 f. **unstick** ``delivering`` rows a dead worker left mid-send (§3.3 ``media_deliver``):
    delivery is at-most-once, so a row whose album is recorded as sent is ``delivered``, and
-   any other is failed with one credit.
+   any other is failed with one credit;
+g. **the review queue** (§6.6, M3.2): a pending review past its 24 h SLA is decided
+   ``expired`` (→ failed + one credit), a decided review whose ``media_review_apply`` was lost
+   is re-driven, and a released ``held`` job whose delivery enqueue was lost is delivered.
 
 Every re-enqueue takes the NEXT suffix — a bumped ``submit_seq``/``oscreen_seq``, or the sweep's
 own tick — never an id that ARQ might still be remembering (§3.3 "ARQ job ids").
@@ -50,6 +53,7 @@ from bayram.db.enums import (
     MediaJobState,
     MediaKind,
     MediaOutputRole,
+    MediaReviewDecision,
     MediaScreenDecision,
     MediaSku,
     PaymentIntentState,
@@ -62,8 +66,10 @@ from bayram.db.media import (
     set_attempt_status,
     transition,
 )
+from bayram.db.media_reviews import decide_review, overdue_reviews, unapplied_reviews
 from bayram.db.models.media_attempt import MediaAttemptRow
 from bayram.db.models.media_job import MediaJobRow
+from bayram.db.models.moderation_review import SYSTEM_REVIEW_ACTOR
 from bayram.db.models.payment_intent import PaymentIntentRow
 from bayram.db.retention import resolve_retention_policy
 from bayram.logging import get_logger
@@ -73,6 +79,7 @@ from bayram.media.stages import (
     MEDIA_FETCH_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
+    MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
     MEDIA_START_JOB,
     MEDIA_SWEEP_JOB,
@@ -81,6 +88,7 @@ from bayram.media.stages import (
     fetch_job_id,
     output_screen_job_id,
     poll_job_id,
+    review_job_id,
     screen_job_id,
     sku_deadline,
     start_job_id,
@@ -138,11 +146,14 @@ _SUBMITTING_LOCK_MAX: Final[timedelta] = timedelta(minutes=5)
 #: call with a handful of ARQ retries; ten minutes is far past any of them.
 _STALE_DELIVERING: Final[timedelta] = timedelta(minutes=10)
 
+#: A decided review not yet applied this long after the decision lost its apply enqueue.
+_STALE_DECISION: Final[timedelta] = timedelta(minutes=2)
+
 #: §2.6: an ``awaiting_payment`` row is abandoned only this long after its intent ended.
 _INTENT_GRACE: Final[timedelta] = timedelta(minutes=10)
 
 #: The states whose deadline runs (§3.5). ``held`` waits on a human and has its own 24 h SLA
-#: (M3.2); ``delivering`` is a send in flight.
+#: (§6.6, the ``reviews`` arm); ``delivering`` is a send in flight.
 _DEADLINE_STATES: Final[tuple[MediaJobState, ...]] = (
     MediaJobState.PAID,
     MediaJobState.QUEUED,
@@ -319,6 +330,18 @@ async def _redrive(rt: MediaRuntime, now: datetime) -> int:
                 .limit(SWEEP_BATCH)
             )
         ).all()
+        # Released by a reviewer (§6.6), with the delivery enqueue lost.
+        released_held = (
+            await session.scalars(
+                sa.select(MediaJobRow.id)
+                .where(
+                    MediaJobRow.state == MediaJobState.HELD,
+                    MediaJobRow.output_decision == MediaScreenDecision.ALLOW,
+                    MediaJobRow.updated_at < now - _STALE_POST,
+                )
+                .limit(SWEEP_BATCH)
+            )
+        ).all()
         # A screen that never reached a verdict (the job died, or the enqueue was lost). A tray
         # that is ``busy`` for capacity carries a decision and waits for the customer's 🔁.
         unscreened = (
@@ -366,7 +389,9 @@ async def _redrive(rt: MediaRuntime, now: datetime) -> int:
                 seq,
                 job_id=output_screen_job_id(job_id, seq),
             )
-    return len(unscreened) + len(working) + len(stuck_post)
+    for job_id in released_held:
+        await enqueue_stage(rt, MEDIA_DELIVER_JOB, str(job_id), job_id=deliver_job_id(job_id, tick))
+    return len(unscreened) + len(working) + len(stuck_post) + len(released_held)
 
 
 async def _fail_past_deadline(rt: MediaRuntime, now: datetime) -> int:
@@ -561,8 +586,39 @@ async def _unstick_delivering(rt: MediaRuntime, now: datetime) -> int:
     return fixed
 
 
+async def _review_queue(rt: MediaRuntime, now: datetime) -> int:
+    """§6.6: expire what nobody decided in 24 h, and re-drive decisions nobody applied."""
+    async with rt.sessions() as session:
+        overdue = await overdue_reviews(session, now=now, limit=SWEEP_BATCH)
+    expired: list[UUID] = []
+    for review_id in overdue:
+        async with rt.sessions.begin() as session:
+            if await decide_review(
+                session,
+                review_id,
+                decision=MediaReviewDecision.EXPIRED,
+                now=now,
+                actor_id=None,
+                actor=SYSTEM_REVIEW_ACTOR,
+                reason_code=None,
+            ):
+                expired.append(review_id)
+    for review_id in expired:
+        await enqueue_stage(rt, MEDIA_REVIEW_JOB, str(review_id), job_id=review_job_id(review_id))
+    async with rt.sessions() as session:
+        lost = await unapplied_reviews(
+            session, decided_before=now - _STALE_DECISION, limit=SWEEP_BATCH
+        )
+    tick = _tick(now)
+    for review_id in lost:
+        await enqueue_stage(
+            rt, MEDIA_REVIEW_JOB, str(review_id), tick, job_id=review_job_id(review_id, tick)
+        )
+    return len(expired) + len(lost)
+
+
 async def sweep_media(rt: MediaRuntime, *, now: datetime | None = None) -> dict[str, Any]:
-    """Run the six arms once (GPU hygiene in two steps). A failed arm is contained, reported."""
+    """Run the seven arms once (GPU hygiene in two steps). A failed arm is contained, reported."""
     at = now or rt.clock()
     summary: dict[str, Any] = {}
     errors: list[str] = []
@@ -574,6 +630,7 @@ async def sweep_media(rt: MediaRuntime, *, now: datetime | None = None) -> dict[
         ("gpu_fixed", _gpu_hygiene),
         ("head_redriven", _redrive_head),
         ("delivering_unstuck", _unstick_delivering),
+        ("reviews", _review_queue),
     ):
         try:
             summary[name] = await arm(rt, at)

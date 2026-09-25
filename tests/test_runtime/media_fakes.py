@@ -47,6 +47,7 @@ from bayram.media.stages import (
     MEDIA_FETCH_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
+    MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
     MEDIA_START_JOB,
     MEDIA_SUBMIT_JOB,
@@ -63,6 +64,7 @@ from bayram.runtime.media_jobs import (
     media_fetch,
     media_output_screen,
     media_poll,
+    media_review_apply,
     media_screen,
     media_start,
     media_submit,
@@ -85,6 +87,7 @@ STAGES: Final[dict[str, StageFn]] = {
     MEDIA_OUTPUT_SCREEN_JOB: media_output_screen,
     MEDIA_DELIVER_JOB: media_deliver,
     MEDIA_CLEANUP_JOB: media_cleanup,
+    MEDIA_REVIEW_JOB: media_review_apply,
 }
 
 

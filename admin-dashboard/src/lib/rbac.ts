@@ -53,7 +53,8 @@ export type Permission =
   | "rail.control"
   | "payment.notify"
   | "support.write"
-  | "support.group.write";
+  | "support.group.write"
+  | "media.moderate";
 
 const SUPPORT_UP: readonly AdminRole[] = ["support", "admin", "owner"];
 const OPERATOR_UP: readonly AdminRole[] = ["admin", "owner"];
@@ -68,6 +69,7 @@ export const RBAC_MATRIX: Readonly<Record<Permission, readonly AdminRole[]>> = {
   "payment.notify": SUPPORT_UP,
   "support.write": SUPPORT_UP,
   "support.group.write": OPERATOR_UP,
+  "media.moderate": OPERATOR_UP,
 };
 
 /**
@@ -194,6 +196,15 @@ export function canWriteSupportGroup(role: AdminRole | null): boolean {
   return hasPermission(role, "support.group.write");
 }
 
+/**
+ * The media review queue's role half (IMAGE_VIDEO_SPEC §8): ADMIN and OWNER, a plain `W` on the
+ * server. It hides Release and Refund; the refund's step-up (`moderation.decide`) is asked for
+ * by the server on the first press, scoped to the review, and recovered by the screen.
+ */
+export function canModerateMedia(role: AdminRole | null): boolean {
+  return hasPermission(role, "media.moderate");
+}
+
 /** The signed-in role, or `null` while unknown. The one place a component reads it. */
 export function useRole(): AdminRole | null {
   return useAuthStore((state) => state.account?.role ?? null);
@@ -229,4 +240,8 @@ export function useCanWriteSupport(): boolean {
 
 export function useCanWriteSupportGroup(): boolean {
   return canWriteSupportGroup(useRole());
+}
+
+export function useCanModerateMedia(): boolean {
+  return canModerateMedia(useRole());
 }

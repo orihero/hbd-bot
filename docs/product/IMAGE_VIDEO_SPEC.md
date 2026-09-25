@@ -1188,6 +1188,25 @@ reason_code)`, shipped in `0032` with M3. Sources: L4 `review` holds, customer a
 `media.refused` via `/support`, and a 2% sampled audit of allowed outputs. SLA 24 h; an unreviewed
 hold at 24 h → fail + refund credit. Optional: post a masked card to a `bot_chats` moderation group.
 
+*As built (M3.2):* `0032` adds `source`, `due_at` (created + 24 h), `actor_id` and `applied_at` to
+the columns above; a NULL `decision` is pending and a partial unique index allows one pending
+review per job. The worker opens the review in the same transaction as the move to `held` —
+source `output_review` for an L4 `review`, `guard_unavailable` for the 30-minute give-up. The
+panel (`/api/media/reviews`, `/api/media-jobs/{id}/hold`, all on `media.moderate`) only
+**records** a decision — `released` or `blocked` — and asks the worker to apply it
+(`media_review_apply`): a release marks the output allowed and delivers it; a block fails the job
+with one SKU-scoped credit attributed `admin:{name}` on the ledger (none for beta) and two strikes.
+The refund's step-up is `moderation.decide` scoped to the review id, with the INTENT audit row
+(`moderation.refund`) in the decision's transaction and the OUTCOME row
+(`moderation.refund.outcome`) after the enqueue; a release is `moderation.approve`, a hold
+`moderation.hold`, all against `subject_type="media_job"`. An operator may hold only a `post` job
+whose output screen allowed it. `media_sweep` decides a pending review `expired` at `due_at`
+(→ fail + one credit, no strike), re-drives a decision nobody applied after 2 minutes, and delivers
+a released job whose delivery enqueue was lost. Not built yet: the appeal and 2% sample sources,
+the moderation-group card, and output reveal for reviewers (M5's `media_outputs` reveal subject) —
+until then a reviewer decides from the category codes. A paid-backend `ambiguous_submit` hold
+(§4.3) opens no review; it is M6's reconcile path.
+
 ### 6.7 CSAM and escalation
 
 Named escalation owner: the owner (SCOPE §6.9) until someone else is named (Q8). **Q8 is a blocker

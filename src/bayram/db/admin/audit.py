@@ -191,6 +191,12 @@ SUBJECT_TYPES: Final[frozenset[str]] = frozenset(
         # (``"payme_rail"``); this names a real row in a table the panel lists, so the subject
         # is the row's own key and an operator can follow it straight to the record.
         "bot_chat",
+        # ONE media request, by ``media_jobs.id`` — the subject of the review queue's
+        # ``moderation.approve`` (release), ``moderation.hold`` and the ``moderation.refund``
+        # pair (IMAGE_VIDEO_SPEC §6.6). The JOB and not the review row, so "everything anyone
+        # did to this request" is one indexed equality whether it was held once or twice. Not
+        # ``order``: a media job is not a song order and the two share no table.
+        "media_job",
     }
 )
 

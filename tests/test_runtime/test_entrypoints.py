@@ -25,6 +25,7 @@ from bayram.media.stages import (
     MEDIA_FETCH_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
+    MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
     MEDIA_START_JOB,
     MEDIA_SUBMIT_JOB,
@@ -261,6 +262,9 @@ async def test_the_worker_registers_the_job_the_submitter_enqueues(settings: Set
         MEDIA_OUTPUT_SCREEN_JOB,
         MEDIA_DELIVER_JOB,
         MEDIA_CLEANUP_JOB,
+        # The review queue's apply job (IMAGE_VIDEO_SPEC §6.6): the ADMIN panel enqueues it by
+        # the string ``bayram.admin.queue`` restates, so a rename strands a decided review.
+        MEDIA_REVIEW_JOB,
         MEDIA_SWEEP_JOB,
     ]
     assert worker_settings.max_jobs == settings.worker_concurrency

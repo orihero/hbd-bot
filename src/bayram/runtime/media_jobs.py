@@ -91,6 +91,7 @@ from bayram.bot.pricing import format_amount
 from bayram.config import Settings
 from bayram.contracts import Err, HealthState, Result, Storage, err, is_err, ok
 from bayram.db.base import utc_now
+from bayram.db.credit_sql import rowcount_of
 from bayram.db.enums import (
     MEDIA_TERMINAL_STATES,
     MediaAttemptStage,
@@ -102,6 +103,8 @@ from bayram.db.enums import (
     MediaKind,
     MediaOutputRole,
     MediaPaidVia,
+    MediaReviewDecision,
+    MediaReviewSource,
     MediaScreenDecision,
     MediaVoiceMode,
 )
@@ -126,6 +129,7 @@ from bayram.db.media import (
     touch_job,
     transition,
 )
+from bayram.db.media_reviews import load_review, mark_applied, open_review
 from bayram.db.models.media_attempt import MediaAttemptRow
 from bayram.db.models.media_input import MediaInputRow
 from bayram.db.models.media_job import MediaJobRow
@@ -165,6 +169,7 @@ from bayram.media.stages import (
     MEDIA_MUX_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
+    MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
     MEDIA_START_JOB,
     MEDIA_SUBMIT_JOB,
@@ -232,6 +237,7 @@ __all__ = [
     "media_output_screen",
     "media_deliver",
     "media_cleanup",
+    "media_review_apply",
     "fail_job",
     "reconcile_ambiguous",
     "image_fan_in",
@@ -367,6 +373,9 @@ class MediaErrorCode(StrEnum):
     SCREEN_BUDGET = "screen_budget"
     #: §6.4 hard rule / §6.7: a CSAM-class block. The bytes are under legal hold.
     CSAM_BLOCKED = "csam_blocked"
+    #: §6.6: an operator confirmed a held output's block, or nobody decided within 24 h.
+    REVIEW_BLOCKED = "review_blocked"
+    REVIEW_EXPIRED = "review_expired"
 
 
 class MediaKV(Protocol):
@@ -726,6 +735,7 @@ async def fail_job(
     notify: bool = True,
     values: Mapping[str, Any] | None = None,
     legal_hold: bool = False,
+    refund_actor: str | None = None,
 ) -> bool:
     """Move the job to ``failed`` iff it is in ``expected``; refund, tell, clean up. True if moved.
 
@@ -735,7 +745,8 @@ async def fail_job(
     is one credit. A caller that loses the move does nothing else.
 
     ``legal_hold`` puts the job's inputs and outputs under hold in the SAME transaction as the
-    move (§6.7), so the cleanup this enqueues can never reach them.
+    move (§6.7), so the cleanup this enqueues can never reach them. ``refund_actor`` attributes
+    the credit on the ledger when an operator's decision caused it (§6.6); the worker otherwise.
     """
     now = rt.clock()
     granted = False
@@ -756,7 +767,9 @@ async def fail_job(
         if refund is not None:
             # ``grant_refund`` refuses a job whose account asked to be forgotten (§9.3): a
             # credit would re-create the balance row and the ledger line /forget just erased.
-            granted = await grant_refund(session, job_id, reason=refund, now=now)
+            granted = await grant_refund(
+                session, job_id, reason=refund, now=now, actor=refund_actor
+            )
         job = await load_job(session, job_id)
     if job is None:
         return True
@@ -2406,9 +2419,10 @@ async def media_output_screen(ctx: Mapping[str, Any], job_id: str, seq: int = 0)
         timedelta(seconds=_OSCREEN_RETRY_S) * (seq + 1) >= _OSCREEN_GIVE_UP
     )
     if give_up:
-        # A human decides (§6.6, M3.2): release → deliver, or 24 h → fail + refund.
+        # A human decides (§6.6, M3.2): release → deliver, or 24 h → fail + refund. The review
+        # opens in the move's own transaction, so a held job is never missing from the queue.
         async with rt.sessions.begin() as session:
-            await transition(
+            held = await transition(
                 session,
                 jid,
                 expected=(MediaJobState.POST,),
@@ -2416,6 +2430,19 @@ async def media_output_screen(ctx: Mapping[str, Any], job_id: str, seq: int = 0)
                 now=now,
                 values=values,
             )
+            if held:
+                await open_review(
+                    session,
+                    jid,
+                    kind=job.kind,
+                    source=(
+                        MediaReviewSource.OUTPUT_REVIEW
+                        if decision is MediaScreenDecision.REVIEW
+                        else MediaReviewSource.GUARD_UNAVAILABLE
+                    ),
+                    categories=[code.value for code in categories],
+                    now=now,
+                )
         return _result("held", jid, decision=decision.value)
     async with rt.sessions.begin() as session:
         next_seq = await bump_seq(session, jid, column="oscreen_seq", now=now)
@@ -2579,6 +2606,88 @@ async def _delivery_failed(
 
 
 # ---------------------------------------------------------------------------
+# media_review_apply (§6.6, M3.2)
+# ---------------------------------------------------------------------------
+#: ``moderation_reviews.actor`` is the operator's username; the ledger reads ``admin:{name}``,
+#: the vocabulary ``credit_ledger.actor`` already uses for an operator-caused movement.
+_ADMIN_ACTOR_PREFIX: Final[str] = "admin:"
+
+
+async def media_review_apply(
+    ctx: Mapping[str, Any], review_id: str, tick: int = 0
+) -> dict[str, Any]:
+    """Carry out a decided review on its ``held`` job. Idempotent; ``tick`` only varies the id.
+
+    * ``released`` → the output is marked allowed and delivered by ``media_deliver`` under a
+      review-scoped id (the plain deliver id may already have been spent by a delivery that
+      stood down when the job was held);
+    * ``blocked`` → failed with one SKU-scoped credit (none for beta, §7.5), attributed to the
+      operator, the customer told non-specifically, two strikes as for an L4 block (§6.4);
+    * ``expired`` → the same failure and credit, and no strike: nobody judged it unsafe.
+
+    ``applied_at`` is stamped after the job moved (or was found already moved), so a crash in
+    between re-runs to the same end: every job move here is conditional on ``held``.
+    """
+    rt = media_runtime(ctx)
+    rid = _uuid(review_id)
+    now = rt.clock()
+    async with rt.sessions() as session:
+        review = await load_review(session, rid)
+        job = await load_job(session, review.job_id) if review is not None else None
+    if review is None or review.decision is None:
+        return _result("noop_undecided", review_id, review_id=review_id)
+    if review.applied_at is not None:
+        return _result("noop_applied", review.job_id, review_id=review_id)
+    if job is None:
+        async with rt.sessions.begin() as session:
+            await mark_applied(session, rid, now=now)
+        return _result("noop_job_gone", review.job_id, review_id=review_id)
+    outcome: str
+    if review.decision is MediaReviewDecision.RELEASED:
+        async with rt.sessions.begin() as session:
+            released = await session.execute(
+                sa.update(MediaJobRow)
+                .where(MediaJobRow.id == job.id, MediaJobRow.state == MediaJobState.HELD)
+                .values(output_decision=MediaScreenDecision.ALLOW, updated_at=now)
+            )
+            await mark_applied(session, rid, now=now)
+        outcome = "released" if rowcount_of(released) == 1 else "noop_not_held"
+        if outcome == "released":
+            await enqueue_stage(
+                rt,
+                MEDIA_DELIVER_JOB,
+                str(job.id),
+                job_id=deliver_job_id(job.id, _review_deliver_suffix(rid)),
+            )
+    else:
+        is_block = review.decision is MediaReviewDecision.BLOCKED
+        failed = await fail_job(
+            rt,
+            job.id,
+            expected=(MediaJobState.HELD,),
+            error_code=(
+                MediaErrorCode.REVIEW_BLOCKED if is_block else MediaErrorCode.REVIEW_EXPIRED
+            ),
+            refund=MediaCreditReason.OUTPUT_BLOCKED,
+            refund_actor=(
+                f"{_ADMIN_ACTOR_PREFIX}{review.actor}" if is_block and review.actor else None
+            ),
+        )
+        if failed and is_block:
+            await _strike(rt, job, layer="review", weight=OUTPUT_BLOCK_STRIKES, is_csam=False)
+        async with rt.sessions.begin() as session:
+            await mark_applied(session, rid, now=rt.clock())
+        outcome = ("blocked" if is_block else "expired") if failed else "noop_not_held"
+    return _result(outcome, job.id, review_id=review_id, tick=tick)
+
+
+def _review_deliver_suffix(review_id: UUID) -> int:
+    """A deliver-id suffix of the review's own (its low 48 bits), so a release never reuses
+    the plain deliver id or a sweep tick's."""
+    return review_id.int & 0xFFFF_FFFF_FFFF
+
+
+# ---------------------------------------------------------------------------
 # media_cleanup (§3.3, O16)
 # ---------------------------------------------------------------------------
 async def media_cleanup(ctx: Mapping[str, Any], job_id: str) -> dict[str, Any]:
@@ -2622,3 +2731,4 @@ assert media_fetch.__name__ == MEDIA_FETCH_JOB
 assert media_output_screen.__name__ == MEDIA_OUTPUT_SCREEN_JOB
 assert media_deliver.__name__ == MEDIA_DELIVER_JOB
 assert media_cleanup.__name__ == MEDIA_CLEANUP_JOB
+assert media_review_apply.__name__ == MEDIA_REVIEW_JOB

@@ -79,8 +79,9 @@ twenty-one of them now, each in its own module and each registered here:
   module: an unposted card and an undelivered reply are both already visible to an operator —
   on the board and on the ticket's timeline — where a settled-but-unannounced payment was
   visible to nobody, which is the whole reason ``run_payme_sweep`` has a third arm;
-* the media stage chain (:mod:`bayram.runtime.media_jobs`) — eight short jobs that take an
-  image request from screening to delivery, one conditional state move each — and its
+* the media stage chain (:mod:`bayram.runtime.media_jobs`) — nine short jobs that take an
+  image request from screening to delivery, one conditional state move each, the ninth
+  applying a review decision the admin panel recorded (§6.6) — and its
   five-minutely backstop (:mod:`bayram.runtime.media_sweep`). A media request is a CHAIN
   rather than one long job because it can wait an hour for the owner's one GPU, and a job that
   waited in a worker slot would starve every song behind it (IMAGE_VIDEO_SPEC §3.3).
@@ -125,6 +126,7 @@ from bayram.media.stages import (
     MEDIA_FETCH_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
+    MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
     MEDIA_START_JOB,
     MEDIA_SUBMIT_JOB,
@@ -165,6 +167,7 @@ from bayram.runtime.media_jobs import (
     media_fetch,
     media_output_screen,
     media_poll,
+    media_review_apply,
     media_screen,
     media_start,
     media_submit,
@@ -960,14 +963,14 @@ def build_kit_worker_settings(
                 max_tries=SUPPORT_VERIFY_MAX_TRIES,
                 timeout=settings.queue_job_timeout_s,
             ),
-            # THE MEDIA STAGE CHAIN (IMAGE_VIDEO_SPEC §3.3). Eight short jobs, each of which
+            # THE MEDIA STAGE CHAIN (IMAGE_VIDEO_SPEC §3.3). Nine short jobs, each of which
             # reads the ``media_jobs`` row, moves it with a conditional UPDATE and enqueues the
             # next — so an image waiting an hour for the GPU holds no slot while it waits. The
             # bot enqueues the first two (screen at the aspect pick, start after 🎁/🎟) and the
             # Payme settlement will enqueue ``media_start`` (M5), so every name is stated
             # explicitly from ``bayram.media.stages``, the one spelling both sides import.
             #
-            # ``max_tries`` is ``MEDIA_STAGE_MAX_TRIES`` for all eight: only a fetch or a
+            # ``max_tries`` is ``MEDIA_STAGE_MAX_TRIES`` for all nine: only a fetch or a
             # delivery raises ``Retry`` (a transient download or Telegram failure), and each
             # reads the same number back before it does, so its last permitted try takes the
             # terminal path instead of vanishing. A waiting submit or a running poll does NOT
@@ -993,6 +996,7 @@ def build_kit_worker_settings(
                     (media_output_screen, MEDIA_OUTPUT_SCREEN_JOB),
                     (media_deliver, MEDIA_DELIVER_JOB),
                     (media_cleanup, MEDIA_CLEANUP_JOB),
+                    (media_review_apply, MEDIA_REVIEW_JOB),
                 )
             ),
             # The media sweep, registered as well as scheduled, for every other cron's reason.

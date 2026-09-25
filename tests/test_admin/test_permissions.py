@@ -188,6 +188,9 @@ _PLAN_MATRIX: Final[Mapping[Permission, tuple[str | None, str | None, str | None
     # ``selected_by_username`` / ``selected_at`` columns left standing on the row are the
     # accountability, and a cell with a step-up could not be the router guard this one is.
     Permission.SUPPORT_GROUP_WRITE: (None, None, _W, _W),
+    # The media review queue's role half (IMAGE_VIDEO_SPEC §8): list, hold, release, and the
+    # route the refund's MODERATION_DECIDE step-up is enforced behind. A plain ``W``.
+    Permission.MEDIA_MODERATE: (None, None, _W, _W),
 }
 
 _ROLES_IN_PLAN_ORDER: Final[tuple[AdminRole, ...]] = (

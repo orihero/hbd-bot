@@ -794,9 +794,12 @@ async def grant_refund(
     *,
     reason: MediaCreditReason,
     now: datetime,
-    actor: str = _WORKER_ACTOR,
+    actor: str | None = None,
 ) -> bool:
     """Grant ONE credit for this job's SKU, at most once whatever the reason. True if granted.
+
+    ``actor`` is the ledger's attribution — ``admin:{username}`` when an operator's review
+    decision caused the refund (§6.6), the worker when None.
 
     The claim comes first: ``refund_state`` NULL → ``due`` by conditional UPDATE, so a
     deadline failure followed by a late generation failure — or a variant failure followed by
@@ -845,7 +848,7 @@ async def grant_refund(
             delta=1,
             reason=reason,
             job_id=job_id,
-            actor=actor,
+            actor=actor or _WORKER_ACTOR,
             created_at=now,
         )
     )

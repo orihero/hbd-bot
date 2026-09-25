@@ -23,6 +23,7 @@ import { ChatsPage } from "@/features/chats/ChatsPage";
 import { SupportBoardScreen } from "@/features/support/SupportBoardScreen";
 import { SupportTicketScreen } from "@/features/support/SupportTicketScreen";
 import { UserDetailScreen } from "@/features/users/UserDetailScreen";
+import { MediaReviewsScreen } from "@/features/media/MediaReviewsScreen";
 import { UsersScreen } from "@/features/users/UsersScreen";
 
 /* Every screen is eager: lazy loading would add chunk boundaries and buy nothing at this size.
@@ -116,6 +117,11 @@ export const router = createBrowserRouter([
            */
           { path: PATH.support, element: <SupportBoardScreen /> },
           { path: PATH.supportTicket, element: <SupportTicketScreen /> },
+          /*
+           * The media review queue (IMAGE_VIDEO_SPEC §6.6). One path; a review is decided in
+           * place. No guard element: the server's `media.moderate` refuses the other roles.
+           */
+          { path: PATH.mediaReviews, element: <MediaReviewsScreen /> },
           /*
            * The two administration sections, after the operational ones so this table reads
            * in the rail's order — the rule in `navItems.ts` sits here, between the two.
