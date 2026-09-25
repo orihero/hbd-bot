@@ -79,3 +79,36 @@ async def test_the_fake_backend_is_refused_outside_a_fake_deployment(settings: S
 def test_doctor_release_is_parsed() -> None:
     assert plan(["doctor", "--release"]).release is True
     assert plan(["doctor"]).release is False
+
+
+def test_a_credit_correction_names_the_account_the_sku_the_direction_and_the_operator() -> None:
+    # §7.5: the ledger half of a manual cash refund.
+    job = "0b9f1f2e-6f6e-4d53-9a53-0f5d1c1e2a3b"
+
+    revoke = plan(["credit", "7112345678", "video_standard", "--revoke", "--actor", "aziz"])
+    grant = plan(["credit", "7112345678", "image", "--grant", "--actor", "aziz", "--job", job])
+
+    assert (revoke.telegram_user_id, revoke.sku, revoke.delta) == (
+        7_112_345_678,
+        MediaSku.VIDEO_STANDARD,
+        -1,
+    )
+    assert revoke.actor == "admin:aziz" and revoke.job_id is None
+    assert (grant.delta, str(grant.job_id)) == (1, job)
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["credit", "7112345678", "image", "--actor", "aziz"],
+        ["credit", "7112345678", "image", "--grant", "--revoke", "--actor", "aziz"],
+        ["credit", "7112345678", "song", "--grant", "--actor", "aziz"],
+        ["credit", "-1", "image", "--grant", "--actor", "aziz"],
+        ["credit", "7112345678", "image", "--grant"],
+        ["credit", "7112345678", "image", "--grant", "--actor", " "],
+        ["credit", "7112345678", "image", "--grant", "--actor", "aziz", "--job", "nope"],
+    ],
+)
+def test_a_malformed_credit_correction_is_refused_before_any_write(argv: list[str]) -> None:
+    with pytest.raises(RefusedError):
+        plan(argv)

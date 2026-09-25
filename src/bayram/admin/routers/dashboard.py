@@ -187,6 +187,7 @@ from bayram.db.admin.audience_lists import (
 )
 from bayram.db.admin.audit import AuditEntry
 from bayram.db.admin.balances import vendor_balances
+from bayram.db.admin.media_purchases import media_bookings_per_bucket, media_revenue_totals
 from bayram.db.admin.metrics import (
     delivered_counts,
     delivered_latency,
@@ -583,11 +584,12 @@ def build_dashboard_router() -> APIRouter:
     async def finance(db: Db, window: Window, settings: Settings) -> FinanceResponse:
         """The Finance section: what came in, what went out, and what is left at each vendor.
 
-        Recorded revenue is the two receipts tables concatenated at the finest grain they
-        carry; the delivered × price ESTIMATE is a separate field with its price attached and
-        is never added to it. The delivered count is taken ONCE and used as both the
-        cost-per-song denominator and the estimate's multiplicand, so the two cards cannot
-        disagree about how many songs shipped.
+        Recorded revenue is the three receipts tables (plans, top-ups, media — IMAGE_VIDEO_SPEC
+        §7.7, read from ``media_purchases`` and never from a price mirror) concatenated at the
+        finest grain they carry; the delivered × price ESTIMATE is a separate field with its
+        price attached and is never added to it. The delivered count is taken ONCE and used as
+        both the cost-per-song denominator and the estimate's multiplicand, so the two cards
+        cannot disagree about how many songs shipped.
 
         The run-rate pair is computed over its own fixed trailing window, which the response
         echoes. Balances are read from the cached table; this process makes no outbound call.
@@ -602,6 +604,7 @@ def build_dashboard_router() -> APIRouter:
             revenue=(
                 await plan_revenue_totals(db, window=window)
                 + await topup_revenue_totals(db, window=window)
+                + await media_revenue_totals(db, window=window)
             ),
             unpriced=await count_unpriced_topups(db, window=window),
             delivered=delivered,
@@ -618,6 +621,7 @@ def build_dashboard_router() -> APIRouter:
             run_rate_revenue=(
                 await plan_revenue_totals(db, window=run_rate)
                 + await topup_revenue_totals(db, window=run_rate)
+                + await media_revenue_totals(db, window=run_rate)
             ),
             run_rate_spend=await vendor_usage_totals(
                 db, window=run_rate, exclude_operations=SPENDABLE_EXCLUSIONS
@@ -708,6 +712,7 @@ def build_dashboard_router() -> APIRouter:
             revenue=(
                 await plan_bookings_per_bucket(db, window=window, grain=grain)
                 + await topup_bookings_per_bucket(db, window=window, grain=grain)
+                + await media_bookings_per_bucket(db, window=window, grain=grain)
             ),
             spend=await vendor_spend_per_bucket(db, window=window, grain=grain),
             unattributed=await unattributed_spend(db, window=window, grain=grain),

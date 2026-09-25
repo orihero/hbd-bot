@@ -15,11 +15,11 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
 from types import MappingProxyType
-from typing import Final
+from typing import Final, assert_never
 
 from bayram.config import MediaBackendName, Settings
 from bayram.contracts import Result, err
-from bayram.db.enums import MediaBackend, MediaSku
+from bayram.db.enums import MediaBackend, MediaKind, MediaSku
 from bayram.errors import CheckoutError
 from bayram.logging import get_logger
 
@@ -33,6 +33,7 @@ __all__ = [
     "is_sku_offered",
     "offered_skus",
     "sku_price_minor",
+    "daily_cap",
     "env_backend",
     "effective_backend",
     "media_offered",
@@ -95,6 +96,21 @@ def offered_skus(settings: Settings) -> tuple[MediaSku, ...]:
 def sku_price_minor(settings: Settings, sku: MediaSku) -> int | None:
     value = getattr(settings, SKU_PRICE_FIELDS[sku])
     return value if isinstance(value, int) else None
+
+
+def daily_cap(settings: Settings, kind: MediaKind) -> int:
+    """Paid requests of ``kind`` one account may start per UTC day (§7.6).
+
+    Per KIND, not per SKU: both video tiers share one cap, as they share the one-open-request
+    index. An exhaustive ``match`` so a third kind cannot ship without a cap.
+    """
+    match kind:
+        case MediaKind.IMAGE:
+            return settings.media_daily_cap_image
+        case MediaKind.VIDEO:
+            return settings.media_daily_cap_video
+        case _:
+            assert_never(kind)
 
 
 def env_backend(settings: Settings, sku: MediaSku) -> MediaBackend:

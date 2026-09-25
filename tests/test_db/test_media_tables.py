@@ -45,6 +45,8 @@ from bayram.db.media import (
     add_input,
     add_output,
     cleanup_job_media,
+    correct_credit,
+    count_paid_since,
     create_job,
     grant_refund,
     insert_attempt,
@@ -59,6 +61,8 @@ from bayram.db.media import (
 )
 from bayram.db.media_erasure import SqlMediaEraser
 from bayram.db.models import (
+    CreditAccountRow,
+    CreditLedgerRow,
     MediaAttemptRow,
     MediaCreditBalanceRow,
     MediaCreditLedgerRow,
@@ -837,3 +841,160 @@ async def test_an_attempt_is_written_once_so_a_crash_is_never_posted_twice(
     # Assert
     assert first is not None and replay is None
     assert await _count(sessions, MediaAttemptRow) == 1
+
+
+# ---------------------------------------------------------------------------
+# The kind-scoped credit, M5.2: scope, the song scalar, corrections, the daily count
+# ---------------------------------------------------------------------------
+async def test_a_credit_is_scoped_to_the_sku_that_failed(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    # Arrange — an image refund, and a quoted video (another kind, so both may be open).
+    failed = await _paid_job(sessions, clock)
+    async with sessions.begin() as session:
+        await grant_refund(session, failed, reason=MediaCreditReason.OUTPUT_BLOCKED, now=clock.now)
+    video = await _job(sessions, clock, kind=MediaKind.VIDEO)
+    await _move(sessions, clock, video, MediaJobState.QUOTED)
+
+    # Act
+    async with sessions.begin() as session:
+        spent = await spend_credit(session, video, now=clock.now, deadline=_IMAGE_DEADLINE)
+
+    # Assert — the image credit cannot pay for a video; nothing moved.
+    assert not spent
+    async with sessions() as session:
+        still = await load_job(session, video)
+        image = await media_balance(session, telegram_user_id=_USER, sku=MediaSku.IMAGE)
+        video_balance = await media_balance(
+            session, telegram_user_id=_USER, sku=MediaSku.VIDEO_STANDARD
+        )
+    assert still is not None and still.state is MediaJobState.QUOTED
+    assert (image, video_balance) == (1, 0)
+    assert await _count(sessions, MediaPurchaseRow) == 0
+
+
+async def test_a_media_refund_and_spend_never_touch_the_song_credit(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    # Arrange — the account also holds two song credits (D25: never fungible).
+    async with sessions.begin() as session:
+        session.add(CreditAccountRow(telegram_user_id=_USER, balance=2, lifetime_granted=2))
+    failed = await _paid_job(sessions, clock)
+
+    # Act — refund, then spend the refund on the next request.
+    async with sessions.begin() as session:
+        await grant_refund(session, failed, reason=MediaCreditReason.DEADLINE, now=clock.now)
+    await _move(sessions, clock, failed, MediaJobState.FAILED)
+    again = await _job(sessions, clock)
+    await _move(sessions, clock, again, MediaJobState.QUOTED)
+    async with sessions.begin() as session:
+        assert await spend_credit(session, again, now=clock.now, deadline=_IMAGE_DEADLINE)
+
+    # Assert
+    async with sessions() as session:
+        account = await session.get(CreditAccountRow, _USER)
+    assert account is not None and (account.balance, account.lifetime_granted) == (2, 2)
+    assert await _count(sessions, CreditLedgerRow) == 0
+    assert await _reconciles(sessions, _USER) == 0
+
+
+async def test_an_operator_correction_moves_one_credit_and_never_below_zero(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    # Arrange — the job's automatic refund has already been granted.
+    job_id = await _paid_job(sessions, clock)
+    async with sessions.begin() as session:
+        await grant_refund(session, job_id, reason=MediaCreditReason.DEADLINE, now=clock.now)
+
+    # Act — a correction on the same job (the one-refund index exempts it), then two revokes.
+    answers = []
+    for delta in (1, -1, -1, -1):
+        async with sessions.begin() as session:
+            answers.append(
+                await correct_credit(
+                    session,
+                    telegram_user_id=_USER,
+                    sku=MediaSku.IMAGE,
+                    delta=delta,
+                    actor="admin:aziz",
+                    now=clock.now,
+                    job_id=job_id,
+                )
+            )
+
+    # Assert — 2, 1, 0, then refused with nothing written; the ledger still sums to the balance.
+    assert answers == [2, 1, 0, None]
+    assert await _reconciles(sessions, _USER) == 0
+    async with sessions() as session:
+        corrections = (
+            await session.scalars(
+                sa.select(MediaCreditLedgerRow).where(
+                    MediaCreditLedgerRow.reason == MediaCreditReason.ADMIN_CORRECTION
+                )
+            )
+        ).all()
+    assert sorted(row.delta for row in corrections) == [-1, -1, 1]
+    assert {row.actor for row in corrections} == {"admin:aziz"}
+
+
+async def test_the_ledger_reconciles_with_the_balance_through_every_movement(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    # Two refunds, one spend, a correction each way: balance = SUM(delta) after each.
+    expected = []
+    for _ in range(2):
+        job_id = await _paid_job(sessions, clock)
+        async with sessions.begin() as session:
+            await grant_refund(session, job_id, reason=MediaCreditReason.DEADLINE, now=clock.now)
+        await _move(sessions, clock, job_id, MediaJobState.FAILED)
+        expected.append(await _reconciles(sessions, _USER))
+    quoted = await _job(sessions, clock)
+    await _move(sessions, clock, quoted, MediaJobState.QUOTED)
+    async with sessions.begin() as session:
+        await spend_credit(session, quoted, now=clock.now, deadline=_IMAGE_DEADLINE)
+    expected.append(await _reconciles(sessions, _USER))
+    for delta in (-1, 1):
+        async with sessions.begin() as session:
+            await correct_credit(
+                session,
+                telegram_user_id=_USER,
+                sku=MediaSku.IMAGE,
+                delta=delta,
+                actor="admin:aziz",
+                now=clock.now,
+            )
+        expected.append(await _reconciles(sessions, _USER))
+
+    assert expected == [1, 2, 1, 0, 1]
+
+
+async def test_the_daily_count_is_paid_requests_of_the_kind_since_the_bound(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock
+) -> None:
+    # Arrange — two paid images (one failed later: it still counts), a quoted one that is
+    # not paid, a paid image of another account, and nothing of the video kind.
+    first = await _paid_job(sessions, clock)
+    await _move(sessions, clock, first, MediaJobState.FAILED)
+    second = await _paid_job(sessions, clock)
+    await _move(sessions, clock, second, MediaJobState.FAILED)
+    quoted = await _job(sessions, clock)
+    await _move(sessions, clock, quoted, MediaJobState.QUOTED)
+    await _paid_job(sessions, clock, user=_OTHER_USER)
+
+    # Act
+    async with sessions() as session:
+        images = await count_paid_since(
+            session, telegram_user_id=_USER, kind=MediaKind.IMAGE, since=clock.now
+        )
+        videos = await count_paid_since(
+            session, telegram_user_id=_USER, kind=MediaKind.VIDEO, since=clock.now
+        )
+        tomorrow = await count_paid_since(
+            session,
+            telegram_user_id=_USER,
+            kind=MediaKind.IMAGE,
+            since=clock.now + timedelta(seconds=1),
+        )
+
+    # Assert
+    assert (images, videos, tomorrow) == (2, 0, 0)

@@ -10,6 +10,8 @@ module's functions, so there is one spelling of each key and one truthiness rule
     doctor [--contract] [--release]         is the local gateway fit for customers (§9.1)
     unsuspend <telegram_id>                 lift a media suspension and forget the strikes (§6.4)
     legal-hold <job_id> --handover|--delete the escalation owner's reporting decision (§6.7)
+    credit <telegram_id> <sku> --grant|--revoke --actor NAME [--job ID]
+                                            an ``admin_correction`` of one media credit (§7.5)
 
 ``<sku>`` is ``image``, ``video_standard`` or ``video_fast``. The switches live in Redis, a
 cache in this deployment: a restart without persistence clears them, so re-run ``status``
@@ -31,6 +33,13 @@ skips them; ``--delete`` brings the clock forward, so the next purge deletes the
 keep the rows' hash and metadata, and both are logged at WARNING. A later decision replaces
 an earlier one (``--delete`` once a handover is done).
 
+``credit`` is the ledger half of a manual cash refund (§7.5, 08-payme §7): refund in the Payme
+cabinet, then ``--revoke`` the credit the failed job granted, so the customer is not paid
+twice. ``--grant`` hands one out where the automatic paths missed. Either writes one
+``media_credit_ledger`` row with ``reason='admin_correction'`` and the operator as ``actor``, and
+moves the SKU's balance in the same transaction; a revoke never takes a balance below zero.
+Media credits are never song credits and never touch ``credit_accounts`` (D25).
+
 Exit codes: ``0`` done, ``1`` refused (bad input; nothing written), ``2`` configuration or
 Redis failure (nothing written), ``3`` ``doctor`` found a failing check.
 """
@@ -51,7 +60,7 @@ from redis.asyncio import Redis
 from bayram.config import Settings, build_settings
 from bayram.db import create_engine, create_session_factory
 from bayram.db.enums import MediaBackend, MediaLegalHoldDecision, MediaSku
-from bayram.db.media import clear_csam_blocks, record_legal_hold_decision
+from bayram.db.media import clear_csam_blocks, correct_credit, record_legal_hold_decision
 from bayram.errors import BayramError
 from bayram.logging import configure_logging, get_logger
 from bayram.media.offering import effective_backend, env_backend
@@ -77,6 +86,8 @@ EXIT_UNHEALTHY: Final[int] = 3
 #: A reserved window longer than a day is a switch somebody forgot; refuse it.
 _MAX_RESERVE_MINUTES: Final[int] = 24 * 60
 _ENV: Final[str] = "env"
+#: ``media_credit_ledger.actor`` is varchar(64), and ``admin:`` is prefixed to what is typed.
+_MAX_ACTOR_LENGTH: Final[int] = 58
 
 
 class RefusedError(Exception):
@@ -94,6 +105,8 @@ class Request:
     telegram_user_id: int | None = None
     job_id: UUID | None = None
     decision: MediaLegalHoldDecision | None = None
+    delta: int | None = None
+    actor: str | None = None
 
 
 def _sku(raw: str) -> MediaSku:
@@ -159,7 +172,29 @@ def _parser() -> argparse.ArgumentParser:
     which = hold.add_mutually_exclusive_group(required=True)
     which.add_argument("--handover", action="store_true", help="keep the bytes for the authorities")
     which.add_argument("--delete", action="store_true", help="delete the bytes at the next purge")
+    credit = sub.add_parser("credit", help="correct one media credit (§7.5)")
+    credit.add_argument("telegram_id")
+    credit.add_argument("sku")
+    way = credit.add_mutually_exclusive_group(required=True)
+    way.add_argument("--grant", action="store_true", help="add one credit of the SKU")
+    way.add_argument("--revoke", action="store_true", help="take one credit of the SKU back")
+    credit.add_argument("--actor", required=True, help="who is correcting (the ledger's actor)")
+    credit.add_argument("--job", default=None, help="the media job the correction is about")
     return parser
+
+
+def _actor(raw: str) -> str:
+    value = raw.strip()
+    if not 1 <= len(value) <= _MAX_ACTOR_LENGTH:
+        raise RefusedError(f"--actor must be 1..{_MAX_ACTOR_LENGTH} characters")
+    return f"admin:{value}" if not value.startswith("admin:") else value
+
+
+def _job_id(raw: str) -> UUID:
+    try:
+        return UUID(raw.strip())
+    except ValueError:
+        raise RefusedError(f"'{raw}' is not a media job id") from None
 
 
 def plan(argv: Sequence[str]) -> Request:
@@ -179,11 +214,17 @@ def plan(argv: Sequence[str]) -> Request:
         return Request(verb=verb, contract=bool(args.contract), release=bool(args.release))
     if verb == "unsuspend":
         return Request(verb=verb, telegram_user_id=_telegram_id(args.telegram_id))
+    if verb == "credit":
+        return Request(
+            verb=verb,
+            telegram_user_id=_telegram_id(args.telegram_id),
+            sku=_sku(args.sku),
+            delta=1 if args.grant else -1,
+            actor=_actor(str(args.actor)),
+            job_id=None if args.job is None else _job_id(str(args.job)),
+        )
     if verb == "legal-hold":
-        try:
-            job_id = UUID(str(args.job_id))
-        except ValueError:
-            raise RefusedError(f"'{args.job_id}' is not a media job id") from None
+        job_id = _job_id(str(args.job_id))
         decision = (
             MediaLegalHoldDecision.HANDOVER if args.handover else MediaLegalHoldDecision.DELETE
         )
@@ -285,11 +326,48 @@ async def _legal_hold(settings: Settings, request: Request) -> str:
     return f"{request.job_id}: delete recorded; the next purge deletes the bytes, keeps the hash"
 
 
+async def _correct_credit(settings: Settings, request: Request) -> str:
+    assert request.telegram_user_id is not None and request.sku is not None
+    assert request.delta is not None and request.actor is not None
+    engine = create_engine(settings.database_url)
+    try:
+        async with create_session_factory(engine).begin() as session:
+            balance = await correct_credit(
+                session,
+                telegram_user_id=request.telegram_user_id,
+                sku=request.sku,
+                delta=request.delta,
+                actor=request.actor,
+                now=datetime.now(tz=UTC),
+                job_id=request.job_id,
+            )
+    finally:
+        await engine.dispose()
+    if balance is None:
+        raise RefusedError(
+            f"{request.telegram_user_id} holds no {request.sku.value} credit; nothing was written"
+        )
+    # Money-adjacent: the ledger row is the record, this line is the operator's receipt.
+    _LOG.warning(
+        "a media credit was corrected by an operator",
+        extra={
+            "telegram_user_id": request.telegram_user_id,
+            "sku": request.sku.value,
+            "delta": request.delta,
+            "actor": request.actor,
+            "media_job_id": None if request.job_id is None else str(request.job_id),
+        },
+    )
+    return f"{request.telegram_user_id}: {request.sku.value} balance is now {balance}"
+
+
 async def _run(request: Request) -> str:
     # No vendor key is needed to flip a switch.
     settings = build_settings(require_vendor_secrets=False)
     if request.verb == "legal-hold":
         return await _legal_hold(settings, request)
+    if request.verb == "credit":
+        return await _correct_credit(settings, request)
     redis: Redis[bytes] = Redis.from_url(settings.redis_url)
     try:
         if request.verb == "unsuspend":

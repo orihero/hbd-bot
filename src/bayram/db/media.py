@@ -104,6 +104,8 @@ __all__ = [
     "media_balance",
     "grant_refund",
     "spend_credit",
+    "correct_credit",
+    "count_paid_since",
 ]
 
 #: The human-review window a held output may wait (§3.2.2, §6.6). Part of how long a paid
@@ -1157,3 +1159,86 @@ async def spend_credit(
         now=now,
     )
     return True
+
+
+async def correct_credit(
+    session: AsyncSession,
+    *,
+    telegram_user_id: int,
+    sku: MediaSku,
+    delta: int,
+    actor: str,
+    now: datetime,
+    job_id: UUID | None = None,
+) -> int | None:
+    """An operator's ``admin_correction`` of one credit, either way (§7.5). The new balance.
+
+    The manual half of a cash refund: the operator refunds in the Payme cabinet and takes the
+    credit back here, or grants one the automatic paths missed. ``-1`` is the spend's
+    conditional debit (``WHERE balance >= 1``), so a correction can never drive a balance
+    negative and ``None`` (nothing written) answers a balance that has nothing to take. The
+    ledger row and the balance move in the caller's transaction, so ``balance = SUM(delta)``
+    holds after either answer. The one-refund-per-job index exempts this reason: a
+    correction may follow the job's automatic refund.
+    """
+    if delta not in (-1, 1):
+        raise ValueError("a credit correction moves exactly one credit")
+    if delta < 0:
+        debited = await session.execute(
+            sa.update(MediaCreditBalanceRow)
+            .where(
+                MediaCreditBalanceRow.telegram_user_id == telegram_user_id,
+                MediaCreditBalanceRow.sku == sku,
+                MediaCreditBalanceRow.balance >= 1,
+            )
+            .values(balance=MediaCreditBalanceRow.balance - 1, updated_at=now)
+        )
+        if rowcount_of(debited) != 1:
+            return None
+    else:
+        await session.execute(
+            upsert_statement(
+                session,
+                MediaCreditBalanceRow,
+                {"telegram_user_id": telegram_user_id, "sku": sku, "balance": 1, "updated_at": now},
+                index_elements=("telegram_user_id", "sku"),
+                set_={"balance": MediaCreditBalanceRow.balance + 1, "updated_at": now},
+            )
+        )
+    session.add(
+        MediaCreditLedgerRow(
+            id=uuid4(),
+            telegram_user_id=telegram_user_id,
+            sku=sku,
+            delta=delta,
+            reason=MediaCreditReason.ADMIN_CORRECTION,
+            job_id=job_id,
+            actor=actor,
+            created_at=now,
+        )
+    )
+    await session.flush()
+    return await media_balance(session, telegram_user_id=telegram_user_id, sku=sku)
+
+
+async def count_paid_since(
+    session: AsyncSession, *, telegram_user_id: int, kind: MediaKind, since: datetime
+) -> int:
+    """Requests of ``kind`` this account had paid for (any rail) at or after ``since`` (§7.6).
+
+    Read from ``paid_at``, which every paid move stamps (:func:`mark_paid`) and nothing
+    clears, so a failed or refunded request still counts — the daily cap bounds GPU work
+    started, not work delivered. INDEX: ``(telegram_user_id, created_at, id)``; a request is
+    paid within its quote TTL, so the account's rows of the last days are all it scans.
+    """
+    count = await session.scalar(
+        sa.select(sa.func.count())
+        .select_from(MediaJobRow)
+        .where(
+            MediaJobRow.telegram_user_id == telegram_user_id,
+            MediaJobRow.kind == kind,
+            MediaJobRow.paid_at.is_not(None),
+            MediaJobRow.paid_at >= since,
+        )
+    )
+    return int(count or 0)

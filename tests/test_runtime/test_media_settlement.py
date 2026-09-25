@@ -138,7 +138,9 @@ def _charge(harness: Harness, rail: SqlPaymeLedger) -> SqlMediaCharge:
         language_of=lambda: Language.EN,
         paused=_never_paused,
     )
-    return SqlMediaCharge(harness.sessions, checkout=provider, clock=lambda: FIXED_NOW)
+    return SqlMediaCharge(
+        harness.sessions, checkout=provider, settings=harness.rt.settings, clock=lambda: FIXED_NOW
+    )
 
 
 def _ctx(container: AppContainer, bot: Bot, harness: Harness) -> dict[str, Any]:
@@ -310,7 +312,9 @@ async def test_a_second_pay_press_re_opens_the_same_intent(
 async def test_an_inline_paid_answer_is_refused_and_starts_nothing(harness: Harness) -> None:
     # The stub reports every charge paid with no money moved (§7.2 step 2).
     job_id = await _quoted_image(harness)
-    charge = SqlMediaCharge(harness.sessions, checkout=StubCheckoutProvider())
+    charge = SqlMediaCharge(
+        harness.sessions, checkout=StubCheckoutProvider(), settings=harness.rt.settings
+    )
 
     result = await charge(_view(job_id))
 

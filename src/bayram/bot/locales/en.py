@@ -912,6 +912,9 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "media.open_request.paid": "📌 Your {kind} is being made — it will arrive here in this chat.",
     "media.stale": "This button is no longer active.",
+    "media.daily_cap": (
+        "⏳ You've reached today's limit for this kind of request. Please come back tomorrow."
+    ),
     "media.cancelled": "✖️ Cancelled — nothing was made and nothing was charged.",
     "media.cancel_too_late": (
         "⏳ This request is already paid for, or its payment is being processed, so it "

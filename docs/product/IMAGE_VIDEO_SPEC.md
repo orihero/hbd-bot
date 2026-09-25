@@ -1507,11 +1507,22 @@ One open request per user per kind (partial unique index, §3.2.2); `media_daily
 `media_daily_cap_video` = 3 paid requests per user per day (Redis counter). The song
 `max_orders_in_flight=1` (`entitlements.py:80`) is not applied to media.
 
+*As built (M5.2):* the daily caps are counted from `media_jobs.paid_at` (any rail: Payme, 🎟, 🎁)
+since UTC midnight, per **kind** (both video tiers share one cap), **not a Redis counter**: the
+Payme settlement that makes a job paid runs in a process with no Redis, and a counter a restart
+clears is not a cap. `media_screen` refuses at the cap before a byte is downloaded or a guard asked
+(`error_code='daily_cap'`, `media.daily_cap`, no strike); 💳, 🎟 and 🎁 re-check it at press time.
+
 ### 7.7 Finance
 
 Media revenue is read from `media_purchases` (`provider='payme'`) by SKU — no new
 `BAYRAM_ADMIN_*` price mirror (D19's drift problem). Beta and credit rows show as zero-amount
 volume.
+
+*As built (M5.2):* `RevenueSource` gains `media`; `/dashboard/finance` (revenue and run-rate) and
+`/dashboard/series` concatenate `media_purchases` grouped by `(sku, currency, provider)` beside the
+plan and top-up receipts. Operator corrections are `python -m bayram.tools.media credit <tg> <sku>
+--grant|--revoke --actor NAME` (`admin_correction`, runbook 12 §6).
 
 ---
 

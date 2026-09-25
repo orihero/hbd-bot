@@ -851,6 +851,11 @@ class Settings(BaseSettings):
     #: Screenings one account may run per UTC day (§6.4 L0): a guard that answers without
     #: limit is an oracle for probing the policy. Over it the request is refused unscreened.
     media_screen_daily_budget: int = Field(default=10, ge=1, le=1_000)
+    #: PAID requests (Payme, 🎟 credit or 🎁 beta) one account may start per UTC day, per kind
+    #: (§7.6). Counted from ``media_jobs.paid_at``, so a restart cannot reset it; checked
+    #: before a quote is drawn and again at every pay/credit/beta press.
+    media_daily_cap_image: int = Field(default=10, ge=1, le=1_000)
+    media_daily_cap_video: int = Field(default=3, ge=1, le=1_000)
     #: The escalation owner's X25519 PUBLIC key, base64 (§6.7). CSAM-class bytes are sealed
     #: to it; only the matching private key — held by the owner, never by this host — opens
     #: them (``python -m bayram.tools.legal_hold``). Not a secret. Required with media offered.

@@ -185,7 +185,7 @@ from bayram.media.offering import (
 )
 from bayram.media.overrides import MediaSwitchStore, read_backend_override, read_overrides
 from bayram.media.script_writer import GatewayScriptLlm, LlmScriptWriter, ScriptWriter
-from bayram.media.service import MediaQueue
+from bayram.media.service import MediaQueue, is_at_daily_cap
 from bayram.media.stages import (
     MEDIA_CLEANUP_JOB,
     MEDIA_DELIVER_JOB,
@@ -376,6 +376,7 @@ _KIND_LABEL_KEYS: Final[Mapping[MediaKind, str]] = {
 _QUOTE_KEY: Final[str] = "media.image.quote"
 _REFUSED_KEY: Final[str] = "media.refused"
 _SUSPENDED_KEY: Final[str] = "media.refused.suspended"
+_DAILY_CAP_KEY: Final[str] = "media.daily_cap"
 _UNSUPPORTED_KEY: Final[str] = "media.compose.unsupported"
 _BUSY_KEY: Final[str] = "media.busy"
 #: ``_screen_gate``'s outcome when the strike store could not be read (fail closed).
@@ -469,6 +470,9 @@ class MediaErrorCode(StrEnum):
     #: §6.4: refused before screening — the account is suspended, or spent today's budget.
     SCREEN_SUSPENDED = "screen_suspended"
     SCREEN_BUDGET = "screen_budget"
+    #: §7.6: the account already started today's paid requests of this kind. Refused before
+    #: a byte is downloaded or a guard asked, and never a strike.
+    DAILY_CAP = "daily_cap"
     #: §6.4 hard rule / §6.7: a CSAM-class block. The bytes are under legal hold, and the
     #: row, until an operator clears it, is the account's durable suspension.
     CSAM_BLOCKED = CSAM_BLOCKED_ERROR_CODE
@@ -1786,8 +1790,9 @@ async def media_prescreen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> di
 async def _screen_gate(
     rt: MediaRuntime, job: MediaJobRow, *, budget_id: str | None = None, draw_busy: bool = True
 ) -> dict[str, Any] | None:
-    """§6.4 L0, before a byte is downloaded: a suspended account, or one past today's
-    screening budget, is refused unscreened — and not struck, since nothing was judged.
+    """§6.4 L0, before a byte is downloaded: a suspended account, one past today's
+    screening budget, or one that already started today's paid requests of this kind (§7.6)
+    is refused unscreened — and not struck, since nothing was judged.
 
     The budget counts this JOB once, so a 🔁 on a busy tray does not spend twice. A Redis
     that cannot answer is ``busy``: the suspension could not be read, so nothing is screened.
@@ -1831,6 +1836,22 @@ async def _screen_gate(
     if screens > rt.settings.media_screen_daily_budget:
         await _refuse(rt, job, key=_REFUSED_KEY, error_code=MediaErrorCode.SCREEN_BUDGET, values={})
         return _result("refused_budget", job.id, screens=screens)
+    async with rt.sessions() as session:
+        at_cap = await is_at_daily_cap(
+            session, rt.settings, telegram_user_id=job.telegram_user_id, kind=job.kind, now=now
+        )
+    if at_cap:
+        # §7.6: no quote the customer could not pay for today. The press-time handlers check
+        # again; the one-open-request index means nothing else of this kind is paid between.
+        await _refuse(
+            rt,
+            job,
+            key=_DAILY_CAP_KEY,
+            error_code=MediaErrorCode.DAILY_CAP,
+            values={},
+            with_buttons=False,
+        )
+        return _result("refused_daily_cap", job.id)
     return None
 
 

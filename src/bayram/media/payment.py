@@ -31,6 +31,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bayram.checkout import CheckoutProvider, Product, PurchaseRequest
+from bayram.config import Settings
 from bayram.contracts import Err, Result, err, ok
 from bayram.db.base import utc_now
 from bayram.db.enums import MediaJobState, MediaSku
@@ -40,13 +41,22 @@ from bayram.db.payme_sql import intent_by_key
 from bayram.errors import CheckoutError, StorageError
 from bayram.logging import get_logger
 from bayram.media.desk import JobView
+from bayram.media.service import is_at_daily_cap
 
-__all__ = ["MEDIA_STALE_KEY", "MediaPayLink", "SqlMediaCharge", "media_idempotency_key"]
+__all__ = [
+    "MEDIA_DAILY_CAP_KEY",
+    "MEDIA_STALE_KEY",
+    "MediaPayLink",
+    "SqlMediaCharge",
+    "media_idempotency_key",
+]
 
 _LOG = get_logger(__name__)
 
 #: The toast a 💳 press answers when the row is no longer a quote or an open pay link.
 MEDIA_STALE_KEY: Final[str] = "media.stale"
+#: The alert a 💳 press answers past the account's daily cap (§7.6).
+MEDIA_DAILY_CAP_KEY: Final[str] = "media.daily_cap"
 
 #: The states 💳 applies to: the quote, and a pay link being re-sent (§2.3.3).
 _PAYABLE: Final[tuple[MediaJobState, ...]] = (
@@ -71,33 +81,51 @@ class MediaPayLink:
 class SqlMediaCharge:
     """The live-paid half of a media 💳, as ``BotDeps.media_charge`` holds it."""
 
-    __slots__ = ("_checkout", "_clock", "_sessions")
+    __slots__ = ("_checkout", "_clock", "_sessions", "_settings")
 
     def __init__(
         self,
         sessions: async_sessionmaker[AsyncSession],
         *,
         checkout: CheckoutProvider,
+        settings: Settings,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._sessions = sessions
         self._checkout = checkout
+        self._settings = settings
         self._clock = clock
 
     async def __call__(self, job: JobView) -> Result[MediaPayLink]:
-        async def read() -> tuple[MediaSku, int, str, MediaJobState] | None:
+        async def read() -> tuple[MediaSku, int, str, MediaJobState, bool] | None:
             async with self._sessions() as session:
                 row = await load_job(session, job.id)
-            if row is None or row.telegram_user_id != job.telegram_user_id:
-                return None
-            return row.sku, row.price_minor, row.currency, row.state
+                if row is None or row.telegram_user_id != job.telegram_user_id:
+                    return None
+                # §7.6, re-read at press time: a link is never opened past today's cap.
+                at_cap = await is_at_daily_cap(
+                    session,
+                    self._settings,
+                    telegram_user_id=row.telegram_user_id,
+                    kind=row.kind,
+                    now=self._clock(),
+                )
+            return row.sku, row.price_minor, row.currency, row.state, at_cap
 
         found = await run_guarded("media.pay.read", read, media_job_id=str(job.id))
         if isinstance(found, Err):
             return found
         if found.value is None or found.value[3] not in _PAYABLE:
             return err(_stale(job.id))
-        sku, price_minor, currency, _ = found.value
+        sku, price_minor, currency, _, at_cap = found.value
+        if at_cap:
+            return err(
+                CheckoutError(
+                    "the account used today's paid requests of this kind",
+                    user_message_key=MEDIA_DAILY_CAP_KEY,
+                    context={"media_job_id": str(job.id)},
+                )
+            )
         key = media_idempotency_key(sku, job.telegram_user_id, job.id)
         charged = await self._checkout.charge(
             PurchaseRequest(

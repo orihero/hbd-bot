@@ -914,6 +914,9 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "media.open_request.paid": "📌 Soʻrovingiz ({kind}) tayyorlanmoqda — natija shu chatga keladi.",
     "media.stale": "Bu tugma endi ishlamaydi.",
+    "media.daily_cap": (
+        "⏳ Bugungi soʻrovlar chegarasiga yetdingiz. Iltimos, ertaga qayta urinib koʻring."
+    ),
     "media.cancelled": "✖️ Bekor qilindi — hech narsa yaratilmadi va pul olinmadi.",
     "media.cancel_too_late": (
         "⏳ Bu soʻrov allaqachon toʻlangan yoki toʻlovi koʻrib chiqilmoqda, shuning uchun "

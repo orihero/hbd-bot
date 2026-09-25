@@ -14,7 +14,7 @@ stage chain (:mod:`bayram.runtime.media_jobs`) is what they hand the request to.
 from __future__ import annotations
 
 from collections.abc import Awaitable
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Protocol
 from uuid import UUID
@@ -22,10 +22,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bayram.config import Settings
-from bayram.db.enums import MediaJobState, MediaPaidVia, MediaPurchaseProvider
-from bayram.db.media import load_job, mark_paid, record_purchase
+from bayram.db.enums import MediaJobState, MediaKind, MediaPaidVia, MediaPurchaseProvider
+from bayram.db.media import count_paid_since, load_job, mark_paid, record_purchase
 from bayram.logging import get_logger
-from bayram.media.offering import is_beta_member, is_live_paid, media_offered
+from bayram.media.offering import daily_cap, is_beta_member, is_live_paid, media_offered
 from bayram.media.stages import (
     MEDIA_PRESCREEN_JOB,
     MEDIA_SCREEN_JOB,
@@ -41,6 +41,8 @@ from bayram.media.stages import (
 __all__ = [
     "MediaQueue",
     "BetaStart",
+    "utc_day_start",
+    "is_at_daily_cap",
     "start_free_beta",
     "enqueue_prescreen",
     "enqueue_screen",
@@ -68,6 +70,33 @@ class BetaStart(StrEnum):
     #: The account, the SKU or the rail no longer admits a free beta — ``media.stale`` too;
     #: the reason is logged, never shown.
     NOT_ENTITLED = "not_entitled"
+    #: Today's paid requests of this kind are used up (§7.6) — ``media.daily_cap``.
+    AT_DAILY_CAP = "at_daily_cap"
+
+
+def utc_day_start(now: datetime) -> datetime:
+    """Midnight UTC of ``now``'s day: where a daily cap's count starts (§7.6)."""
+    return now.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+async def is_at_daily_cap(
+    session: AsyncSession,
+    settings: Settings,
+    *,
+    telegram_user_id: int,
+    kind: MediaKind,
+    now: datetime,
+) -> bool:
+    """True when this account has already started today's cap of paid ``kind`` requests (§7.6).
+
+    Counted from the database, not a Redis counter: the Payme settlement that makes a job
+    paid runs in a process with no Redis, and a counter a restart can clear is not a cap.
+    The row being quoted or pressed is not paid yet, so it is never counted against itself.
+    """
+    paid = await count_paid_since(
+        session, telegram_user_id=telegram_user_id, kind=kind, since=utc_day_start(now)
+    )
+    return paid >= daily_cap(settings, kind)
 
 
 async def _enqueue(queue: MediaQueue, name: str, *args: Any, job_id: str) -> bool:
@@ -140,6 +169,10 @@ async def start_free_beta(
                 extra={"media_job_id": str(job_id), "sku": job.sku.value},
             )
             return BetaStart.NOT_ENTITLED
+        if await is_at_daily_cap(
+            session, settings, telegram_user_id=telegram_user_id, kind=job.kind, now=now
+        ):
+            return BetaStart.AT_DAILY_CAP
         paid = await mark_paid(
             session,
             job_id,

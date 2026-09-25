@@ -552,7 +552,9 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         # buttons use, so the pause switch and the link builder apply. It is only ever called
         # through ``offering.guarded_media_charge``, which keeps it off the stub and sandbox.
         media_charge=(
-            SqlMediaCharge(container.session_factory, checkout=container.checkout)
+            SqlMediaCharge(
+                container.session_factory, checkout=container.checkout, settings=settings
+            )
             if container.session_factory is not None
             else None
         ),

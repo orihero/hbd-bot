@@ -63,6 +63,8 @@ _TOO_LATE_KEY: Final[str] = "media.cancel_too_late"
 _SCREENING_KEY: Final[str] = "media.screening"
 _PHOTOS_NOT_KEPT_KEY: Final[str] = "media.compose.photos_not_kept"
 _PAY_LINK_KEY: Final[str] = "media.pay_link"
+#: §7.6: today's paid requests of this kind are used up. Shared with the worker's refusal.
+DAILY_CAP_KEY: Final[str] = "media.daily_cap"
 #: The link's two facts (12 hours, one open payment) read the same for every product.
 _PAY_LINK_HINT_KEY: Final[str] = "checkout.pending_hint"
 
@@ -196,6 +198,9 @@ async def handle_credit(
     if isinstance(spent, Err):
         await callback.answer(error_text(spent.error, language), show_alert=True)
         return
+    if spent.value is CreditStart.AT_DAILY_CAP:
+        await callback.answer(translate(DAILY_CAP_KEY, language), show_alert=True)
+        return
     if spent.value is not CreditStart.STARTED:
         _LOG.info(
             "a credit press did not start the job",
@@ -223,6 +228,9 @@ async def handle_beta(
     )
     if isinstance(started, Err):
         await callback.answer(error_text(started.error, language), show_alert=True)
+        return
+    if started.value is BetaStart.AT_DAILY_CAP:
+        await callback.answer(translate(DAILY_CAP_KEY, language), show_alert=True)
         return
     if started.value is not BetaStart.STARTED:
         await _stale(callback, language)

@@ -106,6 +106,8 @@ def test_env_example_documents_every_media_setting_with_an_empty_secret() -> Non
         "media_guard_timeout_s",
         "media_sexual_image_block_p",
         "media_screen_daily_budget",
+        "media_daily_cap_image",
+        "media_daily_cap_video",
         "media_legal_hold_recipient",
         "genai_base_url",
         "genai_api_key",

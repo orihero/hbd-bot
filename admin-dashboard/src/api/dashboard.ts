@@ -121,8 +121,9 @@ export const ORDER_STATE_VALUES = [
 export const orderStateSchema = z.enum(ORDER_STATE_VALUES);
 export type OrderState = z.infer<typeof orderStateSchema>;
 
-/** `RevenueSource` — which receipts table a row came from. Never collapse the two. */
-export const REVENUE_SOURCE_VALUES = ["plan", "topup"] as const;
+/** `RevenueSource` — which receipts table a row came from. Never collapse them. `media` rows
+ * carry a media SKU as their product and are read from `media_purchases` (IMAGE_VIDEO_SPEC §7.7). */
+export const REVENUE_SOURCE_VALUES = ["plan", "topup", "media"] as const;
 export const revenueSourceSchema = z.enum(REVENUE_SOURCE_VALUES);
 export type RevenueSource = z.infer<typeof revenueSourceSchema>;
 

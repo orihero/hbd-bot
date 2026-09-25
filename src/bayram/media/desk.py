@@ -72,6 +72,7 @@ from bayram.media.service import (
     enqueue_screen,
     enqueue_script,
     enqueue_start,
+    is_at_daily_cap,
     start_free_beta,
 )
 from bayram.media.stages import MEDIA_CLEANUP_JOB, cleanup_job_id, sku_deadline
@@ -246,6 +247,8 @@ class CreditStart(StrEnum):
     STALE = "stale"
     NO_CREDIT = "no_credit"
     NOT_ENTITLED = "not_entitled"
+    #: Today's paid requests of this kind are used up (§7.6) — ``media.daily_cap``.
+    AT_DAILY_CAP = "at_daily_cap"
 
 
 class MediaDesk(Protocol):
@@ -594,6 +597,14 @@ class SqlMediaDesk:
                     self._settings, row.sku, telegram_user_id, is_paused=is_paused
                 ):
                     return CreditStart.NOT_ENTITLED
+                if await is_at_daily_cap(
+                    session,
+                    self._settings,
+                    telegram_user_id=telegram_user_id,
+                    kind=row.kind,
+                    now=now,
+                ):
+                    return CreditStart.AT_DAILY_CAP
                 paid = await spend_credit(
                     session, job_id, now=now, deadline=sku_deadline(self._settings, row.sku)
                 )

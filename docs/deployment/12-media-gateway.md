@@ -277,6 +277,7 @@ every switch, so re-run `status` after any Redis restart.
 | Route new submits elsewhere | `… media backend image fake` / `… env` | `env` clears the override. `higgsfield`/`fal` have no adapter until M6: an override to them fails the submit cleanly |
 | The owner needs the GPU (film, a reel rebuild) | `… media reserve --minutes 180` | every SKU on `local` refuses at Done/quote (O11); paid jobs already queued continue. Max 24 h |
 | Window over | `… media release` | |
+| A customer is refunded in cash from the Payme cabinet (spec §7.5) | `… media credit <tg> <sku> --revoke --actor <you> [--job <id>]` | takes back the one credit the failed job granted, so the customer is not refunded twice; `--grant` hands one out where the automatic paths missed. Writes `media_credit_ledger` `admin_correction` + the balance in one transaction; never below zero. Needs the database, not Redis |
 
 ### 6.1 The GPU reserved window procedure
 
