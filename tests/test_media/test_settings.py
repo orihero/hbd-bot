@@ -128,6 +128,27 @@ def test_env_example_documents_every_media_setting_with_an_empty_secret() -> Non
     assert "\nBAYRAM_GEMINI_TTS_API_KEYS=\n" in text
 
 
+def test_env_example_ships_the_owner_prices_the_settings_default_to() -> None:
+    # IMAGE_VIDEO_SPEC §7.1, M5.3: 5 000 soʻm per two-image request, 25 000 per Standard clip,
+    # Fast unset until M6. The example and the default must not drift apart, or go-live day
+    # sells at whichever one the host's env file happened to copy.
+    lines = dict(
+        line.split("=", 1)
+        for line in _ENV_EXAMPLE.read_text(encoding="utf-8").splitlines()
+        if line.startswith("BAYRAM_") and "=" in line
+    )
+    defaults = _build()
+
+    assert lines["BAYRAM_IMAGE_PRICE_MINOR"] == str(defaults.image_price_minor) == "500000"
+    assert (
+        lines["BAYRAM_VIDEO_STANDARD_PRICE_MINOR"]
+        == str(defaults.video_standard_price_minor)
+        == "2500000"
+    )
+    assert lines["BAYRAM_VIDEO_FAST_PRICE_MINOR"] == ""
+    assert defaults.video_fast_price_minor is None
+
+
 def test_the_reference_cap_stops_where_the_collage_layouts_stop() -> None:
     # A 1-ref backend composites the photos, and §4.4 lays out at most four.
     from bayram.media.composite import MAX_COLLAGE_PHOTOS

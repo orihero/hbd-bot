@@ -1479,7 +1479,11 @@ for each offered sku: price is not None or refuse to boot; margin check (§4.3) 
 On the stub rail (and the Payme sandbox) a non-beta user can never reach a quote, and no user sees
 💳; a beta job is recorded as `provider='beta'` — `stub` is not a valid value — so finance can
 exclude it. Boot tests: payme + sandbox + media offered with no beta allowlist refuses; fake
-moderator with media offered refuses. Default `DEFAULT_ENTITLEMENT_POLICY`
+moderator with media offered refuses. *As built (M5.3):* every offered SKU with an empty price refuses in
+both the bot and the worker, and media offered on a **live-paid** rail with the Terms + Privacy
+gate off (no `BAYRAM_TERMS_VERSION` pair) refuses too — once anyone can order, the acceptance is the
+whole real-person mitigation (O4, §11 R3); the beta may still run before M1.3. The owner's go-live
+checklist is runbook `12-media-gateway §8`; `.env.example` lists the go-live flag set. Default `DEFAULT_ENTITLEMENT_POLICY`
 is never used in media code (`resolve_entitlement_policy(settings)` only).
 
 ### 7.5 Refunds (O13)

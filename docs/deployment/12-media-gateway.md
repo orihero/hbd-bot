@@ -324,7 +324,58 @@ when M4 ships.
 
 ---
 
-## 8. Open items
+## 8. Go-live: media for everyone (IMAGE_VIDEO_SPEC M5.3) — _owner_
+
+The code half of M5.3 is in the tree: the bot **and** the worker refuse to boot when an offered SKU
+has no price, and when media is offered on a live-paid rail with the Terms + Privacy gate off
+(`bayram.media.boot`, spec §7.4). The flip itself is the owner's. Do it in this order; every
+line is a precondition of the next.
+
+1. **Payme is in production** — `09-payme-go-live` gates all closed. Live-paid is three variables
+   together: `BAYRAM_CHECKOUT_PROVIDER=payme`, `BAYRAM_CREDITS_ENFORCED=true`,
+   `BAYRAM_PAYME_IS_SANDBOX=false` (O9). On the sandbox media stays allowlist-only, whatever else
+   is set.
+2. **The Terms and Privacy text is approved** (M1.3) and `BAYRAM_TERMS_VERSION` /
+   `BAYRAM_PRIVACY_VERSION` name the approved pair. Boot refuses media on a live-paid rail without
+   them: the acceptance is the whole of the real-person mitigation (O4, spec §11 R3).
+3. **The migrations through the current head are applied** on the host as the owner role (they
+   are not in the wheel; spec §10).
+4. **The gateway is hardened and `doctor` is green from the host** (§2.4), and G1, G2, G4, G7, G8
+   answer (§3): the guards fail closed, so an unreachable guard is a product that answers `busy`.
+   `BAYRAM_MEDIA_MODERATOR=gateway`, `BAYRAM_MEDIA_LEGAL_HOLD_RECIPIENT` set (boot refuses either
+   wrong). The §4 sweeper runs.
+5. **Voice is decided** (M4.4): the listening test is signed off, and `BAYRAM_NARRATION_ROUTES`
+   sends a language to ElevenLabs if its Gemini voice failed it.
+6. **Prices.** `BAYRAM_IMAGE_PRICE_MINOR=500000` (5 000 soʻm, one request, two images — O5) and
+   `BAYRAM_VIDEO_STANDARD_PRICE_MINOR=2500000` (25 000 soʻm, owner 2026-09-24) are the shipped
+   defaults; set them explicitly in `/etc/bayram/bayram.env` so the file, not the wheel, is the
+   record. `BAYRAM_VIDEO_FAST_PRICE_MINOR` stays empty until M6.
+7. **The flags**, in the bot + worker env file:
+
+   ```
+   BAYRAM_IS_IMAGE_OFFERED=true
+   BAYRAM_IS_VIDEO_STANDARD_OFFERED=true
+   BAYRAM_IS_VIDEO_FAST_OFFERED=false
+   BAYRAM_MEDIA_BETA_ENABLED=false
+   ```
+
+   `BAYRAM_MEDIA_BETA_ENABLED=true` on a live-paid rail only warns — beta ends at live-paid —
+   but leave it false so the warning does not become noise. The allowlist may stay.
+8. **Restart bot and worker together** (`bayram-release` or the two units). If either refuses to
+   boot, the `ConfigError` names the variable; fix it and restart — do not switch the flag off to
+   get past it without reading why.
+9. **Smoke test, as a non-allowlisted account:** ✨ Create shows Image and Video; an image quote
+   shows 💳 and the price above, never 🎁; pay once with a real card, and the two images arrive.
+   Then one Standard video. Check the admin panel's billing view shows both intents, labelled by
+   SKU, and the dashboard's media finance series counts them.
+
+**Rolling back** is the pause switch, not the flag: `… media pause image` (§6) takes the SKU out
+of the picker at once without a restart, and paid jobs still finish. Turn the flag off at the
+next restart if the pause is going to last.
+
+---
+
+## 9. Open items
 
 | Item | Owner | Blocks |
 | --- | --- | --- |
@@ -336,3 +387,4 @@ when M4 ships.
 | G5 `priority` | owner | paid volume; until then §6.2 |
 | G6 delete routes, then bayram's `media_cleanup` calls them | owner, then code | nothing while the sweeper runs |
 | `doctor` in `bayram-release verify` | code, reviewed | IMAGE_VIDEO_SPEC §9.1 item 4 in full |
+| §8 go-live flip (Payme production, approved Terms pair, flags, smoke test) | owner | M5.3; media for everyone |

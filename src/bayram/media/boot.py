@@ -23,6 +23,10 @@ fails silently and on the money path, and nothing else in the process would noti
    the gateway's) is set, on HTTPS, with the key — else every request would be ``busy``
    forever — and ``media_legal_hold_recipient`` is a valid X25519 key, else a CSAM-class
    block would leave the held bytes readable on this host.
+8. **Media for everyone needs the Terms gate** (O4, D20, D26; M5.3): on a live-paid rail every
+   user can reach a quote, and the Terms + Privacy acceptance is the whole of the real-person
+   mitigation (§11 R3) — no face logic stands behind it. The beta (owner and admins only) may
+   run before counsel signs the text off; the public launch may not.
 """
 
 from __future__ import annotations
@@ -77,6 +81,14 @@ def refuse_unsafe_media_config(settings: Settings) -> None:
     if not offered:
         return
     _refuse_a_free_rail_without_the_beta(settings)
+    if is_live_paid(settings) and not settings.is_terms_gate_enabled:
+        raise _refuse(
+            "a media SKU is offered on a live-paid rail but the Terms + Privacy gate is off: "
+            "every user could order an image or video of a real person without accepting the "
+            "Terms (O4, D26). Set BAYRAM_TERMS_VERSION and BAYRAM_PRIVACY_VERSION to the "
+            "approved pair (IMAGE_VIDEO_SPEC §2.1, M1.3), or keep media on the beta.",
+            offered=[sku.value for sku in offered],
+        )
     if settings.media_moderator == "fake" and not settings.use_fake_providers:
         raise _refuse(
             "a media SKU is offered and BAYRAM_MEDIA_MODERATOR is 'fake': nothing would be "

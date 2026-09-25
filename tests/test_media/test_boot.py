@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from bayram.config import ENV_FILE_VAR, Settings
+from bayram.config import ENV_FILE_VAR, Settings, build_settings
 from bayram.errors import ConfigError
 from bayram.main import refuse_an_unsafe_checkout_rail
 from bayram.media.boot import refuse_unsafe_media_config
@@ -51,6 +51,8 @@ def _live_paid(settings: Settings, **update: Any) -> Settings:
         "payme_merchant_id": "m",
         "credits_enforced": True,
         "payme_is_sandbox": False,
+        "terms_version": "2026-10-01",
+        "privacy_version": "2026-10-01",
     }
     values.update(update)
     return _with(settings, **values)
@@ -96,6 +98,77 @@ def test_a_live_paid_rail_boots_and_warns_about_a_leftover_beta_flag(
     refuse_unsafe_media_config(_live_paid(base, media_beta_enabled=True))
 
     assert "no effect on a live-paid rail" in caplog.text
+
+
+# -- M5.3: the go-live set (IMAGE_VIDEO_SPEC §7.1, §7.4, §10 M5.3) -------------
+
+
+def test_the_go_live_flag_set_boots_on_the_shipped_prices(base: Settings) -> None:
+    # Image + Standard for everyone, beta off, the owner's prices left at their defaults.
+    go_live = _live_paid(base, is_video_standard_offered=True)
+
+    refuse_unsafe_media_config(go_live)
+    refuse_an_unsafe_checkout_rail(go_live)
+
+
+@pytest.mark.parametrize(
+    ("offered", "price"),
+    [
+        ("is_image_offered", "image_price_minor"),
+        ("is_video_standard_offered", "video_standard_price_minor"),
+        ("is_video_fast_offered", "video_fast_price_minor"),
+    ],
+)
+def test_boot_refuses_an_offered_sku_with_no_price_on_the_live_rail(
+    base: Settings, offered: str, price: str
+) -> None:
+    # The owner flips the flags at M5.3; a SKU switched on with its price variable left empty
+    # would quote nothing sellable, so neither the bot nor the worker comes up.
+    go_live = _live_paid(base, **{"is_image_offered": False, offered: True, price: None})
+
+    with pytest.raises(ConfigError, match=f"BAYRAM_{price.upper()} is unset"):
+        refuse_unsafe_media_config(go_live)
+    with pytest.raises(ConfigError, match=f"BAYRAM_{price.upper()} is unset"):
+        refuse_an_unsafe_checkout_rail(go_live)
+
+
+def test_video_fast_ships_without_a_price_so_offering_it_refuses(base: Settings) -> None:
+    # Fast is unset until M6 (Q1): flipping only its flag is refused on the price, before
+    # the backend is even looked at.
+    with pytest.raises(ConfigError, match="BAYRAM_VIDEO_FAST_PRICE_MINOR is unset"):
+        refuse_unsafe_media_config(_live_paid(base, is_video_fast_offered=True))
+
+
+def test_an_empty_price_variable_with_its_sku_on_refuses_end_to_end(
+    base: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The documented spelling of "not sellable" is an empty variable (.env.example).
+    monkeypatch.setenv("BAYRAM_VIDEO_STANDARD_PRICE_MINOR", "")
+    parsed = build_settings(
+        {"_env_file": None, "database_url": "postgresql+asyncpg://u:p@localhost/db"},
+        require_vendor_secrets=False,
+    )
+    assert parsed.video_standard_price_minor is None
+
+    go_live = _live_paid(
+        base,
+        is_video_standard_offered=True,
+        video_standard_price_minor=parsed.video_standard_price_minor,
+    )
+    with pytest.raises(ConfigError, match="BAYRAM_VIDEO_STANDARD_PRICE_MINOR"):
+        refuse_unsafe_media_config(go_live)
+
+
+def test_media_for_everyone_without_the_terms_gate_refuses(base: Settings) -> None:
+    # O4/D26: the Terms acceptance is the whole real-person mitigation once anyone can order.
+    ungated = _live_paid(base, terms_version="", privacy_version="")
+
+    with pytest.raises(ConfigError, match="BAYRAM_TERMS_VERSION"):
+        refuse_unsafe_media_config(ungated)
+
+
+def test_the_beta_runs_before_the_terms_are_signed_off(base: Settings) -> None:
+    refuse_unsafe_media_config(_beta(base, terms_version="", privacy_version=""))
 
 
 def test_the_fake_moderator_with_media_offered_refuses(base: Settings) -> None:
