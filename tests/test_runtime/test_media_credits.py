@@ -29,8 +29,9 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
+from bayram.bot.i18n import translate
 from bayram.config import Settings
-from bayram.contracts import is_ok
+from bayram.contracts import Language, is_ok
 from bayram.db.engine import create_session_factory
 from bayram.db.enums import (
     MediaCreditReason,
@@ -54,6 +55,7 @@ from bayram.media.stages import (
     screen_job_id,
     sku_deadline,
 )
+from bayram.runtime import media_jobs
 from bayram.runtime.media_sweep import sweep_media
 from tests.conftest import FIXED_NOW
 from tests.test_runtime.media_fakes import (
@@ -292,16 +294,19 @@ async def test_a_request_past_the_daily_cap_is_refused_before_it_is_screened(
     _cap(harness, media_daily_cap_image=1)
     await _paid_and_failed(harness, refund=False)
     screened_before = len(harness.moderator.subjects_screened("text"))
+    budget_before = await harness.strikes.screens_today(USER, now=harness.clock())
     job_id = await freeze_job(harness, photos=())
 
     # Act
     state = await _screen(harness, job_id)
 
-    # Assert — refused with the cap's copy, no guard asked, no quote drawn.
+    # Assert — refused with the cap's copy, no guard asked, no quote drawn, and none of the
+    # day's screening budget spent: nothing was screened.
     job = await _job(harness, job_id)
     assert state is MediaJobState.REJECTED and job.error_code == "daily_cap"
     assert "today's limit" in harness.messenger.tray_texts()[-1]
     assert len(harness.moderator.subjects_screened("text")) == screened_before
+    assert await harness.strikes.screens_today(USER, now=harness.clock()) == budget_before
 
     # Act — the next UTC day, the same account is quoted again.
     harness.clock.advance(days=1)
@@ -327,6 +332,26 @@ async def test_the_video_cap_does_not_spend_the_image_cap(harness: Harness) -> N
     )
 
     assert started is BetaStart.STARTED
+
+
+async def test_a_cap_read_that_fails_draws_busy_and_screens_nothing(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange — the database cannot answer the §7.6 read.
+    async def unreadable(*_: Any, **__: Any) -> bool:
+        raise ConnectionError("database blinked")
+
+    monkeypatch.setattr(media_jobs, "is_at_daily_cap", unreadable)
+    job_id = await freeze_job(harness, photos=())
+
+    # Act
+    state = await _screen(harness, job_id)
+
+    # Assert — fail closed like the suspension read: busy, not quoted, nothing screened.
+    assert state is not MediaJobState.QUOTED
+    assert harness.messenger.tray_texts()[-1].startswith(translate("media.busy", Language.EN))
+    assert harness.moderator.subjects_screened("text") == ()
+    assert await harness.strikes.screens_today(USER, now=harness.clock()) == 0
 
 
 async def test_every_press_re_checks_the_daily_cap(harness: Harness) -> None:

@@ -238,8 +238,10 @@ class SqlPaymeLedger:
       certification finding is an environment variable rather than a release.
 
     ``media_deadlines`` is each media SKU's paid-to-delivered deadline (IMAGE_VIDEO_SPEC §3.5),
-    which a media settlement adds to ``paid_at`` for the uploads' backstop clock (§3.2.2). The
-    worker passes its configured values; the gateway, which reads no ``Settings``, the defaults.
+    which a media settlement adds to ``paid_at`` for the uploads' backstop clock (§3.2.2). Every
+    caller today passes the shipped defaults — the gateway reads no ``Settings`` — so this
+    clock is PROVISIONAL: ``media_start`` re-stamps it from the configured deadline in the
+    same transaction as its ``paid → queued`` latch, before any stage can run.
 
     ``account_field`` is here for the same reason: the ``-31050..-31055`` family is the only one
     that carries ``data``, its value is the subfield name a human typed into the cabinet's

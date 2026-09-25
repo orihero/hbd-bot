@@ -67,6 +67,7 @@ from bayram.db.models.media_credit import MediaCreditBalanceRow, MediaCreditLedg
 from bayram.db.models.media_input import MediaInputRow, MediaOutputRow
 from bayram.db.models.media_job import CSAM_BLOCKED_ERROR_CODE, MediaJobRow
 from bayram.db.models.media_purchase import MediaPurchaseRow
+from bayram.db.models.user import UserRow
 from bayram.db.retention import DEFAULT_RETENTION_POLICY, RetentionClass, RetentionPolicy
 from bayram.errors import StorageError
 
@@ -80,6 +81,7 @@ __all__ = [
     "update_draft",
     "delete_inputs",
     "mark_paid",
+    "stamp_input_backstop",
     "cancel_prepay_jobs",
     "add_input",
     "record_input_stored",
@@ -105,6 +107,7 @@ __all__ = [
     "grant_refund",
     "spend_credit",
     "correct_credit",
+    "CreditCorrectionRefusedError",
     "count_paid_since",
 ]
 
@@ -311,15 +314,28 @@ async def mark_paid(
     )
     if not moved:
         return False
+    await stamp_input_backstop(session, job_id, paid_at=now, deadline=deadline)
+    return True
+
+
+async def stamp_input_backstop(
+    session: AsyncSession, job_id: UUID, *, paid_at: datetime, deadline: timedelta
+) -> None:
+    """Uploads' ``expires_at`` = ``paid_at`` + the SKU's deadline + :data:`MEDIA_REVIEW_SLA`.
+
+    §3.2.2. Written by :func:`mark_paid`, and again by ``media_start``'s latch from the
+    CONFIGURED deadline: a Payme settlement runs in the gateway, which only knows the shipped
+    defaults, and an operator who raised a deadline must not have the photos purged while the
+    job is still rendering. Legal-hold rows keep their own clock.
+    """
     await session.execute(
         sa.update(MediaInputRow)
         .where(
             MediaInputRow.job_id == job_id,
             MediaInputRow.retention_class != RetentionClass.LEGAL_HOLD,
         )
-        .values(expires_at=now + deadline + MEDIA_REVIEW_SLA)
+        .values(expires_at=paid_at + deadline + MEDIA_REVIEW_SLA)
     )
-    return True
 
 
 async def cancel_prepay_jobs(
@@ -1161,6 +1177,54 @@ async def spend_credit(
     return True
 
 
+class CreditCorrectionRefusedError(ValueError):
+    """An operator correction that would write a false or forbidden ledger row (§7.5, §9.3)."""
+
+
+async def _check_correction(
+    session: AsyncSession,
+    *,
+    telegram_user_id: int,
+    sku: MediaSku,
+    delta: int,
+    job_id: UUID | None,
+) -> None:
+    if job_id is not None:
+        # ``media_credit_ledger.job_id`` carries no FK: a typo'd id would tie this account's
+        # credit to another customer's job and mislead the cash-refund reconciliation.
+        cited = (
+            await session.execute(
+                sa.select(MediaJobRow.telegram_user_id, MediaJobRow.sku).where(
+                    MediaJobRow.id == job_id
+                )
+            )
+        ).one_or_none()
+        if cited is None:
+            raise CreditCorrectionRefusedError(f"media job {job_id} does not exist")
+        if cited.telegram_user_id != telegram_user_id or cited.sku is not sku:
+            raise CreditCorrectionRefusedError(
+                f"media job {job_id} is not a {sku.value} job of {telegram_user_id}"
+            )
+    if delta < 0:
+        return
+    known = await session.scalar(
+        sa.select(sa.literal(True)).where(UserRow.telegram_user_id == telegram_user_id)
+    )
+    if not known:
+        raise CreditCorrectionRefusedError(f"{telegram_user_id} is not a known account")
+    forgotten = await session.scalar(
+        sa.select(sa.literal(True))
+        .where(
+            MediaJobRow.telegram_user_id == telegram_user_id,
+            MediaJobRow.forget_requested_at.is_not(None),
+        )
+        .limit(1)
+    )
+    if forgotten:
+        # §9.3: /forget deleted the balance and anonymised the ledger; a grant writes both back.
+        raise CreditCorrectionRefusedError(f"{telegram_user_id} asked to be forgotten")
+
+
 async def correct_credit(
     session: AsyncSession,
     *,
@@ -1173,6 +1237,10 @@ async def correct_credit(
 ) -> int | None:
     """An operator's ``admin_correction`` of one credit, either way (§7.5). The new balance.
 
+    Raises :class:`CreditCorrectionRefusedError`, writing nothing, when ``job_id`` names no job of
+    this account and SKU, or for a ``+1`` to an account with no ``users`` row or one that
+    asked to be forgotten — :func:`grant_refund`'s /forget rule (§9.3).
+
     The manual half of a cash refund: the operator refunds in the Payme cabinet and takes the
     credit back here, or grants one the automatic paths missed. ``-1`` is the spend's
     conditional debit (``WHERE balance >= 1``), so a correction can never drive a balance
@@ -1183,6 +1251,9 @@ async def correct_credit(
     """
     if delta not in (-1, 1):
         raise ValueError("a credit correction moves exactly one credit")
+    await _check_correction(
+        session, telegram_user_id=telegram_user_id, sku=sku, delta=delta, job_id=job_id
+    )
     if delta < 0:
         debited = await session.execute(
             sa.update(MediaCreditBalanceRow)

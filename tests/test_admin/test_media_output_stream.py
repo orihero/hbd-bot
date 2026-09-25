@@ -5,17 +5,22 @@ streams by range after a step-up scoped to THAT output, one audit row names it a
 ``media_output`` subject, and the three things that are never revealable — intermediates,
 legal-hold items and bytes already deleted — are 404 whatever grant the operator holds. The
 streaming itself is ``Storage.open_range``'s bounded chunks, shared with the song route; the
-large-object case is asserted on a multi-chunk object rather than a 200 MB one.
+§8 large-object case is a sparse 200 MB ``video/mp4``, read only in ``RANGE_CHUNK_BYTES``
+pieces and never whole.
 """
 
 from __future__ import annotations
 
+import tracemalloc
 from datetime import timedelta
-from typing import Final
+from pathlib import Path
+from typing import IO, Any, Final
 from uuid import UUID, uuid4
 
+import pytest
 import sqlalchemy as sa
 
+from bayram import storage as storage_module
 from bayram.admin.routers.assets import MEDIA_OUTPUT_STREAM_PATH
 from bayram.contracts import Language
 from bayram.db.enums import (
@@ -61,6 +66,8 @@ async def seed_output(
     is_deleted: bool = False,
     mime: str = "image/jpeg",
     order: OrderRow | None = None,
+    filename: str = "image-0.jpg",
+    sparse_size: int | None = None,
 ) -> UUID:
     if order is None:
         order = await seed_order(panel.container)
@@ -88,7 +95,7 @@ async def seed_output(
             .where(MediaJobRow.id == job_id)
             .values(state=MediaJobState.DELIVERED)
         )
-        key = media_key(job_id, is_output=True, filename="image-0.jpg")
+        key = media_key(job_id, is_output=True, filename=filename)
         output_id = uuid4()
         db.add(
             MediaOutputRow(
@@ -111,7 +118,15 @@ async def seed_output(
         )
     target = panel.archive / key
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_bytes(IMAGE_BYTES)
+    if sparse_size is None:
+        target.write_bytes(IMAGE_BYTES)
+    else:
+        # A hole of ``sparse_size`` bytes: the size is real to ``stat`` and to every read,
+        # and costs no disk. The last byte is set so the tail is recognisable.
+        with target.open("wb") as handle:
+            handle.truncate(sparse_size)
+            handle.seek(sparse_size - 1)
+            handle.write(b"\x7f")
     return output_id
 
 
@@ -133,6 +148,60 @@ async def test_a_delivered_image_streams_by_range_after_a_scoped_step_up(panel: 
     assert whole.status_code == 200 and whole.content == IMAGE_BYTES
     (row,) = await audit_rows(panel.container, AuditAction.ASSET_STREAM)
     assert (row.subject_type, row.subject_id) == ("media_output", str(output_id))
+
+
+class _CountingHandle:
+    """A file handle that records every read size, delegating everything else."""
+
+    def __init__(self, handle: IO[bytes], reads: list[int]) -> None:
+        self._handle = handle
+        self._reads = reads
+
+    def read(self, size: int = -1) -> bytes:
+        self._reads.append(size)
+        return self._handle.read(size)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._handle, name)
+
+
+async def test_a_200_mb_video_streams_by_range_in_bounded_chunks_never_held_whole(
+    panel: Panel, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Arrange — §8 Reveal: a 200 MB mp4, on disk as a sparse file.
+    size = 200 * 1024 * 1024
+    output_id = await seed_output(panel, mime="video/mp4", filename="video-0.mp4", sparse_size=size)
+    reads: list[int] = []
+    real_open = storage_module._open_for_read
+
+    def counting_open(path: Path) -> Any:
+        return _CountingHandle(real_open(path), reads)
+
+    monkeypatch.setattr(storage_module, "_open_for_read", counting_open)
+    await signed_in(panel)
+    assert (await step_up(panel, output_id)).status_code == 200
+    tail = RANGE_CHUNK_BYTES * 5
+
+    # Act — a seek near the end, as a <video> element issues, and the opening bytes.
+    tracemalloc.start()
+    try:
+        ranged = await panel.client.get(
+            stream_path(output_id), headers={"Range": f"bytes={size - tail}-"}
+        )
+        head = await panel.client.get(stream_path(output_id), headers={"Range": "bytes=0-1023"})
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    # Assert — the right bytes, as video/mp4, read in chunks and never the whole object.
+    assert ranged.status_code == 206
+    assert ranged.headers["content-type"].startswith("video/mp4")
+    assert ranged.headers["content-range"] == f"bytes {size - tail}-{size - 1}/{size}"
+    assert len(ranged.content) == tail and ranged.content[-1:] == b"\x7f"
+    assert head.status_code == 206 and head.content == bytes(1024)
+    assert reads and max(reads) <= RANGE_CHUNK_BYTES
+    assert sum(reads) == tail + 1024
+    assert peak < size // 20  # well under the object: nothing held it in memory whole
 
 
 async def test_without_a_step_up_on_this_output_nothing_is_streamed(panel: Panel) -> None:

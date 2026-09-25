@@ -46,6 +46,7 @@ from bayram.db.enums import (
     MediaTier,
     MediaVoiceGender,
     MediaVoiceMode,
+    PaymentIntentState,
 )
 from bayram.db.guard import run_guarded
 from bayram.db.media import (
@@ -60,6 +61,7 @@ from bayram.db.media import (
 )
 from bayram.db.models.media_input import MediaInputRow
 from bayram.db.models.media_job import MediaJobRow
+from bayram.db.models.payment_intent import PaymentIntentRow
 from bayram.db.payme_sql import cancel_pending_intent
 from bayram.db.retention import RetentionPolicy, resolve_retention_policy
 from bayram.db.users_sql import ensure_user
@@ -329,14 +331,21 @@ async def _cancel_awaiting(
 
     Allowed only while no Payme transaction holds the intent: the intent is moved
     ``pending → cancelled`` first — the same row the rail's hold is taken on, so exactly one of
-    the two wins — and only then the job ``awaiting_payment → cancelled``. A held, paid or
-    missing intent is money that may be in flight: :attr:`CancelOutcome.TOO_LATE`, and the
-    row is left for the settlement (late money on a cancelled row is credited, §7.2 step 3).
+    the two wins — and only then the job ``awaiting_payment → cancelled``.
+
+    When the intent is not ``pending`` it is read: ``awaiting`` (held) or ``paid`` is money
+    that may be in flight — :attr:`CancelOutcome.TOO_LATE`, and the row is left for the
+    settlement (late money on a cancelled row is credited, §7.2 step 3). ``expired`` or
+    ``cancelled`` is terminal and can never take money, so the job is withdrawn now rather
+    than telling the customer something will arrive and blocking the kind until
+    ``media_sweep``'s grace runs out.
     """
-    if row.payment_intent_id is None or not await cancel_pending_intent(
+    if row.payment_intent_id is not None and not await cancel_pending_intent(
         session, intent_id=row.payment_intent_id, now=now
     ):
-        return CancelOutcome.TOO_LATE
+        intent = await session.get(PaymentIntentRow, row.payment_intent_id)
+        if intent is None or intent.state not in _DEAD_INTENT:
+            return CancelOutcome.TOO_LATE
     moved = await transition(
         session,
         row.id,
@@ -346,6 +355,12 @@ async def _cancel_awaiting(
         policy=policy,
     )
     return CancelOutcome.CANCELLED if moved else CancelOutcome.STALE
+
+
+#: Intent states no rail-side transaction can ever settle (§2.6): the pay link is dead.
+_DEAD_INTENT: Final[frozenset[PaymentIntentState]] = frozenset(
+    {PaymentIntentState.EXPIRED, PaymentIntentState.CANCELLED}
+)
 
 
 def _photo_refs(rows: list[MediaInputRow]) -> tuple[InputRef, ...]:
@@ -514,14 +529,21 @@ class SqlMediaDesk:
                     states=CANCELLABLE_STATES,
                     policy=self._policy,
                 )
-                blocking = await _blocking_row(session, telegram_user_id, None)
-                if blocking is not None and blocking.state is MediaJobState.AWAITING_PAYMENT:
-                    withdrawn = await _cancel_awaiting(
-                        session, blocking, now=now, policy=self._policy
+                # Every pay link out, not only the newest blocking row: the one-open-request
+                # rule is per kind, so an image link and a video link can both be out.
+                awaiting = (
+                    await session.scalars(
+                        sa.select(MediaJobRow).where(
+                            MediaJobRow.telegram_user_id == telegram_user_id,
+                            MediaJobRow.state == MediaJobState.AWAITING_PAYMENT,
+                        )
                     )
+                ).all()
+                for row in awaiting:
+                    withdrawn = await _cancel_awaiting(session, row, now=now, policy=self._policy)
                     if withdrawn is CancelOutcome.CANCELLED:
-                        cancelled.append(blocking.id)
-                        blocking = await _blocking_row(session, telegram_user_id, None)
+                        cancelled.append(row.id)
+                blocking = await _blocking_row(session, telegram_user_id, None)
             if cancelled:
                 await self._cleanup(cancelled)
                 return CancelOutcome.CANCELLED

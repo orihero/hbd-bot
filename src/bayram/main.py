@@ -553,7 +553,10 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         # through ``offering.guarded_media_charge``, which keeps it off the stub and sandbox.
         media_charge=(
             SqlMediaCharge(
-                container.session_factory, checkout=container.checkout, settings=settings
+                container.session_factory,
+                checkout=container.checkout,
+                settings=settings,
+                switches=pool,
             )
             if container.session_factory is not None
             else None

@@ -10,7 +10,8 @@ The §10 M5.1 acceptance list, each a test below:
 * a double settle starts the job once;
 * a burned claim plus a failed enqueue → ``media_sweep`` starts the job exactly once;
 * a settled media intent never shows the song keyboard;
-* a beta failure grants no credit.
+* a beta failure grants no credit — down the real 🎁 → failed-render path, in
+  ``test_media_stages.test_a_beta_failure_mints_no_credit`` (this rail sells no beta).
 
 Plus the §7.2 step-3 refusals (Check/Create on a cancelled or abandoned job), the ✖️ on a
 pay link (intent cancelled while pending, "too late" once a transaction holds it) and the
@@ -23,7 +24,8 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Final
+from types import SimpleNamespace
+from typing import Any, Final, cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -31,12 +33,16 @@ import sqlalchemy as sa
 from aiogram import Bot
 from aiogram.methods import SendMessage
 
+from bayram.admin.routers import billing as billing_router
+from bayram.admin.schemas import billing as billing_schemas
+from bayram.admin.schemas.billing import LifelineNote
 from bayram.bot.handlers import checkout as song_checkout
 from bayram.bot.i18n import translate
 from bayram.bot.pricing import Pricing
 from bayram.checkout import MEDIA_PRODUCTS, Product, PurchaseRequest, StubCheckoutProvider
 from bayram.config import Settings
-from bayram.contracts import Err, Language, is_err, is_ok
+from bayram.contracts import Err, Language, err, is_err, is_ok
+from bayram.db import payme as payme_ledger
 from bayram.db.enums import (
     IntentProduct,
     MediaAspect,
@@ -48,14 +54,23 @@ from bayram.db.enums import (
     MediaSku,
     PaymentIntentState,
 )
-from bayram.db.media import grant_refund, load_job, media_balance, transition
+from bayram.db.media import MEDIA_REVIEW_SLA, grant_refund, load_job, media_balance, transition
 from bayram.db.models.media_credit import MediaCreditLedgerRow
+from bayram.db.models.media_input import MediaInputRow
 from bayram.db.models.media_job import MediaJobRow
 from bayram.db.models.media_purchase import MediaPurchaseRow
 from bayram.db.models.payment_intent import PaymentIntentRow
 from bayram.db.payme import SqlPaymeLedger
+from bayram.errors import CheckoutError
 from bayram.media.desk import CancelOutcome, JobView, SqlMediaDesk
-from bayram.media.payment import SqlMediaCharge, media_idempotency_key
+from bayram.media.overrides import set_gpu_reserved_until, set_paused
+from bayram.media.payment import (
+    MEDIA_BUSY_KEY,
+    MEDIA_DAILY_CAP_KEY,
+    MEDIA_STALE_KEY,
+    SqlMediaCharge,
+    media_idempotency_key,
+)
 from bayram.media.stages import MEDIA_START_JOB, screen_job_id
 from bayram.payme.errors import PaymeFault
 from bayram.payme.protocol import PaymeErrorCode
@@ -70,7 +85,14 @@ from bayram.runtime.payme_jobs import (
 )
 from tests.conftest import FIXED_NOW
 from tests.test_bot.conftest import RecordingSession
-from tests.test_runtime.media_fakes import USER, Harness, build_harness, freeze_job, media_settings
+from tests.test_runtime.media_fakes import (
+    USER,
+    Harness,
+    build_harness,
+    freeze_job,
+    jpeg_bytes,
+    media_settings,
+)
 
 _MERCHANT: Final[str] = "5e730e8e0b852a417aa49ceb"
 _PRICE: Final[int] = 500_000
@@ -152,9 +174,9 @@ async def _job(harness: Harness, job_id: UUID) -> Any:
         return await load_job(session, job_id)
 
 
-async def _quoted_image(harness: Harness) -> UUID:
+async def _quoted_image(harness: Harness, *, photos: tuple[bytes, ...] = ()) -> UUID:
     """A screened, quoted image — the only row 💳 applies to."""
-    job_id = await freeze_job(harness)
+    job_id = await freeze_job(harness, photos=photos)
     await harness.queue.enqueue_job("media_screen", str(job_id), 0, _job_id=screen_job_id(job_id))
     await harness.drain()
     job = await _job(harness, job_id)
@@ -528,25 +550,6 @@ async def test_a_burned_claim_and_a_failed_enqueue_leave_the_sweep_to_start_it_o
     assert (await _job(harness, job_id)).state is not MediaJobState.PAID
 
 
-async def test_a_beta_failure_grants_no_credit(harness: Harness) -> None:
-    job_id = await _quoted_image(harness)
-    async with harness.sessions.begin() as db:
-        assert await transition(
-            db,
-            job_id,
-            expected=(MediaJobState.QUOTED,),
-            to=MediaJobState.PAID,
-            now=FIXED_NOW,
-            values={"paid_via": MediaPaidVia.BETA, "paid_at": FIXED_NOW},
-        )
-        granted = await grant_refund(
-            db, job_id, reason=MediaCreditReason.GENERATION_FAILED, now=FIXED_NOW
-        )
-
-    assert not granted
-    assert await _ledger(harness, job_id) == []
-
-
 # ---------------------------------------------------------------------------
 # Fail closed
 # ---------------------------------------------------------------------------
@@ -609,3 +612,361 @@ def test_the_song_checkout_sells_no_media_sku(product: Product, settings: Settin
 def test_every_product_has_an_intent_product_and_the_media_ones_a_sku() -> None:
     assert {p.value for p in Product} == {p.value for p in IntentProduct}
     assert {p.value for p in MEDIA_PRODUCTS} == {sku.value for sku in MediaSku}
+
+
+# ---------------------------------------------------------------------------
+# 💳 re-reads the offer, the switches and the cap at press time (§2.5, §4.5, §7.6, O11)
+# ---------------------------------------------------------------------------
+async def _intents(harness: Harness) -> int:
+    async with harness.sessions() as db:
+        return int(await db.scalar(sa.select(sa.func.count()).select_from(PaymentIntentRow)) or 0)
+
+
+def _switched_charge(harness: Harness, rail: SqlPaymeLedger, settings: Settings) -> SqlMediaCharge:
+    """``_charge`` with the operator's Redis switches wired, as ``main`` wires them."""
+    return SqlMediaCharge(
+        harness.sessions,
+        checkout=_charge(harness, rail)._checkout,
+        settings=settings,
+        switches=harness.rt.switches,
+        clock=lambda: FIXED_NOW,
+    )
+
+
+@pytest.mark.parametrize("block", ["paused", "not_offered", "gpu_reserved"])
+async def test_a_pay_press_on_a_sku_no_longer_sold_opens_no_intent(
+    harness: Harness, rail: SqlPaymeLedger, block: str
+) -> None:
+    # Arrange — the quote was drawn while the SKU was on sale; then the operator acted.
+    job_id = await _quoted_image(harness)
+    settings = harness.rt.settings
+    if block == "paused":
+        await set_paused(harness.rt.switches, MediaSku.IMAGE, paused=True)
+    elif block == "not_offered":
+        settings = settings.model_copy(update={"is_image_offered": False})
+    else:
+        # O11 applies to the LOCAL tier only, so the charge sees a real local backend.
+        settings = settings.model_copy(
+            update={"use_fake_providers": False, "image_backend": "local"}
+        )
+        await set_gpu_reserved_until(harness.rt.switches, FIXED_NOW + timedelta(hours=1))
+
+    # Act
+    result = await _switched_charge(harness, rail, settings)(_view(job_id))
+
+    # Assert — refused before the charge: no intent, the row is still the quote.
+    assert isinstance(result, Err)
+    expected = MEDIA_STALE_KEY if block == "not_offered" else MEDIA_BUSY_KEY
+    assert result.error.user_message_key == expected
+    assert await _intents(harness) == 0
+    assert (await _job(harness, job_id)).state is MediaJobState.QUOTED
+
+
+async def test_a_pay_press_past_the_daily_cap_opens_no_intent(
+    harness: Harness, rail: SqlPaymeLedger
+) -> None:
+    # Arrange — one image already paid today, and a cap of one (§7.6).
+    earlier = await _quoted_image(harness)
+    async with harness.sessions.begin() as db:
+        await db.execute(
+            sa.update(MediaJobRow)
+            .where(MediaJobRow.id == earlier)
+            .values(state=MediaJobState.DELIVERED, paid_via=MediaPaidVia.PAYME, paid_at=FIXED_NOW)
+        )
+    job_id = await _quoted_row(harness, MediaSku.IMAGE)
+    capped = harness.rt.settings.model_copy(update={"media_daily_cap_image": 1})
+
+    # Act
+    result = await _switched_charge(harness, rail, capped)(_view(job_id))
+
+    # Assert
+    assert isinstance(result, Err)
+    assert result.error.user_message_key == MEDIA_DAILY_CAP_KEY
+    assert await _intents(harness) == 0
+    assert (await _job(harness, job_id)).state is MediaJobState.QUOTED
+
+
+# ---------------------------------------------------------------------------
+# A dead intent is withdrawn, never "too late" (§2.6)
+# ---------------------------------------------------------------------------
+async def _end_intent(harness: Harness, intent_id: UUID, state: PaymentIntentState) -> None:
+    async with harness.sessions.begin() as db:
+        await db.execute(
+            sa.update(PaymentIntentRow).where(PaymentIntentRow.id == intent_id).values(state=state)
+        )
+
+
+@pytest.mark.parametrize("ended", [PaymentIntentState.EXPIRED, PaymentIntentState.CANCELLED])
+async def test_cancel_on_a_pay_link_whose_intent_ended_cancels_the_job(
+    harness: Harness, rail: SqlPaymeLedger, ended: PaymentIntentState
+) -> None:
+    job_id = await _quoted_image(harness)
+    opened = await _pay_link(harness, rail, job_id)
+    await _end_intent(harness, opened.intent_id, ended)
+    desk = SqlMediaDesk(
+        harness.sessions, queue=harness.queue, settings=harness.rt.settings, clock=lambda: FIXED_NOW
+    )
+
+    outcome = await desk.cancel(job_id, telegram_user_id=USER)
+
+    assert is_ok(outcome) and outcome.value is CancelOutcome.CANCELLED
+    assert (await _job(harness, job_id)).state is MediaJobState.CANCELLED
+
+
+async def test_a_pay_press_on_an_expired_intent_hands_out_no_dead_link(
+    harness: Harness, rail: SqlPaymeLedger
+) -> None:
+    job_id = await _quoted_image(harness)
+    opened = await _pay_link(harness, rail, job_id)
+    await _end_intent(harness, opened.intent_id, PaymentIntentState.EXPIRED)
+
+    again = await _charge(harness, rail)(_view(job_id))
+
+    assert isinstance(again, Err)
+    assert again.error.user_message_key == MEDIA_STALE_KEY
+
+
+async def test_slash_cancel_withdraws_every_pay_link_not_only_the_newest_row(
+    harness: Harness, rail: SqlPaymeLedger
+) -> None:
+    # Arrange — an image pay link out, and a NEWER video of the same account in progress:
+    # the one-open-request rule is per kind, so both are open at once.
+    image = await _quoted_image(harness)
+    opened = await _pay_link(harness, rail, image)
+    async with harness.sessions.begin() as db:
+        video = MediaJobRow(
+            **{
+                column.key: getattr(await db.get(MediaJobRow, image), column.key)
+                for column in sa.inspect(MediaJobRow).mapper.column_attrs
+                if column.key not in ("id", "payment_intent_id")
+            }
+        )
+        video.id = uuid4()
+        video.kind = MediaKind.VIDEO
+        video.sku = MediaSku.VIDEO_STANDARD
+        video.state = MediaJobState.GENERATING
+        video.created_at = FIXED_NOW + timedelta(minutes=1)
+        db.add(video)
+    desk = SqlMediaDesk(
+        harness.sessions, queue=harness.queue, settings=harness.rt.settings, clock=lambda: FIXED_NOW
+    )
+
+    # Act
+    slash = await desk.cancel_open(USER)
+
+    # Assert — the image's intent and row are withdrawn; the paid video is untouched.
+    assert is_ok(slash) and slash.value is CancelOutcome.CANCELLED
+    assert (await _job(harness, image)).state is MediaJobState.CANCELLED
+    found = await rail.intent(public_ref=opened.public_ref)
+    assert is_ok(found) and found.value is not None
+    assert found.value.state.value == PaymentIntentState.CANCELLED.value
+    assert (await _job(harness, video.id)).state is MediaJobState.GENERATING
+
+
+# ---------------------------------------------------------------------------
+# The uploads' clock follows the CONFIGURED deadline (§3.2.2, §3.5)
+# ---------------------------------------------------------------------------
+async def test_media_start_re_stamps_the_uploads_clock_from_the_configured_deadline(
+    container: AppContainer, tmp_path: Path, rail: SqlPaymeLedger
+) -> None:
+    # Arrange — an operator raised the image deadline; the gateway only knows the default.
+    raised = timedelta(hours=6)
+    live = media_settings(
+        container.settings,
+        checkout_provider="payme",
+        payme_is_sandbox=False,
+        payme_merchant_id=_MERCHANT,
+        media_image_deadline_s=int(raised.total_seconds()),
+    )
+    harness = build_harness(live, container.require_session_factory(), tmp_path, FIXED_NOW)
+    job_id = await _quoted_image(harness, photos=(jpeg_bytes(),))
+    opened = await _pay_link(harness, rail, job_id)
+    await _perform(rail, opened, amount=_PRICE, tid="tx-clock")
+
+    # Act
+    await harness.run(MEDIA_START_JOB, str(job_id), 0)
+
+    # Assert
+    async with harness.sessions() as db:
+        clocks = set(
+            (
+                await db.scalars(
+                    sa.select(MediaInputRow.expires_at).where(MediaInputRow.job_id == job_id)
+                )
+            ).all()
+        )
+    assert clocks == {FIXED_NOW + raised + MEDIA_REVIEW_SLA}
+
+
+# ---------------------------------------------------------------------------
+# §7.3: every member has an arm at every match site, at runtime and not only under mypy
+# ---------------------------------------------------------------------------
+_MEDIA_MEMBERS: Final[frozenset[str]] = frozenset(sku.value for sku in MediaSku)
+
+
+class _Opener:
+    """A ``PaymentIntentOpener`` that records the snapshot a product's arm chose."""
+
+    def __init__(self) -> None:
+        self.opened: list[dict[str, Any]] = []
+
+    async def open_intent(self, **fields: Any) -> Any:
+        self.opened.append(fields)
+        return err(CheckoutError("recorded, not opened"))
+
+
+@pytest.mark.parametrize("product", list(Product), ids=lambda p: p.value)
+async def test_every_product_has_a_defined_outcome_at_every_match_site(
+    product: Product, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    is_media = product.value in _MEDIA_MEMBERS
+    intent_product = IntentProduct(product.value)
+
+    # The song checkout: a price and a key for a song, a refusal for a media SKU.
+    amount = song_checkout._song_amount_minor(Pricing.from_settings(settings), product)
+    assert (amount is None) is is_media
+    if is_media:
+        with pytest.raises(ValueError):
+            song_checkout._idempotency_key(1, "scope", product=product, seq=0)
+    else:
+        assert song_checkout._idempotency_key(1, "scope", product=product, seq=0)
+
+    # PaymeCheckoutProvider.charge: each arm snapshots exactly its own marker.
+    opener = _Opener()
+    provider = PaymeCheckoutProvider(
+        opener,
+        merchant_id=_MERCHANT,
+        base_url="https://checkout.test",
+        account_field="order_id",
+        return_url="https://t.me/bayram_uzbot",
+        is_sandbox=False,
+        plan_songs=12,
+        plan_days=30,
+        language_of=lambda: Language.EN,
+        paused=_never_paused,
+    )
+    job_id = uuid4()
+    await provider.charge(
+        PurchaseRequest(
+            telegram_user_id=USER,
+            product=product,
+            amount_minor=_PRICE,
+            currency="UZS",
+            idempotency_key=f"k:{product.value}",
+            resume_media_job_id=job_id if is_media else None,
+        )
+    )
+    (opened,) = opener.opened
+    assert opened["resume_media_job_id"] == (job_id if is_media else None)
+    assert (opened["plan_songs"] is not None) is (product is Product.STARTER)
+
+    # The settlement announcement: a song sentence, or the fail-closed ``None`` for media.
+    async def sentence(*_: Any, **__: Any) -> str:
+        return "song"
+
+    monkeypatch.setattr(payme_jobs, "_single_song_sentence", sentence)
+    monkeypatch.setattr(payme_jobs, "_plan_sentence", sentence)
+    announced = await payme_jobs._announcement(
+        cast(Any, None),
+        cast(Any, SimpleNamespace(product=product, public_ref="ref")),
+        telegram_user_id=USER,
+        language=Language.EN,
+    )
+    assert announced == (None if is_media else "song")
+
+    # Check/Create's media rung: a song passes, a media intent naming no job is refused.
+    ledger = SqlPaymeLedger(cast(Any, None), merchant_id=_MERCHANT)
+    row = cast(
+        Any,
+        SimpleNamespace(product=intent_product, resume_media_job_id=None, public_ref="ref"),
+    )
+    if is_media:
+        with pytest.raises(PaymeFault):
+            await ledger._media_job_payable_or_refuse(cast(Any, None), row)
+    else:
+        await ledger._media_job_payable_or_refuse(cast(Any, None), row)
+
+    # _write_sale routes to exactly one book.
+    books: list[str] = []
+
+    async def write(book: str) -> Any:
+        async def recorder(*_: Any, **__: Any) -> None:
+            books.append(book)
+
+        return recorder
+
+    monkeypatch.setattr(payme_ledger, "write_single_sale", await write("topup"))
+    monkeypatch.setattr(payme_ledger, "write_plan_sale", await write("plan"))
+    monkeypatch.setattr(ledger, "_write_media_sale", await write("media"), raising=False)
+    await ledger._write_sale(
+        cast(Any, None),
+        intent=cast(
+            Any,
+            SimpleNamespace(
+                product=intent_product,
+                amount_minor=_PRICE,
+                currency="UZS",
+                idempotency_key="k",
+                public_ref="ref",
+                plan_songs=12,
+                plan_days=30,
+            ),
+        ),
+        telegram_user_id=USER,
+        reference="tx",
+        now=FIXED_NOW,
+    )
+    expected_book = {Product.SINGLE: "topup", Product.STARTER: "plan"}.get(product, "media")
+    assert books == [expected_book]
+
+    # The admin lifeline note and receipt router.
+    note = billing_schemas._grants_nothing(product.value)
+    assert (note is LifelineNote.MEDIA_GRANTS_NOTHING) is is_media
+    for name, book in (
+        ("topup_receipt_for_key", "topup"),
+        ("plan_receipt_for_key", "plan"),
+        ("media_receipt_for_key", "media"),
+    ):
+
+        async def receipt(*_: Any, _book: str = book, **__: Any) -> Any:
+            return _book
+
+        monkeypatch.setattr(billing_router, name, receipt)
+    found = await billing_router._receipt_for(
+        cast(Any, None), cast(Any, SimpleNamespace(product=product.value)), idempotency_key="k"
+    )
+    assert cast(Any, found) == expected_book
+
+
+def test_the_admin_sites_fail_closed_on_a_product_this_build_does_not_know() -> None:
+    assert billing_schemas._grants_nothing("sticker") is None
+
+
+async def test_a_settlement_of_an_intent_with_an_unknown_product_unwinds_with_no_receipt(
+    harness: Harness, rail: SqlPaymeLedger
+) -> None:
+    # Arrange — a real media intent, whose stored product is then one this build lacks.
+    job_id = await _quoted_image(harness)
+    opened = await _pay_link(harness, rail, job_id)
+    async with harness.sessions.begin() as db:
+        await db.execute(
+            sa.text("UPDATE payment_intents SET product = 'sticker' WHERE id = :id"),
+            {"id": opened.intent_id.hex},
+        )
+
+    # Act
+    try:
+        forced = await rail.force_settle(public_ref=opened.public_ref, now=FIXED_NOW, note="INC")
+    except Exception:  # an unmapped product may surface as a raise; either way nothing commits
+        forced = None
+
+    # Assert — nothing settled: no receipt, the intent still pending, the job still waiting.
+    assert forced is None or is_err(forced)
+    async with harness.sessions() as db:
+        assert (await db.scalar(sa.select(sa.func.count()).select_from(MediaPurchaseRow))) == 0
+        state = await db.scalar(
+            sa.text("SELECT state FROM payment_intents WHERE id = :id"),
+            {"id": opened.intent_id.hex},
+        )
+    assert state == PaymentIntentState.PENDING.value
+    assert (await _job(harness, job_id)).state is MediaJobState.AWAITING_PAYMENT

@@ -42,6 +42,7 @@ from bayram.db.enums import (
 )
 from bayram.db.media import (
     MEDIA_REVIEW_SLA,
+    CreditCorrectionRefusedError,
     add_input,
     add_output,
     cleanup_job_media,
@@ -935,6 +936,69 @@ async def test_an_operator_correction_moves_one_credit_and_never_below_zero(
         ).all()
     assert sorted(row.delta for row in corrections) == [-1, -1, 1]
     assert {row.actor for row in corrections} == {"admin:aziz"}
+
+
+@pytest.mark.parametrize("cited", ["other_account", "other_sku", "missing"])
+async def test_a_correction_citing_a_job_not_of_that_account_and_sku_writes_nothing(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock, cited: str
+) -> None:
+    # Arrange — the cited job belongs to someone else, is another SKU, or does not exist.
+    await _user(sessions, _USER)
+    job_id = uuid4()
+    if cited == "other_account":
+        job_id = await _paid_job(sessions, clock, user=_OTHER_USER)
+    elif cited == "other_sku":
+        job_id = await _paid_job(sessions, clock)
+        async with sessions.begin() as session:
+            await session.execute(
+                sa.update(MediaJobRow)
+                .where(MediaJobRow.id == job_id)
+                .values(sku=MediaSku.VIDEO_STANDARD)
+            )
+
+    # Act / Assert — refused before any write (§7.5).
+    with pytest.raises(CreditCorrectionRefusedError):
+        async with sessions.begin() as session:
+            await correct_credit(
+                session,
+                telegram_user_id=_USER,
+                sku=MediaSku.IMAGE,
+                delta=1,
+                actor="admin:aziz",
+                now=clock.now,
+                job_id=job_id,
+            )
+    assert await _count(sessions, MediaCreditLedgerRow) == 0
+    assert await _count(sessions, MediaCreditBalanceRow) == 0
+
+
+@pytest.mark.parametrize("account", ["forgotten", "unknown"])
+async def test_a_grant_to_a_forgotten_or_unknown_account_writes_nothing(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock, account: str
+) -> None:
+    # Arrange — §9.3: /forget deleted the balance; a grant would write it back.
+    if account == "forgotten":
+        job_id = await _paid_job(sessions, clock)
+        async with sessions.begin() as session:
+            await session.execute(
+                sa.update(MediaJobRow)
+                .where(MediaJobRow.id == job_id)
+                .values(forget_requested_at=clock.now)
+            )
+
+    # Act / Assert
+    with pytest.raises(CreditCorrectionRefusedError):
+        async with sessions.begin() as session:
+            await correct_credit(
+                session,
+                telegram_user_id=_USER,
+                sku=MediaSku.IMAGE,
+                delta=1,
+                actor="admin:aziz",
+                now=clock.now,
+            )
+    assert await _count(sessions, MediaCreditLedgerRow) == 0
+    assert await _count(sessions, MediaCreditBalanceRow) == 0
 
 
 async def test_the_ledger_reconciles_with_the_balance_through_every_movement(

@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import StaticPool
 
+from bayram.bot.i18n import translate
 from bayram.config import Settings
 from bayram.contracts import Err, err
 from bayram.db.engine import create_session_factory
@@ -397,18 +398,49 @@ async def test_a_generation_failure_releases_the_lock_and_leaves_the_queue(
 
 
 async def test_a_beta_failure_mints_no_credit(harness: Harness) -> None:
+    # Arrange — M5.1 "beta failure grants no credit", down the real path: 🎁, then every
+    # render fails and the stage chain's own fail_job ends the job (§2.5, §7.5).
     harness.provider.outcome = JobPhase.FAILED
     job_id = await freeze_job(harness, photos=())
     await _screen_and_quote(harness, job_id)
-    await _pay(harness, job_id, via=MediaPaidVia.BETA)
+    started = await start_free_beta(
+        harness.sessions,
+        harness.queue,
+        harness.rt.settings,
+        job_id=job_id,
+        telegram_user_id=USER,
+        is_paused=False,
+        now=harness.clock(),
+    )
+    assert started is BetaStart.STARTED
 
+    # Act
     await harness.drain()
 
+    # Assert — failed, no ledger row, balance 0, and the free re-run offered.
     job = await _job(harness, job_id)
-    assert job.state is MediaJobState.FAILED
+    assert (job.state, job.paid_via) == (MediaJobState.FAILED, MediaPaidVia.BETA)
     async with harness.sessions() as session:
         assert await media_balance(session, telegram_user_id=USER, sku=job.sku) == 0
-    assert any("free beta" in text for _, text, _ in harness.messenger.sent)
+        assert (
+            await session.scalar(
+                sa.select(sa.func.count())
+                .select_from(MediaCreditLedgerRow)
+                .where(MediaCreditLedgerRow.telegram_user_id == USER)
+            )
+        ) == 0
+    failure = translate("media.failed.beta", job.language)
+    shown = [
+        markup
+        for text, markup in (
+            [(text, markup) for _, text, markup in harness.messenger.sent]
+            + [(text, markup) for _, _, text, markup in harness.messenger.edits]
+        )
+        if text == failure
+    ]
+    assert shown, "the media.failed.beta copy was never shown"
+    buttons = [b.callback_data or "" for m in shown if m for row in m.inline_keyboard for b in row]
+    assert any(data.startswith("med:again:") for data in buttons)
 
 
 async def test_one_variant_failing_to_generate_delivers_the_other_and_refunds_one(

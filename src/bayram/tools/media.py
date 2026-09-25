@@ -60,7 +60,12 @@ from redis.asyncio import Redis
 from bayram.config import Settings, build_settings
 from bayram.db import create_engine, create_session_factory
 from bayram.db.enums import MediaBackend, MediaLegalHoldDecision, MediaSku
-from bayram.db.media import clear_csam_blocks, correct_credit, record_legal_hold_decision
+from bayram.db.media import (
+    CreditCorrectionRefusedError,
+    clear_csam_blocks,
+    correct_credit,
+    record_legal_hold_decision,
+)
 from bayram.errors import BayramError
 from bayram.logging import configure_logging, get_logger
 from bayram.media.offering import effective_backend, env_backend
@@ -332,15 +337,19 @@ async def _correct_credit(settings: Settings, request: Request) -> str:
     engine = create_engine(settings.database_url)
     try:
         async with create_session_factory(engine).begin() as session:
-            balance = await correct_credit(
-                session,
-                telegram_user_id=request.telegram_user_id,
-                sku=request.sku,
-                delta=request.delta,
-                actor=request.actor,
-                now=datetime.now(tz=UTC),
-                job_id=request.job_id,
-            )
+            try:
+                balance = await correct_credit(
+                    session,
+                    telegram_user_id=request.telegram_user_id,
+                    sku=request.sku,
+                    delta=request.delta,
+                    actor=request.actor,
+                    now=datetime.now(tz=UTC),
+                    job_id=request.job_id,
+                )
+            except CreditCorrectionRefusedError as exc:
+                # Raised before any write, and out of ``begin()``, so nothing is committed.
+                raise RefusedError(f"{exc}; nothing was written") from exc
     finally:
         await engine.dispose()
     if balance is None:

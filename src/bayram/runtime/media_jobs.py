@@ -146,6 +146,7 @@ from bayram.db.media import (
     record_input_stored,
     record_output_file_id,
     set_attempt_status,
+    stamp_input_backstop,
     touch_job,
     transition,
     update_draft,
@@ -1806,16 +1807,23 @@ async def _screen_gate(
     must not lift a suspension only an operator may lift (§6.4).
     """
     now = rt.clock()
+    screens = 0
     try:
         suspended = await rt.strikes.suspension(job.telegram_user_id, now=now)
-        screens = await rt.strikes.count_screen(
-            job.telegram_user_id, job_id=budget_id or str(job.id), now=now
-        )
-        if suspended is None:
-            async with rt.sessions() as session:
-                if await has_standing_csam_block(session, job.telegram_user_id):
-                    suspended = Suspension(SuspensionReason.CSAM)
-    except Exception as exc:  # the store raises on Redis failure; fail closed
+        async with rt.sessions() as session:
+            if suspended is None and await has_standing_csam_block(session, job.telegram_user_id):
+                suspended = Suspension(SuspensionReason.CSAM)
+            # §7.6, read BEFORE the budget is counted and inside this fail-closed block: a
+            # refusal at the cap screens nothing, so it spends none of the day's screenings,
+            # and a database that cannot answer draws busy like the suspension read.
+            at_cap = await is_at_daily_cap(
+                session, rt.settings, telegram_user_id=job.telegram_user_id, kind=job.kind, now=now
+            )
+        if not at_cap:
+            screens = await rt.strikes.count_screen(
+                job.telegram_user_id, job_id=budget_id or str(job.id), now=now
+            )
+    except Exception as exc:  # the store raises on Redis or database failure; fail closed
         _LOG.warning(
             "the media suspension could not be read",
             extra={"media_job_id": str(job.id), "failure": type(exc).__name__},
@@ -1833,13 +1841,6 @@ async def _screen_gate(
             with_buttons=False,
         )
         return _result("refused_suspended", job.id, reason=suspended.reason.value)
-    if screens > rt.settings.media_screen_daily_budget:
-        await _refuse(rt, job, key=_REFUSED_KEY, error_code=MediaErrorCode.SCREEN_BUDGET, values={})
-        return _result("refused_budget", job.id, screens=screens)
-    async with rt.sessions() as session:
-        at_cap = await is_at_daily_cap(
-            session, rt.settings, telegram_user_id=job.telegram_user_id, kind=job.kind, now=now
-        )
     if at_cap:
         # §7.6: no quote the customer could not pay for today. The press-time handlers check
         # again; the one-open-request index means nothing else of this kind is paid between.
@@ -1852,6 +1853,9 @@ async def _screen_gate(
             with_buttons=False,
         )
         return _result("refused_daily_cap", job.id)
+    if screens > rt.settings.media_screen_daily_budget:
+        await _refuse(rt, job, key=_REFUSED_KEY, error_code=MediaErrorCode.SCREEN_BUDGET, values={})
+        return _result("refused_budget", job.id, screens=screens)
     return None
 
 
@@ -1955,6 +1959,16 @@ async def media_start(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[s
             # same backend and the admin reads the row rather than mirroring a flag (§4.5).
             values={"backend": backend, "model_id": model_id},
         )
+        if latched:
+            # §3.2.2: a Payme settlement stamped the uploads' clock from the SHIPPED deadline
+            # (the gateway reads no Settings); re-stamp it from the configured one before any
+            # stage runs, so a raised deadline never has the photos purged mid-render.
+            await stamp_input_backstop(
+                session,
+                jid,
+                paid_at=job.paid_at or now,
+                deadline=sku_deadline(rt.settings, job.sku),
+            )
     if not latched:
         return _result("noop_latched_elsewhere", jid)
     paid_at = job.paid_at or now

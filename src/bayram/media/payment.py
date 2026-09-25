@@ -34,16 +34,19 @@ from bayram.checkout import CheckoutProvider, Product, PurchaseRequest
 from bayram.config import Settings
 from bayram.contracts import Err, Result, err, ok
 from bayram.db.base import utc_now
-from bayram.db.enums import MediaJobState, MediaSku
+from bayram.db.enums import MediaBackend, MediaJobState, MediaSku, PaymentIntentState
 from bayram.db.guard import run_guarded
 from bayram.db.media import load_job, transition
 from bayram.db.payme_sql import intent_by_key
 from bayram.errors import CheckoutError, StorageError
 from bayram.logging import get_logger
 from bayram.media.desk import JobView
+from bayram.media.offering import effective_backend, media_offered
+from bayram.media.overrides import MediaSwitchStore, read_overrides
 from bayram.media.service import is_at_daily_cap
 
 __all__ = [
+    "MEDIA_BUSY_KEY",
     "MEDIA_DAILY_CAP_KEY",
     "MEDIA_STALE_KEY",
     "MediaPayLink",
@@ -57,6 +60,15 @@ _LOG = get_logger(__name__)
 MEDIA_STALE_KEY: Final[str] = "media.stale"
 #: The alert a 💳 press answers past the account's daily cap (§7.6).
 MEDIA_DAILY_CAP_KEY: Final[str] = "media.daily_cap"
+#: The alert a 💳 press answers while the SKU is paused or its local GPU reserved (§4.5, O11).
+MEDIA_BUSY_KEY: Final[str] = "media.busy"
+
+#: The intent states a link may still be handed out for: nobody has paid, or a rail-side
+#: transaction is paying it now. ``expired``/``cancelled`` are terminal — their link is dead.
+_LIVE_INTENT: Final[tuple[PaymentIntentState, ...]] = (
+    PaymentIntentState.PENDING,
+    PaymentIntentState.AWAITING,
+)
 
 #: The states 💳 applies to: the quote, and a pay link being re-sent (§2.3.3).
 _PAYABLE: Final[tuple[MediaJobState, ...]] = (
@@ -81,7 +93,7 @@ class MediaPayLink:
 class SqlMediaCharge:
     """The live-paid half of a media 💳, as ``BotDeps.media_charge`` holds it."""
 
-    __slots__ = ("_checkout", "_clock", "_sessions", "_settings")
+    __slots__ = ("_checkout", "_clock", "_sessions", "_settings", "_switches")
 
     def __init__(
         self,
@@ -89,12 +101,47 @@ class SqlMediaCharge:
         *,
         checkout: CheckoutProvider,
         settings: Settings,
+        switches: MediaSwitchStore | None = None,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._sessions = sessions
         self._checkout = checkout
         self._settings = settings
+        # The operator's Redis switches (§4.5). ``None`` (no Redis wired) reads "not paused,
+        # not reserved", as ``bot.media_offer.is_sku_paused`` does.
+        self._switches = switches
         self._clock = clock
+
+    async def _offer_refusal(
+        self, job_id: UUID, sku: MediaSku, telegram_user_id: int
+    ) -> CheckoutError | None:
+        """§2.5: a drawn 💳 is never proof the SKU is still sold — re-read it at press time.
+
+        Paused, or the local GPU inside the operator's reserved window (O11, D22) → ``busy``:
+        the quote comes back once the switch is lifted. No longer offered to this account at
+        all (flag off, beta list edited) → ``stale``. Both refuse before any intent exists.
+        """
+        is_paused = False
+        is_reserved = False
+        if self._switches is not None:
+            overrides = await read_overrides(self._switches, sku)
+            is_paused = overrides.is_paused
+            backend = effective_backend(self._settings, sku, overrides.backend)
+            is_reserved = backend is MediaBackend.LOCAL and overrides.is_gpu_reserved(self._clock())
+        if not media_offered(self._settings, sku, telegram_user_id, is_paused=False):
+            return _stale(job_id)
+        if is_paused or is_reserved:
+            return CheckoutError(
+                "the media SKU is paused or its GPU is reserved",
+                user_message_key=MEDIA_BUSY_KEY,
+                context={
+                    "media_job_id": str(job_id),
+                    "sku": sku.value,
+                    "is_paused": is_paused,
+                    "is_gpu_reserved": is_reserved,
+                },
+            )
+        return None
 
     async def __call__(self, job: JobView) -> Result[MediaPayLink]:
         async def read() -> tuple[MediaSku, int, str, MediaJobState, bool] | None:
@@ -118,6 +165,9 @@ class SqlMediaCharge:
         if found.value is None or found.value[3] not in _PAYABLE:
             return err(_stale(job.id))
         sku, price_minor, currency, _, at_cap = found.value
+        refusal = await self._offer_refusal(job.id, sku, job.telegram_user_id)
+        if refusal is not None:
+            return err(refusal)
         if at_cap:
             return err(
                 CheckoutError(
@@ -167,6 +217,11 @@ class SqlMediaCharge:
                         "the media payment intent is missing after it was opened",
                         context={"media_job_id": str(job.id)},
                     )
+                if intent.state not in _LIVE_INTENT:
+                    # The key is fixed per job, so a 💳 after the intent expired finds that
+                    # dead intent again: its link can never take money. Refused, not handed
+                    # out; ✖️ / ``/cancel`` withdraw the row (§2.6).
+                    return False
                 return await transition(
                     session,
                     job.id,
