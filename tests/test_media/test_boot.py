@@ -165,3 +165,27 @@ def test_a_whole_access_token_boots(base: Settings) -> None:
     refuse_unsafe_media_config(
         _with(base, genai_access_client_id="id.access", genai_access_client_secret="s")
     )
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://203.0.113.7:5174",
+        "https://genai.example.test/?api_key=leaked",
+    ],
+)
+def test_a_gateway_url_that_would_leak_the_key_or_the_photos_refuses(
+    base: Settings, base_url: str
+) -> None:
+    # §9.1 items 2-3: plain HTTP off the host, or the key in the URL.
+    with pytest.raises(ConfigError, match="BAYRAM_GENAI_BASE_URL"):
+        refuse_unsafe_media_config(_beta(base, genai_base_url=base_url))
+
+
+def test_plain_http_on_loopback_is_a_development_gateway(base: Settings) -> None:
+    refuse_unsafe_media_config(_beta(base, genai_base_url="http://127.0.0.1:5174"))
+
+
+def test_a_plain_http_gateway_with_no_sku_on_it_boots(base: Settings) -> None:
+    # Nothing is sent to it: media is off.
+    refuse_unsafe_media_config(_with(base, genai_base_url="http://203.0.113.7:5174"))

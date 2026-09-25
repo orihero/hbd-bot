@@ -21,6 +21,7 @@ from bayram.config import MediaBackendName, Settings
 from bayram.contracts import Result, err
 from bayram.db.enums import MediaBackend, MediaSku
 from bayram.errors import CheckoutError
+from bayram.logging import get_logger
 
 __all__ = [
     "SKU_PRICE_FIELDS",
@@ -38,6 +39,8 @@ __all__ = [
     "media_charge_refusal",
     "guarded_media_charge",
 ]
+
+_LOG = get_logger(__name__)
 
 #: The ``Settings`` field behind each SKU, spelled once so a fourth SKU is one edit here.
 SKU_OFFERED_FIELDS: Final[Mapping[MediaSku, str]] = MappingProxyType(
@@ -106,9 +109,21 @@ def effective_backend(
 
     Under ``use_fake_providers`` everything renders on the fake, whatever either says: that
     flag is "no vendor is contacted", and a Redis key must not be able to un-say it.
+
+    The converse holds too: **an override of ``fake`` is ignored everywhere else** (§4.5 "an
+    offered SKU whose effective backend is fake" is refused). Boot only sees the env backend,
+    so a Redis key naming the fake would otherwise sell placeholder PNGs as the product.
     """
     if settings.use_fake_providers:
         return MediaBackend.FAKE
+    if override is MediaBackend.FAKE:
+        # §4.5 "unknown → ignored + alert": ERROR, because somebody meant to reroute paid
+        # traffic and it is not happening.
+        _LOG.error(
+            "a media backend override names the fake outside a fake deployment; ignored",
+            extra={"sku": sku.value},
+        )
+        return env_backend(settings, sku)
     return override if override is not None else env_backend(settings, sku)
 
 

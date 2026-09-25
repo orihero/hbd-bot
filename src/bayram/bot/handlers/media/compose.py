@@ -63,10 +63,11 @@ from bayram.bot.middleware import resolve_language
 from bayram.bot.screens import Screen
 from bayram.bot.states import ImageOrder
 from bayram.contracts import Err, Language
-from bayram.db.enums import MediaAspect, MediaJobState, MediaKind, MediaSku
+from bayram.db.enums import MediaAspect, MediaBackend, MediaJobState, MediaKind, MediaSku
 from bayram.logging import get_logger
 from bayram.media.desk import FreezeRequest, InputRef, JobView
-from bayram.media.offering import sku_price_minor
+from bayram.media.offering import effective_backend, sku_price_minor
+from bayram.media.overrides import read_overrides
 
 __all__ = [
     "IMAGE_OUTPUTS",
@@ -469,13 +470,31 @@ async def _tray_draft(callback: CallbackQuery, state: FSMContext) -> MediaDraft 
     return draft
 
 
+async def _is_gpu_reserved(deps: BotDeps, sku: MediaSku) -> bool:
+    """O11, §4.5: the operator's GPU window is open and ``sku`` renders on the local GPU.
+
+    Read at Done and at the shape pick, so a customer learns the studio is busy before a row
+    is frozen — not from the worker's screen a moment later. ``None`` Redis reads "not
+    reserved"; the worker's quote-time check (``bayram.media.gate``) is the backstop.
+    """
+    if deps.media_kv is None:
+        return False
+    overrides = await read_overrides(deps.media_kv, sku)
+    backend = effective_backend(deps.settings, sku, overrides.backend)
+    return backend is MediaBackend.LOCAL and overrides.is_gpu_reserved(deps.clock())
+
+
 async def handle_done(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:
-    """✅ Done: the aspect screen, over the tray. No prompt yet → an alert, nothing moves."""
+    """✅ Done: the aspect screen, over the tray. No prompt yet, or the GPU reserved by the
+    operator → an alert, and nothing moves (the tray stays for a later ✅)."""
     draft = await _tray_draft(callback, state)
     if draft is None:
         return
     if draft.prompt is None:
         await callback.answer(translate(_NEED_PROMPT_KEY, draft.ui_language), show_alert=True)
+        return
+    if await _is_gpu_reserved(deps, MediaSku.IMAGE):
+        await callback.answer(translate(_BUSY_KEY, draft.ui_language), show_alert=True)
         return
     await callback.answer()
     await state.set_state(ImageOrder.aspect)
@@ -539,6 +558,10 @@ async def handle_aspect(
         await _stale(callback, language)
         await clear_keeping_identity(state)
         await present(callback, Screen(translate(_STALE_KEY, language), None))
+        return
+    if await _is_gpu_reserved(deps, MediaSku.IMAGE):
+        # The window opened while the shape screen was up: nothing is frozen (§4.5).
+        await callback.answer(translate(_BUSY_KEY, language), show_alert=True)
         return
     await callback.answer()
     # BEFORE the freeze: the worker edits this same message into the quote once the enqueue

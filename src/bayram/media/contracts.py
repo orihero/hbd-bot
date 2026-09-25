@@ -39,6 +39,8 @@ __all__ = [
     "GeneratedMedia",
     "CostEstimate",
     "MediaGenProvider",
+    "QueuedJob",
+    "GatewayQueueReader",
     "SUBMIT_PHASE_KEY",
     "PRE_SUBMIT",
     "AMBIGUOUS",
@@ -200,6 +202,31 @@ class MediaGenProvider(Protocol):
         ...
 
     async def health(self) -> Result[ProviderHealth]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class QueuedJob:
+    """One entry of a GPU backend's own queue (``GET /queue``, §3.4, §4.2).
+
+    ``model`` and ``client`` are whatever the gateway reports and may be absent: the entry
+    shape is not documented. A caller reads an absent value the cautious way — an unknown
+    ``client`` may be anybody's job, an unknown ``model`` may be a long video.
+    """
+
+    job_id: str
+    model: str | None = None
+    client: str | None = None
+
+
+@runtime_checkable
+class GatewayQueueReader(Protocol):
+    """Beyond the protocol: a GPU backend that can list what it is running or holding.
+
+    Read for two things only — reconciling an ``ambiguous`` attempt before anything is
+    resubmitted (§4.2), and the non-bayram backlog in a customer's ETA (§3.4).
+    """
+
+    async def queued_jobs(self, *, timeout_s: float) -> Result[tuple[QueuedJob, ...]]: ...
 
 
 def _submit_phase(error: BayramError) -> object:

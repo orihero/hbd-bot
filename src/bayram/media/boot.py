@@ -11,7 +11,8 @@ fails silently and on the money path, and nothing else in the process would noti
 3. **Nothing is screened by the fake moderator, nothing is rendered by the fake backend**,
    whatever the environment, unless the whole process is on fakes (the test suite, the demo).
 4. **Each offered SKU is sellable**: a price, a backend that is built, the gateway's address
-   and key for ``local``, and a margin (§4.3).
+   and key for ``local`` — the address on HTTPS (loopback excepted) with no ``?api_key=`` in
+   it (§9.1) — and a margin (§4.3).
 5. **The gateway models are on the allowlist** (§4.2), always — so ``zootopia`` cannot be
    configured even for a SKU that is off today and switched on tomorrow.
 6. **The Cloudflare Access service token is both halves or neither** (§9.1 item 2): one
@@ -37,7 +38,11 @@ from bayram.media.offering import (
     offered_skus,
     sku_price_minor,
 )
-from bayram.providers.media.local_gateway import LOCAL_MODEL_ALLOWLIST, MODEL_KINDS
+from bayram.providers.media.local_gateway import (
+    LOCAL_MODEL_ALLOWLIST,
+    MODEL_KINDS,
+    base_url_refusal,
+)
 
 __all__ = ["refuse_unsafe_media_config", "BUILT_BACKENDS"]
 
@@ -176,6 +181,15 @@ def _refuse_an_unsellable_sku(settings: Settings, sku: MediaSku) -> None:
         raise _refuse(
             f"{offered_var} is true on the local gateway but BAYRAM_GENAI_BASE_URL or "
             "BAYRAM_GENAI_API_KEY is unset.",
+            sku=sku.value,
+        )
+    refusal = base_url_refusal(settings.genai_base_url) if backend is MediaBackend.LOCAL else None
+    if refusal is not None:
+        # §9.1 items 2–3: the doctor's ``base url`` / ``key in url`` rows, made a boot refusal,
+        # because nothing else stops the key and customers' photos going out unencrypted.
+        raise _refuse(
+            f"{offered_var} is true on the local gateway but BAYRAM_GENAI_BASE_URL {refusal} "
+            "(IMAGE_VIDEO_SPEC §9.1).",
             sku=sku.value,
         )
     verdict = check_margin(settings, sku, backend)

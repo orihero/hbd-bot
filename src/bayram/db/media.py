@@ -294,7 +294,11 @@ async def cancel_prepay_jobs(
     ids = list((await session.scalars(sa.select(MediaJobRow.id).where(*conditions))).all())
     if not ids:
         return []
-    await session.execute(
+    # RETURNING, not the SELECT's ids: a row that moved in between (a 🎟 spend committing
+    # QUOTED → PAID) is rightly not cancelled, and must not be reported as cancelled either —
+    # its caller would enqueue a ``media_cleanup`` that no-ops now and, under the
+    # deterministic ARQ id, drops the real one after delivery.
+    moved = await session.scalars(
         sa.update(MediaJobRow)
         .where(MediaJobRow.id.in_(ids), MediaJobRow.state.in_(wanted))
         .values(
@@ -302,8 +306,9 @@ async def cancel_prepay_jobs(
             updated_at=now,
             text_expires_at=policy.media_output_expires_at(now),
         )
+        .returning(MediaJobRow.id)
     )
-    return ids
+    return list(moved.all())
 
 
 # ---------------------------------------------------------------------------
@@ -457,9 +462,16 @@ async def cleanup_job_media(session: AsyncSession, job_id: UUID) -> tuple[str, .
     """``media_cleanup``'s rows: every upload and every intermediate. The object keys.
 
     Run after delivery and on failure, rejection, cancellation and abandonment (O16). The
-    deliverable images and video stay on their output clock. **Legal-hold rows are skipped**
+    deliverable images and video stay on their output clock — **unless the account asked to
+    be forgotten** (§9.3): a render in flight at /forget may have stored its result after the
+    erasure ran, and this is that job's next stage boundary. **Legal-hold rows are skipped**
     (§6.7). The caller deletes the returned objects after its commit.
     """
+    forgotten = (
+        await session.scalar(
+            sa.select(MediaJobRow.forget_requested_at).where(MediaJobRow.id == job_id)
+        )
+    ) is not None
     keys: list[str] = []
     inputs = (
         await session.execute(
@@ -478,7 +490,9 @@ async def cleanup_job_media(session: AsyncSession, job_id: UUID) -> tuple[str, .
         await session.execute(
             sa.select(MediaOutputRow.id, MediaOutputRow.storage_key).where(
                 MediaOutputRow.job_id == job_id,
-                MediaOutputRow.role.in_(tuple(INTERMEDIATE_OUTPUT_ROLES)),
+                sa.true()
+                if forgotten
+                else MediaOutputRow.role.in_(tuple(INTERMEDIATE_OUTPUT_ROLES)),
                 MediaOutputRow.retention_class != RetentionClass.LEGAL_HOLD,
             )
         )
@@ -790,22 +804,28 @@ async def grant_refund(
     and ``granted``, all in the caller's transaction. The ledger's partial unique index is the
     second layer.
 
-    Refused (False, nothing written) for a beta job, which was free (§7.5), and for an unpaid
+    Refused (False, nothing written) for a beta job, which was free (§7.5), for an unpaid
     job unless ``reason`` is ``late_settlement`` — money that arrived for a request we had
-    already cancelled.
+    already cancelled — and for a job whose account asked to be forgotten (§9.3): /forget
+    deleted the balance and anonymised the ledger, and a credit would write both back.
     """
     if reason in (MediaCreditReason.SPENT, MediaCreditReason.ADMIN_CORRECTION):
         raise ValueError(f"{reason} is not a refund reason")
     job = (
         await session.execute(
-            sa.select(MediaJobRow.telegram_user_id, MediaJobRow.sku, MediaJobRow.paid_via).where(
-                MediaJobRow.id == job_id
-            )
+            sa.select(
+                MediaJobRow.telegram_user_id,
+                MediaJobRow.sku,
+                MediaJobRow.paid_via,
+                MediaJobRow.forget_requested_at,
+            ).where(MediaJobRow.id == job_id)
         )
     ).one_or_none()
     if job is None:
         return False
-    telegram_user_id, sku, paid_via = job
+    telegram_user_id, sku, paid_via, forget_requested_at = job
+    if forget_requested_at is not None:
+        return False
     if paid_via is None and reason is not MediaCreditReason.LATE_SETTLEMENT:
         return False
     if paid_via is not None and paid_via not in _REFUNDABLE_PAID_VIA:

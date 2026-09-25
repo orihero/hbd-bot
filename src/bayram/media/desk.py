@@ -55,6 +55,7 @@ from bayram.db.media import (
 )
 from bayram.db.models.media_input import MediaInputRow
 from bayram.db.models.media_job import MediaJobRow
+from bayram.db.retention import resolve_retention_policy
 from bayram.db.users_sql import ensure_user
 from bayram.logging import get_logger
 from bayram.media.offering import media_offered
@@ -243,7 +244,7 @@ def _photo_refs(rows: list[MediaInputRow]) -> tuple[InputRef, ...]:
 class SqlMediaDesk:
     """:class:`MediaDesk` over the media tables and the ARQ pool."""
 
-    __slots__ = ("_clock", "_queue", "_sessions", "_settings")
+    __slots__ = ("_clock", "_policy", "_queue", "_sessions", "_settings")
 
     def __init__(
         self,
@@ -256,6 +257,8 @@ class SqlMediaDesk:
         self._sessions = sessions
         self._queue = queue
         self._settings = settings
+        # ``BAYRAM_RETENTION_MEDIA_OUTPUT_DAYS`` on every clock a row's words run on (§9.5).
+        self._policy = resolve_retention_policy(settings)
         self._clock = clock
 
     async def _cleanup(self, job_ids: tuple[UUID, ...] | list[UUID]) -> None:
@@ -306,6 +309,7 @@ class SqlMediaDesk:
                 now=now,
                 kind=request.kind,
                 states=CANCELLABLE_STATES,
+                policy=self._policy,
             )
             user_id = await ensure_user(
                 session,
@@ -331,6 +335,7 @@ class SqlMediaDesk:
                 now=now,
                 quote_ttl=timedelta(seconds=self._settings.media_quote_ttl_s),
                 tray_message_id=request.tray_message_id,
+                policy=self._policy,
             )
             for ordinal, ref in enumerate(request.refs):
                 await add_input(
@@ -365,6 +370,7 @@ class SqlMediaDesk:
                     expected=CANCELLABLE_STATES,
                     to=MediaJobState.CANCELLED,
                     now=now,
+                    policy=self._policy,
                 )
             if not moved:
                 return CancelOutcome.STALE
@@ -380,7 +386,11 @@ class SqlMediaDesk:
             now = self._clock()
             async with self._sessions.begin() as session:
                 cancelled = await cancel_prepay_jobs(
-                    session, telegram_user_id=telegram_user_id, now=now, states=CANCELLABLE_STATES
+                    session,
+                    telegram_user_id=telegram_user_id,
+                    now=now,
+                    states=CANCELLABLE_STATES,
+                    policy=self._policy,
                 )
                 blocking = await _blocking_row(session, telegram_user_id, None)
             if cancelled:
@@ -409,6 +419,7 @@ class SqlMediaDesk:
                         expected=(MediaJobState.QUOTED,),
                         to=MediaJobState.CANCELLED,
                         now=now,
+                        policy=self._policy,
                     )
                     if not moved:
                         return None

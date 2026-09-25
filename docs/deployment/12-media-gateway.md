@@ -140,10 +140,17 @@ reads that from the schema. Exit `0` = no `fail` (warnings allowed); `3` = a che
 the settings did not load. With `BAYRAM_GENAI_BASE_URL` unset and no SKU on `local` it prints one
 `skip` row and exits `0`.
 
-**Where it should also run:** IMAGE_VIDEO_SPEC §9.1 item 4 puts it in `bayram-release`'s verify
-step. It is **not wired in yet** — the release script runs as root on the money path and a new
-network dependency in its verify beat deserves its own reviewed change. Until then, run it by hand
-after every release that touches `bayram.providers.media`.
+**It also runs in every release.** IMAGE_VIDEO_SPEC §9.1 item 4 puts it in `bayram-release`'s
+verify step, and it is there as `python -m bayram.tools.media doctor --release`, with
+`/etc/bayram/bayram.env` sourced in a subshell (the `alembic_run` rule). `--release` makes a red
+report **fatal only while an offered media SKU routes to `local`**: the release then exits `4`
+(verify failed) and says to fix the gateway or pause the SKU. With media off, the same findings
+print as a warning and the release lands.
+
+The worker also **refuses to boot** with a SKU offered on `local` whose `BAYRAM_GENAI_BASE_URL`
+is not `https://` (plain HTTP is accepted on loopback only) or carries `?api_key=` — the same
+rule as the `base url` and `key in url` rows above, so a key and customers' photos are never
+sent unencrypted even when nobody runs the doctor.
 
 ### 2.5 Start without a login — _owner_, Q12
 

@@ -23,9 +23,11 @@ a guard. ARQ would silently drop the re-run otherwise, for the hour it keeps res
 
 **No POST is ever repeated for one attempt** (R7). ``media_submit`` writes the
 ``media_attempts`` row (``submitting``) before the POST; a worker killed between the two leaves
-that row, and the re-run marks it ``ambiguous`` and moves to the retry policy instead of
-posting again. The local gateway charges only GPU time, so the policy may try attempt N+1; a
-paid backend (M6) will hold the job for an operator instead.
+that row, and the re-run marks it ``ambiguous`` instead of posting again. **An ambiguous
+attempt is reconciled before anything is resubmitted** (§4.2): on the GPU, ``GET /queue`` is
+read and the slot stays held while the render may still be there; only once it is gone does
+the retry policy try attempt N+1 (local cost is GPU time only). A backend that costs money
+holds the job for an operator instead (§4.3).
 
 **The GPU slot** (:mod:`bayram.runtime.gpu_lock`) is held by the attempt id from just before the
 POST until ``media_fetch`` — which always releases it, CAS on the attempt id, even when it then
@@ -81,7 +83,7 @@ from bayram.bot.keyboards import (
 )
 from bayram.bot.pricing import format_amount
 from bayram.config import Settings
-from bayram.contracts import Err, Result, Storage, err, is_err, ok
+from bayram.contracts import Err, HealthState, Result, Storage, err, is_err, ok
 from bayram.db.base import utc_now
 from bayram.db.enums import (
     MEDIA_TERMINAL_STATES,
@@ -120,6 +122,7 @@ from bayram.db.media import (
 from bayram.db.models.media_attempt import MediaAttemptRow
 from bayram.db.models.media_input import MediaInputRow
 from bayram.db.models.media_job import MediaJobRow
+from bayram.db.retention import RetentionPolicy, resolve_retention_policy
 from bayram.errors import BayramError, PipelineError, StorageError, ValidationError
 from bayram.logging import get_logger
 from bayram.media.composite import (
@@ -130,14 +133,16 @@ from bayram.media.composite import (
 )
 from bayram.media.contracts import (
     ATTEMPT_STATUS_FOR_PHASE,
+    GatewayQueueReader,
     JobHandle,
     JobPhase,
     MediaGenProvider,
     MediaKindName,
     MediaRequest,
+    QueuedJob,
     is_ambiguous,
 )
-from bayram.media.gate import quote_block
+from bayram.media.gate import QuoteBlock, quote_block
 from bayram.media.offering import (
     effective_backend,
     is_beta_member,
@@ -176,6 +181,7 @@ from bayram.moderation.contracts import (
 )
 from bayram.moderation.factory import build_media_moderator
 from bayram.providers.media.factory import build_media_provider
+from bayram.providers.media.local_gateway import CLIENT_TAG, MODEL_KINDS
 from bayram.runtime.gpu_lock import (
     GPU_LOCK_ACQUIRE_TTL_MS,
     GpuSlotStore,
@@ -204,6 +210,7 @@ __all__ = [
     "media_deliver",
     "media_cleanup",
     "fail_job",
+    "reconcile_ambiguous",
     "image_fan_in",
     "video_fan_in",
     "enqueue_stage",
@@ -266,6 +273,15 @@ _DEFAULT_RUN_MS: Final[Mapping[MediaKind, int]] = {
     MediaKind.IMAGE: 40_000,
     MediaKind.VIDEO: 1_050_000,
 }
+#: An ambiguous attempt whose render may still be on the gateway is looked at again this often
+#: (§4.2), holding the GPU slot meanwhile — renewed at the short acquire TTL each time, so a
+#: reconciliation that stops (the job ended, the worker died) frees the slot on its own.
+_RECONCILE_DEFER_S: Final[float] = 15.0
+#: ``GET /queue`` is one small read; a gateway that cannot answer it in this long is busy.
+_QUEUE_TIMEOUT_S: Final[float] = 10.0
+#: Remote ids of attempts younger than this count as "ours" when the gateway's queue is read.
+#: Older ``submitted`` rows belong to jobs the deadline ended long ago.
+_OWN_REMOTE_WINDOW: Final[timedelta] = timedelta(days=1)
 #: ARQ ``max_tries`` for every media stage, registered with this number in ``WorkerSettings``.
 #: Only a fetch or a delivery raises ``Retry`` (a transient failure), and each reads this before
 #: it does, so its last permitted try takes the terminal path instead of vanishing.
@@ -321,6 +337,7 @@ class MediaErrorCode(StrEnum):
     RENDER_TIMEOUT = "render_timeout"
     FETCH_FAILED = "fetch_failed"
     INPUT_CHANGED = "input_changed"
+    AMBIGUOUS_SUBMIT = "ambiguous_submit"
 
 
 class MediaKV(Protocol):
@@ -590,9 +607,79 @@ async def _show_tray(
 
 
 async def _average_run_ms(rt: MediaRuntime, job: MediaJobRow) -> int:
+    return await _model_run_ms(rt, job.kind, job.model_id)
+
+
+async def _model_run_ms(rt: MediaRuntime, kind: MediaKind, model_id: str | None) -> int:
     async with rt.sessions() as session:
-        measured = await average_run_ms(session, stage=_stage(job.kind), model_id=job.model_id)
-    return measured if measured is not None else _DEFAULT_RUN_MS[job.kind]
+        measured = await average_run_ms(session, stage=_stage(kind), model_id=model_id)
+    return measured if measured is not None else _DEFAULT_RUN_MS[kind]
+
+
+def _policy(rt: MediaRuntime) -> RetentionPolicy:
+    """The retention clocks as configured (``BAYRAM_RETENTION_MEDIA_OUTPUT_DAYS``, §9.5)."""
+    return resolve_retention_policy(rt.settings)
+
+
+# ---------------------------------------------------------------------------
+# The gateway's own queue (§3.4, §4.2)
+# ---------------------------------------------------------------------------
+async def _gateway_queue(provider: MediaGenProvider) -> Result[tuple[QueuedJob, ...]]:
+    """What the GPU backend reports running or pending. A backend that cannot list its
+    queue has nothing on it that bayram did not put there (the fake in a test of another
+    seam); every real GPU backend implements :class:`GatewayQueueReader`."""
+    if not isinstance(provider, GatewayQueueReader):
+        return ok(())
+    return await provider.queued_jobs(timeout_s=_QUEUE_TIMEOUT_S)
+
+
+async def _own_remote_ids(rt: MediaRuntime) -> frozenset[str]:
+    """The gateway ids of bayram's live attempts — what is NOT an orphan or a stranger."""
+    cutoff = rt.clock() - _OWN_REMOTE_WINDOW
+    async with rt.sessions() as session:
+        rows = await session.scalars(
+            sa.select(MediaAttemptRow.remote_id).where(
+                MediaAttemptRow.status == MediaAttemptStatus.SUBMITTED,
+                MediaAttemptRow.remote_id.is_not(None),
+                MediaAttemptRow.created_at > cutoff,
+            )
+        )
+        return frozenset(remote_id for remote_id in rows.all() if remote_id is not None)
+
+
+def _foreign_kind(entry: QueuedJob) -> MediaKind:
+    """How long a non-bayram entry holds the GPU, read from its model. An entry whose model
+    is not reported is assumed to be a video: overstating the ETA costs a ``busy`` screen,
+    understating it costs a deadline refund (NFR-20)."""
+    model = (entry.model or "").lower()
+    if not model:
+        return MediaKind.VIDEO
+    if MODEL_KINDS.get(model) == "image":
+        return MediaKind.IMAGE
+    return MediaKind.VIDEO if any(tag in model for tag in ("wan", "hunyuan")) else MediaKind.IMAGE
+
+
+async def _foreign_backlog_ms(rt: MediaRuntime, provider: MediaGenProvider) -> int | None:
+    """§3.4: the gateway's own depth of non-bayram jobs, as GPU milliseconds — each entry at
+    the moving average of its model (Wan versus flux2). ``None`` when the queue is unreadable.
+
+    Until gateway change G5 gives customers priority, marketing renders queued there run
+    ahead of every customer job, so they are part of the customer's wait.
+    """
+    listed = await _gateway_queue(provider)
+    if is_err(listed):
+        return None
+    own = await _own_remote_ids(rt)
+    foreign = [
+        entry for entry in listed.value if entry.client != CLIENT_TAG and entry.job_id not in own
+    ]
+    if not foreign:
+        return 0
+    per_kind = {
+        MediaKind.IMAGE: await _model_run_ms(rt, MediaKind.IMAGE, rt.settings.genai_image_model),
+        MediaKind.VIDEO: await _model_run_ms(rt, MediaKind.VIDEO, rt.settings.genai_video_model),
+    }
+    return sum(per_kind[_foreign_kind(entry)] for entry in foreign)
 
 
 # ---------------------------------------------------------------------------
@@ -625,10 +712,13 @@ async def fail_job(
             to=MediaJobState.FAILED,
             now=now,
             values={"error_code": error_code.value, **dict(values or {})},
+            policy=_policy(rt),
         )
         if not moved:
             return False
         if refund is not None:
+            # ``grant_refund`` refuses a job whose account asked to be forgotten (§9.3): a
+            # credit would re-create the balance row and the ledger line /forget just erased.
             granted = await grant_refund(session, job_id, reason=refund, now=now)
         job = await load_job(session, job_id)
     if job is None:
@@ -796,11 +886,36 @@ async def _screen(
     return strictest(decisions), tuple(categories)
 
 
-async def _quote_eta_minutes(rt: MediaRuntime, job: MediaJobRow) -> int:
-    """Rank × moving-average run time (§3.4): everything already queued, then this request."""
+async def _quote_eta_minutes(
+    rt: MediaRuntime, job: MediaJobRow, backend: MediaBackend
+) -> int | None:
+    """Rank × moving-average run time (§3.4): everything already queued, then this request —
+    plus, on the GPU, the gateway's own backlog of non-bayram jobs. ``None`` when that backlog
+    cannot be read: an ETA that assumed an empty gateway could sell what misses its deadline.
+    """
     ahead = len(await _gpu_call("members", rt.gpu.members(), ()))
     per_output = await _average_run_ms(rt, job)
-    return math.ceil((ahead + job.outputs_requested) * per_output / 60_000)
+    foreign_ms = 0
+    if backend in GPU_BACKENDS:
+        found = await _foreign_backlog_ms(rt, rt.providers(backend))
+        if found is None:
+            return None
+        foreign_ms = found
+    return math.ceil(((ahead + job.outputs_requested) * per_output + foreign_ms) / 60_000)
+
+
+async def _is_backend_healthy(rt: MediaRuntime, backend: MediaBackend) -> bool:
+    """§7.2 step 1: a backend that is down is not quoted, or the customer pays for a job that
+    fails at submit until its deadline (NFR-20). Degraded still renders; anything else, or
+    no answer, does not. The adapter's own health timeout bounds the call."""
+    try:
+        health = await rt.providers(backend).health()
+    except Exception as exc:  # a provider never raises; a quote must not die if one does
+        _LOG.warning("a media backend health check raised", extra={"failure": repr(exc)})
+        return False
+    if is_err(health):
+        return False
+    return health.value.state in (HealthState.HEALTHY, HealthState.DEGRADED)
 
 
 async def _refuse(
@@ -820,6 +935,7 @@ async def _refuse(
             to=MediaJobState.REJECTED,
             now=now,
             values={"error_code": error_code.value, **dict(values)},
+            policy=_policy(rt),
         )
     if moved:
         await _show_tray(
@@ -916,13 +1032,16 @@ async def media_screen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
         await _busy(rt, job, screen_values)
         return _result("busy_unscreened", jid)
 
-    # 4. Capability (§7.2 step 1): offered, not paused, GPU not reserved, margin — and an ETA
-    #    that fits inside the deadline, or we would take money we cannot deliver on (NFR-20).
+    # 4. Capability (§7.2 step 1): offered, not paused, GPU not reserved, margin, a backend
+    #    that answers healthy — and an ETA that fits inside the deadline, or we would take
+    #    money we cannot deliver on (NFR-20).
     now = rt.clock()
     blocked = quote_block(rt.settings, job.sku, job.telegram_user_id, overrides, now=now)
-    eta_minutes = await _quote_eta_minutes(rt, job)
+    if blocked is None and not await _is_backend_healthy(rt, backend):
+        blocked = QuoteBlock.UNHEALTHY
+    eta_minutes = await _quote_eta_minutes(rt, job, backend) if blocked is None else None
     deadline = sku_deadline(rt.settings, job.sku)
-    if blocked is not None or timedelta(minutes=eta_minutes) > deadline:
+    if blocked is not None or eta_minutes is None or timedelta(minutes=eta_minutes) > deadline:
         await _busy(rt, job, screen_values)
         return _result(
             "busy_capacity", jid, block=None if blocked is None else blocked.value, eta=eta_minutes
@@ -1006,6 +1125,19 @@ async def media_start(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[s
     if job is None or job.state is not MediaJobState.PAID:
         return _result("noop_not_paid", jid)
     paid_expected = (MediaJobState.PAID,)
+    if job.forget_requested_at is not None:
+        # §9.3: the account was forgotten between payment and start. Its inputs are gone, so
+        # the digest check below would fail it as stale — with a refund that re-creates the
+        # data /forget erased. End it quietly instead; ``media_cleanup`` purges the rest.
+        await fail_job(
+            rt,
+            jid,
+            expected=paid_expected,
+            error_code=MediaErrorCode.FORGET_REQUESTED,
+            refund=None,
+            notify=False,
+        )
+        return _result("failed_forgotten", jid)
     if job.kind is MediaKind.VIDEO:
         # M4 seam: narration, mux and video delivery do not exist yet (module docstring).
         await fail_job(
@@ -1109,7 +1241,12 @@ async def _progress_frame(rt: MediaRuntime, job: MediaJobRow) -> tuple[str, int,
         if (rank := await _gpu_call("rank", rt.gpu.rank(member), None)) is not None
     ]
     position = (min(ranks) if ranks else 0) + 1
-    minutes = math.ceil((position - 1 + remaining) * per_output / 60_000)
+    # §3.4: the gateway's non-bayram backlog runs ahead too. Best-effort here — the quote
+    # already refused to sell on an unreadable queue; a progress frame just leaves it out.
+    foreign_ms = 0
+    if job.backend in GPU_BACKENDS:
+        foreign_ms = await _foreign_backlog_ms(rt, rt.providers(_backend(job))) or 0
+    minutes = math.ceil(((position - 1 + remaining) * per_output + foreign_ms) / 60_000)
     key = _QUEUED_KEY if job.paid_via is MediaPaidVia.PAYME else _QUEUED_FREE_KEY
     return key, position, max(1, minutes)
 
@@ -1166,15 +1303,19 @@ async def _refresh_progress(rt: MediaRuntime, job_id: UUID) -> None:
             job = await load_job(session, job_id)
         if job is None or job.status_message_id is None or job.state not in _WORKING_STATES:
             return
-        key, position, minutes = await _progress_frame(rt, job)
         raw = await rt.memo.get(_memo_key(job_id))
         memo = raw.decode() if isinstance(raw, bytes | bytearray) else raw
+        previous: tuple[str, str, str] | None = None
         if isinstance(memo, str):
             old_key, old_pos, old_min, stamp = memo.split("|")
-            unchanged = (old_key, old_pos, old_min) == (key, str(position), str(minutes))
-            recent = int(rt.clock().timestamp()) - int(stamp) < _PROGRESS_MIN_INTERVAL_S
-            if unchanged or recent:
+            if int(rt.clock().timestamp()) - int(stamp) < _PROGRESS_MIN_INTERVAL_S:
+                # Checked BEFORE the frame is built: the frame reads the gateway's queue, and
+                # a waiting submit or a poll comes by every few seconds.
                 return
+            previous = (old_key, old_pos, old_min)
+        key, position, minutes = await _progress_frame(rt, job)
+        if previous == (key, str(position), str(minutes)):
+            return
         if await rt.messenger.edit(
             job.chat_id, job.status_message_id, _progress_text(job, key, position, minutes)
         ):
@@ -1258,9 +1399,27 @@ async def _after_attempt(
     attempt: int,
     status: MediaAttemptStatus,
 ) -> None:
-    """The retry policy (§3.3 "Retries"): only after a TERMINAL attempt, attempt N+1 on the same
-    backend while attempts remain; a content rejection is never retried. Otherwise the variant
-    is finished: it leaves the GPU queue and the fan-in counts it."""
+    """The retry policy (§3.3 "Retries") for an attempt that just ended.
+
+    An ``ambiguous`` attempt is reconciled first (:func:`_after_ambiguous`): its render may be
+    running where we cannot see it, and nothing is resubmitted until that is ruled out.
+    """
+    if status is MediaAttemptStatus.AMBIGUOUS:
+        await _after_ambiguous(rt, job_id, variant, attempt)
+        return
+    await _retry_or_finish(rt, job_id, variant, attempt, status)
+
+
+async def _retry_or_finish(
+    rt: MediaRuntime,
+    job_id: UUID,
+    variant: int,
+    attempt: int,
+    status: MediaAttemptStatus,
+) -> None:
+    """Only after a TERMINAL (or reconciled) attempt: attempt N+1 on the same backend while
+    attempts remain; a content rejection is never retried. Otherwise the variant is finished:
+    it leaves the GPU queue and the fan-in counts it."""
     retryable = status in (MediaAttemptStatus.FAILED, MediaAttemptStatus.AMBIGUOUS)
     if retryable and attempt < rt.settings.media_max_attempts:
         await enqueue_submit(
@@ -1288,6 +1447,94 @@ async def _after_attempt(
         )
 
 
+async def _after_ambiguous(rt: MediaRuntime, job_id: UUID, variant: int, attempt: int) -> None:
+    """An attempt that may have started a job we hold no answer for (§4.2, §4.3).
+
+    * **A backend that costs money** is never re-posted automatically (§4.3, R7): the job is
+      ``held`` for an operator to reconcile against the vendor.
+    * **The GPU** is reconciled against the gateway's own queue before anything else happens
+      (:func:`reconcile_ambiguous`).
+    """
+    async with rt.sessions() as session:
+        job = await load_job(session, job_id)
+        row = (
+            await find_attempt(
+                session, job_id, stage=_stage(job.kind), variant=variant, attempt=attempt
+            )
+            if job is not None
+            else None
+        )
+    if job is None or row is None or job.state not in _WORKING_STATES:
+        return
+    if _backend(job) in GPU_BACKENDS:
+        await reconcile_ambiguous(rt, job, row)
+        return
+    await _gpu_call("leave", rt.gpu.leave(queue_member(job_id, variant)), None)
+    async with rt.sessions.begin() as session:
+        held = await transition(
+            session,
+            job_id,
+            expected=_WORKING_STATES,
+            to=MediaJobState.HELD,
+            now=rt.clock(),
+            values={"error_code": MediaErrorCode.AMBIGUOUS_SUBMIT.value},
+        )
+    if held:
+        _LOG.warning(
+            "an ambiguous paid-backend attempt; the job is held for an operator, never re-posted",
+            extra={"media_job_id": str(job_id), "variant": variant, "attempt": attempt},
+        )
+
+
+async def reconcile_ambiguous(rt: MediaRuntime, job: MediaJobRow, row: MediaAttemptRow) -> str:
+    """§4.2 local reconciliation of one ``ambiguous`` attempt. Returns what it decided.
+
+    The gateway may be rendering it anyway — a 5xx that arrived after the body left, a read
+    timeout, a poll that answered ``unknown``, a render past its timeout, or a worker killed
+    between the attempt row and the POST's answer. So ``GET /queue`` is read first:
+
+    * **the render is (or may be) still there** — the attempt's remote id is listed, or, with
+      no remote id, a bayram-or-unlabelled job we hold no id for is, or the queue cannot be
+      read — then the GPU slot stays held under this attempt (renewed, or re-taken if it
+      lapsed and is free) and this is looked at again in :data:`_RECONCILE_DEFER_S`: posting
+      attempt N+1 now would render the same variant twice and put two jobs on one GPU (§3.4);
+    * **it is gone** — the slot is released and the retry policy runs: one automatic
+      resubmit, since local cost is GPU time only; ``media_max_attempts`` (2) makes a second
+      ambiguous attempt the variant's last.
+
+    Re-entered through ``media_submit`` for the SAME attempt (a fresh ``submit_seq``), so a
+    lost re-enqueue is re-driven by ``media_sweep`` like any other waiting submit.
+    """
+    holder = str(row.id)
+    listed = await _gateway_queue(rt.providers(_backend(job)))
+    if is_err(listed):
+        pending = True
+    elif row.remote_id is not None:
+        pending = row.remote_id in {entry.job_id for entry in listed.value}
+    else:
+        own = await _own_remote_ids(rt)
+        pending = any(
+            entry.job_id not in own and entry.client in (None, CLIENT_TAG) for entry in listed.value
+        )
+    if pending:
+        current = await _gpu_call("holder", rt.gpu.holder(), None)
+        if current == holder:
+            await _gpu_call("renew", rt.gpu.renew(holder, ttl_ms=GPU_LOCK_ACQUIRE_TTL_MS), False)
+        elif current is None:
+            await _gpu_call(
+                "acquire", rt.gpu.acquire(holder, ttl_ms=GPU_LOCK_ACQUIRE_TTL_MS), False
+            )
+        await enqueue_submit(rt, job.id, row.variant, row.attempt, defer_s=_RECONCILE_DEFER_S)
+        return "reconciling"
+    await _gpu_call("release", rt.gpu.release(holder), False)
+    _LOG.info(
+        "an ambiguous media attempt is not on the gateway; the retry policy decides",
+        extra={"media_job_id": str(job.id), "variant": row.variant, "attempt": row.attempt},
+    )
+    await _retry_or_finish(rt, job.id, row.variant, row.attempt, MediaAttemptStatus.AMBIGUOUS)
+    return "reconciled"
+
+
 async def media_submit(
     ctx: Mapping[str, Any], job_id: str, variant: int, attempt: int, seq: int = 0
 ) -> dict[str, Any]:
@@ -1296,7 +1543,8 @@ async def media_submit(
     ``seq`` only makes the ARQ id of a waiting re-run fresh. The attempt number is fixed at
     enqueue (§3.3): a re-run of the SAME attempt that finds its ``submitting`` row with no
     remote id and no live lock is a crash between the insert and the POST — it is marked
-    ``ambiguous`` and handed to the retry policy, and is never posted again (R7).
+    ``ambiguous`` and reconciled (:func:`reconcile_ambiguous`), and is never posted again (R7).
+    A re-run for an attempt already ``ambiguous`` is the next look of that reconciliation.
     """
     del seq
     rt = media_runtime(ctx)
@@ -1386,10 +1634,10 @@ async def media_submit(
                 now=rt.clock(),
                 error_code=error.code.value,
             )
-        # An ambiguous POST may have started a render we cannot see; on the local gateway the
-        # next POST queues behind it there, so the slot is released either way. A paid backend
-        # (M6) holds the job instead of retrying.
-        if uses_gpu:
+        # An ambiguous POST may have started a render we cannot see: the slot stays held while
+        # the gateway's queue is read (§4.2), and a paid backend holds the job for an operator
+        # instead of retrying (§4.3). A plain failure queued nothing, so the slot goes now.
+        if uses_gpu and status is not MediaAttemptStatus.AMBIGUOUS:
             await _gpu_call("release", rt.gpu.release(str(attempt_id)), False)
         await _after_attempt(rt, jid, variant, attempt, status)
         return _result("submit_failed", jid, variant=variant, status=status.value)
@@ -1485,6 +1733,15 @@ async def _resume_attempt(
             defer_s=_POLL_DEFER_S[job.kind],
         )
         return _result("noop_already_submitted", job.id, variant=variant)
+    if existing.status is MediaAttemptStatus.AMBIGUOUS and uses_gpu:
+        # A reconciliation in progress (§4.2) — unless a later attempt already replaced it.
+        async with rt.sessions() as session:
+            latest = await latest_attempts(session, job.id, stage=_stage(job.kind))
+        newest = latest.get(variant)
+        if newest is not None and newest.attempt > attempt:
+            return _result("noop_attempt_replaced", job.id, variant=variant)
+        decided = await reconcile_ambiguous(rt, job, existing)
+        return _result(decided, job.id, variant=variant, attempt=attempt)
     if existing.status is not MediaAttemptStatus.SUBMITTING or existing.remote_id is not None:
         return _result("noop_attempt_finished", job.id, variant=variant)
     holder = str(existing.id)
@@ -1596,18 +1853,20 @@ async def media_poll(
             else 0.0
         )
         if running_ms > _render_timeout_s(rt, job.kind) * 1000:
+            # There is no per-job cancel (``/interrupt`` is global, §4.2), so on the GPU the
+            # render keeps going: the attempt is ``ambiguous`` and holds the slot until the
+            # gateway's queue no longer lists it — never a retry on top of a live render.
+            timed_out = MediaAttemptStatus.AMBIGUOUS if uses_gpu else MediaAttemptStatus.FAILED
             async with rt.sessions.begin() as session:
                 await set_attempt_status(
                     session,
                     row.id,
                     expected=(MediaAttemptStatus.SUBMITTED,),
-                    status=MediaAttemptStatus.FAILED,
+                    status=timed_out,
                     now=now,
                     error_code=MediaErrorCode.RENDER_TIMEOUT.value,
                 )
-            if uses_gpu:
-                await _gpu_call("release", rt.gpu.release(str(row.id)), False)
-            await _after_attempt(rt, jid, variant, attempt, MediaAttemptStatus.FAILED)
+            await _after_attempt(rt, jid, variant, attempt, timed_out)
             return _result("render_timeout", jid, variant=variant)
         if uses_gpu:
             await _gpu_call(
@@ -1651,7 +1910,8 @@ async def media_poll(
             job_id=fetch_job_id(jid, variant, attempt),
         )
         return _result("succeeded", jid, variant=variant)
-    if uses_gpu:
+    if uses_gpu and status is not MediaAttemptStatus.AMBIGUOUS:
+        # ``unknown`` (ambiguous) keeps the slot while it is reconciled (§4.2).
         await _gpu_call("release", rt.gpu.release(str(row.id)), False)
     await _after_attempt(rt, jid, variant, attempt, status)
     return _result("attempt_ended", jid, variant=variant, status=status.value)
@@ -1718,6 +1978,20 @@ async def _fetch(
     raw.unlink(missing_ok=True)
     if isinstance(clean, ValidationError):
         return await _fetch_failed(rt, ctx, job, row, clean)
+    if await _is_forgotten(rt, job.id):
+        # §9.3: /forget ran while this rendered. The result is never stored — a new output
+        # row written after the erasure would outlive it by the whole output period.
+        final.unlink(missing_ok=True)
+        await _gpu_call("leave", rt.gpu.leave(queue_member(job.id, variant)), None)
+        await fail_job(
+            rt,
+            job.id,
+            expected=_WORKING_STATES,
+            error_code=MediaErrorCode.FORGET_REQUESTED,
+            refund=None,
+            notify=False,
+        )
+        return _result("discarded_forgotten", job.id, variant=variant)
     stored = await rt.storage.put_file(
         media_key(job.id, is_output=True, filename=filename), final, content_type=_JPEG_MIME
     )
@@ -1737,6 +2011,7 @@ async def _fetch(
             sha256=stored.value.sha256,
             width=width,
             height=height,
+            policy=_policy(rt),
         )
     await _gpu_call("leave", rt.gpu.leave(queue_member(job.id, variant)), None)
     await image_fan_in(rt, job.id)
@@ -1768,6 +2043,15 @@ async def _fetch_failed(
     return _result("fetch_failed", job.id, variant=row.variant)
 
 
+async def _is_forgotten(rt: MediaRuntime, job_id: UUID) -> bool:
+    """Read fresh: /forget may have marked the row since this stage loaded it."""
+    async with rt.sessions() as session:
+        stamp = await session.scalar(
+            sa.select(MediaJobRow.forget_requested_at).where(MediaJobRow.id == job_id)
+        )
+    return stamp is not None
+
+
 # ---------------------------------------------------------------------------
 # Fan-in (§3.3)
 # ---------------------------------------------------------------------------
@@ -1785,14 +2069,19 @@ async def _lock_job_row(session: AsyncSession, job_id: UUID) -> None:
 
 async def image_fan_in(rt: MediaRuntime, job_id: UUID) -> None:
     """When every variant is terminal: ≥ 1 image → ``post`` and the output screen; none →
-    ``failed`` with one refund credit. The conditional move is the idempotency (§3.3)."""
+    ``failed`` with one refund credit. The conditional move is the idempotency (§3.3).
+
+    The all-failed branch runs from ``queued`` too: ``queued → generating`` happens only on a
+    successful POST, so a job whose every submit failed (gateway down, an unbuilt backend)
+    never reaches ``generating`` — and would otherwise wait out its whole deadline.
+    """
     now = rt.clock()
     oscreen_seq: int | None = None
     all_failed = False
     async with rt.sessions.begin() as session:
         await _lock_job_row(session, job_id)
         job = await load_job(session, job_id)
-        if job is None or job.state is not MediaJobState.GENERATING:
+        if job is None or job.state not in _WORKING_STATES:
             return
         successes = {
             output.variant
@@ -1829,7 +2118,7 @@ async def image_fan_in(rt: MediaRuntime, job_id: UUID) -> None:
         await fail_job(
             rt,
             job_id,
-            expected=(MediaJobState.GENERATING,),
+            expected=_WORKING_STATES,
             error_code=MediaErrorCode.GENERATION_FAILED,
             refund=MediaCreditReason.GENERATION_FAILED,
         )
@@ -2023,11 +2312,21 @@ async def media_deliver(ctx: Mapping[str, Any], job_id: str) -> dict[str, Any]:
         )
     if not claimed:
         return _result("noop_claimed_elsewhere", jid)
-    sent = await rt.messenger.send_photos(
-        job.chat_id,
-        [path for _, path in paths.value],
-        caption=_translate(job, _DELIVERED_KEY),
-    )
+    try:
+        sent = await rt.messenger.send_photos(
+            job.chat_id,
+            [path for _, path in paths.value],
+            caption=_translate(job, _DELIVERED_KEY),
+        )
+    except BaseException:
+        # The messenger never raises by contract; if it does, the claim is handed back so the
+        # re-run can take it — a row left in ``delivering`` is one nothing else moves but the
+        # sweep. (A worker killed outright is that sweep's case: ``media_sweep`` arm f.)
+        async with rt.sessions.begin() as session:
+            await transition(
+                session, jid, expected=(MediaJobState.DELIVERING,), to=previous, now=rt.clock()
+            )
+        raise
     if is_err(sent):
         return await _delivery_failed(rt, ctx, job, previous, sent.error)
     async with rt.sessions.begin() as session:
@@ -2041,6 +2340,7 @@ async def media_deliver(ctx: Mapping[str, Any], job_id: str) -> dict[str, Any]:
             to=MediaJobState.DELIVERED,
             now=rt.clock(),
             values={"delivered_at": rt.clock()},
+            policy=_policy(rt),
         )
         # Q3: a variant that failed TO GENERATE still costs the customer a credit's worth —
         # deliver the good one and refund one (never for an output we blocked: that path

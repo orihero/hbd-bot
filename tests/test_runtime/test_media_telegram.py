@@ -8,7 +8,7 @@ from pathlib import Path
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.methods import EditMessageText, SendMediaGroup
+from aiogram.methods import EditMessageText, SendMediaGroup, SendPhoto
 from aiogram.types import Chat, File, Message, PhotoSize
 
 from bayram.bot.delivery import BLOCKED_BY_CUSTOMER_KEY
@@ -99,3 +99,34 @@ async def test_a_download_lands_on_disk(
 
     assert is_ok(downloaded) and downloaded.value == 4
     assert (tmp_path / "raw").read_bytes() == b"\xff\xd8ok"
+
+
+async def test_a_single_photo_goes_as_send_photo_never_a_one_item_album(
+    bot: Bot, session: RecordingSession, tmp_path: Path
+) -> None:
+    # Q3: one variant failed to generate. sendMediaGroup takes 2-10 items and 400s on one.
+    session.responses["SendPhoto"] = _photo_message(1, "only")
+    path = tmp_path / "a.jpg"
+    path.write_bytes(b"\xff\xd8fake")
+
+    sent = await TelegramMediaMessenger(bot).send_photos(CHAT_ID, [path], caption="made")
+
+    assert is_ok(sent) and sent.value == ("only",)
+    call = session.last_named("SendPhoto")
+    assert isinstance(call, SendPhoto) and call.caption == "made"
+    assert not [c for c in session.calls if isinstance(c, SendMediaGroup)]
+
+
+async def test_a_bad_request_is_not_retried(
+    bot: Bot, session: RecordingSession, tmp_path: Path
+) -> None:
+    session.failures["SendMediaGroup"] = TelegramBadRequest(
+        method=SendMediaGroup(chat_id=CHAT_ID, media=[]), message="Bad Request: too few media"
+    )
+    photos = [tmp_path / "a.jpg", tmp_path / "b.jpg"]
+    for path in photos:
+        path.write_bytes(b"\xff\xd8fake")
+
+    sent = await TelegramMediaMessenger(bot).send_photos(CHAT_ID, photos, caption="x")
+
+    assert is_err(sent) and sent.error.is_retryable is False

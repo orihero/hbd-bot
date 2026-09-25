@@ -4,7 +4,7 @@ IMAGE_VIDEO_SPEC §3.3 (the ``media_sweep`` row), §3.4, §3.5, §2.6. Every sta
 successor after committing, and an enqueue can be lost (Redis blipped, the worker was killed
 between the commit and the enqueue). Media jobs are not on the song debit path, so the song
 sweeps never see them: this is their only backstop, and it is what makes "the row is the
-promise, the queue is only the nudge" true. Five arms, each bounded by :data:`SWEEP_BATCH`:
+promise, the queue is only the nudge" true. Six arms, each bounded by :data:`SWEEP_BATCH`:
 
 a. **abandon** unpaid rows past the quote TTL (``drafting``/``screening``/``quoted``) and
    ``awaiting_payment`` rows only once their Payme intent is EXPIRED or CANCELLED plus a
@@ -16,9 +16,14 @@ c. **re-drive** ``screening`` rows that never reached a verdict; ``queued``/``ge
    rows whose output screen or delivery was lost;
 d. **fail** paid jobs past their SKU deadline (§3.5), through the state-guarded path, with one
    credit when they were paid for;
-e. **GPU hygiene** (§3.4): drop queue members whose job is finished or gone, and free a lock
-   held by an attempt that ended or has sat ``submitting`` for five minutes (marking it
-   ``ambiguous``, never re-posting it).
+e. **GPU hygiene** (§3.4): drop queue members whose job is finished or gone; free a lock
+   held by an attempt that ended; hand an attempt that has sat ``submitting`` for five minutes
+   to reconciliation (marking it ``ambiguous``, never re-posting it, §4.2); and, with the slot
+   free, re-drive the queue HEAD by its own variant — the job-level heartbeat is refreshed by
+   the job's other variant waiting, so it cannot tell that the head's own chain was lost;
+f. **unstick** ``delivering`` rows a dead worker left mid-send (§3.3 ``media_deliver``):
+   delivery is at-most-once, so a row whose album is recorded as sent is ``delivered``, and
+   any other is failed with one credit.
 
 Every re-enqueue takes the NEXT suffix — a bumped ``submit_seq``/``oscreen_seq``, or the sweep's
 own tick — never an id that ARQ might still be remembering (§3.3 "ARQ job ids").
@@ -51,6 +56,7 @@ from bayram.db.enums import (
 )
 from bayram.db.media import (
     bump_seq,
+    grant_refund,
     latest_attempts,
     list_outputs,
     set_attempt_status,
@@ -59,6 +65,7 @@ from bayram.db.media import (
 from bayram.db.models.media_attempt import MediaAttemptRow
 from bayram.db.models.media_job import MediaJobRow
 from bayram.db.models.payment_intent import PaymentIntentRow
+from bayram.db.retention import resolve_retention_policy
 from bayram.logging import get_logger
 from bayram.media.stages import (
     MEDIA_CLEANUP_JOB,
@@ -78,7 +85,7 @@ from bayram.media.stages import (
     sku_deadline,
     start_job_id,
 )
-from bayram.runtime.gpu_lock import parse_queue_member
+from bayram.runtime.gpu_lock import parse_queue_member, queue_member
 from bayram.runtime.media_jobs import (
     MediaErrorCode,
     MediaRuntime,
@@ -88,6 +95,7 @@ from bayram.runtime.media_jobs import (
     image_fan_in,
     is_attempt_final,
     media_runtime,
+    reconcile_ambiguous,
 )
 
 __all__ = [
@@ -126,6 +134,10 @@ _STALE_SCREEN: Final[timedelta] = timedelta(minutes=10)
 #: §3.4: a lock held by a ``submitting`` attempt this old is a worker that died mid-POST.
 _SUBMITTING_LOCK_MAX: Final[timedelta] = timedelta(minutes=5)
 
+#: A ``delivering`` row untouched this long lost its worker mid-send. A send is one Bot API
+#: call with a handful of ARQ retries; ten minutes is far past any of them.
+_STALE_DELIVERING: Final[timedelta] = timedelta(minutes=10)
+
 #: §2.6: an ``awaiting_payment`` row is abandoned only this long after its intent ended.
 _INTENT_GRACE: Final[timedelta] = timedelta(minutes=10)
 
@@ -146,9 +158,16 @@ _ENDED_INTENT_STATES: Final[tuple[PaymentIntentState, ...]] = (
     PaymentIntentState.EXPIRED,
     PaymentIntentState.CANCELLED,
 )
+#: Attempts whose lock is plainly stale. ``ambiguous`` is not here: it holds the slot on
+#: purpose while it is reconciled (§4.2), and is freed only once its job stopped working.
 _ENDED_ATTEMPT_STATES: Final[frozenset[MediaAttemptStatus]] = frozenset(
-    {MediaAttemptStatus.FAILED, MediaAttemptStatus.REJECTED, MediaAttemptStatus.AMBIGUOUS}
+    {MediaAttemptStatus.FAILED, MediaAttemptStatus.REJECTED}
 )
+_WORKING_STATES: Final[tuple[MediaJobState, ...]] = (
+    MediaJobState.QUEUED,
+    MediaJobState.GENERATING,
+)
+
 _STAGE_FOR_KIND: Final[Mapping[MediaKind, MediaAttemptStage]] = {
     MediaKind.IMAGE: MediaAttemptStage.IMAGE,
     MediaKind.VIDEO: MediaAttemptStage.VIDEO,
@@ -209,7 +228,12 @@ async def _abandon(rt: MediaRuntime, now: datetime) -> int:
     ]:
         async with rt.sessions.begin() as session:
             moved = await transition(
-                session, job_id, expected=expected, to=MediaJobState.ABANDONED, now=now
+                session,
+                job_id,
+                expected=expected,
+                to=MediaJobState.ABANDONED,
+                now=now,
+                policy=resolve_retention_policy(rt.settings),
             )
         if moved:
             abandoned += 1
@@ -265,6 +289,10 @@ async def _redrive_variant(
             latest.attempt,
             job_id=fetch_job_id(job.id, variant, latest.attempt),
         )
+    elif latest.status is MediaAttemptStatus.AMBIGUOUS:
+        # Reconciled before anything is resubmitted, final or not (§4.2): the submit handler
+        # reads the gateway's queue for this attempt and decides.
+        await enqueue_submit(rt, job.id, variant, latest.attempt, defer_s=0.0)
     elif not is_attempt_final(latest, rt.settings.media_max_attempts):
         await enqueue_submit(rt, job.id, variant, latest.attempt + 1, defer_s=0.0)
 
@@ -402,7 +430,13 @@ async def _gpu_hygiene(rt: MediaRuntime, now: datetime) -> int:
         attempt_id = None
     async with rt.sessions() as session:
         row = await session.get(MediaAttemptRow, attempt_id) if attempt_id is not None else None
-    if row is None or row.status in _ENDED_ATTEMPT_STATES:
+        job = await session.get(MediaJobRow, row.job_id) if row is not None else None
+    job_working = job is not None and job.state in _WORKING_STATES
+    if (
+        row is None
+        or row.status in _ENDED_ATTEMPT_STATES
+        or (row.status is MediaAttemptStatus.AMBIGUOUS and not job_working)
+    ):
         if await rt.gpu.release(holder):
             fixed += 1
     elif (
@@ -411,7 +445,7 @@ async def _gpu_hygiene(rt: MediaRuntime, now: datetime) -> int:
         and row.created_at < now - _SUBMITTING_LOCK_MAX
     ):
         async with rt.sessions.begin() as session:
-            await set_attempt_status(
+            marked = await set_attempt_status(
                 session,
                 row.id,
                 expected=(MediaAttemptStatus.SUBMITTING,),
@@ -419,13 +453,116 @@ async def _gpu_hygiene(rt: MediaRuntime, now: datetime) -> int:
                 now=now,
                 error_code=MediaErrorCode.CRASHED_BEFORE_POST.value,
             )
-        if await rt.gpu.release(holder):
+            row = await session.get(MediaAttemptRow, row.id, populate_existing=True)
+        if marked and row is not None and job is not None and job_working:
+            # The POST may have landed before the worker died: reconcile, holding the slot
+            # while the gateway might be rendering it (§4.2), rather than free it blind.
+            await reconcile_ambiguous(rt, job, row)
+            fixed += 1
+        elif await rt.gpu.release(holder):
+            fixed += 1
+    return fixed
+
+
+async def _redrive_head(rt: MediaRuntime, now: datetime) -> int:
+    """The GPU is free, yet the queue's head is not moving: re-drive the head's own variant.
+
+    ``_redrive`` goes by the job's heartbeat, and a job's other variant, waiting for the slot,
+    refreshes that heartbeat every 15 s — so a head whose own submit chain was lost would look
+    alive while it, and every job behind it, waited out the deadline. Re-driving a head that
+    was merely between two of its 15-second tries starts a second chain for the same attempt;
+    that one finds the attempt row the first wrote and ends (``media_submit`` is idempotent).
+    """
+    if await rt.gpu.holder() is not None:
+        return 0
+    members = await rt.gpu.members()
+    if not members:
+        return 0
+    parsed = parse_queue_member(members[0])
+    if parsed is None:
+        return 0
+    job_id, variant = parsed
+    async with rt.sessions() as session:
+        job = await session.get(MediaJobRow, job_id)
+        if job is None or job.state not in _WORKING_STATES or job.kind is not MediaKind.IMAGE:
+            return 0
+        latest = (await latest_attempts(session, job_id, stage=_STAGE_FOR_KIND[job.kind])).get(
+            variant
+        )
+        done = variant in {
+            output.variant
+            for output in await list_outputs(session, job_id, role=MediaOutputRole.IMAGE)
+        }
+    if done or (
+        latest is not None
+        and latest.status is not MediaAttemptStatus.AMBIGUOUS
+        and is_attempt_final(latest, rt.settings.media_max_attempts)
+    ):
+        # A finished variant that never left the queue blocks everyone behind it.
+        await rt.gpu.leave(queue_member(job_id, variant))
+        await image_fan_in(rt, job_id)
+        return 1
+    await _redrive_variant(rt, job, variant, latest, _tick(now))
+    return 1
+
+
+async def _unstick_delivering(rt: MediaRuntime, now: datetime) -> int:
+    async with rt.sessions() as session:
+        stuck = (
+            await session.scalars(
+                sa.select(MediaJobRow.id)
+                .where(
+                    MediaJobRow.state == MediaJobState.DELIVERING,
+                    MediaJobRow.updated_at < now - _STALE_DELIVERING,
+                )
+                .limit(SWEEP_BATCH)
+            )
+        ).all()
+    fixed = 0
+    for job_id in stuck:
+        async with rt.sessions() as session:
+            outputs = await list_outputs(session, job_id, role=MediaOutputRole.IMAGE)
+            job = await session.get(MediaJobRow, job_id)
+        if job is None:
+            continue
+        if any(output.tg_file_id for output in outputs):
+            # The album is on record as sent: finish what the dead worker could not.
+            async with rt.sessions.begin() as session:
+                moved = await transition(
+                    session,
+                    job_id,
+                    expected=(MediaJobState.DELIVERING,),
+                    to=MediaJobState.DELIVERED,
+                    now=now,
+                    values={"delivered_at": now},
+                    policy=resolve_retention_policy(rt.settings),
+                )
+                if moved and len(outputs) < job.outputs_requested:
+                    # Q3, as ``media_deliver`` would have granted it.
+                    await grant_refund(
+                        session, job_id, reason=MediaCreditReason.GENERATION_FAILED, now=now
+                    )
+            if moved:
+                fixed += 1
+                await enqueue_stage(
+                    rt, MEDIA_CLEANUP_JOB, str(job_id), job_id=cleanup_job_id(job_id)
+                )
+            continue
+        # Not known to have gone out: at-most-once means we cannot resend blind, so the
+        # customer gets a credit (``fail_job`` also enqueues the cleanup).
+        if await fail_job(
+            rt,
+            job_id,
+            expected=(MediaJobState.DELIVERING,),
+            error_code=MediaErrorCode.DELIVERY_FAILED,
+            refund=MediaCreditReason.GENERATION_FAILED,
+        ):
             fixed += 1
     return fixed
 
 
 async def sweep_media(rt: MediaRuntime, *, now: datetime | None = None) -> dict[str, Any]:
-    """Run the five arms once. Each arm's failure is contained and reported."""
+    """Run the six arms once (GPU hygiene in two steps). A failed arm is contained, reported."""
     at = now or rt.clock()
     summary: dict[str, Any] = {}
     errors: list[str] = []
@@ -435,6 +572,8 @@ async def sweep_media(rt: MediaRuntime, *, now: datetime | None = None) -> dict[
         ("redriven", _redrive),
         ("deadline_failed", _fail_past_deadline),
         ("gpu_fixed", _gpu_hygiene),
+        ("head_redriven", _redrive_head),
+        ("delivering_unstuck", _unstick_delivering),
     ):
         try:
             summary[name] = await arm(rt, at)

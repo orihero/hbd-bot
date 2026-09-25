@@ -37,6 +37,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import orjson
@@ -65,6 +66,7 @@ from bayram.media.contracts import (
     MediaCapabilities,
     MediaKindName,
     MediaRequest,
+    QueuedJob,
 )
 
 __all__ = [
@@ -80,6 +82,7 @@ __all__ = [
     "DEFAULT_VIDEO_FPS",
     "GENERATE_PAYLOAD_KEYS",
     "access_headers",
+    "base_url_refusal",
     "build_generate_payload",
     "encode_reference",
 ]
@@ -221,6 +224,26 @@ def access_headers(client_id: str, client_secret: str) -> dict[str, str]:
         ACCESS_CLIENT_ID_HEADER: client_id.strip(),
         ACCESS_CLIENT_SECRET_HEADER: client_secret.strip(),
     }
+
+
+#: Hosts where plain HTTP never leaves the machine: a development gateway.
+_LOOPBACK_HOSTS: Final[frozenset[str]] = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def base_url_refusal(base_url: str) -> str | None:
+    """Why the gateway must not be called at ``base_url``, or ``None`` (§9.1 items 2–3).
+
+    Plain HTTP would carry the key and the customers' base64 photos unencrypted across the
+    internet; the tunnel is HTTPS. Loopback is the one exception. A ``?api_key=`` in the base
+    URL would ride every call and land in the tunnel's logs — the key is a header, only.
+    """
+    parts = urlsplit(base_url.strip())
+    is_loopback_http = parts.scheme == "http" and parts.hostname in _LOOPBACK_HOSTS
+    if not (parts.scheme == "https" or is_loopback_http):
+        return "is not an https:// URL; the gateway is reached through the tunnel, not plain HTTP"
+    if "api_key" in parse_qs(parts.query):
+        return "carries ?api_key=; the key is sent as a header only"
+    return None
 
 
 def _is_valid_dimension(value: int) -> bool:
@@ -641,10 +664,18 @@ class LocalGatewayProvider:
             return ok(self._health(HealthState.UNAVAILABLE, detail=f"http {response.status_code}"))
         return ok(self._health(HealthState.HEALTHY))
 
-    # -- beyond the protocol: reconciliation (§4.2) --------------------------
+    # -- beyond the protocol: reconciliation and backlog (§3.4, §4.2) ----------
     async def queued_job_ids(self, *, timeout_s: float) -> Result[frozenset[str]]:
         """Every job id the gateway reports running or pending, for reconciling an
         ``ambiguous`` attempt: absent → one automatic resubmit is allowed (§4.2)."""
+        listed = await self.queued_jobs(timeout_s=timeout_s)
+        if is_err(listed):
+            return listed
+        return ok(frozenset(entry.job_id for entry in listed.value))
+
+    async def queued_jobs(self, *, timeout_s: float) -> Result[tuple[QueuedJob, ...]]:
+        """``GET /queue`` as :class:`QueuedJob` entries: running first, then pending.
+        :class:`~bayram.media.contracts.GatewayQueueReader`."""
         try:
             response = await self._client.get(
                 f"{self._base_url}{_QUEUE_PATH}",
@@ -669,14 +700,17 @@ class LocalGatewayProvider:
                     "the gateway queue is not a JSON object", provider=self.name
                 )
             )
-        ids: set[str] = set()
+        jobs: dict[str, QueuedJob] = {}
         for key in ("running_jobs", "pending_jobs"):
             entries = body.get(key)
             if not isinstance(entries, list):
                 continue
             for entry in entries:
-                ids.update(_ids_in_queue_entry(entry))
-        return ok(frozenset(ids))
+                model = _text_field(entry, "model")
+                client = _text_field(entry, "client")
+                for job_id in _ids_in_queue_entry(entry):
+                    jobs.setdefault(job_id, QueuedJob(job_id=job_id, model=model, client=client))
+        return ok(tuple(jobs.values()))
 
     # -- internals ----------------------------------------------------------
     def _headers(self) -> dict[str, str]:
@@ -710,6 +744,13 @@ class LocalGatewayProvider:
 
     def _health(self, state: HealthState, *, detail: str | None = None) -> ProviderHealth:
         return ProviderHealth(name=self.name, state=state, as_of=self._clock(), detail=detail)
+
+
+def _text_field(entry: object, key: str) -> str | None:
+    """A string field of a dict queue entry, when the gateway reports one."""
+    if isinstance(entry, dict) and isinstance(value := entry.get(key), str) and value:
+        return value[:64]
+    return None
 
 
 def _ids_in_queue_entry(entry: object) -> set[str]:

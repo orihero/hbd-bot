@@ -842,6 +842,10 @@ class Settings(BaseSettings):
     media_video_steps: int = Field(default=20, ge=1, le=100)
     #: img2img strength for a request with photos (§1.3): 0.5–0.7 keeps the subject.
     media_image_denoise: float = Field(default=0.6, gt=0.0, le=1.0)
+    #: Days a delivered image or video (and its ``tg_file_id``) is kept, and the words of a
+    #: finished request (§3.2.4, §9.3). Open question Q2, so tunable; ``/forget`` ends it
+    #: sooner. Read through ``bayram.db.retention.resolve_retention_policy``.
+    retention_media_output_days: int = Field(default=30, ge=1, le=3_650)
 
     # -- the local generation gateway (IMAGE_VIDEO_SPEC §4.2, §9.1) ----------
     #: HTTPS through the tunnel (§9.1). Empty with a SKU offered on ``local`` refuses to boot.

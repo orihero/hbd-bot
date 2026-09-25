@@ -70,7 +70,8 @@ class MediaMessenger(Protocol):
     async def send_photos(
         self, chat_id: int, photos: Sequence[Path], *, caption: str
     ) -> Result[tuple[str, ...]]:
-        """One album (``sendMediaGroup``), caption on the first photo. The ``file_id`` of each
+        """One album (``sendMediaGroup``), caption on the first photo — or, for exactly one
+        photo, ``sendPhoto``, since an album takes two to ten. The ``file_id`` of each
         photo, in order. ``Err(DeliveryError)`` carries ``BLOCKED_BY_CUSTOMER_KEY`` when the
         customer blocked the bot, and ``is_retryable`` for a failure worth trying again."""
         ...
@@ -161,18 +162,26 @@ class TelegramMediaMessenger:
     async def send_photos(
         self, chat_id: int, photos: Sequence[Path], *, caption: str
     ) -> Result[tuple[str, ...]]:
-        media = [
-            InputMediaPhoto(media=FSInputFile(path), caption=caption if index == 0 else None)
-            for index, path in enumerate(photos)
-        ]
         try:
+            if len(photos) == 1:
+                # ``sendMediaGroup`` takes 2–10 items and answers 400 to one; a partial
+                # delivery (Q3: one variant failed to generate) is a single photo.
+                single = await self._bot.send_photo(
+                    chat_id, FSInputFile(photos[0]), caption=caption
+                )
+                return ok((_largest_photo_id(single),))
+            media = [
+                InputMediaPhoto(media=FSInputFile(path), caption=caption if index == 0 else None)
+                for index, path in enumerate(photos)
+            ]
             sent = await self._bot.send_media_group(chat_id, media=list(media))
         except TelegramAPIError as exc:
             blocked = is_blocked_by_customer(exc)
             return err(
                 DeliveryError(
                     "the media album could not be delivered",
-                    is_retryable=not blocked,
+                    # A 400 is the request, not the moment: sending it again changes nothing.
+                    is_retryable=not blocked and not isinstance(exc, TelegramBadRequest),
                     context={
                         BLOCKED_BY_CUSTOMER_KEY: blocked,
                         "failure": type(exc).__name__,

@@ -8,6 +8,7 @@ fixed clock.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -25,10 +26,10 @@ from bayram.checkout import (
 )
 from bayram.churn import BotBlockRecorder
 from bayram.config import Settings
-from bayram.contracts import PaymentProvider
+from bayram.contracts import PaymentProvider, Result
 from bayram.entitlements import EntitlementStore
 from bayram.lyric_budget import LyricBudgetStore
-from bayram.media.desk import MediaDesk
+from bayram.media.desk import JobView, MediaDesk
 from bayram.media.overrides import MediaSwitchStore
 from bayram.pipeline.ports import ContentWriter
 from bayram.support import SupportTicketStore
@@ -315,3 +316,10 @@ class BotDeps:
     #: The one-reply-per-album seen-set (IMAGE_VIDEO_SPEC §2.3.2), shared by the inbound gate
     #: and the handlers so an album counts once and is answered once. In-process by design.
     albums: AlbumMemory = field(default_factory=AlbumMemory)
+    #: The live-paid half of a media 💳 — ``CheckoutProvider.charge`` with
+    #: ``resume_media_job_id`` (IMAGE_VIDEO_SPEC §7.2, §7.3). ``None`` until the payment arms
+    #: land (M5.1), which the handler answers as "not built". It is only ever called through
+    #: ``offering.guarded_media_charge``, so on any rail that is not live-paid it is never
+    #: called at all (§10 M2.2); a seam, so a test can prove exactly that. Trailing and
+    #: defaulted, for the reason ``terms`` gives.
+    media_charge: Callable[[JobView], Awaitable[Result[None]]] | None = None

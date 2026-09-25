@@ -31,6 +31,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
+from uuid import UUID
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -47,6 +48,8 @@ from bayram.db.models.media_job import MediaJobRow
 from bayram.db.models.media_purchase import MediaPurchaseRow
 from bayram.db.retention import RetentionClass
 from bayram.logging import get_logger
+from bayram.media.service import MediaQueue
+from bayram.media.stages import MEDIA_CLEANUP_JOB, cleanup_job_id
 
 __all__ = ["MediaErasure", "SqlMediaEraser", "forget_media"]
 
@@ -71,6 +74,10 @@ class MediaErasure:
     ledger_anonymised: int = 0
     #: Object keys whose rows are gone. The caller deletes them after its commit.
     storage_keys: tuple[str, ...] = ()
+    #: The pre-pay requests cancelled here. The caller enqueues ``media_cleanup`` for each
+    #: after its commit, so the worker's local copies (``var/workspace/media/<job>/``) go now,
+    #: not a day later when ``workspace_sweep`` would reach them.
+    cancelled_job_ids: tuple[UUID, ...] = ()
 
 
 async def forget_media(
@@ -161,27 +168,30 @@ async def forget_media(
         purchases_anonymised=rowcount_of(purchases),
         ledger_anonymised=rowcount_of(ledger),
         storage_keys=tuple(keys),
+        cancelled_job_ids=tuple(cancelled),
     )
 
 
 class SqlMediaEraser:
     """:class:`bayram.bot.ports.MediaEraser` over the media tables and the object store.
 
-    One transaction for the rows, then the objects — the order is the safety argument (see
-    the module docstring). Never raises.
+    One transaction for the rows, then the objects, then a ``media_cleanup`` per cancelled
+    request — the order is the safety argument (see the module docstring). Never raises.
     """
 
-    __slots__ = ("_clock", "_sessions", "_storage")
+    __slots__ = ("_clock", "_queue", "_sessions", "_storage")
 
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
         *,
         storage: Storage,
+        queue: MediaQueue | None = None,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._sessions = session_factory
         self._storage = storage
+        self._queue = queue
         self._clock = clock
 
     async def forget_media(self, telegram_user_id: int) -> Result[int]:
@@ -205,6 +215,7 @@ class SqlMediaEraser:
                     extra={"telegram_user_id": telegram_user_id, "key": key},
                     exc_info=removed.error,
                 )
+        await self._cleanup(erased.cancelled_job_ids)
         _log.info(
             "media erased on request",
             extra={
@@ -221,3 +232,20 @@ class SqlMediaEraser:
             },
         )
         return len(erased.storage_keys)
+
+    async def _cleanup(self, job_ids: tuple[UUID, ...]) -> None:
+        """``media_cleanup`` for each cancelled request (O16): its rows and objects went above;
+        what is left is the worker's workspace. A lost enqueue leaves that to
+        ``workspace_sweep``'s 24 hours — logged, never failing the /forget."""
+        if self._queue is None:
+            return
+        for job_id in job_ids:
+            try:
+                await self._queue.enqueue_job(
+                    MEDIA_CLEANUP_JOB, str(job_id), _job_id=cleanup_job_id(job_id)
+                )
+            except Exception as exc:
+                _log.warning(
+                    "a media cleanup could not be enqueued after /forget",
+                    extra={"media_job_id": str(job_id), "failure": repr(exc)},
+                )

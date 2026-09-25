@@ -23,12 +23,18 @@ from sqlalchemy.pool import StaticPool
 from bayram.config import Settings
 from bayram.db.engine import create_session_factory
 from bayram.db.enums import MediaAttemptStage, MediaAttemptStatus, MediaJobState, MediaPaidVia
-from bayram.db.media import insert_attempt, load_job, mark_paid, transition
+from bayram.db.media import insert_attempt, load_job, mark_paid, media_balance, transition
 from bayram.db.models import Base
 from bayram.db.models.media_attempt import MediaAttemptRow
 from bayram.db.models.media_input import MediaInputRow
 from bayram.db.models.media_job import MediaJobRow
-from bayram.media.stages import MEDIA_SCREEN_JOB, MEDIA_START_JOB, screen_job_id, sku_deadline
+from bayram.media.stages import (
+    MEDIA_CLEANUP_JOB,
+    MEDIA_SCREEN_JOB,
+    MEDIA_START_JOB,
+    screen_job_id,
+    sku_deadline,
+)
 from bayram.runtime.gpu_lock import queue_member, queue_score
 from bayram.runtime.media_sweep import sweep_media
 from bayram.runtime.workspace_sweep import finished_media_jobs_lookup
@@ -252,3 +258,62 @@ async def test_a_paid_job_is_not_failed_before_its_deadline(harness: Harness) ->
     harness.clock.advance(seconds=120)
     assert (await sweep_media(harness.rt))["deadline_failed"] == 1
     assert await _state(harness, job_id) is MediaJobState.FAILED
+
+
+async def test_a_delivering_row_a_dead_worker_left_is_failed_with_one_credit(
+    harness: Harness,
+) -> None:
+    # Arrange — the worker claimed the delivery and died before the send was recorded.
+    job_id = await _paid_without_start(harness, via=MediaPaidVia.PAYME)
+    async with harness.sessions.begin() as session:
+        for to in (MediaJobState.QUEUED, MediaJobState.GENERATING, MediaJobState.POST):
+            job = await load_job(session, job_id)  # type: ignore[arg-type]
+            assert job is not None
+            assert await transition(
+                session, job.id, expected=(job.state,), to=to, now=harness.clock()
+            )
+        assert await transition(
+            session,
+            job_id,  # type: ignore[arg-type]
+            expected=(MediaJobState.POST,),
+            to=MediaJobState.DELIVERING,
+            now=harness.clock(),
+        )
+
+    assert (await sweep_media(harness.rt))["delivering_unstuck"] == 0  # a send may be running
+    harness.clock.advance(minutes=11)
+    summary = await sweep_media(harness.rt)
+
+    assert summary["delivering_unstuck"] == 1
+    assert await _state(harness, job_id) is MediaJobState.FAILED
+    async with harness.sessions() as session:
+        job = await load_job(session, job_id)  # type: ignore[arg-type]
+        assert job is not None and job.error_code == "delivery_failed"
+        assert await media_balance(session, telegram_user_id=job.telegram_user_id, sku=job.sku) == 1
+    assert MEDIA_CLEANUP_JOB in [stage.name for stage in harness.queue.pending]
+
+
+async def test_a_queue_head_whose_own_chain_was_lost_is_re_driven_despite_a_fresh_heartbeat(
+    harness: Harness,
+) -> None:
+    # Arrange — started; both submits lost; the job's heartbeat is fresh (its other variant
+    # "waiting" keeps it so), and the GPU is free.
+    job_id = await _paid_without_start(harness)
+    await harness.queue.enqueue_job(
+        MEDIA_START_JOB, str(job_id), 0, _job_id=f"media:{job_id}:start:0"
+    )
+    await harness.drain(stop=lambda stage: stage.name == "media_submit")
+    harness.queue.pending.clear()
+    assert await harness.gpu.holder() is None
+    assert await harness.gpu.members()
+
+    # Act — inside the heartbeat window, so the job-level re-drive does not fire.
+    summary = await sweep_media(harness.rt)
+    await harness.drain()
+
+    # Assert — the head (variant 0) rendered; variant 1, lost too, is the next head.
+    assert summary["redriven"] == 0 and summary["head_redriven"] == 1
+    assert [s.correlation_key[-3:] for s in harness.provider.submits] == ["0:1"]
+    assert (await sweep_media(harness.rt))["head_redriven"] == 1
+    await harness.drain()
+    assert await _state(harness, job_id) is MediaJobState.DELIVERED

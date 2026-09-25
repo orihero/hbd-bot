@@ -21,7 +21,7 @@ from bayram.providers.media.local_gateway import (
     API_KEY_HEADER,
     GENERATE_PAYLOAD_KEYS,
 )
-from bayram.tools.media import EXIT_REFUSED, main, plan
+from bayram.tools.media import EXIT_OK, EXIT_REFUSED, EXIT_UNHEALTHY, main, plan
 from bayram.tools.media_doctor import (
     Check,
     CheckStatus,
@@ -136,6 +136,29 @@ def test_doctor_parses_and_rejects_stray_arguments() -> None:
     assert plan(["doctor"]).contract is False
     assert plan(["doctor", "--contract"]).contract is True
     assert main(["doctor", "--frobnicate"]) == EXIT_REFUSED
+
+
+@pytest.mark.parametrize(("offered", "expected"), [(False, EXIT_OK), (True, EXIT_UNHEALTHY)])
+def test_the_release_verify_run_fails_only_while_a_sku_uses_the_gateway(
+    gateway_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    offered: bool,
+    expected: int,
+) -> None:
+    # §9.1 item 4, bayram-release's verify step. A config failure contacts nobody, so the
+    # red report is reached with no socket.
+    red = gateway_settings.model_copy(
+        update={
+            "genai_base_url": "http://203.0.113.7:5174",
+            "is_image_offered": offered,
+            "media_beta_enabled": offered,
+            "media_beta_allowlist": (1,) if offered else (),
+        }
+    )
+    monkeypatch.setattr("bayram.tools.media.build_settings", lambda **_: red)
+
+    assert main(["doctor", "--release"]) == expected
+    assert main(["doctor"]) == EXIT_UNHEALTHY
 
 
 # -- config -----------------------------------------------------------------

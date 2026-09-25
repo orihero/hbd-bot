@@ -54,6 +54,7 @@ __all__ = [
     "config_checks",
     "contract_checks",
     "run_doctor",
+    "uses_the_gateway",
 ]
 
 HEALTH_PATH: Final[str] = "/health"
@@ -125,7 +126,7 @@ def _skip(name: str, detail: str) -> Check:
     return Check(name, CheckStatus.SKIP, detail)
 
 
-def _uses_the_gateway(settings: Settings) -> bool:
+def uses_the_gateway(settings: Settings) -> bool:
     """An offered SKU routed to ``local`` needs the gateway; nothing else does today."""
     return any(env_backend(settings, sku) is MediaBackend.LOCAL for sku in offered_skus(settings))
 
@@ -424,7 +425,7 @@ async def run_doctor(
 ) -> DoctorReport:
     """Every check, in order. Never raises on a gateway answer; a failure is a ``FAIL`` row."""
     if not settings.genai_base_url.strip():
-        if _uses_the_gateway(settings):
+        if uses_the_gateway(settings):
             return DoctorReport(
                 (_fail("base url", "an offered SKU routes to local; BAYRAM_GENAI_BASE_URL unset"),)
             )

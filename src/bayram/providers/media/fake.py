@@ -43,8 +43,9 @@ from bayram.media.contracts import (
     JobStatus,
     MediaCapabilities,
     MediaRequest,
+    QueuedJob,
 )
-from bayram.providers.media.local_gateway import build_generate_payload
+from bayram.providers.media.local_gateway import CLIENT_TAG, build_generate_payload
 
 __all__ = ["FakeMediaProvider", "FakeSubmit", "FAKE_PROVIDER_NAME", "fake_clip_bytes"]
 
@@ -95,6 +96,13 @@ class FakeMediaProvider:
     #: Errors handed out by the next submits, in order, before any job is created.
     submit_errors: list[BayramError] = field(default_factory=list)
     submits: list[FakeSubmit] = field(default_factory=list)
+    #: What ``health`` reports (§7.2 step 1: an unhealthy backend is not quoted).
+    health_state: HealthState = HealthState.HEALTHY
+    #: Entries ``queued_jobs`` lists beside our own unfinished jobs: somebody else's render
+    #: (the owner's marketing), or a job an ambiguous POST queued that we hold no id for.
+    foreign_jobs: list[QueuedJob] = field(default_factory=list)
+    #: When set, ``queued_jobs`` answers this instead — the gateway's queue is unreadable.
+    queue_error: BayramError | None = None
     _jobs: dict[str, _Job] = field(default_factory=dict)
 
     def capabilities(self) -> MediaCapabilities:
@@ -196,8 +204,20 @@ class FakeMediaProvider:
 
     async def health(self) -> Result[ProviderHealth]:
         return ok(
-            ProviderHealth(name=self.name, state=HealthState.HEALTHY, as_of=datetime.now(tz=UTC))
+            ProviderHealth(name=self.name, state=self.health_state, as_of=datetime.now(tz=UTC))
         )
+
+    async def queued_jobs(self, *, timeout_s: float) -> Result[tuple[QueuedJob, ...]]:
+        """Our jobs not yet polled to their end, then :attr:`foreign_jobs` — the local
+        gateway's ``GET /queue`` (:class:`~bayram.media.contracts.GatewayQueueReader`)."""
+        if self.queue_error is not None:
+            return err(self.queue_error)
+        ours = tuple(
+            QueuedJob(job_id=remote_id, model=job.request.model_key, client=CLIENT_TAG)
+            for remote_id, job in self._jobs.items()
+            if job.polls <= self.polls_until_done
+        )
+        return ok((*ours, *self.foreign_jobs))
 
 
 def _refs_refusal(refs: int, limit: int) -> BayramError:

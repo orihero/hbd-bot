@@ -7,7 +7,7 @@ module's functions, so there is one spelling of each key and one truthiness rule
     pause  <sku>        / resume <sku>      the per-SKU kill switch (paid jobs continue)
     backend <sku> <local|higgsfield|fal|fake|env>   route NEW submits; ``env`` clears it
     reserve --minutes N / release           the GPU reserved window (O11)
-    doctor [--contract]                     is the local gateway fit for customers (§9.1)
+    doctor [--contract] [--release]         is the local gateway fit for customers (§9.1)
 
 ``<sku>`` is ``image``, ``video_standard`` or ``video_fast``. The switches live in Redis, a
 cache in this deployment: a restart without persistence clears them, so re-run ``status``
@@ -15,7 +15,8 @@ after any Redis restart (the ``bayram.payme.pause`` caveat, inherited).
 
 ``doctor`` touches no Redis and writes nothing: it asks the gateway (``bayram.tools.media_doctor``,
 12-media-gateway §2.4). ``--contract`` also diffs the live ``/openapi.json`` — the spec's
-``make gateway-contract``.
+``make gateway-contract``. ``--release`` is how ``bayram-release``'s verify step runs it
+(§9.1 item 4): red fails the release only while an offered SKU routes to the gateway.
 
 Exit codes: ``0`` done, ``1`` refused (bad input; nothing written), ``2`` configuration or
 Redis failure (nothing written), ``3`` ``doctor`` found a failing check.
@@ -45,7 +46,7 @@ from bayram.media.overrides import (
     set_gpu_reserved_until,
     set_paused,
 )
-from bayram.tools.media_doctor import run_doctor
+from bayram.tools.media_doctor import run_doctor, uses_the_gateway
 
 __all__ = ["main", "plan", "apply", "Request", "RefusedError"]
 
@@ -70,6 +71,7 @@ class Request:
     backend: MediaBackend | None = None
     minutes: int | None = None
     contract: bool = False
+    release: bool = False
 
 
 def _sku(raw: str) -> MediaSku:
@@ -114,6 +116,11 @@ def _parser() -> argparse.ArgumentParser:
     sub.add_parser("release", help="close the GPU reserved window")
     doctor = sub.add_parser("doctor", help="check the local gateway from this host (§9.1)")
     doctor.add_argument("--contract", action="store_true", help="also diff /openapi.json")
+    doctor.add_argument(
+        "--release",
+        action="store_true",
+        help="bayram-release's verify step: red fails only while a SKU uses the gateway",
+    )
     return parser
 
 
@@ -131,7 +138,7 @@ def plan(argv: Sequence[str]) -> Request:
     if verb == "reserve":
         return Request(verb=verb, minutes=_minutes(args.minutes))
     if verb == "doctor":
-        return Request(verb=verb, contract=bool(args.contract))
+        return Request(verb=verb, contract=bool(args.contract), release=bool(args.release))
     return Request(verb=verb)
 
 
@@ -145,6 +152,13 @@ async def apply(
         return f"{request.sku.value}: {'paused' if request.verb == 'pause' else 'resumed'}"
     if request.verb == "backend":
         assert request.sku is not None
+        if request.backend is MediaBackend.FAKE and not settings.use_fake_providers:
+            # The worker ignores this override anyway (``offering.effective_backend``); saying
+            # so here keeps an operator from believing traffic moved (§4.5).
+            raise RefusedError(
+                "'fake' renders placeholders and is refused outside a fake deployment; "
+                "nothing was written"
+            )
         await set_backend_override(store, request.sku, request.backend)
         target = request.backend.value if request.backend is not None else "the env backend"
         return f"{request.sku.value}: new submits go to {target}"
@@ -194,7 +208,15 @@ def _doctor(request: Request) -> int:
     settings = build_settings(require_vendor_secrets=False)
     report = asyncio.run(run_doctor(settings, contract=request.contract))
     print(report.render())
-    return EXIT_OK if report.is_green else EXIT_UNHEALTHY
+    if report.is_green:
+        return EXIT_OK
+    if request.release and not uses_the_gateway(settings):
+        # §9.1 item 4 runs this in every release's verify step. With no offered SKU on the
+        # gateway nobody can be sold a render it cannot make, so a red gateway is a warning
+        # there — the release still lands, and the operator reads why.
+        print("doctor: WARNING — red, but no offered SKU routes to the local gateway")
+        return EXIT_OK
+    return EXIT_UNHEALTHY
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -209,6 +231,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if request.verb == "doctor":
             return _doctor(request)
         print(asyncio.run(_run(request)))
+    except RefusedError as exc:
+        print(str(exc))
+        return EXIT_REFUSED
     except BayramError as exc:
         print(exc.operator_message)
         return EXIT_CONFIG

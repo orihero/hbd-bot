@@ -38,6 +38,7 @@ from bayram.media.contracts import (
     JobStatus,
     MediaCapabilities,
     MediaRequest,
+    QueuedJob,
 )
 from bayram.media.stages import (
     MEDIA_CLEANUP_JOB,
@@ -282,6 +283,9 @@ class HookedProvider:
 
     async def health(self) -> Result[ProviderHealth]:
         return await self.inner.health()
+
+    async def queued_jobs(self, *, timeout_s: float) -> Result[tuple[QueuedJob, ...]]:
+        return await self.inner.queued_jobs(timeout_s=timeout_s)
 
 
 @dataclass

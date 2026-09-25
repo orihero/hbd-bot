@@ -533,7 +533,7 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         # The media arm of /forget (IMAGE_VIDEO_SPEC §9.3): rows in one transaction, then the
         # objects, from the SAME storage the archive and the avatars use.
         media_erasure=(
-            SqlMediaEraser(container.session_factory, storage=container.storage)
+            SqlMediaEraser(container.session_factory, storage=container.storage, queue=pool)
             if container.session_factory is not None
             else None
         ),

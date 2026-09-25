@@ -2,8 +2,9 @@
 
 One question — "may this user be quoted this SKU right now?" — answered from settings, the
 operator's Redis switches and the margin rule. The answer is a reason or ``None``; the bot
-turns every reason but ``NOT_OFFERED`` into ``media.busy``. The ETA ≤ deadline check is made
-beside this by ``media_screen`` (``bayram.runtime.media_jobs``), where the GPU queue is in hand.
+turns every reason but ``NOT_OFFERED`` into ``media.busy``. The backend's health and the
+ETA ≤ deadline check are made beside this by ``media_screen`` (``bayram.runtime.media_jobs``),
+where the provider and the GPU queue are in hand.
 """
 
 from __future__ import annotations
@@ -25,6 +26,9 @@ class QuoteBlock(StrEnum):
     PAUSED = "paused"
     GPU_RESERVED = "gpu_reserved"
     MARGIN = "margin"
+    #: The backend's ``health()`` is not healthy (§7.2 step 1). Set by ``media_screen``, which
+    #: holds the provider; this pure function never makes a call.
+    UNHEALTHY = "unhealthy"
 
 
 def quote_block(

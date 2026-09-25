@@ -174,6 +174,7 @@ _SETTINGS_FIELDS: Final[tuple[tuple[str, str], ...]] = (
     ("retention_abandoned_draft_days", "abandoned_draft_days"),
     ("retention_brief_text_days", "brief_text_days"),
     ("retention_recipient_identity_days", "recipient_identity_days"),
+    ("retention_media_output_days", "media_output_days"),
 )
 
 

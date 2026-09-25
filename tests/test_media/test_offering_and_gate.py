@@ -80,6 +80,19 @@ def test_use_fake_providers_pins_every_backend_to_the_fake(settings: Settings) -
     assert effective_backend(settings, MediaSku.IMAGE, MediaBackend.FAL) is MediaBackend.FAL
 
 
+def test_a_fake_override_outside_a_fake_deployment_resolves_to_the_env_backend(
+    settings: Settings,
+) -> None:
+    # §4.5: boot sees only the env backend, so a Redis key naming the fake must not route
+    # paying customers to placeholder renders.
+    assert not settings.use_fake_providers
+
+    assert effective_backend(settings, MediaSku.IMAGE, MediaBackend.FAKE) is MediaBackend.LOCAL
+    assert effective_backend(
+        _with(settings, image_backend="fal"), MediaSku.IMAGE, MediaBackend.FAKE
+    ) is (MediaBackend.FAL)
+
+
 # ---------------------------------------------------------------------------
 # The 💳 gate
 # ---------------------------------------------------------------------------
@@ -152,11 +165,15 @@ def test_a_reserved_gpu_refuses_local_quotes_until_the_window_ends(settings: Set
 
 
 def test_a_reserved_gpu_does_not_block_a_sku_routed_off_the_gpu(settings: Settings) -> None:
+    # Routed to fal, the window is not this SKU's business (fal then fails on its margin,
+    # which has no known cost — a different reason, asserted below).
     rerouted = MediaOverrides(
-        backend=MediaBackend.FAKE, is_paused=False, gpu_reserved_until=NOW + timedelta(hours=1)
+        backend=MediaBackend.FAL, is_paused=False, gpu_reserved_until=NOW + timedelta(hours=1)
     )
 
-    assert quote_block(_beta(settings), MediaSku.IMAGE, OWNER, rerouted, now=NOW) is None
+    assert quote_block(_beta(settings), MediaSku.IMAGE, OWNER, rerouted, now=NOW) is (
+        QuoteBlock.MARGIN
+    )
 
 
 def test_an_override_to_a_backend_with_no_known_cost_fails_the_margin(settings: Settings) -> None:

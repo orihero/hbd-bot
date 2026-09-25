@@ -21,8 +21,8 @@ chain has its own suite. The M2.5 acceptance list, each a test below:
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Callable
-from datetime import datetime
+from collections.abc import AsyncIterator, Awaitable, Callable
+from datetime import datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
 
@@ -52,7 +52,7 @@ from bayram.bot.media_draft import load_media_draft
 from bayram.bot.menu_version import menu_version_key
 from bayram.bot.states import ImageOrder
 from bayram.config import Settings
-from bayram.contracts import Language, Occasion
+from bayram.contracts import Language, Occasion, Result, ok
 from bayram.db.engine import create_session_factory
 from bayram.db.enums import MediaJobState, MediaPaidVia
 from bayram.db.media import load_job, transition
@@ -60,7 +60,8 @@ from bayram.db.models import Base
 from bayram.db.models.media_input import MediaInputRow
 from bayram.db.models.media_job import MediaJobRow
 from bayram.db.models.media_purchase import MediaPurchaseRow
-from bayram.media.desk import SqlMediaDesk
+from bayram.media.desk import JobView, SqlMediaDesk
+from bayram.media.overrides import GPU_RESERVED_KEY
 from bayram.media.stages import MEDIA_CLEANUP_JOB, MEDIA_SCREEN_JOB, MEDIA_START_JOB
 from tests.test_bot.conftest import (
     BOT_ID,
@@ -125,6 +126,7 @@ class Rig:
         kv: MemoryKV | None = None,
         queue: ArqLikeQueue | None = None,
         profiles: FakeProfiles | None = None,
+        media_charge: Callable[[JobView], Awaitable[Result[None]]] | None = None,
     ) -> None:
         self.settings = settings
         self.sessions = sessions
@@ -141,6 +143,7 @@ class Rig:
             profiles=self.profiles,
             media=SqlMediaDesk(sessions, queue=self.queue, settings=settings, clock=clock),
             media_kv=self.kv,
+            media_charge=media_charge,
         )
         self.dispatcher: Dispatcher = build_dispatcher(self.deps, storage=self.storage)
 
@@ -377,6 +380,32 @@ async def test_done_without_a_prompt_is_an_alert_and_moves_nothing(
     assert answer.text == translate("media.need_prompt", Language.EN)
     assert answer.show_alert is True
     assert await rig.fsm_state() == ImageOrder.compose.state
+
+
+async def test_done_while_the_gpu_is_reserved_is_busy_and_freezes_nothing(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    # §4.5, O11: the operator's window refuses at Done, not after a row was frozen.
+    rig = Rig(media_on(settings), sessions)
+    await open_image_compose(rig, bot)
+    await send(rig.dispatcher, bot, PROMPT)
+    rig.kv.values[GPU_RESERVED_KEY] = (FIXED_MOMENT + timedelta(hours=1)).isoformat()
+
+    await press(rig.dispatcher, bot, med(MediaAction.DONE))
+
+    answer = session.last_named("AnswerCallbackQuery")
+    assert answer.text == translate("media.busy", Language.EN)
+    assert answer.show_alert is True
+    assert await rig.fsm_state() == ImageOrder.compose.state
+    assert await rig.jobs() == []
+
+    # The window closes: the same tray goes on to the shape screen.
+    rig.kv.values[GPU_RESERVED_KEY] = (FIXED_MOMENT - timedelta(minutes=1)).isoformat()
+    await press(rig.dispatcher, bot, med(MediaAction.DONE))
+    assert await rig.fsm_state() == ImageOrder.aspect.state
 
 
 async def test_an_album_to_the_stray_message_fallback_draws_one_reply(
@@ -619,13 +648,26 @@ async def test_a_press_on_somebody_elses_job_is_stale(
     assert untouched.state is MediaJobState.QUOTED
 
 
+class RecordingCharge:
+    """A pay path that WOULD charge: every call is recorded, as a receipt would be written."""
+
+    def __init__(self) -> None:
+        self.charged: list[UUID] = []
+
+    async def __call__(self, job: JobView) -> Result[None]:
+        self.charged.append(job.id)
+        return ok(None)
+
+
 async def test_pay_on_the_stub_rail_writes_no_receipt_and_starts_nothing(
     settings: Settings,
     sessions: async_sessionmaker[AsyncSession],
     bot: Bot,
     session: RecordingSession,
 ) -> None:
-    rig = Rig(media_on(settings), sessions)
+    # §10 M2.2: the charge itself is injected, so this fails if the stub guard goes away.
+    charge = RecordingCharge()
+    rig = Rig(media_on(settings), sessions, media_charge=charge)
     await open_image_compose(rig, bot)
     await freeze(rig, bot)
     (job,) = await rig.jobs()
@@ -633,12 +675,38 @@ async def test_pay_on_the_stub_rail_writes_no_receipt_and_starts_nothing(
 
     await press(rig.dispatcher, bot, med(MediaAction.PAY, job=job.id))
 
+    assert charge.charged == []
     (still,) = await rig.jobs()
     assert still.state is MediaJobState.QUOTED
     async with rig.sessions() as db:
         assert (await db.scalar(sa.select(sa.func.count()).select_from(MediaPurchaseRow))) == 0
     assert MEDIA_START_JOB not in [stage.name for stage in rig.queue.pending]
     assert session.last_named("AnswerCallbackQuery").show_alert is True
+
+
+async def test_pay_on_a_live_paid_rail_reaches_the_charge(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    # The contrast: the same press on a live-paid rail is handed to the charge, once.
+    live = media_on(
+        settings,
+        checkout_provider="payme",
+        credits_enforced=True,
+        payme_is_sandbox=False,
+    )
+    charge = RecordingCharge()
+    rig = Rig(live, sessions, media_charge=charge)
+    await open_image_compose(rig, bot)
+    await freeze(rig, bot)
+    (job,) = await rig.jobs()
+    await rig.move(job.id, MediaJobState.QUOTED)
+
+    await press(rig.dispatcher, bot, med(MediaAction.PAY, job=job.id))
+
+    assert charge.charged == [job.id]
 
 
 async def test_cancel_on_a_quote_cancels_it_and_cleans_up(

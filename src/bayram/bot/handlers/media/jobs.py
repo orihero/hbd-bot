@@ -133,7 +133,12 @@ async def handle_pay(
     if job.state not in _PAYABLE_STATES:
         await _stale(callback, language)
         return
-    charged = await guarded_media_charge(deps.settings, job.sku, _pay_path_not_built)
+    charge = deps.media_charge
+
+    async def pay() -> Result[None]:
+        return await charge(job) if charge is not None else await _pay_path_not_built()
+
+    charged = await guarded_media_charge(deps.settings, job.sku, pay)
     if isinstance(charged, Err):
         _LOG.info(
             "a media pay press was refused",
