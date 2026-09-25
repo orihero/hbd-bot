@@ -18,6 +18,11 @@ fails silently and on the money path, and nothing else in the process would noti
 6. **The Cloudflare Access service token is both halves or neither** (§9.1 item 2): one
    without the other sends a header Access rejects, and every submit would fail as a
    refused credential with nothing saying which variable is missing.
+7. **The guards are reachable and the legal hold can be sealed** (§6.2, §6.7): with a SKU
+   offered on the ``gateway`` moderator, the guard address (``media_moderator_base_url``, or
+   the gateway's) is set, on HTTPS, with the key — else every request would be ``busy``
+   forever — and ``media_legal_hold_recipient`` is a valid X25519 key, else a CSAM-class
+   block would leave the held bytes readable on this host.
 """
 
 from __future__ import annotations
@@ -38,6 +43,8 @@ from bayram.media.offering import (
     offered_skus,
     sku_price_minor,
 )
+from bayram.moderation.factory import moderator_base_url
+from bayram.moderation.legal_hold import parse_public_key
 from bayram.providers.media.local_gateway import (
     LOCAL_MODEL_ALLOWLIST,
     MODEL_KINDS,
@@ -78,6 +85,30 @@ def refuse_unsafe_media_config(settings: Settings) -> None:
         )
     for sku in offered:
         _refuse_an_unsellable_sku(settings, sku)
+    if not settings.use_fake_providers:
+        _refuse_unreachable_guards(settings)
+
+
+def _refuse_unreachable_guards(settings: Settings) -> None:
+    base_url = moderator_base_url(settings)
+    if not base_url or not settings.genai_api_key.strip():
+        raise _refuse(
+            "a media SKU is offered but the guards have no address or key: set "
+            "BAYRAM_MEDIA_MODERATOR_BASE_URL (or BAYRAM_GENAI_BASE_URL) and "
+            "BAYRAM_GENAI_API_KEY (IMAGE_VIDEO_SPEC §6.2).",
+        )
+    refusal = base_url_refusal(base_url)
+    if refusal is not None:
+        raise _refuse(
+            f"a media SKU is offered but the guard address {refusal} (IMAGE_VIDEO_SPEC §9.1).",
+        )
+    if parse_public_key(settings.media_legal_hold_recipient) is None:
+        raise _refuse(
+            "a media SKU is offered but BAYRAM_MEDIA_LEGAL_HOLD_RECIPIENT is not a base64 "
+            "X25519 public key: a CSAM-class block could not be sealed to the escalation "
+            "owner (IMAGE_VIDEO_SPEC §6.7). Generate one with "
+            "`python -m bayram.tools.legal_hold keygen` on the owner's machine.",
+        )
 
 
 def _refuse_models_off_the_allowlist(settings: Settings) -> None:

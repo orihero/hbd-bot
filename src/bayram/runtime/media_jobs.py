@@ -48,8 +48,14 @@ fails a video job before it reaches the GPU (``video_not_built``), so no custome
 render nothing can finish.
 
 Moderation goes through :class:`~bayram.moderation.contracts.MediaModerator` — the fake in tests,
-the fail-closed stub in production until M3.1's guard client — and every ``Err`` from it is
-``unavailable``: ``media.busy`` before payment, a two-minute retry after it (§6.4).
+``GatewayGuardModerator`` (G1, G2, G8) in production — and every ``Err`` from it is
+``unavailable``: ``media.busy`` before payment, a two-minute retry after it (§6.4). Around it
+this module owns what needs the row and Redis (§6.4, §6.7): the suspension check and the
+per-account screening budget before anything is downloaded, L0 (caps and the denylist, no guard
+call) before the guards, the youth signal carried from the words to the pictures, strikes on
+every block, and the CSAM hard rule — the legal hold placed **in the same transaction as the
+verdict**, the held bytes sealed to the escalation owner, the account suspended until an
+operator clears it.
 """
 
 from __future__ import annotations
@@ -113,6 +119,7 @@ from bayram.db.media import (
     list_outputs,
     load_job,
     media_balance,
+    place_legal_hold,
     record_input_stored,
     record_output_file_id,
     set_attempt_status,
@@ -180,6 +187,22 @@ from bayram.moderation.contracts import (
     strictest,
 )
 from bayram.moderation.factory import build_media_moderator
+from bayram.moderation.legal_hold import seal_held_objects
+from bayram.moderation.lexicon import (
+    NARRATION_MAX_CHARS,
+    denylist_hits,
+    has_youth_signal,
+    is_within_caps,
+)
+from bayram.moderation.policy import apply_hard_rule, is_csam_class
+from bayram.moderation.strikes import (
+    CSAM_STRIKES,
+    OUTPUT_BLOCK_STRIKES,
+    PREPAY_BLOCK_STRIKES,
+    RedisStrikeStore,
+    StrikeStore,
+    record_block,
+)
 from bayram.providers.media.factory import build_media_provider
 from bayram.providers.media.local_gateway import CLIENT_TAG, MODEL_KINDS
 from bayram.runtime.gpu_lock import (
@@ -304,6 +327,7 @@ _KIND_LABEL_KEYS: Final[Mapping[MediaKind, str]] = {
 # finds them.
 _QUOTE_KEY: Final[str] = "media.image.quote"
 _REFUSED_KEY: Final[str] = "media.refused"
+_SUSPENDED_KEY: Final[str] = "media.refused.suspended"
 _UNSUPPORTED_KEY: Final[str] = "media.compose.unsupported"
 _BUSY_KEY: Final[str] = "media.busy"
 _QUEUED_KEY: Final[str] = "media.progress.queued"
@@ -338,6 +362,11 @@ class MediaErrorCode(StrEnum):
     FETCH_FAILED = "fetch_failed"
     INPUT_CHANGED = "input_changed"
     AMBIGUOUS_SUBMIT = "ambiguous_submit"
+    #: §6.4: refused before screening — the account is suspended, or spent today's budget.
+    SCREEN_SUSPENDED = "screen_suspended"
+    SCREEN_BUDGET = "screen_budget"
+    #: §6.4 hard rule / §6.7: a CSAM-class block. The bytes are under legal hold.
+    CSAM_BLOCKED = "csam_blocked"
 
 
 class MediaKV(Protocol):
@@ -378,6 +407,7 @@ class MediaRuntime:
     switches: MediaSwitchStore
     memo: MediaKV
     queue: MediaQueue
+    strikes: StrikeStore
     clock: Callable[[], datetime] = field(default=utc_now)
 
 
@@ -415,6 +445,7 @@ def media_runtime(ctx: Mapping[str, Any]) -> MediaRuntime:
         switches=redis,
         memo=redis,
         queue=redis,
+        strikes=RedisStrikeStore(redis),
     )
     if isinstance(ctx, dict):
         ctx[MEDIA_CTX_KEY] = runtime
@@ -694,6 +725,7 @@ async def fail_job(
     refund: MediaCreditReason | None,
     notify: bool = True,
     values: Mapping[str, Any] | None = None,
+    legal_hold: bool = False,
 ) -> bool:
     """Move the job to ``failed`` iff it is in ``expected``; refund, tell, clean up. True if moved.
 
@@ -701,6 +733,9 @@ async def fail_job(
     credit per job whatever the reason (§3.2.2) and none for a beta job (§7.5) — so a deadline
     followed by a late generation failure, or a variant failure followed by an output block,
     is one credit. A caller that loses the move does nothing else.
+
+    ``legal_hold`` puts the job's inputs and outputs under hold in the SAME transaction as the
+    move (§6.7), so the cleanup this enqueues can never reach them.
     """
     now = rt.clock()
     granted = False
@@ -716,6 +751,8 @@ async def fail_job(
         )
         if not moved:
             return False
+        if legal_hold:
+            await place_legal_hold(session, job_id, now=now, policy=_policy(rt))
         if refund is not None:
             # ``grant_refund`` refuses a job whose account asked to be forgotten (§9.3): a
             # credit would re-create the balance row and the ledger line /forget just erased.
@@ -745,6 +782,75 @@ def _failure_text(job: MediaJobRow, *, granted: bool) -> str:
 
 def _again(job: MediaJobRow) -> InlineKeyboardMarkup:
     return media_again_keyboard(job.language, job.id)
+
+
+# ---------------------------------------------------------------------------
+# Strikes and the hard rule (§6.4, §6.7)
+# ---------------------------------------------------------------------------
+async def _strike(
+    rt: MediaRuntime,
+    job: MediaJobRow,
+    *,
+    layer: str,
+    weight: int,
+    is_csam: bool,
+) -> None:
+    """Strike the account for one block. A Redis failure is logged, never fatal: the block
+    itself has already been recorded on the row, and a lost strike is a lost rate limit."""
+    try:
+        suspended = await record_block(
+            rt.strikes,
+            job.telegram_user_id,
+            event_id=f"{job.id}:{layer}",
+            weight=weight,
+            is_csam=is_csam,
+            now=rt.clock(),
+        )
+    except Exception as exc:  # the store raises on Redis failure; strikes are best-effort
+        _LOG.warning(
+            "a media strike could not be recorded",
+            extra={"media_job_id": str(job.id), "failure": type(exc).__name__},
+        )
+        return
+    if suspended is not None:
+        _LOG.warning(
+            "media is suspended for an account",
+            extra={"media_job_id": str(job.id), "reason": suspended.reason.value},
+        )
+
+
+async def _escalate_csam(
+    rt: MediaRuntime, job: MediaJobRow, *, layer: str, categories: Sequence[CategoryCode]
+) -> None:
+    """§6.7: the bytes are held (already, in the verdict's transaction); seal them to the
+    escalation owner and raise the alarm. The log line carries the job id, the layer and the
+    closed codes — never content, never a user-visible string. The escalation owner records
+    a reporting decision within ``legal_hold_expires_at`` (72 h)."""
+    report = await seal_held_objects(
+        rt.sessions,
+        rt.storage,
+        job.id,
+        public_key=rt.settings.media_legal_hold_recipient,
+    )
+    await _strike(rt, job, layer=layer, weight=CSAM_STRIKES, is_csam=True)
+    _LOG.error(
+        "CSAM-class media block: bytes held for the escalation owner",
+        extra={
+            "escalation": "csam",
+            "media_job_id": str(job.id),
+            "layer": layer,
+            "categories": [code.value for code in categories],
+            "sealed": report.sealed + report.already,
+            "seal_failed": report.failed,
+        },
+    )
+
+
+def _youth_in_words(job: MediaJobRow) -> bool:
+    """The youth signal from the request's own words (§6.4 item 1), for the image layers."""
+    return has_youth_signal(
+        [text for text in (job.prompt, job.narration_text, job.voice_transcript) if text]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -851,17 +957,24 @@ async def _store_collage(
 async def _screen(
     rt: MediaRuntime, job: MediaJobRow, inputs: Sequence[_Screened]
 ) -> tuple[MediaScreenDecision, tuple[CategoryCode, ...]]:
-    """L1/L2 through the moderator (§6.4). Any ``Err`` is ``unavailable`` — fail closed.
+    """L0, then L1/L2 through the moderator, then the hard rule (§6.4). Fail closed.
 
-    Only a prompt length check stands in for L0 here; the lexicons, normalisation and the
-    per-user screening budget are M3.1's, inside the real moderator.
+    L0 is caps and the denylist over the words, and a hit is a block with **no guard call**.
+    Any ``Err`` from a guard is ``unavailable``. The youth signal comes from the words and is
+    applied to the union of every guard's codes, so "schoolgirl" in the prompt and ``sexual``
+    on a photo meet here even though no single guard saw both (§6.4 hard rule).
     """
     prompt = job.prompt or ""
-    if not 3 <= len(prompt.strip()) <= 800:
+    narration = job.narration_text or ""
+    if not is_within_caps(prompt) or len(narration) > NARRATION_MAX_CHARS:
         return MediaScreenDecision.BLOCK, ()
     texts = [TextItem(id="prompt", subject="prompt", content=prompt)]
-    if job.narration_text:
-        texts.append(TextItem(id="narration", subject="narration", content=job.narration_text))
+    if narration:
+        texts.append(TextItem(id="narration", subject="narration", content=narration))
+    youth = has_youth_signal([text.content for text in texts])
+    hits = [hit.category for text in texts for hit in denylist_hits(text.content)]
+    if hits:
+        return apply_hard_rule(MediaScreenDecision.BLOCK, hits, youth_signal=youth)
     verdicts: list[Result[MediaVerdict]] = [
         await rt.moderator.screen_text(texts, policy=MEDIA_POLICY_VERSION)
     ]
@@ -883,7 +996,7 @@ async def _screen(
             continue
         decisions.append(verdict.value.decision)
         categories.extend(code for code in verdict.value.categories if code not in categories)
-    return strictest(decisions), tuple(categories)
+    return apply_hard_rule(strictest(decisions), categories, youth_signal=youth)
 
 
 async def _quote_eta_minutes(
@@ -925,7 +1038,11 @@ async def _refuse(
     key: str,
     error_code: MediaErrorCode,
     values: Mapping[str, Any],
+    legal_hold: bool = False,
+    with_buttons: bool = True,
 ) -> bool:
+    """``screening → rejected`` and the refusal on the tray. ``legal_hold`` holds the inputs
+    in the SAME transaction as the verdict (§6.7), before the cleanup this enqueues runs."""
     now = rt.clock()
     async with rt.sessions.begin() as session:
         moved = await transition(
@@ -937,10 +1054,11 @@ async def _refuse(
             values={"error_code": error_code.value, **dict(values)},
             policy=_policy(rt),
         )
+        if moved and legal_hold:
+            await place_legal_hold(session, job.id, now=now, policy=_policy(rt))
     if moved:
-        await _show_tray(
-            rt, job, _translate(job, key), media_refused_keyboard(job.language, job.id)
-        )
+        markup = media_refused_keyboard(job.language, job.id) if with_buttons else None
+        await _show_tray(rt, job, _translate(job, key), markup)
         await enqueue_stage(rt, MEDIA_CLEANUP_JOB, str(job.id), job_id=cleanup_job_id(job.id))
     return moved
 
@@ -973,6 +1091,9 @@ async def media_screen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
         rows = await list_inputs(session, jid) if job is not None else []
     if job is None or job.state is not MediaJobState.SCREENING:
         return _result("noop_not_screening", jid)
+    gated = await _screen_gate(rt, job)
+    if gated is not None:
+        return gated
     workdir = media_workspace(rt, jid) / "in"
 
     # 1. The uploads, once each, as screened bytes.
@@ -1019,15 +1140,22 @@ async def media_screen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
         "content_sha256": digest,
     }
     if decision in (MediaScreenDecision.BLOCK, MediaScreenDecision.REVIEW):
-        # Pre-pay review is a refusal for the customer (§6.4), non-specific (SEC-3).
-        await _refuse(
+        # Pre-pay review is a refusal for the customer (§6.4), non-specific (SEC-3) — the
+        # CSAM-class refusal reads exactly like any other. A block strikes; a review does not.
+        is_csam = is_csam_class(decision, categories)
+        refused = await _refuse(
             rt,
             job,
             key=_REFUSED_KEY,
-            error_code=MediaErrorCode.SCREEN_REFUSED,
+            error_code=MediaErrorCode.CSAM_BLOCKED if is_csam else MediaErrorCode.SCREEN_REFUSED,
             values=screen_values,
+            legal_hold=is_csam,
         )
-        return _result("refused", jid, decision=decision.value)
+        if refused and is_csam:
+            await _escalate_csam(rt, job, layer="prepay", categories=categories)
+        elif refused and decision is MediaScreenDecision.BLOCK:
+            await _strike(rt, job, layer="prepay", weight=PREPAY_BLOCK_STRIKES, is_csam=False)
+        return _result("refused", jid, decision=decision.value, csam=is_csam)
     if decision is MediaScreenDecision.UNAVAILABLE:
         await _busy(rt, job, screen_values)
         return _result("busy_unscreened", jid)
@@ -1075,6 +1203,40 @@ async def media_screen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
     )
     await _show_tray(rt, job, text, markup)
     return _result("quoted", jid, eta=eta_minutes)
+
+
+async def _screen_gate(rt: MediaRuntime, job: MediaJobRow) -> dict[str, Any] | None:
+    """§6.4 L0, before a byte is downloaded: a suspended account, or one past today's
+    screening budget, is refused unscreened — and not struck, since nothing was judged.
+
+    The budget counts this JOB once, so a 🔁 on a busy tray does not spend twice. A Redis
+    that cannot answer is ``busy``: the suspension could not be read, so nothing is screened.
+    """
+    now = rt.clock()
+    try:
+        suspended = await rt.strikes.suspension(job.telegram_user_id, now=now)
+        screens = await rt.strikes.count_screen(job.telegram_user_id, job_id=str(job.id), now=now)
+    except Exception as exc:  # the store raises on Redis failure; fail closed
+        _LOG.warning(
+            "the media strike store could not be read",
+            extra={"media_job_id": str(job.id), "failure": type(exc).__name__},
+        )
+        await _busy(rt, job, {})
+        return _result("busy_strikes_unreadable", job.id)
+    if suspended is not None:
+        await _refuse(
+            rt,
+            job,
+            key=_SUSPENDED_KEY,
+            error_code=MediaErrorCode.SCREEN_SUSPENDED,
+            values={},
+            with_buttons=False,
+        )
+        return _result("refused_suspended", job.id, reason=suspended.reason.value)
+    if screens > rt.settings.media_screen_daily_budget:
+        await _refuse(rt, job, key=_REFUSED_KEY, error_code=MediaErrorCode.SCREEN_BUDGET, values={})
+        return _result("refused_budget", job.id, screens=screens)
+    return None
 
 
 async def _screen_input_failure(rt: MediaRuntime, job: MediaJobRow, failure: Err) -> dict[str, Any]:
@@ -2206,6 +2368,8 @@ async def media_output_screen(ctx: Mapping[str, Any], job_id: str, seq: int = 0)
         )
         if not is_err(verdict):
             decision, categories = verdict.value.decision, verdict.value.categories
+    # The words' youth signal meets the pictures' codes here (§6.4 hard rule).
+    decision, categories = apply_hard_rule(decision, categories, youth_signal=_youth_in_words(job))
     values: dict[str, Any] = {
         "output_decision": decision,
         "output_categories": [code.value for code in categories],
@@ -2220,15 +2384,24 @@ async def media_output_screen(ctx: Mapping[str, Any], job_id: str, seq: int = 0)
         await enqueue_stage(rt, MEDIA_DELIVER_JOB, str(jid), job_id=deliver_job_id(jid))
         return _result("allowed", jid)
     if decision is MediaScreenDecision.BLOCK:
-        await fail_job(
+        # Either image blocked fails the whole request: nothing is delivered, one credit,
+        # two strikes (§6.4 L4). A CSAM-class block holds every input and output in the move's
+        # own transaction (§6.7).
+        is_csam = is_csam_class(decision, categories)
+        failed = await fail_job(
             rt,
             jid,
             expected=(MediaJobState.POST,),
-            error_code=MediaErrorCode.OUTPUT_BLOCKED,
+            error_code=MediaErrorCode.CSAM_BLOCKED if is_csam else MediaErrorCode.OUTPUT_BLOCKED,
             refund=MediaCreditReason.OUTPUT_BLOCKED,
             values=values,
+            legal_hold=is_csam,
         )
-        return _result("blocked", jid)
+        if failed and is_csam:
+            await _escalate_csam(rt, job, layer="output", categories=categories)
+        elif failed:
+            await _strike(rt, job, layer="output", weight=OUTPUT_BLOCK_STRIKES, is_csam=False)
+        return _result("blocked", jid, csam=is_csam)
     give_up = decision is MediaScreenDecision.REVIEW or (
         timedelta(seconds=_OSCREEN_RETRY_S) * (seq + 1) >= _OSCREEN_GIVE_UP
     )
@@ -2410,7 +2583,8 @@ async def _delivery_failed(
 # ---------------------------------------------------------------------------
 async def media_cleanup(ctx: Mapping[str, Any], job_id: str) -> dict[str, Any]:
     """Delete the uploads (objects and rows), the intermediates and the workspace of a
-    finished job — **skipping every legal-hold row** (§6.7). Idempotent.
+    finished job — **skipping every legal-hold row**, whose objects it seals instead (§6.7).
+    Idempotent.
 
     The gateway keeps its own copy of every input it was sent; deleting that (G6, §9.2) is a
     gateway change the owner makes, so it is not called from here yet.
@@ -2423,6 +2597,10 @@ async def media_cleanup(ctx: Mapping[str, Any], job_id: str) -> dict[str, Any]:
         return _result("noop_not_terminal", jid)
     keys: tuple[str, ...] = ()
     if job is not None:
+        # Held bytes stay — sealed, if the stage that held them died before sealing (§6.7).
+        await seal_held_objects(
+            rt.sessions, rt.storage, jid, public_key=rt.settings.media_legal_hold_recipient
+        )
         async with rt.sessions.begin() as session:
             keys = await cleanup_job_media(session, jid)
         await _gpu_call("leave", rt.gpu.leave(*_members(job)), None)

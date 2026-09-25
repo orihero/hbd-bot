@@ -848,6 +848,10 @@ CATALOGUE: Final[dict[str, str]] = {
         "🖼️ <b>2 images</b> · {aspect} · <b>{price} UZS</b>\nReady in about {eta}."
     ),
     "media.refused": "🚫 We can't make this one. Please change your description or photos.",
+    "media.refused.suspended": (
+        "⛔ Creating images and videos is paused for your account. Contact /support if you "
+        "think this is a mistake."
+    ),
     "media.compose.unsupported": (
         "⚠️ One of the files can't be used. Please send ordinary photos (JPEG, PNG or "
         "WebP), not animations."

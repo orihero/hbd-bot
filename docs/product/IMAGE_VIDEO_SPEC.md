@@ -1151,6 +1151,17 @@ upload, collage, output image or frame — is a block at a low fixed threshold
 L4/L5 block = 2; 3 strikes in 7 days → `media:suspended:{tg}` for 7 days
 (`media.refused.suspended`); a CSAM-class block → suspended until an admin clears it.
 
+*As built (M3.1):* a pre-pay `review` refuses but does not strike (nothing was judged unsafe);
+strikes are keyed by job + layer, so a redelivered stage adds none. The suspension check and
+the screening budget run first in `media_screen`, before any download; the budget counts a
+**job** once (a 🔁 on a busy tray is not a second screening), and a refusal for either is not a
+strike. A CSAM-class suspension is lifted only by `python -m bayram.tools.media unsuspend <tg>`.
+The hard rule is applied in `media_screen` and `media_output_screen` over the union of every
+guard's codes with the youth signal of the request's own words, so "schoolgirl" in the prompt
+and `sexual` on a photo meet even though no single guard saw both. G2's non-sexual thresholds
+(`moderation/policy.py`: `dangerous` and `violence` review 0.35 / block 0.6; the custom minor
+policy blocks at 0.1) are placeholders until M3.3's calibration.
+
 ### 6.5 Gateway-side work the owner does on the 5090
 
 | # | Endpoint / change | Contract |
@@ -1191,7 +1202,12 @@ On a CSAM-class block (hard rule, §6.4):
 - **Never revealable in the admin panel.** The admin sees job id, category codes, sha256 and time
   only; no reveal subject exists for held bytes and no step-up unlocks them.
 - Bytes are **encrypted at rest with a key held only by the named escalation owner** and are
-  accessed out of band.
+  accessed out of band. *As built (M3.1):* each held object is sealed in place to the owner's
+  X25519 public key (`BAYRAM_MEDIA_LEGAL_HOLD_RECIPIENT`; ephemeral ECDH + HKDF-SHA256 +
+  AES-256-GCM, `moderation/legal_hold.py`) right after the hold commits, and again by
+  `media_cleanup` if the stage died in between. The host holds the public key only; the owner
+  generates the pair and opens an object with `python -m bayram.tools.legal_hold`. The rows keep
+  the `sha256` of the original bytes. Boot refuses an offered SKU without a valid key.
 - **Deadline:** the escalation owner records a reporting decision within **72 h**
   (`legal_hold_expires_at`); at expiry the bytes are deleted (hash + metadata kept) unless the
   decision was to hand them to the authorities, which is logged.
@@ -1424,7 +1440,10 @@ BAYRAM_GENAI_VIDEO_MODEL=wan
 BAYRAM_GENAI_SCRIPT_MODEL=qwen3.8:27b-q4_K_M
 BAYRAM_MEDIA_MODERATOR=gateway          # gateway|fake (fake refuses to boot with media offered)
 BAYRAM_MEDIA_MODERATOR_BASE_URL=        # defaults to GENAI_BASE_URL; a hosted guard endpoint (D24 fallback)
+BAYRAM_MEDIA_GUARD_TEXT_ROUTE=moderate  # moderate (G1 endpoint) | chat (interim Qwen3Guard on /v1/chat/completions)
+BAYRAM_MEDIA_GUARD_TIMEOUT_S=15
 BAYRAM_MEDIA_SEXUAL_IMAGE_BLOCK_P=0.2
+BAYRAM_MEDIA_LEGAL_HOLD_RECIPIENT=     # escalation owner's X25519 public key, base64 (§6.7); required with media offered
 BAYRAM_MEDIA_MAX_COST_SHARE=0.5
 BAYRAM_MEDIA_UZS_PER_USD=                # margin check only; needed once a SKU is on a backend that costs money
 # --- voice

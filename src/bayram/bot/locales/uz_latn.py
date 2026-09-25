@@ -844,6 +844,10 @@ CATALOGUE: Final[dict[str, str]] = {
         "🖼️ <b>2 ta rasm</b> · {aspect} · <b>{price} soʻm</b>\nTaxminan {eta} ichida tayyor boʻladi."
     ),
     "media.refused": "🚫 Buni yarata olmaymiz. Iltimos, tavsif yoki rasmlarni oʻzgartiring.",
+    "media.refused.suspended": (
+        "⛔ Hisobingiz uchun rasm va video yaratish toʻxtatilgan. Agar bu xato deb "
+        "hisoblasangiz, /support orqali yozing."
+    ),
     "media.compose.unsupported": (
         "⚠️ Fayllardan birini ishlatib boʻlmaydi. Oddiy rasm yuboring (JPEG, PNG yoki "
         "WebP), animatsiya emas."

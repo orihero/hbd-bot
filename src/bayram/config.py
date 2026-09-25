@@ -819,6 +819,27 @@ class Settings(BaseSettings):
     #: ``gateway`` screens on the owner's 5090 (D24, M3); ``fake`` allows everything and is
     #: for tests — boot refuses it with any SKU offered unless ``use_fake_providers`` (§4.5).
     media_moderator: MediaModeratorName = Field(default="gateway")
+    #: Where the guards (G1–G3, G8) answer. Empty means ``genai_base_url``: they run on the
+    #: same 5090. A hosted endpoint serving the same contract is the D24 fallback, reached
+    #: by changing this and nothing else (§6.2). Same key and Access token as the gateway.
+    media_moderator_base_url: str = Field(default="", max_length=255)
+    #: How G1 is reached (§6.5): ``moderate`` is the dedicated ``POST /v1/moderate/text``;
+    #: ``chat`` is the interim — Qwen3Guard exposed on ``/v1/chat/completions`` and its
+    #: ``Safety: … / Categories: …`` text parsed strictly by us.
+    media_guard_text_route: Literal["moderate", "chat"] = Field(default="moderate")
+    #: One guard call. G7 asks for ≤ 10 s p95 while Wan renders; past this it is
+    #: ``unavailable`` — ``media.busy`` before payment (§6.4).
+    media_guard_timeout_s: float = Field(default=15.0, gt=0.0, le=120.0)
+    #: Zero-tolerance nudity (§6.4): ShieldGemma's ``sexually_explicit`` at or above this on
+    #: ANY image blocks, whatever else is known. Low and fixed until M3.3 recalibrates it.
+    media_sexual_image_block_p: float = Field(default=0.2, gt=0.0, lt=1.0)
+    #: Screenings one account may run per UTC day (§6.4 L0): a guard that answers without
+    #: limit is an oracle for probing the policy. Over it the request is refused unscreened.
+    media_screen_daily_budget: int = Field(default=10, ge=1, le=1_000)
+    #: The escalation owner's X25519 PUBLIC key, base64 (§6.7). CSAM-class bytes are sealed
+    #: to it; only the matching private key — held by the owner, never by this host — opens
+    #: them (``python -m bayram.tools.legal_hold``). Not a secret. Required with media offered.
+    media_legal_hold_recipient: str = Field(default="", max_length=64)
 
     # -- media: the stage chain (IMAGE_VIDEO_SPEC §3.3–§3.5) ------------------
     #: How long a frozen, unpaid request (``drafting``/``screening``/``quoted``) lives before

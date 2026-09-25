@@ -11,8 +11,10 @@ from bayram.config import ENV_FILE_VAR, Settings
 from bayram.errors import ConfigError
 from bayram.main import refuse_an_unsafe_checkout_rail
 from bayram.media.boot import refuse_unsafe_media_config
+from bayram.moderation.legal_hold import generate_keypair
 
 OWNER_ID = 1_000_001
+_, PUBLIC_KEY = generate_keypair()
 
 
 @pytest.fixture
@@ -20,7 +22,11 @@ def base(settings: Settings, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     """Settings with the gateway configured and the boot check's dotenv scan pointed nowhere."""
     monkeypatch.setenv(ENV_FILE_VAR, str(tmp_path / "no-such.env"))
     return settings.model_copy(
-        update={"genai_base_url": "https://genai.example.test", "genai_api_key": "k"}
+        update={
+            "genai_base_url": "https://genai.example.test",
+            "genai_api_key": "k",
+            "media_legal_hold_recipient": PUBLIC_KEY,
+        }
     )
 
 
@@ -189,3 +195,27 @@ def test_plain_http_on_loopback_is_a_development_gateway(base: Settings) -> None
 def test_a_plain_http_gateway_with_no_sku_on_it_boots(base: Settings) -> None:
     # Nothing is sent to it: media is off.
     refuse_unsafe_media_config(_with(base, genai_base_url="http://203.0.113.7:5174"))
+
+
+# ---------------------------------------------------------------------------
+# M3.1: the guards and the legal hold (IMAGE_VIDEO_SPEC §6.2, §6.7)
+# ---------------------------------------------------------------------------
+def test_an_offered_sku_whose_legal_hold_cannot_be_sealed_refuses(base: Settings) -> None:
+    for key in ("", "not-base64!", "c2hvcnQ="):
+        with pytest.raises(ConfigError, match="BAYRAM_MEDIA_LEGAL_HOLD_RECIPIENT"):
+            refuse_unsafe_media_config(_beta(base, media_legal_hold_recipient=key))
+
+
+def test_the_guards_default_to_the_gateway_and_may_live_elsewhere(base: Settings) -> None:
+    refuse_unsafe_media_config(_beta(base))
+    refuse_unsafe_media_config(_beta(base, media_moderator_base_url="https://guards.example.test"))
+
+
+def test_a_guard_address_on_plain_http_refuses(base: Settings) -> None:
+    with pytest.raises(ConfigError, match="guard address"):
+        refuse_unsafe_media_config(_beta(base, media_moderator_base_url="http://203.0.113.9:8000"))
+
+
+def test_a_fake_moderator_with_media_offered_still_refuses(base: Settings) -> None:
+    with pytest.raises(ConfigError, match="BAYRAM_MEDIA_MODERATOR"):
+        refuse_unsafe_media_config(_beta(base, media_moderator="fake"))

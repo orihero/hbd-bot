@@ -46,9 +46,11 @@ __all__ = [
 
 #: The policy the stored decisions were made under (§6.3). ``media_start`` refuses a job whose
 #: ``screen_policy_version`` is not this one (§2.3.1), so bumping it re-screens every unpaid
-#: quote rather than letting an old verdict start a render. M3.1's ``moderation/policy.py``
-#: owns the real one; this is the placeholder the fake and the fail-closed stub stamp.
-MEDIA_POLICY_VERSION: Final[str] = "m2-seam-1"
+#: quote rather than letting an old verdict start a render. It versions everything in
+#: ``moderation/policy.py`` (label mapping, thresholds, the hard rule) and
+#: ``moderation/lexicon.py`` (the denylist and youth lexicon): change either, bump this.
+#: Defined here rather than in ``policy`` because every verdict carries it.
+MEDIA_POLICY_VERSION: Final[str] = "m3.1-2026-09-25"
 
 
 class CategoryCode(StrEnum):

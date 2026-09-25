@@ -51,6 +51,11 @@ class FakeModerator:
     decisions: dict[str, MediaScreenDecision] = field(default_factory=dict)
     #: Category codes reported with a non-allow decision, by subject.
     categories: dict[str, tuple[CategoryCode, ...]] = field(default_factory=dict)
+    #: Decision by item id (``output-1``), consulted before :attr:`decisions` — how a test
+    #: blocks ONE of two images that share a subject.
+    item_decisions: dict[str, MediaScreenDecision] = field(default_factory=dict)
+    #: Category codes by item id, for :attr:`item_decisions`.
+    item_categories: dict[str, tuple[CategoryCode, ...]] = field(default_factory=dict)
     #: When set, every call answers ``Err(failure)`` — a guard that did not answer.
     failure: BayramError | None = None
     #: Failures handed out by the next calls, in order, before :attr:`failure` is consulted.
@@ -60,19 +65,31 @@ class FakeModerator:
     )
     calls: list[FakeScreenCall] = field(default_factory=list)
 
-    def _verdict(self, subjects: Sequence[VerdictSubject], *, policy: str) -> MediaVerdict:
-        worst: tuple[MediaScreenDecision, VerdictSubject] | None = None
+    def _verdict(
+        self,
+        subjects: Sequence[VerdictSubject],
+        *,
+        policy: str,
+        item_ids: Sequence[str] = (),
+    ) -> MediaVerdict:
+        worst: tuple[MediaScreenDecision, VerdictSubject, tuple[CategoryCode, ...]] | None = None
         order = (
             MediaScreenDecision.BLOCK,
             MediaScreenDecision.REVIEW,
             MediaScreenDecision.UNAVAILABLE,
         )
-        for subject in subjects:
-            decision = self.decisions.get(subject, MediaScreenDecision.ALLOW)
+        ids = list(item_ids) or [""] * len(subjects)
+        for subject, item_id in zip(subjects, ids, strict=False):
+            if item_id in self.item_decisions:
+                decision = self.item_decisions[item_id]
+                codes = self.item_categories.get(item_id, ())
+            else:
+                decision = self.decisions.get(subject, MediaScreenDecision.ALLOW)
+                codes = self.categories.get(subject, ())
             if decision is MediaScreenDecision.ALLOW:
                 continue
             if worst is None or order.index(decision) < order.index(worst[0]):
-                worst = (decision, subject)
+                worst = (decision, subject, codes)
         if worst is None:
             subject = subjects[0] if subjects else "prompt"
             return MediaVerdict(
@@ -83,8 +100,7 @@ class FakeModerator:
                 model_id=self.name,
                 policy_version=policy,
             )
-        decision, subject = worst
-        codes = self.categories.get(subject, ())
+        decision, subject, codes = worst
         return MediaVerdict(
             decision=decision,
             categories=codes,
@@ -109,7 +125,7 @@ class FakeModerator:
         failure = self._failure()
         if failure is not None:
             return err(failure)
-        return ok(self._verdict(subjects, policy=policy))
+        return ok(self._verdict(subjects, policy=policy, item_ids=[item.id for item in items]))
 
     async def screen_images(
         self, items: Sequence[ImageItem], *, policy: str
@@ -123,7 +139,7 @@ class FakeModerator:
         failure = self._failure()
         if failure is not None:
             return err(failure)
-        return ok(self._verdict(subjects, policy=policy))
+        return ok(self._verdict(subjects, policy=policy, item_ids=[item.id for item in items]))
 
     async def transcribe(self, audio: Path, *, language_hint: str) -> Result[VoiceTranscript]:
         self.calls.append(FakeScreenCall(kind="transcribe", subjects=("transcript",), item_ids=()))

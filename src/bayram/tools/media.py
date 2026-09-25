@@ -8,6 +8,7 @@ module's functions, so there is one spelling of each key and one truthiness rule
     backend <sku> <local|higgsfield|fal|fake|env>   route NEW submits; ``env`` clears it
     reserve --minutes N / release           the GPU reserved window (O11)
     doctor [--contract] [--release]         is the local gateway fit for customers (§9.1)
+    unsuspend <telegram_id>                 lift a media suspension and forget the strikes (§6.4)
 
 ``<sku>`` is ``image``, ``video_standard`` or ``video_fast``. The switches live in Redis, a
 cache in this deployment: a restart without persistence clears them, so re-run ``status``
@@ -17,6 +18,9 @@ after any Redis restart (the ``bayram.payme.pause`` caveat, inherited).
 12-media-gateway §2.4). ``--contract`` also diffs the live ``/openapi.json`` — the spec's
 ``make gateway-contract``. ``--release`` is how ``bayram-release``'s verify step runs it
 (§9.1 item 4): red fails the release only while an offered SKU routes to the gateway.
+
+``unsuspend`` is the only way a CSAM-class suspension ends (§6.4): it never expires on its
+own. Lift one only after the escalation owner's review of the held job (§6.7).
 
 Exit codes: ``0`` done, ``1`` refused (bad input; nothing written), ``2`` configuration or
 Redis failure (nothing written), ``3`` ``doctor`` found a failing check.
@@ -46,6 +50,7 @@ from bayram.media.overrides import (
     set_gpu_reserved_until,
     set_paused,
 )
+from bayram.moderation.strikes import RedisStrikeStore
 from bayram.tools.media_doctor import run_doctor, uses_the_gateway
 
 __all__ = ["main", "plan", "apply", "Request", "RefusedError"]
@@ -72,6 +77,7 @@ class Request:
     minutes: int | None = None
     contract: bool = False
     release: bool = False
+    telegram_user_id: int | None = None
 
 
 def _sku(raw: str) -> MediaSku:
@@ -102,6 +108,16 @@ def _minutes(raw: str) -> int:
     return value
 
 
+def _telegram_id(raw: str) -> int:
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise RefusedError(f"'{raw}' is not a Telegram user id") from exc
+    if value <= 0:
+        raise RefusedError("a Telegram user id is positive")
+    return value
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="python -m bayram.tools.media", description=__doc__)
     sub = parser.add_subparsers(dest="verb", required=True)
@@ -121,6 +137,7 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="bayram-release's verify step: red fails only while a SKU uses the gateway",
     )
+    sub.add_parser("unsuspend", help="lift a media suspension (§6.4)").add_argument("telegram_id")
     return parser
 
 
@@ -139,6 +156,8 @@ def plan(argv: Sequence[str]) -> Request:
         return Request(verb=verb, minutes=_minutes(args.minutes))
     if verb == "doctor":
         return Request(verb=verb, contract=bool(args.contract), release=bool(args.release))
+    if verb == "unsuspend":
+        return Request(verb=verb, telegram_user_id=_telegram_id(args.telegram_id))
     return Request(verb=verb)
 
 
@@ -197,6 +216,11 @@ async def _run(request: Request) -> str:
     settings = build_settings(require_vendor_secrets=False)
     redis: Redis[bytes] = Redis.from_url(settings.redis_url)
     try:
+        if request.verb == "unsuspend":
+            assert request.telegram_user_id is not None
+            lifted = await RedisStrikeStore(redis).clear(request.telegram_user_id)
+            state = "lifted" if lifted else "no suspension or strikes were recorded"
+            return f"{request.telegram_user_id}: {state}"
         return await apply(redis, settings, request, now=datetime.now(tz=UTC))
     finally:
         await redis.aclose()  # type: ignore[attr-defined]

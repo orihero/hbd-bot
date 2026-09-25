@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Final
 from uuid import UUID, uuid4
 
+import sqlalchemy as sa
 from aiogram.types import InlineKeyboardMarkup
 from arq.worker import Retry
 from PIL import Image
@@ -51,6 +52,7 @@ from bayram.media.stages import (
     MEDIA_SUBMIT_JOB,
 )
 from bayram.moderation.fake import FakeModerator
+from bayram.moderation.strikes import MemoryStrikeStore
 from bayram.providers.media.fake import FakeMediaProvider
 from bayram.runtime.gpu_lock import MemoryGpuSlotStore
 from bayram.runtime.media_jobs import (
@@ -298,6 +300,7 @@ class Harness:
     hooked: HookedProvider
     gpu: MemoryGpuSlotStore
     kv: MemoryKV
+    strikes: MemoryStrikeStore
     clock: MovingClock
     sessions: async_sessionmaker[AsyncSession]
     storage: LocalFileStorage
@@ -373,6 +376,7 @@ def build_harness(
     hooked = HookedProvider(provider)
     gpu = MemoryGpuSlotStore()
     kv = MemoryKV()
+    strikes = MemoryStrikeStore()
     storage = LocalFileStorage(tmp_path / "archive")
     workspace = tmp_path / "workspace"
     rt = MediaRuntime(
@@ -387,6 +391,7 @@ def build_harness(
         switches=kv,
         memo=kv,
         queue=queue,
+        strikes=strikes,
         clock=clock,
     )
     return Harness(
@@ -398,6 +403,7 @@ def build_harness(
         hooked=hooked,
         gpu=gpu,
         kv=kv,
+        strikes=strikes,
         clock=clock,
         sessions=sessions,
         storage=storage,
@@ -417,9 +423,15 @@ async def freeze_job(
     """What the bot's aspect pick does (M2.5): a ``screening`` row and its uploads' ids."""
     now = harness.clock()
     async with harness.sessions.begin() as session:
-        user_id = uuid4()
-        session.add(UserRow(id=user_id, telegram_user_id=user))
-        await session.flush()
+        # A second request from the same account reuses its user row (``telegram_user_id``
+        # is unique), as the bot's freeze does.
+        existing = await session.scalar(
+            sa.select(UserRow.id).where(UserRow.telegram_user_id == user)
+        )
+        user_id = existing if existing is not None else uuid4()
+        if existing is None:
+            session.add(UserRow(id=user_id, telegram_user_id=user))
+            await session.flush()
         job_id = await create_job(
             session,
             user_id=user_id,
