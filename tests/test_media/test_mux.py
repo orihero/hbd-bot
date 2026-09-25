@@ -26,9 +26,11 @@ from bayram.media.mux import (
     FfmpegVideoTools,
     VideoProbe,
     audio_fit,
+    geometry_filter,
     is_streamable,
     mux_args,
     narration_filter,
+    normalise_args,
     parse_video_probe,
 )
 from bayram.providers.media.fake import fake_clip_bytes
@@ -121,6 +123,16 @@ def test_only_even_h264_yuv420p_is_streamable_as_is() -> None:
     assert not is_streamable(dataclasses.replace(base, width=721))
 
 
+def test_a_target_geometry_covers_and_crops_to_exactly_that_size() -> None:
+    # §4.3: Kling drifts (716×1284 for 720×1280); the clip is made exactly the target.
+    chain = geometry_filter((720, 1280))
+
+    assert chain == "scale=720:1280:force_original_aspect_ratio=increase,crop=720:1280,setsar=1"
+    assert geometry_filter(None) == "scale=trunc(iw/2)*2:trunc(ih/2)*2"
+    args = normalise_args("ffmpeg", Path("in.mp4"), Path("out.mp4.part"), target=(720, 1280))
+    assert args[args.index("-vf") + 1] == chain
+
+
 # ---------------------------------------------------------------------------
 # The real ffmpeg
 # ---------------------------------------------------------------------------
@@ -153,6 +165,20 @@ async def test_normalise_reads_the_clip_and_keeps_its_shape(
     assert (made.value.width, made.value.height) == (144, 256)
     assert made.value.duration_s == pytest.approx(_CLIP_S, abs=_SLACK_S)
     assert is_streamable(made.value) and not made.value.has_audio
+
+
+@requires_ffmpeg
+async def test_normalise_to_a_target_makes_the_clip_exactly_that_size(
+    tools: FfmpegVideoTools, clip: Path, tmp_path: Path
+) -> None:
+    made = await tools.normalise(clip, tmp_path / "video-raw.mp4", target=(160, 288))
+    same = await tools.normalise(clip, tmp_path / "video-same.mp4", target=(144, 256))
+
+    assert not is_err(made), made
+    assert (made.value.width, made.value.height) == (160, 288)
+    assert made.value.duration_s == pytest.approx(_CLIP_S, abs=_SLACK_S)
+    assert is_streamable(made.value) and not made.value.has_audio
+    assert not is_err(same) and (same.value.width, same.value.height) == (144, 256)
 
 
 @requires_ffmpeg

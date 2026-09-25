@@ -14,7 +14,8 @@ fails silently and on the money path, and nothing else in the process would noti
    and key for ``local`` — the address on HTTPS (loopback excepted) with no ``?api_key=`` in
    it (§9.1) — and a margin (§4.3).
 5. **The gateway models are on the allowlist** (§4.2), always — so ``zootopia`` cannot be
-   configured even for a SKU that is off today and switched on tomorrow.
+   configured even for a SKU that is off today and switched on tomorrow. Higgsfield's two
+   model settings are held to ``HIGGSFIELD_MODELS`` the same way (§4.3).
 6. **The Cloudflare Access service token is both halves or neither** (§9.1 item 2): one
    without the other sends a header Access rejects, and every submit would fail as a
    refused credential with nothing saying which variable is missing.
@@ -49,6 +50,7 @@ from bayram.media.offering import (
 )
 from bayram.moderation.factory import is_gateway_host, moderator_base_url
 from bayram.moderation.legal_hold import parse_public_key
+from bayram.providers.media.higgsfield import HIGGSFIELD_MODELS
 from bayram.providers.media.local_gateway import (
     LOCAL_MODEL_ALLOWLIST,
     MODEL_KINDS,
@@ -59,9 +61,11 @@ __all__ = ["refuse_unsafe_media_config", "BUILT_BACKENDS"]
 
 _LOG = get_logger(__name__)
 
-#: Backends with a working adapter. Higgsfield and fal arrive in M6 (§4.3); an offered SKU
-#: pointed at one before then would quote a product nothing can render.
-BUILT_BACKENDS: Final[frozenset[MediaBackend]] = frozenset({MediaBackend.LOCAL, MediaBackend.FAKE})
+#: Backends with a working adapter. Higgsfield landed in M6.1 (§4.3); fal has none yet, and an
+#: offered SKU pointed at it would quote a product nothing can render.
+BUILT_BACKENDS: Final[frozenset[MediaBackend]] = frozenset(
+    {MediaBackend.LOCAL, MediaBackend.FAKE, MediaBackend.HIGGSFIELD}
+)
 
 
 def _var(field: str) -> str:
@@ -146,6 +150,18 @@ def _refuse_models_off_the_allowlist(settings: Settings) -> None:
                 f"{_var(field)} is '{model}', which is not an allowlisted {kind} model "
                 f"({', '.join(sorted(LOCAL_MODEL_ALLOWLIST))}). The gateway serves other "
                 "models; bayram must never ask for them (IMAGE_VIDEO_SPEC §4.2).",
+                field=field,
+                model=model,
+            )
+
+    for field, kind in (("higgsfield_image_model", "image"), ("higgsfield_video_model", "video")):
+        model = str(getattr(settings, field))
+        entry = HIGGSFIELD_MODELS.get(model)
+        if entry is None or entry.kind != kind:
+            allowed = sorted(key for key, value in HIGGSFIELD_MODELS.items() if value.kind == kind)
+            raise _refuse(
+                f"{_var(field)} is '{model}', which is not an allowlisted Higgsfield {kind} "
+                f"model ({', '.join(allowed)}) (IMAGE_VIDEO_SPEC §4.3).",
                 field=field,
                 model=model,
             )
@@ -241,6 +257,8 @@ def _refuse_an_unsellable_sku(settings: Settings, sku: MediaSku) -> None:
             "BAYRAM_GENAI_API_KEY is unset.",
             sku=sku.value,
         )
+    if backend is MediaBackend.HIGGSFIELD:
+        _refuse_an_unreachable_higgsfield(settings, offered_var, sku)
     refusal = base_url_refusal(settings.genai_base_url) if backend is MediaBackend.LOCAL else None
     if refusal is not None:
         # §9.1 items 2–3: the doctor's ``base url`` / ``key in url`` rows, made a boot refusal,
@@ -257,4 +275,20 @@ def _refuse_an_unsellable_sku(settings: Settings, sku: MediaSku) -> None:
             "(IMAGE_VIDEO_SPEC §4.3).",
             sku=sku.value,
             backend=backend.value,
+        )
+
+
+def _refuse_an_unreachable_higgsfield(settings: Settings, offered_var: str, sku: MediaSku) -> None:
+    """A SKU on Higgsfield needs the key pair and an HTTPS API host (§4.3, §9.5)."""
+    if not (settings.higgsfield_api_key_id.strip() and settings.higgsfield_api_secret.strip()):
+        raise _refuse(
+            f"{offered_var} is true on higgsfield but BAYRAM_HIGGSFIELD_API_KEY_ID or "
+            "BAYRAM_HIGGSFIELD_API_SECRET is unset (IMAGE_VIDEO_SPEC §4.3).",
+            sku=sku.value,
+        )
+    if not settings.higgsfield_base_url.strip().startswith("https://"):
+        raise _refuse(
+            f"{offered_var} is true on higgsfield but BAYRAM_HIGGSFIELD_BASE_URL is not an "
+            "https:// URL: the key rides every call (IMAGE_VIDEO_SPEC §4.3).",
+            sku=sku.value,
         )

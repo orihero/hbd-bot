@@ -197,7 +197,13 @@ class FakeVideoTools:
     async def probe(self, path: Path) -> Result[VideoProbe]:
         return ok(self.clip)
 
-    async def normalise(self, src: Path, dest: Path) -> Result[VideoProbe]:
+    #: The ``target`` each normalise was asked for (§4.3 geometry), in call order.
+    normalise_targets: list[tuple[int, int] | None] = field(default_factory=list)
+
+    async def normalise(
+        self, src: Path, dest: Path, *, target: tuple[int, int] | None = None
+    ) -> Result[VideoProbe]:
+        self.normalise_targets.append(target)
         shutil.copyfile(src, dest)
         return ok(self.clip)
 
@@ -415,11 +421,20 @@ class HookedProvider:
         self.inner = inner
         self.name = inner.name
         self.submit_hook: SubmitHook | None = None
+        #: What ``/estimate`` answers for a paid backend (§4.3): a figure, or an error.
+        self.estimate_usd: float | None = None
+        self.estimate_error: BayramError | None = None
+        self.estimates = 0
 
     def capabilities(self) -> MediaCapabilities:
         return self.inner.capabilities()
 
     async def estimate_cost(self, req: MediaRequest) -> Result[CostEstimate]:
+        self.estimates += 1
+        if self.estimate_error is not None:
+            return err(self.estimate_error)
+        if self.estimate_usd is not None:
+            return ok(CostEstimate(usd=self.estimate_usd, basis="exact"))
         return await self.inner.estimate_cost(req)
 
     async def submit(

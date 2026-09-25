@@ -29,11 +29,14 @@ __all__ = [
     "EXPECTED_ATTEMPTS_PER_OUTPUT",
     "PAYME_FEE_SHARE",
     "check_margin",
+    "static_usd_per_output",
+    "request_cost_ceiling_usd",
 ]
 
 #: The static cost table (§4.3 "from ``/estimate`` or the static table"). ``None`` = unknown
-#: until measured: Higgsfield and fal get figures in M6 from a real ``/estimate``, and their
-#: published prices disagree 10–30× between sources (research §6).
+#: until measured: published prices disagree 10–30× between sources (research §6). Higgsfield's
+#: figure is the operator's measured ``/estimate``, read from settings by
+#: :func:`static_usd_per_output`; fal has none until its adapter lands.
 STATIC_USD_PER_OUTPUT: Final[Mapping[MediaBackend, float | None]] = MappingProxyType(
     {
         # Cash cost only; the GPU and its power are the owner's (research §6, D21).
@@ -81,7 +84,9 @@ def check_margin(
     ``usd_per_output`` is a quote-time figure from the backend's ``/estimate``; without one
     the static table is used.
     """
-    per_output = STATIC_USD_PER_OUTPUT[backend] if usd_per_output is None else usd_per_output
+    per_output = (
+        static_usd_per_output(settings, sku, backend) if usd_per_output is None else usd_per_output
+    )
     if per_output is None:
         return MarginVerdict(False, f"no known cost for {backend.value}", None, None)
     cost_usd = per_output * OUTPUTS_PER_REQUEST[sku] * EXPECTED_ATTEMPTS_PER_OUTPUT
@@ -109,3 +114,24 @@ def check_margin(
             ceiling_usd,
         )
     return MarginVerdict(True, None, cost_usd, ceiling_usd)
+
+
+def static_usd_per_output(settings: Settings, sku: MediaSku, backend: MediaBackend) -> float | None:
+    """The boot-time figure for one output of ``sku`` on ``backend``, or ``None`` (unknown).
+
+    Boot does no IO, so Higgsfield's figure is the operator's recorded ``/estimate``
+    (``BAYRAM_HIGGSFIELD_*_USD_PER_OUTPUT``); a quote passes the live one instead.
+    """
+    if backend is MediaBackend.HIGGSFIELD:
+        if sku is MediaSku.IMAGE:
+            return settings.higgsfield_image_usd_per_output
+        return settings.higgsfield_video_usd_per_output
+    return STATIC_USD_PER_OUTPUT[backend]
+
+
+def request_cost_ceiling_usd(settings: Settings, sku: MediaSku) -> float:
+    """The hard per-REQUEST cash ceiling (§4.3): every variant and every retry of one request
+    together. The stage chain refuses to post an attempt whose estimate would cross it."""
+    if sku is MediaSku.IMAGE:
+        return settings.image_max_cost_usd
+    return settings.video_fast_max_cost_usd

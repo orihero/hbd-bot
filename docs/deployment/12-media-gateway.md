@@ -274,7 +274,7 @@ every switch, so re-run `status` after any Redis restart.
 | See everything | `… media status` | each SKU's env / override / effective backend, pause, the GPU window |
 | Gateway down, or `doctor` red | `… media pause image` (and `video_standard`) | the SKU leaves the picker; open quotes answer `media.busy`; **paid jobs continue** and retry until their deadline |
 | It is back | `… media resume image` | the key is deleted |
-| Route new submits elsewhere | `… media backend image fake` / `… env` | `env` clears the override. `higgsfield`/`fal` have no adapter until M6: an override to them fails the submit cleanly |
+| Route new submits elsewhere | `… media backend image higgsfield` / `… env` | `env` clears the override. `higgsfield` is built (M6.1, §6.4 below); `fal` has no adapter yet and an override to it fails the submit cleanly |
 | The owner needs the GPU (film, a reel rebuild) | `… media reserve --minutes 180` | every SKU on `local` refuses at Done/quote (O11); paid jobs already queued continue. Max 24 h |
 | Window over | `… media release` | |
 | A customer is refunded in cash from the Payme cabinet (spec §7.5) | `… media credit <tg> <sku> --revoke --actor <you> [--job <id>]` | takes back the one credit the failed job granted, so the customer is not refunded twice; `--grant` hands one out where the automatic paths missed. Writes `media_credit_ledger` `admin_correction` + the balance in one transaction; never below zero. Needs the database, not Redis |
@@ -304,6 +304,34 @@ healthy on the admin card, then remove the old key and restart again. A key is i
 when M4 ships.
 
 ---
+
+### 6.4 Higgsfield — the paid backend (spec §4.3, M6.1)
+
+The adapter is built and **off**: nothing reaches it until a SKU's backend (env or override) is
+`higgsfield`. Unlike the gateway it bills per call, so before any SKU is pointed at it:
+
+1. A **separate** Higgsfield REST account from the consumer MCP wallet; set
+   `BAYRAM_HIGGSFIELD_API_KEY_ID` and `BAYRAM_HIGGSFIELD_API_SECRET` (the secret never on the
+   admin host).
+2. **Confirm the endpoint paths and body keys** in `HIGGSFIELD_MODELS` against the vendor's
+   docs, then run one free `POST /estimate/<path>` per configured model. The paths were written
+   from the documentation, not a live account: a wrong one fails the estimate, and a failed
+   estimate refuses the submit — a busy quote, never money spent.
+3. Record the measured per-output USD in `BAYRAM_HIGGSFIELD_IMAGE_USD_PER_OUTPUT` /
+   `…_VIDEO_USD_PER_OUTPUT` (boot's margin check does no IO and refuses without them), and
+   `BAYRAM_HIGGSFIELD_USD_PER_CREDIT` if the estimate answers in credits.
+4. Keep `BAYRAM_IMAGE_MAX_COST_USD` / `BAYRAM_VIDEO_FAST_MAX_COST_USD` at or above one
+   attempt's estimate per output: the stage chain refuses to post an attempt whose estimate
+   would take the request past its ceiling (every variant, every retry), and the adapter
+   refuses any single submit above the ceiling's per-output share.
+5. Counsel's view on sending customers' photos abroad (spec R6, M6.3) before any SKU with
+   photos is routed here.
+
+What an operator sees afterwards: an ambiguous submit (timeout, 5xx, no request id) is never
+re-posted — the job is `held` with `ambiguous_submit`, reconciled by hand in the Higgsfield
+dashboard, and failed with a credit by `media_sweep` after two hours. A `nsfw` verdict from the
+vendor fails the job `provider_rejected` with one credit. 402/403 is the balance: top up, then
+`resume`.
 
 ## 7. Troubleshooting by doctor row
 
@@ -388,3 +416,5 @@ next restart if the pause is going to last.
 | G6 delete routes, then bayram's `media_cleanup` calls them | owner, then code | nothing while the sweeper runs |
 | `doctor` in `bayram-release verify` | code, reviewed | IMAGE_VIDEO_SPEC §9.1 item 4 in full |
 | §8 go-live flip (Payme production, approved Terms pair, flags, smoke test) | owner | M5.3; media for everyone |
+| §6.4 Higgsfield account, verified paths, measured `/estimate` figures, counsel (R6) | owner | any SKU on `higgsfield` (M6.2) |
+| A public route for Higgsfield's webhook (a doorbell only: re-poll by id) | code, reviewed | nothing — the poll chain reads status every 15 s |

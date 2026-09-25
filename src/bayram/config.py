@@ -161,6 +161,9 @@ VENDOR_SECRET_FIELDS: Final[tuple[str, ...]] = (
     # The Gemini TTS key pool (IMAGE_VIDEO_SPEC §5.2, §9.5; D23). Optional: an empty pool
     # narrates through ElevenLabs.
     "gemini_tts_api_keys",
+    # Higgsfield's REST secret (IMAGE_VIDEO_SPEC §4.3, §9.5; M6). The key id beside it is not
+    # secret-shaped and is not listed; the pair is useless without this half.
+    "higgsfield_api_secret",
 )
 
 #: The subset the bot and the worker cannot run without — the ones
@@ -948,6 +951,31 @@ class Settings(BaseSettings):
     #: instead (§5.5: "unavailable or busy > 20 s"). A Wan render holds the GPU for minutes.
     genai_script_timeout_s: float = Field(default=20.0, gt=0.0, le=120.0)
 
+    # -- Higgsfield: the Fast tier and D21's paid image fallback (IMAGE_VIDEO_SPEC §4.3) ----
+    #: The REST platform. Only this host ever receives the ``Authorization`` header.
+    higgsfield_base_url: str = Field(default="https://platform.higgsfield.ai", max_length=255)
+    #: ``Authorization: Key <id>:<secret>``. The id is not secret; the secret is (see
+    #: VENDOR_SECRET_FIELDS). Both are required, at boot, for a SKU offered on ``higgsfield``.
+    higgsfield_api_key_id: str = Field(default="", max_length=128)
+    higgsfield_api_secret: str = Field(default="")
+    #: Keys of ``providers.media.higgsfield.HIGGSFIELD_MODELS``; boot refuses anything else.
+    #: Kling 3.0 standard is the Fast tier's default (§4.3).
+    higgsfield_image_model: str = Field(default="soul_standard", min_length=1, max_length=32)
+    higgsfield_video_model: str = Field(default="kling3_0_std", min_length=1, max_length=32)
+    #: USD per Higgsfield credit, for an ``/estimate`` that answers in credits. Unset, such an
+    #: estimate is "unknown" and the submit is refused — never read as free.
+    higgsfield_usd_per_credit: float | None = Field(default=None, gt=0.0, le=10.0)
+    #: The static per-output figures the boot margin check reads (§4.3 "from ``/estimate`` or
+    #: the static table"): boot does no IO, so the operator records the measured
+    #: ``/estimate`` here. Unset, a SKU on ``higgsfield`` refuses to boot — no known cost.
+    higgsfield_image_usd_per_output: float | None = Field(default=None, gt=0.0, le=100.0)
+    higgsfield_video_usd_per_output: float | None = Field(default=None, gt=0.0, le=100.0)
+    #: Per-REQUEST hard ceilings covering every variant and every retry (§4.3): the image
+    #: figure is both images × all attempts. The stage chain sums each attempt's estimate
+    #: against it before the POST; an attempt that would cross it is never posted.
+    image_max_cost_usd: float = Field(default=0.20, gt=0.0, le=100.0)
+    video_fast_max_cost_usd: float = Field(default=1.00, gt=0.0, le=100.0)
+
     # -- languages ----------------------------------------------------------
     default_ui_language: Language = Field(default=Language.UZ_LATN)
     supported_languages: Annotated[tuple[Language, ...], NoDecode] = Field(
@@ -1222,6 +1250,9 @@ class Settings(BaseSettings):
         "video_standard_price_minor",
         "video_fast_price_minor",
         "media_uzs_per_usd",
+        "higgsfield_usd_per_credit",
+        "higgsfield_image_usd_per_output",
+        "higgsfield_video_usd_per_output",
         mode="before",
     )
     @classmethod

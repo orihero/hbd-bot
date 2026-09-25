@@ -96,6 +96,7 @@ from bayram.bot.keyboards import (
 from bayram.bot.pricing import format_amount
 from bayram.config import Settings
 from bayram.contracts import (
+    CostSource,
     Err,
     HealthState,
     NarrationProvider,
@@ -156,7 +157,14 @@ from bayram.db.models.media_attempt import MediaAttemptRow
 from bayram.db.models.media_input import MediaInputRow, MediaOutputRow
 from bayram.db.models.media_job import CSAM_BLOCKED_ERROR_CODE, MediaJobRow
 from bayram.db.retention import RetentionPolicy, resolve_retention_policy
-from bayram.errors import BayramError, ErrorCode, PipelineError, StorageError, ValidationError
+from bayram.errors import (
+    BayramError,
+    ErrorCode,
+    PipelineError,
+    ProviderError,
+    StorageError,
+    ValidationError,
+)
 from bayram.logging import get_logger
 from bayram.media.composite import (
     COLLAGE_MIME,
@@ -176,6 +184,7 @@ from bayram.media.contracts import (
     is_ambiguous,
 )
 from bayram.media.gate import QuoteBlock, quote_block
+from bayram.media.margin import request_cost_ceiling_usd
 from bayram.media.mux import MAX_TEMPO, AudioFit, FfmpegVideoTools, VideoTools
 from bayram.media.narration import fits_budget, is_voice_note_too_long, narration_budget
 from bayram.media.offering import (
@@ -497,6 +506,12 @@ class MediaErrorCode(StrEnum):
     VOICE_PREPARE_FAILED = "voice_prepare_failed"
     #: §5.6: ffmpeg could not mux or re-wrap the clip.
     MUX_FAILED = "mux_failed"
+    #: §4.3: a paid backend's ``/estimate`` would take the request past its per-SKU hard
+    #: ceiling (every variant, every retry), or could not be read. Nothing was posted.
+    COST_CEILING = "cost_ceiling"
+    #: §4.3: the vendor's own moderation refused the render (Higgsfield's terminal ``nsfw``).
+    #: A moderation refusal: nothing is delivered, one credit (O13), never retried.
+    PROVIDER_REJECTED = "provider_rejected"
 
 
 class MediaKV(Protocol):
@@ -2017,9 +2032,14 @@ async def enqueue_voice_stage(rt: MediaRuntime, job: MediaJobRow, *, n: int) -> 
 def _model_id(rt: MediaRuntime, backend: MediaBackend, kind: MediaKind) -> str:
     """The model a job renders on. The fake stands in for the local gateway and is held to
     its allowlist, so it is stamped with the gateway's model names too."""
+    settings = rt.settings
     if backend in GPU_BACKENDS:
-        settings = rt.settings
         return settings.genai_image_model if kind is MediaKind.IMAGE else settings.genai_video_model
+    if backend is MediaBackend.HIGGSFIELD:
+        # Held to ``HIGGSFIELD_MODELS`` at boot and again by the adapter (§4.3).
+        if kind is MediaKind.IMAGE:
+            return settings.higgsfield_image_model
+        return settings.higgsfield_video_model
     return backend.value
 
 
@@ -2240,6 +2260,16 @@ async def _retry_or_finish(
         return
     if job.kind is MediaKind.IMAGE:
         await image_fan_in(rt, job_id)
+    elif status is MediaAttemptStatus.REJECTED:
+        # §4.3: the vendor's own moderation (Higgsfield ``nsfw``) — a refusal, refunded as
+        # our own output block would be (O13), never a generic failure.
+        await fail_job(
+            rt,
+            job_id,
+            expected=_WORKING_STATES,
+            error_code=MediaErrorCode.PROVIDER_REJECTED,
+            refund=MediaCreditReason.OUTPUT_BLOCKED,
+        )
     else:
         await fail_job(
             rt,
@@ -2419,6 +2449,23 @@ async def media_submit(
         return await _attempt_failed_before_post(
             rt, job, variant, attempt, attempt_id, request.error, uses_gpu=uses_gpu
         )
+    cost_usd: float | None = None
+    if not uses_gpu:
+        # A backend that bills per call (§4.3): no POST without a known cost that fits.
+        gated = await _cost_gate(rt, job, provider, request.value)
+        if is_err(gated):
+            return await _attempt_failed_before_post(
+                rt,
+                job,
+                variant,
+                attempt,
+                attempt_id,
+                gated.error,
+                uses_gpu=uses_gpu,
+                error_code=MediaErrorCode.COST_CEILING,
+            )
+        cost_usd = gated.value
+    cost_source = CostSource.ESTIMATED if cost_usd is not None else None
     submitted = await provider.submit(
         request.value,
         correlation_key=f"media:{jid}:{variant}:{attempt}",
@@ -2428,6 +2475,9 @@ async def media_submit(
     if is_err(submitted):
         error = submitted.error
         status = MediaAttemptStatus.AMBIGUOUS if is_ambiguous(error) else MediaAttemptStatus.FAILED
+        # An ambiguous POST may have been billed: its estimate counts against the ceiling. A
+        # plain failure created nothing, so a retry is not charged for it.
+        billed = status is MediaAttemptStatus.AMBIGUOUS
         async with rt.sessions.begin() as session:
             await set_attempt_status(
                 session,
@@ -2436,6 +2486,8 @@ async def media_submit(
                 status=status,
                 now=rt.clock(),
                 error_code=error.code.value,
+                cost_usd=cost_usd if billed else None,
+                cost_source=cost_source if billed else None,
             )
         # An ambiguous POST may have started a render we cannot see: the slot stays held while
         # the gateway's queue is read (§4.2), and a paid backend holds the job for an operator
@@ -2454,6 +2506,8 @@ async def media_submit(
             status=MediaAttemptStatus.SUBMITTED,
             now=rt.clock(),
             remote_id=handle.remote_id,
+            cost_usd=cost_usd,
+            cost_source=cost_source,
         )
         await transition(
             session,
@@ -2494,9 +2548,13 @@ async def _attempt_failed_before_post(
     error: BayramError,
     *,
     uses_gpu: bool,
+    error_code: MediaErrorCode = MediaErrorCode.INPUT_CHANGED,
 ) -> dict[str, Any]:
-    """Nothing was posted: the attempt is plainly ``failed`` (our inputs, not the backend)."""
-    _LOG.warning("a media request could not be built", extra=error.to_log_dict())
+    """Nothing was posted: the attempt is plainly ``failed`` — our inputs, or (§4.3) a cost
+    the request cannot carry. The retry policy decides, as for any failed attempt."""
+    _LOG.warning(
+        "a media attempt was not posted", extra={**error.to_log_dict(), "why": error_code.value}
+    )
     async with rt.sessions.begin() as session:
         await set_attempt_status(
             session,
@@ -2504,12 +2562,53 @@ async def _attempt_failed_before_post(
             expected=(MediaAttemptStatus.SUBMITTING,),
             status=MediaAttemptStatus.FAILED,
             now=rt.clock(),
-            error_code=MediaErrorCode.INPUT_CHANGED.value,
+            error_code=error_code.value,
         )
     if uses_gpu:
         await _gpu_call("release", rt.gpu.release(str(attempt_id)), False)
     await _after_attempt(rt, job.id, variant, attempt, MediaAttemptStatus.FAILED)
     return _result("request_failed", job.id, variant=variant)
+
+
+async def _cost_gate(
+    rt: MediaRuntime, job: MediaJobRow, provider: MediaGenProvider, request: MediaRequest
+) -> Result[float]:
+    """§4.3: the backend's ``/estimate`` for this attempt, and the request's hard ceiling.
+
+    What the request's earlier attempts were estimated at (every variant; a posted attempt's
+    figure is recorded with it, whatever became of it) plus this one must stay at or under
+    ``image_max_cost_usd`` / ``video_fast_max_cost_usd``. An estimate that cannot be read is
+    a refusal too: an unknown cost is never read as zero.
+    """
+    estimated = await provider.estimate_cost(request)
+    if is_err(estimated):
+        return estimated
+    usd = estimated.value.usd
+    ceiling = request_cost_ceiling_usd(rt.settings, job.sku)
+    async with rt.sessions() as session:
+        spent = await session.scalar(
+            sa.select(sa.func.coalesce(sa.func.sum(MediaAttemptRow.cost_usd), 0.0)).where(
+                MediaAttemptRow.job_id == job.id,
+                MediaAttemptRow.stage == _stage(job.kind),
+            )
+        )
+    spent_usd = float(spent or 0.0)
+    if usd is None or spent_usd + usd > ceiling:
+        return err(
+            ProviderError(
+                "the attempt would take the request past its cost ceiling",
+                provider=provider.name,
+                code=ErrorCode.INVALID_INPUT,
+                is_retryable=False,
+                context={
+                    "media_job_id": str(job.id),
+                    "estimate_usd": usd,
+                    "spent_usd": round(spent_usd, 4),
+                    "ceiling_usd": ceiling,
+                },
+            )
+        )
+    return ok(usd)
 
 
 async def _resume_attempt(
@@ -2845,7 +2944,12 @@ async def _fetch_video(
     # fetch, or a retry after a failure left an object behind, never replaces the bytes the
     # winning ``video_raw`` row hashes — or ``media_mux`` would fail its sha256 check.
     final = outdir / _take_name(_VIDEO_RAW_FILENAME)
-    normalised = await rt.video.normalise(fetched.value.path, final)
+    # §4.3: a paid backend's geometry is measured, never assumed (Kling has no ``resolution``);
+    # the local gateway is sent explicit ``width``/``height`` and honours them (§4.2).
+    target = (
+        None if _backend(job) in GPU_BACKENDS else target_size(_kind_name(job.kind), job.aspect)
+    )
+    normalised = await rt.video.normalise(fetched.value.path, final, target=target)
     raw.unlink(missing_ok=True)
     if is_err(normalised):
         return await _fetch_failed(rt, ctx, job, row, normalised.error)
@@ -2959,10 +3063,15 @@ async def image_fan_in(rt: MediaRuntime, job_id: UUID) -> None:
     The all-failed branch runs from ``queued`` too: ``queued → generating`` happens only on a
     successful POST, so a job whose every submit failed (gateway down, an unbuilt backend)
     never reaches ``generating`` — and would otherwise wait out its whole deadline.
+
+    A variant the VENDOR's moderation refused (§4.3, Higgsfield ``nsfw``) fails the whole
+    request with one credit, as our own L4 block of a variant does (Q3): delivering the other
+    image plus a credit would make a refused prompt pay out.
     """
     now = rt.clock()
     oscreen_seq: int | None = None
     all_failed = False
+    rejected = False
     async with rt.sessions.begin() as session:
         await _lock_job_row(session, job_id)
         job = await load_job(session, job_id)
@@ -2980,7 +3089,10 @@ async def image_fan_in(rt: MediaRuntime, job_id: UUID) -> None:
         }
         if len(successes) + len(failures) < job.outputs_requested:
             return
-        if successes:
+        rejected = any(
+            latest[variant].status is MediaAttemptStatus.REJECTED for variant in failures
+        )
+        if successes and not rejected:
             if await transition(
                 session,
                 job_id,
@@ -2989,7 +3101,7 @@ async def image_fan_in(rt: MediaRuntime, job_id: UUID) -> None:
                 now=now,
             ):
                 oscreen_seq = job.oscreen_seq
-        else:
+        elif not successes:
             all_failed = True
     if oscreen_seq is not None:
         await enqueue_stage(
@@ -2998,6 +3110,14 @@ async def image_fan_in(rt: MediaRuntime, job_id: UUID) -> None:
             str(job_id),
             oscreen_seq,
             job_id=output_screen_job_id(job_id, oscreen_seq),
+        )
+    elif rejected:
+        await fail_job(
+            rt,
+            job_id,
+            expected=_WORKING_STATES,
+            error_code=MediaErrorCode.PROVIDER_REJECTED,
+            refund=MediaCreditReason.OUTPUT_BLOCKED,
         )
     elif all_failed:
         await fail_job(

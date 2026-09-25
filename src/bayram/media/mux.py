@@ -7,8 +7,10 @@ place, and answers ``Result`` — nothing here raises.
 
 * :meth:`FfmpegVideoTools.normalise` — the fetched clip, **verified by ffprobe** (a video
   stream, positive geometry and duration) and made fit for Telegram: H.264 ``yuv420p`` is
-  re-wrapped with ``+faststart`` and no audio track; anything else is re-encoded to it. What
-  it returns is what the row records as the ``video_raw`` geometry.
+  re-wrapped with ``+faststart`` and no audio track; anything else is re-encoded to it. Given
+  a ``target`` size, a clip ffprobe measures at any other geometry is scaled to cover it and
+  centre-cropped to exactly it (§4.3: Kling has no ``resolution`` and was measured at
+  716×1284 for a 720×1280 ask). What it returns is what the row records as ``video_raw``.
 * :meth:`FfmpegVideoTools.prepare_voice` — an own voice note (§5.4): decode, ``loudnorm``
   I=−16 LUFS, mono 48 kHz. **No cloning, no voice conversion**: the customer's voice as sent.
 * :meth:`FfmpegVideoTools.mux` — the narration or the note onto the silent clip (§5.6),
@@ -54,6 +56,7 @@ __all__ = [
     "mux_args",
     "rewrap_args",
     "normalise_args",
+    "geometry_filter",
     "voice_args",
     "frame_args",
     "last_frame_args",
@@ -117,7 +120,9 @@ class VideoTools(Protocol):
 
     async def probe(self, path: Path) -> Result[VideoProbe]: ...
 
-    async def normalise(self, src: Path, dest: Path) -> Result[VideoProbe]: ...
+    async def normalise(
+        self, src: Path, dest: Path, *, target: tuple[int, int] | None = None
+    ) -> Result[VideoProbe]: ...
 
     async def prepare_voice(self, src: Path, dest: Path) -> Result[float]: ...
 
@@ -223,8 +228,23 @@ def rewrap_args(binary: str, src: Path, dest: Path) -> tuple[str, ...]:
     )
 
 
-def normalise_args(binary: str, src: Path, dest: Path) -> tuple[str, ...]:
-    """A clip that is not H.264 ``yuv420p``, re-encoded to it (even dimensions, no audio)."""
+def geometry_filter(target: tuple[int, int] | None) -> str:
+    """The ``-vf`` chain: even dimensions, or — with a target — exactly the target, scaled to
+    cover it and centre-cropped, square pixels (§4.3). Never letterboxed: a bar would be
+    muxed, screened and delivered as part of the picture."""
+    if target is None:
+        return "scale=trunc(iw/2)*2:trunc(ih/2)*2"
+    width, height = target
+    return (
+        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
+        f"crop={width}:{height},setsar=1"
+    )
+
+
+def normalise_args(
+    binary: str, src: Path, dest: Path, *, target: tuple[int, int] | None = None
+) -> tuple[str, ...]:
+    """A clip that is not H.264 ``yuv420p`` or not the target size, re-encoded (no audio)."""
     return (
         binary,
         "-hide_banner",
@@ -236,7 +256,7 @@ def normalise_args(binary: str, src: Path, dest: Path) -> tuple[str, ...]:
         "-map",
         "0:v:0",
         "-vf",
-        "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+        geometry_filter(target),
         "-c:v",
         "libx264",
         "-pix_fmt",
@@ -446,14 +466,18 @@ class FfmpegVideoTools:
             return report
         return ok(report.value.duration_s)
 
-    async def normalise(self, src: Path, dest: Path) -> Result[VideoProbe]:
+    async def normalise(
+        self, src: Path, dest: Path, *, target: tuple[int, int] | None = None
+    ) -> Result[VideoProbe]:
         probed = await self.probe(src)
         if is_err(probed):
             return probed
+        clip = probed.value
+        is_on_target = target is None or (clip.width, clip.height) == target
         args = (
             rewrap_args(self.ffmpeg_binary, src, _part(dest))
-            if is_streamable(probed.value)
-            else normalise_args(self.ffmpeg_binary, src, _part(dest))
+            if is_streamable(clip) and is_on_target
+            else normalise_args(self.ffmpeg_binary, src, _part(dest), target=target)
         )
         written = await self._write(args, "video.normalise", dest)
         if is_err(written):

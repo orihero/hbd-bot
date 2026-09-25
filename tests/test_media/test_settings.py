@@ -122,10 +122,37 @@ def test_env_example_documents_every_media_setting_with_an_empty_secret() -> Non
         "gemini_tts_voice_male",
         "narration_routes",
         "narration_fallback",
+        "higgsfield_base_url",
+        "higgsfield_api_key_id",
+        "higgsfield_api_secret",
+        "higgsfield_image_model",
+        "higgsfield_video_model",
+        "higgsfield_usd_per_credit",
+        "higgsfield_image_usd_per_output",
+        "higgsfield_video_usd_per_output",
+        "image_max_cost_usd",
+        "video_fast_max_cost_usd",
     ):
         assert f"\nBAYRAM_{field.upper()}=" in text, field
     assert "\nBAYRAM_GENAI_API_KEY=\n" in text
     assert "\nBAYRAM_GEMINI_TTS_API_KEYS=\n" in text
+    assert "\nBAYRAM_HIGGSFIELD_API_SECRET=\n" in text
+
+
+def test_the_higgsfield_secret_is_a_vendor_secret_and_not_required() -> None:
+    # §9.5: the admin host is refused it; the bot boots without it (media is optional).
+    assert "higgsfield_api_secret" in VENDOR_SECRET_FIELDS
+    assert "higgsfield_api_secret" not in REQUIRED_VENDOR_SECRET_FIELDS
+    assert "higgsfield_api_key_id" not in VENDOR_SECRET_FIELDS
+
+
+def test_the_higgsfield_defaults_are_the_specs(settings: Settings) -> None:
+    # §9.5: per-request ceilings; Kling 3.0 standard for Fast (§4.3); unknown costs unset.
+    assert settings.image_max_cost_usd == 0.20
+    assert settings.video_fast_max_cost_usd == 1.00
+    assert settings.higgsfield_video_model == "kling3_0_std"
+    assert settings.higgsfield_usd_per_credit is None
+    assert settings.higgsfield_video_usd_per_output is None
 
 
 def test_env_example_ships_the_owner_prices_the_settings_default_to() -> None:

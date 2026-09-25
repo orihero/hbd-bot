@@ -172,11 +172,8 @@ async def test_the_factory_passes_the_access_token_to_the_gateway(settings: Sett
     assert seen[0].headers[ACCESS_CLIENT_ID_HEADER] == "id.access"
 
 
-@pytest.mark.parametrize("backend", [MediaBackend.HIGGSFIELD, MediaBackend.FAL])
-async def test_an_unbuilt_backend_fails_every_submit_pre_submit(
-    settings: Settings, backend: MediaBackend
-) -> None:
-    provider = build_media_provider(settings, backend)
+async def test_an_unbuilt_backend_fails_every_submit_pre_submit(settings: Settings) -> None:
+    provider = build_media_provider(settings, MediaBackend.FAL)
 
     result = await provider.submit(
         image_request(), correlation_key="k", webhook_url=None, timeout_s=1

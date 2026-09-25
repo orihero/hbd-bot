@@ -5,10 +5,10 @@ backend with the operator's Redis override on top — and stamps it on the job r
 only turns the name into an adapter. ``use_fake_providers`` wins over everything: under it no
 vendor is ever contacted, whatever a backend setting or a Redis key says.
 
-Higgsfield and fal are M6. Until then their name builds :class:`UnbuiltMediaProvider`, which
+Higgsfield is built (M6.1). fal is not yet: its name builds :class:`UnbuiltMediaProvider`, which
 answers every call with a PRE-submit ``ProviderUnavailableError`` — so an operator override
-pointed at one fails the submit cleanly (and falls back, §3.3) instead of crashing a stage.
-Boot refuses to OFFER a SKU on either (``bayram.media.boot``).
+pointed at it fails the submit cleanly (and falls back, §3.3) instead of crashing a stage.
+Boot refuses to OFFER a SKU on it (``bayram.media.boot``).
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import httpx
 
 from bayram.config import Settings
 from bayram.contracts import HealthState, ProviderHealth, Result, err, ok
-from bayram.db.enums import MediaBackend
+from bayram.db.enums import MediaBackend, MediaSku
 from bayram.errors import ProviderUnavailableError
 from bayram.media.contracts import (
     PRE_SUBMIT,
@@ -31,12 +31,15 @@ from bayram.media.contracts import (
     JobStatus,
     MediaCapabilities,
     MediaGenProvider,
+    MediaKindName,
     MediaRequest,
 )
+from bayram.media.margin import OUTPUTS_PER_REQUEST, request_cost_ceiling_usd
 from bayram.providers.media.fake import FakeMediaProvider
+from bayram.providers.media.higgsfield import HiggsfieldProvider
 from bayram.providers.media.local_gateway import LocalGatewayProvider
 
-__all__ = ["build_media_provider", "UnbuiltMediaProvider"]
+__all__ = ["build_media_provider", "higgsfield_submit_ceilings", "UnbuiltMediaProvider"]
 
 
 class UnbuiltMediaProvider:
@@ -127,4 +130,24 @@ def build_media_provider(
             access_client_secret=settings.genai_access_client_secret,
             client=client,
         )
+    if backend is MediaBackend.HIGGSFIELD:
+        return HiggsfieldProvider(
+            key_id=settings.higgsfield_api_key_id,
+            secret=settings.higgsfield_api_secret,
+            base_url=settings.higgsfield_base_url,
+            usd_per_credit=settings.higgsfield_usd_per_credit,
+            max_submit_cost_usd=higgsfield_submit_ceilings(settings),
+            health_model=settings.higgsfield_video_model,
+            client=client,
+        )
     return UnbuiltMediaProvider(backend)
+
+
+def higgsfield_submit_ceilings(settings: Settings) -> dict[MediaKindName, float]:
+    """The adapter's last-gate cap on ONE submit: the request's ceiling shared by its outputs
+    (§4.3). The stage chain enforces the request's whole ceiling across retries on top."""
+    return {
+        "image": request_cost_ceiling_usd(settings, MediaSku.IMAGE)
+        / OUTPUTS_PER_REQUEST[MediaSku.IMAGE],
+        "video": request_cost_ceiling_usd(settings, MediaSku.VIDEO_FAST),
+    }

@@ -202,7 +202,64 @@ def test_an_offered_sku_with_no_price_refuses(base: Settings) -> None:
 
 def test_an_offered_sku_on_an_unbuilt_backend_refuses(base: Settings) -> None:
     with pytest.raises(ConfigError, match="no adapter yet"):
-        refuse_unsafe_media_config(_beta(base, image_backend="higgsfield"))
+        refuse_unsafe_media_config(_beta(base, image_backend="fal"))
+
+
+# ---------------------------------------------------------------------------
+# Higgsfield (§4.3, M6.1): built, but only with its keys, an HTTPS host and a known cost
+# ---------------------------------------------------------------------------
+def _on_higgsfield(settings: Settings, **update: Any) -> Settings:
+    values: dict[str, Any] = {
+        "image_backend": "higgsfield",
+        "higgsfield_api_key_id": "id",
+        "higgsfield_api_secret": "s",
+        "higgsfield_image_usd_per_output": 0.02,
+        "media_uzs_per_usd": 12_500.0,
+    }
+    values.update(update)
+    return _beta(settings, **values)
+
+
+def test_an_offered_sku_on_a_configured_higgsfield_boots(base: Settings) -> None:
+    refuse_unsafe_media_config(_on_higgsfield(base))
+
+
+def test_an_offered_sku_on_higgsfield_without_its_secret_refuses(base: Settings) -> None:
+    with pytest.raises(ConfigError, match="BAYRAM_HIGGSFIELD_API_SECRET"):
+        refuse_unsafe_media_config(_on_higgsfield(base, higgsfield_api_secret=""))
+
+
+def test_an_offered_sku_on_higgsfield_over_plain_http_refuses(base: Settings) -> None:
+    with pytest.raises(ConfigError, match="BAYRAM_HIGGSFIELD_BASE_URL"):
+        refuse_unsafe_media_config(
+            _on_higgsfield(base, higgsfield_base_url="http://platform.example.test")
+        )
+
+
+def test_an_offered_sku_on_higgsfield_with_no_known_cost_refuses(base: Settings) -> None:
+    with pytest.raises(ConfigError, match="no known cost for higgsfield"):
+        refuse_unsafe_media_config(_on_higgsfield(base, higgsfield_image_usd_per_output=None))
+
+
+def test_an_offered_sku_on_higgsfield_above_the_margin_refuses(base: Settings) -> None:
+    # Higgsfield's documented image figure: ~73% of net revenue at 5 000 UZS (research §6).
+    with pytest.raises(ConfigError, match="margin check fails"):
+        refuse_unsafe_media_config(_on_higgsfield(base, higgsfield_image_usd_per_output=0.14))
+
+
+@pytest.mark.parametrize(
+    ("field", "model"),
+    [
+        ("higgsfield_video_model", "veo3"),
+        ("higgsfield_video_model", "soul_standard"),  # an image model as the video model
+        ("higgsfield_image_model", "kling3_0_std"),
+    ],
+)
+def test_a_higgsfield_model_off_the_allowlist_refuses_even_unoffered(
+    base: Settings, field: str, model: str
+) -> None:
+    with pytest.raises(ConfigError, match=field.upper()):
+        refuse_unsafe_media_config(_with(base, **{field: model}))
 
 
 def test_an_offered_local_sku_without_the_gateway_refuses(base: Settings) -> None:
