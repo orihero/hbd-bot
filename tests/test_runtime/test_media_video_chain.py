@@ -11,10 +11,11 @@ narration (silent WAV), a :class:`FakeVideoTools` in ffmpeg's place and a script
   from the SCREENED copy and muxed as-is (no speed-up);
 * a line that runs long is asked for again, brisk; a vendor refusal fails the job with a
   strike; a lost voice or mux is re-driven by the sweep;
-* the writer: the prescreened prompt only, L3 on every line, a refused line written again,
-  a writer or guard that cannot answer leaves no line and says so.
+* the writer: the prescreened prompt only, L3 on every line, a refused line never shown and
+  paid for with a 🔄, a writer, guard or strike store that cannot answer leaves no line and
+  says so.
 
-The real ffmpeg (mux output duration = video duration) is ``test_media_mux.py``.
+The real ffmpeg (mux output duration = video duration) is ``tests/test_media/test_mux.py``.
 """
 
 from __future__ import annotations
@@ -83,7 +84,7 @@ from bayram.media.voice_probe import VoiceMeasure
 from bayram.moderation.contracts import MEDIA_POLICY_VERSION, VoiceTranscript
 from bayram.moderation.strikes import OUTPUT_BLOCK_STRIKES
 from bayram.providers.tts.fakes import silent_wav
-from bayram.runtime.media_jobs import MediaErrorCode, video_fan_in
+from bayram.runtime.media_jobs import MediaErrorCode, video_fan_in, voice_lease_key
 from bayram.runtime.media_sweep import STALE_HEARTBEAT, sweep_media
 from tests.conftest import FIXED_NOW
 from tests.test_runtime.media_fakes import (
@@ -117,6 +118,9 @@ class _ScriptedNarration:
     seconds: list[float] = dataclasses.field(default_factory=lambda: [3.0])
     refuse: bool = False
     down: bool = False
+    #: ``audio/mpeg`` stands in for the §5.2 ElevenLabs fallback (the bytes stay a WAV, which
+    #: the fake ffprobe reads either way).
+    mime: str = "audio/wav"
     name: str = "scripted_narration"
     requests: list[tuple[NarrationRequest, str]] = dataclasses.field(default_factory=list)
 
@@ -132,7 +136,7 @@ class _ScriptedNarration:
         return ok(
             RenderedAudio(
                 data=silent_wav(seconds),
-                mime="audio/wav",
+                mime=self.mime,
                 duration_s=seconds,
                 cost_usd=0.0,
                 cost_source=CostSource.ESTIMATED,
@@ -416,10 +420,18 @@ async def test_a_line_that_runs_long_is_asked_for_again_brisk_and_the_shorter_ke
     assert audio_fit(5.2, 5.0625, may_speed_up=True) is AudioFit.TEMPO
 
 
-async def test_a_vendor_refusal_of_the_line_fails_the_job_and_strikes(harness: Harness) -> None:
+@pytest.mark.parametrize(
+    ("voice_mode", "strikes"),
+    [(MediaVoiceMode.AI_USER, OUTPUT_BLOCK_STRIKES), (MediaVoiceMode.AI_LLM, 0)],
+    ids=["typed-words-strike", "our-line-does-not"],
+)
+async def test_a_vendor_refusal_of_the_line_fails_the_job_and_strikes_only_typed_words(
+    harness: Harness, voice_mode: MediaVoiceMode, strikes: int
+) -> None:
+    """§6.4 L5 strikes the customer's words; an unedited 🤖 line is ours (§5.5)."""
     harness.rt = dataclasses.replace(harness.rt, narration=_ScriptedNarration(refuse=True))
     job_id = await _video_row(
-        harness, voice_mode=MediaVoiceMode.AI_LLM, narration=_LINE, gender=MediaVoiceGender.MALE
+        harness, voice_mode=voice_mode, narration=_LINE, gender=MediaVoiceGender.MALE
     )
 
     await _quote_and_start(harness, job_id)
@@ -429,7 +441,7 @@ async def test_a_vendor_refusal_of_the_line_fails_the_job_and_strikes(harness: H
     assert job.state is MediaJobState.FAILED
     assert job.error_code == MediaErrorCode.NARRATION_REFUSED.value
     assert harness.messenger.videos == []
-    assert len(harness.strikes.strikes.get(USER, {})) == OUTPUT_BLOCK_STRIKES  # §6.4 L5
+    assert len(harness.strikes.strikes.get(USER, {})) == strikes
     assert harness.queue.ran_named(MEDIA_MUX_JOB) == []
 
 
@@ -474,6 +486,60 @@ async def test_the_sweep_redrives_a_lost_narration_and_a_lost_mux(harness: Harne
 
     assert (await _job(harness, job_id)).state is MediaJobState.DELIVERED
     assert len(harness.messenger.videos) == 1
+
+
+async def test_a_fallback_mp3_narration_is_stored_as_what_it_is(harness: Harness) -> None:
+    """§5.2: the ElevenLabs fallback answers MP3 — the object and its row say so."""
+    harness.rt = dataclasses.replace(harness.rt, narration=_ScriptedNarration(mime="audio/mpeg"))
+    job_id = await _video_row(
+        harness, voice_mode=MediaVoiceMode.AI_USER, narration=_LINE, gender=MediaVoiceGender.MALE
+    )
+    await _quote_and_start(harness, job_id)
+
+    await _drain_holding(harness, MEDIA_FETCH_JOB)
+    narr = (await _outputs(harness, job_id))[MediaOutputRole.NARRATION]
+    assert narr.mime == "audio/mpeg"
+    assert narr.storage_key.endswith(".mp3")
+
+    await harness.drain()
+    assert (await _job(harness, job_id)).state is MediaJobState.DELIVERED
+
+
+async def test_the_sweep_leaves_a_voice_that_is_still_being_made(harness: Harness) -> None:
+    """A slow narration is not a lost one: no second paid TTS run beside it (§3.3)."""
+    job_id = await _video_row(
+        harness, voice_mode=MediaVoiceMode.AI_USER, narration=_LINE, gender=MediaVoiceGender.MALE
+    )
+    await _quote_and_start(harness, job_id)
+    await harness.drain(stop=lambda stage: stage.name == MEDIA_TTS_JOB)
+    harness.queue.pending.clear()
+    # The first run is working on it (``media_tts`` holds the lease while it speaks).
+    await harness.rt.memo.set(voice_lease_key(job_id), "1", ex=900)
+
+    harness.clock.advance(seconds=STALE_HEARTBEAT.total_seconds() + 60)
+    await sweep_media(harness.rt, now=harness.clock())
+
+    assert not any(stage.name == MEDIA_TTS_JOB for stage in harness.queue.pending)
+
+
+async def test_a_second_fetch_of_the_render_never_replaces_the_winners_bytes(
+    harness: Harness,
+) -> None:
+    """Each fetch stores under its own key, so ``media_mux``'s sha256 check holds."""
+    job_id = await _video_row(harness)
+    await _quote_and_start(harness, job_id)
+    await _drain_holding(harness, MEDIA_MUX_JOB)
+    fetches = harness.queue.ran_named(MEDIA_FETCH_JOB)
+    assert fetches
+    first = (await _outputs(harness, job_id))[MediaOutputRole.VIDEO_RAW]
+
+    # A re-drive of the same fetch, racing: its row loses and its object is deleted.
+    await harness.run(MEDIA_FETCH_JOB, *fetches[0].args)
+
+    raw = (await _outputs(harness, job_id))[MediaOutputRole.VIDEO_RAW]
+    assert (raw.storage_key, raw.sha256) == (first.storage_key, first.sha256)
+    await harness.drain()
+    assert (await _job(harness, job_id)).state is MediaJobState.DELIVERED
 
 
 async def test_a_mux_that_keeps_failing_fails_the_job(harness: Harness) -> None:
@@ -535,7 +601,13 @@ async def test_the_writer_writes_from_the_prescreened_prompt_and_l3_screens_the_
     assert picks == [ScriptPick.USE, ScriptPick.EDIT, ScriptPick.ANOTHER]
 
 
-async def test_a_line_l3_refuses_is_written_again_and_never_shown(harness: Harness) -> None:
+@pytest.mark.parametrize(("n", "regen_offered"), [(0, True), (2, False)], ids=["first", "last"])
+async def test_a_line_l3_refuses_is_never_shown_and_costs_a_regeneration(
+    harness: Harness, n: int, regen_offered: bool
+) -> None:
+    """§6.4 L3 "block → regenerate (counts against regens)": ONE line per job, one screening;
+    the next line is the customer's own 🔄, which spends a regeneration and a screening."""
+    assert harness.rt.settings.media_script_max_regens == 2
     harness.writer.lines = ["a line the guard refuses", _LINE]
     harness.moderator.decisions["script"] = MediaScreenDecision.BLOCK
     job_id = await _video_row(
@@ -546,15 +618,48 @@ async def test_a_line_l3_refuses_is_written_again_and_never_shown(harness: Harne
         prescreened=True,
     )
 
-    result = await _ask_script(harness, job_id)
+    result = await _ask_script(harness, job_id, n)
 
-    # Both tries were refused: no line is stored or shown, and ✏️ is offered instead of ✅.
+    # No line is stored or shown, ✏️ is offered instead of ✅, and 🔄 only while one is left.
     assert result["outcome"] == "script_failed"
-    assert len(harness.writer.calls) == 2
+    assert len(harness.writer.calls) == 1
+    assert harness.moderator.subjects_screened("text") == ("script",)
+    assert await harness.strikes.screens_today(USER, now=harness.clock()) == 1
     assert (await _job(harness, job_id)).narration_text is None
     text, picks = _tray(harness)
     assert text == translate("media.voice.script_failed", Language.EN)
     assert ScriptPick.USE not in picks and ScriptPick.EDIT in picks
+    assert (ScriptPick.ANOTHER in picks) is regen_offered
+    assert harness.strikes.strikes.get(USER, {}) == {}  # the words are ours (§5.5)
+
+
+async def test_a_strike_store_that_cannot_answer_keeps_edit_and_regenerate(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Not ``media.busy``: its 🔁 re-runs only the (already allowed) prescreen on a draft, and
+    the tray would be left with no buttons at all."""
+
+    async def unreadable(*_: Any, **__: Any) -> None:
+        raise ConnectionError("redis is down")
+
+    monkeypatch.setattr(harness.strikes, "suspension", unreadable)
+    job_id = await _video_row(
+        harness,
+        state=MediaJobState.DRAFTING,
+        voice_mode=MediaVoiceMode.AI_LLM,
+        gender=MediaVoiceGender.MALE,
+        prescreened=True,
+    )
+
+    result = await _ask_script(harness, job_id)
+
+    assert result["outcome"] == "script_failed"
+    assert harness.writer.calls == []
+    job = await _job(harness, job_id)
+    assert job.state is MediaJobState.DRAFTING and job.narration_text is None
+    text, picks = _tray(harness)
+    assert text == translate("media.voice.script_failed", Language.EN)
+    assert picks == [ScriptPick.EDIT, ScriptPick.ANOTHER]
 
 
 async def test_the_last_regeneration_gets_one_try_and_no_more_regenerations(

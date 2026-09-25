@@ -27,7 +27,12 @@ from pathlib import Path
 from typing import Final, Protocol, runtime_checkable
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramRetryAfter
+from aiogram.exceptions import (
+    TelegramAPIError,
+    TelegramBadRequest,
+    TelegramEntityTooLarge,
+    TelegramRetryAfter,
+)
 from aiogram.types import FSInputFile, InlineKeyboardMarkup, InputMediaPhoto, Message
 
 from bayram.bot.delivery import BLOCKED_BY_CUSTOMER_KEY, is_blocked_by_customer
@@ -245,8 +250,10 @@ def _delivery_error(message: str, exc: TelegramAPIError) -> DeliveryError:
     blocked = is_blocked_by_customer(exc)
     return DeliveryError(
         message,
-        # A 400 is the request, not the moment: sending it again changes nothing.
-        is_retryable=not blocked and not isinstance(exc, TelegramBadRequest),
+        # A 400 is the request, not the moment: sending it again changes nothing. Nor does an
+        # upload over the Bot API's limit (aiogram raises it as a network error, not a 400).
+        is_retryable=not blocked
+        and not isinstance(exc, TelegramBadRequest | TelegramEntityTooLarge),
         context={
             BLOCKED_BY_CUSTOMER_KEY: blocked,
             "failure": type(exc).__name__,

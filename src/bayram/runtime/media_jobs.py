@@ -71,7 +71,7 @@ from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Final, Protocol
 from uuid import UUID, uuid4
 
@@ -378,6 +378,8 @@ _REFUSED_KEY: Final[str] = "media.refused"
 _SUSPENDED_KEY: Final[str] = "media.refused.suspended"
 _UNSUPPORTED_KEY: Final[str] = "media.compose.unsupported"
 _BUSY_KEY: Final[str] = "media.busy"
+#: ``_screen_gate``'s outcome when the strike store could not be read (fail closed).
+_GATE_UNREADABLE: Final[str] = "busy_strikes_unreadable"
 _QUEUED_KEY: Final[str] = "media.progress.queued"
 _QUEUED_FREE_KEY: Final[str] = "media.progress.queued_free"
 _RENDERING_KEY: Final[str] = "media.progress.rendering"
@@ -425,6 +427,19 @@ _VIDEO_FILENAME: Final[str] = "video.mp4"
 _NARRATION_FILENAME: Final[str] = "narration.wav"
 _VIDEO_MIME: Final[str] = "video/mp4"
 _WAV_MIME: Final[str] = "audio/wav"
+#: A narration's file suffix by the MIME its vendor answered with (§5.2: Gemini's WAV, the
+#: ElevenLabs fallback's MP3), so the stored object and its ``media_outputs`` row say what the
+#: bytes are. Anything else keeps ``.wav``'s place with the vendor's own MIME.
+_NARRATION_SUFFIX_BY_MIME: Final[Mapping[str, str]] = {
+    "audio/wav": ".wav",
+    "audio/x-wav": ".wav",
+    "audio/wave": ".wav",
+    "audio/mpeg": ".mp3",
+    "audio/mp3": ".mp3",
+    "audio/ogg": ".ogg",
+    "audio/opus": ".opus",
+    "audio/flac": ".flac",
+}
 #: One narration call (§5.1): a unary WAV of five seconds.
 _NARRATION_TIMEOUT_S: Final[float] = 60.0
 #: §5.3: the delivery asked for when a line runs past what ``atempo`` absorbs.
@@ -1457,6 +1472,24 @@ async def media_screen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
         blocked = QuoteBlock.UNHEALTHY
     eta_minutes = await _quote_eta_minutes(rt, job, backend) if blocked is None else None
     deadline = sku_deadline(rt.settings, job.sku)
+    if blocked is QuoteBlock.GPU_RESERVED and job.kind is MediaKind.VIDEO:
+        # §2.4.1: a video found the operator's reserved window at its quote. Cancelled, not
+        # held open behind 🔁 for the whole window — the customer asks again afterwards.
+        async with rt.sessions.begin() as session:
+            cancelled = await transition(
+                session,
+                jid,
+                expected=(MediaJobState.SCREENING,),
+                to=MediaJobState.CANCELLED,
+                now=now,
+                values=screen_values,
+                policy=_policy(rt),
+            )
+        if not cancelled:
+            return _result("noop_lost_race", jid)
+        await _show_tray(rt, job, _translate(job, _BUSY_KEY), None)
+        await enqueue_stage(rt, MEDIA_CLEANUP_JOB, str(jid), job_id=cleanup_job_id(jid))
+        return _result("cancelled_reserved", jid)
     if blocked is not None or eta_minutes is None or timedelta(minutes=eta_minutes) > deadline:
         await _busy(rt, job, screen_values)
         return _result(
@@ -1608,10 +1641,15 @@ async def _hear_voice_note(
         await _busy(rt, job, {})
         return _result("busy_unheard", job.id)
     untrusted = untrusted_transcript(heard.value, voiced_s=measure.voiced_s)
-    if untrusted is not None:
+    reason = None if untrusted is None else untrusted.value
+    if reason is None and len(heard.value.text) > _TRANSCRIPT_MAX_CHARS:
+        # More words than a clip-length note can hold: L1 screens only what is stored, and a
+        # cut transcript would leave its tail in the delivered audio unscreened (fail closed).
+        reason = "too_long"
+    if reason is not None:
         _LOG.info(
             "an own voice note was refused: its transcript is not trusted",
-            extra={"media_job_id": str(job.id), "reason": untrusted.value},
+            extra={"media_job_id": str(job.id), "reason": reason},
         )
         await _refuse(
             rt,
@@ -1624,14 +1662,12 @@ async def _hear_voice_note(
                 "screen_policy_version": MEDIA_POLICY_VERSION,
             },
         )
-        return _result("refused_voice", job.id, reason=untrusted.value)
+        return _result("refused_voice", job.id, reason=reason)
     async with rt.sessions.begin() as session:
         await session.execute(
             sa.update(MediaJobRow)
             .where(MediaJobRow.id == job.id, MediaJobRow.state == MediaJobState.SCREENING)
-            .values(
-                voice_transcript=heard.value.text[:_TRANSCRIPT_MAX_CHARS], updated_at=rt.clock()
-            )
+            .values(voice_transcript=heard.value.text, updated_at=rt.clock())
         )
         reread = await load_job(session, job.id)
     if reread is None or reread.state is not MediaJobState.SCREENING:
@@ -1748,7 +1784,7 @@ async def media_prescreen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> di
 
 
 async def _screen_gate(
-    rt: MediaRuntime, job: MediaJobRow, *, budget_id: str | None = None
+    rt: MediaRuntime, job: MediaJobRow, *, budget_id: str | None = None, draw_busy: bool = True
 ) -> dict[str, Any] | None:
     """§6.4 L0, before a byte is downloaded: a suspended account, or one past today's
     screening budget, is refused unscreened — and not struck, since nothing was judged.
@@ -1756,7 +1792,9 @@ async def _screen_gate(
     The budget counts this JOB once, so a 🔁 on a busy tray does not spend twice. A Redis
     that cannot answer is ``busy``: the suspension could not be read, so nothing is screened.
     ``budget_id`` counts something else once instead — each 🤖 line is its own screening
-    (§2.4.2), so the writer passes one id per line.
+    (§2.4.2), so the writer passes one id per line. ``draw_busy=False`` leaves the tray to the
+    caller when the store cannot answer (outcome ``_GATE_UNREADABLE``): the writer draws its
+    own failure screen, since 🔁 on a draft re-runs only the prescreen.
 
     **A CSAM-class suspension is read from the database too** (``csam_blocked`` rows no
     operator cleared): Redis is a cache on this deployment, and a restart without persistence
@@ -1777,8 +1815,9 @@ async def _screen_gate(
             "the media suspension could not be read",
             extra={"media_job_id": str(job.id), "failure": type(exc).__name__},
         )
-        await _busy(rt, job, {})
-        return _result("busy_strikes_unreadable", job.id)
+        if draw_busy:
+            await _busy(rt, job, {})
+        return _result(_GATE_UNREADABLE, job.id)
     if suspended is not None:
         await _refuse(
             rt,
@@ -2767,7 +2806,10 @@ async def _fetch_video(
     )
     if is_err(fetched):
         return await _fetch_failed(rt, ctx, job, row, fetched.error)
-    final = outdir / _VIDEO_RAW_FILENAME
+    # This run's own file and object key (``_take_name``): a sweep re-drive racing a slow
+    # fetch, or a retry after a failure left an object behind, never replaces the bytes the
+    # winning ``video_raw`` row hashes — or ``media_mux`` would fail its sha256 check.
+    final = outdir / _take_name(_VIDEO_RAW_FILENAME)
     normalised = await rt.video.normalise(fetched.value.path, final)
     raw.unlink(missing_ok=True)
     if is_err(normalised):
@@ -2785,16 +2827,17 @@ async def _fetch_video(
         )
         return _result("discarded_forgotten", job.id, variant=row.variant)
     stored = await rt.storage.put_file(
-        media_key(job.id, is_output=True, filename=_VIDEO_RAW_FILENAME),
+        media_key(job.id, is_output=True, filename=final.name),
         final,
         content_type=_VIDEO_MIME,
     )
     if is_err(stored):
+        final.unlink(missing_ok=True)
         return await _fetch_failed(rt, ctx, job, row, stored.error)
     clip = normalised.value
     now = rt.clock()
     async with rt.sessions.begin() as session:
-        await add_output(
+        wrote = await add_output(
             session,
             job_id=job.id,
             role=MediaOutputRole.VIDEO_RAW,
@@ -2814,6 +2857,12 @@ async def _fetch_video(
             .where(MediaJobRow.id == job.id, MediaJobRow.state == MediaJobState.GENERATING)
             .values(render_ready_at=now, updated_at=now)
         )
+    if wrote:
+        # The mux materialises to the fixed name and finds the winner's bytes already there.
+        final.replace(outdir / _VIDEO_RAW_FILENAME)
+    else:
+        await rt.storage.delete(stored.value.key)
+        final.unlink(missing_ok=True)
     await _gpu_call("leave", rt.gpu.leave(queue_member(job.id, row.variant)), None)
     await video_fan_in(rt, job.id)
     return _result("fetched", job.id, variant=row.variant)
@@ -3479,11 +3528,14 @@ async def media_script(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
     it at L3, and turn the tray into ``media.voice.script_review`` (✅ / ✏️ / 🔄).
 
     The prompt is read from the row — never from ARQ arguments — and only once the prescreen
-    allowed it (§2.4.1). Each line counts against the screening budget (§6.4 L0). A line L3
-    refuses is regenerated once while 🔄 would still be offered (§6.4 L3: a block counts
-    against the regenerations); a writer or guard that cannot answer leaves the draft as it is
-    and says so on the tray, with ✏️ to type the words instead — fail closed, no line is ever
-    shown unscreened.
+    allowed it (§2.4.1). Each line counts once against the screening budget (§6.4 L0), and
+    this job writes ONE line: a line L3 refuses is never shown, and the tray offers 🔄 while
+    any regenerations are left — so the next line is the customer's own 🔄, spending both a
+    regeneration and a screening (§6.4 L3 "counts against regens"; a silent in-job retry would
+    let a draft probe the guard past its metered budget). A writer, guard or strike store that
+    cannot answer leaves the draft as it is and says so on the tray, with ✏️ to type the
+    words instead — fail closed, no line is ever shown unscreened, and never ``media.busy``,
+    whose 🔁 re-runs only the (already allowed) prescreen and would strand the tray.
     """
     rt = media_runtime(ctx)
     jid = _uuid(job_id)
@@ -3503,34 +3555,33 @@ async def media_script(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
         return _result("noop_not_prescreened", jid, n=n)
     if job.narration_text:
         return _result("noop_written", jid, n=n)
-    gated = await _screen_gate(rt, job, budget_id=f"{jid}:script:{n}")
-    if gated is not None:
-        return gated
-    budget = narration_budget(rt.settings, job.language)
     can_regenerate = n < rt.settings.media_script_max_regens
+    gated = await _screen_gate(rt, job, budget_id=f"{jid}:script:{n}", draw_busy=False)
+    if gated is not None and gated["outcome"] != _GATE_UNREADABLE:
+        return gated
     line: str | None = None
-    for _ in range(2 if can_regenerate else 1):
-        if rt.script_writer is None:
-            break
+    if gated is None and rt.script_writer is not None:
         written = await rt.script_writer.write(
-            job.prompt or "", language=job.language, budget=budget
+            job.prompt or "",
+            language=job.language,
+            budget=narration_budget(rt.settings, job.language),
         )
-        if is_err(written):
-            break
-        verdict = await rt.moderator.screen_text(
-            [TextItem(id="script", subject="script", content=written.value)],
-            policy=MEDIA_POLICY_VERSION,
-            lang_hint=lang_hint_for(job.language),
-        )
-        if is_err(verdict) or verdict.value.decision is MediaScreenDecision.UNAVAILABLE:
-            break
-        if verdict.value.decision is MediaScreenDecision.ALLOW:
-            line = written.value
-            break
-        _LOG.info(
-            "a written line was refused at L3; writing another",
-            extra={"media_job_id": str(jid), "decision": verdict.value.decision.value},
-        )
+        if not is_err(written):
+            verdict = await rt.moderator.screen_text(
+                [TextItem(id="script", subject="script", content=written.value)],
+                policy=MEDIA_POLICY_VERSION,
+                lang_hint=lang_hint_for(job.language),
+            )
+            if not is_err(verdict) and verdict.value.decision is MediaScreenDecision.ALLOW:
+                line = written.value
+            elif not is_err(verdict) and verdict.value.decision in (
+                MediaScreenDecision.BLOCK,
+                MediaScreenDecision.REVIEW,
+            ):
+                _LOG.info(
+                    "a written line was refused at L3; it is not shown",
+                    extra={"media_job_id": str(jid), "decision": verdict.value.decision.value},
+                )
     if line is None:
         await _show_tray(
             rt,
@@ -3583,6 +3634,36 @@ async def _voice_job(
     return job
 
 
+def voice_lease_key(job_id: UUID) -> str:
+    """The memo key a running voice stage holds (:func:`is_voice_leased`)."""
+    return f"media:{job_id}:voice:lease"
+
+
+async def _take_voice_lease(rt: MediaRuntime, job_id: UUID) -> None:
+    """Stamp "a voice run is working on this job" for one stage timeout (§3.3), so the sweep
+    does not start a second paid narration beside a slow first one. Best effort: a Redis that
+    cannot answer only costs the de-duplication, never the voice."""
+    try:
+        await rt.memo.set(
+            voice_lease_key(job_id), "1", ex=max(1, int(rt.settings.queue_job_timeout_s))
+        )
+    except Exception as exc:
+        _LOG.warning(
+            "a voice lease could not be written",
+            extra={"media_job_id": str(job_id), "failure": type(exc).__name__},
+        )
+
+
+async def is_voice_leased(rt: MediaRuntime, job_id: UUID) -> bool:
+    """True while a ``media_tts``/``media_voice_prepare`` run started within one stage
+    timeout — the sweep then leaves the voice alone. Unreadable reads as not leased: a lost
+    voice is re-driven rather than left to hang."""
+    try:
+        return bool(await rt.memo.get(voice_lease_key(job_id)))
+    except Exception:
+        return False
+
+
 async def _voice_failed(
     rt: MediaRuntime,
     ctx: Mapping[str, Any],
@@ -3591,8 +3672,9 @@ async def _voice_failed(
     code: MediaErrorCode,
 ) -> dict[str, Any]:
     """A voice that could not be made. A vendor's content refusal is final (§6.4 L5: fail,
-    refund, strike); a transient failure is retried by ARQ; the last try fails the job with
-    one credit — no render is delivered without the voice the customer paid for."""
+    refund, strike — but no strike for an unedited 🤖 line, ``ai_llm``: those words are ours,
+    §5.5); a transient failure is retried by ARQ; the last try fails the job with one credit —
+    no render is delivered without the voice the customer paid for."""
     if error.error_code is ErrorCode.CONTENT_REJECTED:
         failed = await fail_job(
             rt,
@@ -3601,7 +3683,7 @@ async def _voice_failed(
             error_code=MediaErrorCode.NARRATION_REFUSED,
             refund=MediaCreditReason.GENERATION_FAILED,
         )
-        if failed:
+        if failed and job.voice_mode is not MediaVoiceMode.AI_LLM:
             await _strike(rt, job, layer="tts", weight=OUTPUT_BLOCK_STRIKES, is_csam=False)
         return _result("voice_refused", job.id)
     if error.is_retryable and _job_try(ctx) < MEDIA_STAGE_MAX_TRIES:
@@ -3618,17 +3700,24 @@ async def _voice_failed(
 
 
 async def _voice_ready(
-    rt: MediaRuntime, ctx: Mapping[str, Any], job: MediaJobRow, path: Path, seconds: float
+    rt: MediaRuntime,
+    ctx: Mapping[str, Any],
+    job: MediaJobRow,
+    path: Path,
+    seconds: float,
+    *,
+    mime: str = _WAV_MIME,
 ) -> dict[str, Any]:
     """Store the voice track (an intermediate, 24 h), stamp ``audio_ready_at``, fan in.
 
     ``path``'s name is this run's own (``_take_name``), and so is the stored key: a sweep
     re-drive racing a slow first run can never overwrite the object the winning row hashes.
-    The run whose row lost deletes its own object and only tries the fan-in."""
+    The run whose row lost deletes its own object and only tries the fan-in. ``mime`` is what
+    the bytes are: an own note is prepared as WAV; an AI voice is the vendor's answer."""
     stored = await rt.storage.put_file(
         media_key(job.id, is_output=True, filename=path.name),
         path,
-        content_type=_WAV_MIME,
+        content_type=mime,
     )
     if is_err(stored):
         return await _voice_failed(rt, ctx, job, stored.error, MediaErrorCode.NARRATION_FAILED)
@@ -3641,7 +3730,7 @@ async def _voice_ready(
             variant=0,
             storage_key=stored.value.key,
             now=now,
-            mime=_WAV_MIME,
+            mime=mime,
             size_bytes=stored.value.size_bytes,
             sha256=stored.value.sha256,
             duration_ms=round(seconds * 1000),
@@ -3659,21 +3748,34 @@ async def _voice_ready(
     return _result("voice_ready", job.id, seconds=round(seconds, 2), fanned_in=fired)
 
 
+@dataclass(frozen=True, slots=True)
+class _Spoken:
+    """One narration on disk: where, how long (ffprobe's figure), and what the bytes are."""
+
+    path: Path
+    seconds: float
+    mime: str
+
+
 async def _speak(
     rt: MediaRuntime, request: NarrationRequest, key: str, dest: Path
-) -> Result[float]:
-    """One narration call, written to ``dest``; its length by ffprobe (the vendor's figure
-    when ffprobe cannot read it)."""
+) -> Result[_Spoken]:
+    """One narration call, written beside ``dest`` with the suffix of the MIME the vendor
+    answered with (the §5.2 ElevenLabs fallback is MP3, not WAV); its length by ffprobe (the
+    vendor's figure when ffprobe cannot read it)."""
     assert rt.narration is not None
     rendered = await rt.narration.narrate(
         request, idempotency_key=key, timeout_s=_NARRATION_TIMEOUT_S
     )
     if is_err(rendered):
         return rendered
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    await asyncio.to_thread(dest.write_bytes, rendered.value.data)
-    measured = await rt.video.audio_seconds(dest)
-    return ok(measured.value if not is_err(measured) else rendered.value.duration_s)
+    mime = rendered.value.mime.split(";", maxsplit=1)[0].strip().casefold() or _WAV_MIME
+    path = dest.with_suffix(_NARRATION_SUFFIX_BY_MIME.get(mime, dest.suffix))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(path.write_bytes, rendered.value.data)
+    measured = await rt.video.audio_seconds(path)
+    seconds = measured.value if not is_err(measured) else rendered.value.duration_s
+    return ok(_Spoken(path=path, seconds=seconds, mime=mime))
 
 
 async def media_tts(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[str, Any]:
@@ -3693,6 +3795,7 @@ async def media_tts(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[str
     if job.audio_ready_at is not None:
         await video_fan_in(rt, jid)
         return _result("noop_voice_ready", jid)
+    await _take_voice_lease(rt, jid)
     if rt.narration is None or not job.narration_text or job.voice_gender is None:
         return await _voice_failed(
             rt,
@@ -3707,19 +3810,18 @@ async def media_tts(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[str
         gender=VoiceGender(job.voice_gender.value),
     )
     outdir = media_workspace(rt, jid) / "out"
-    first = outdir / _take_name(_NARRATION_FILENAME)
-    spoken = await _speak(rt, request, tts_job_id(jid), first)
+    spoken = await _speak(rt, request, tts_job_id(jid), outdir / _take_name(_NARRATION_FILENAME))
     if is_err(spoken):
         return await _voice_failed(rt, ctx, job, spoken.error, MediaErrorCode.NARRATION_FAILED)
-    seconds = spoken.value
+    kept = spoken.value
+    seconds = kept.seconds
     clip_s = float(rt.settings.narration_max_seconds)
     if seconds > clip_s * MAX_TEMPO:
-        brisk_path = outdir / _take_name(_NARRATION_FILENAME)
         brisk = await _speak(
             rt,
             request.model_copy(update={"style": _BRISK_STYLE}),
             f"{tts_job_id(jid)}:brisk",
-            brisk_path,
+            outdir / _take_name(_NARRATION_FILENAME),
         )
         _LOG.info(
             "a narration ran long and was asked for again, brisk",
@@ -3727,15 +3829,16 @@ async def media_tts(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[str
                 "media_job_id": str(jid),
                 "language": job.language.value,
                 "seconds": round(seconds, 2),
-                "brisk_seconds": None if is_err(brisk) else round(brisk.value, 2),
+                "brisk_seconds": None if is_err(brisk) else round(brisk.value.seconds, 2),
             },
         )
-        if not is_err(brisk) and brisk.value < seconds:
-            brisk_path.replace(first)
-            seconds = brisk.value
-        else:
-            brisk_path.unlink(missing_ok=True)
-    return await _voice_ready(rt, ctx, job, first, seconds)
+        if not is_err(brisk) and brisk.value.seconds < seconds:
+            kept.path.unlink(missing_ok=True)
+            kept = brisk.value
+            seconds = kept.seconds
+        elif not is_err(brisk):
+            brisk.value.path.unlink(missing_ok=True)
+    return await _voice_ready(rt, ctx, job, kept.path, seconds, mime=kept.mime)
 
 
 async def media_voice_prepare(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[str, Any]:
@@ -3751,6 +3854,7 @@ async def media_voice_prepare(ctx: Mapping[str, Any], job_id: str, n: int = 0) -
     if job.audio_ready_at is not None:
         await video_fan_in(rt, jid)
         return _result("noop_voice_ready", jid)
+    await _take_voice_lease(rt, jid)
     async with rt.sessions() as session:
         rows = await list_inputs(session, jid)
     note = next((row for row in rows if row.role is MediaInputRole.VOICE_NOTE), None)
@@ -3847,7 +3951,10 @@ async def media_mux(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[str
             rt,
             key=voice_row.storage_key,
             sha256=voice_row.sha256,
-            dest=workdir / "out" / _NARRATION_FILENAME,
+            # The stored object's own suffix: an ElevenLabs fallback narration is MP3 (§5.2).
+            dest=(workdir / "out" / _NARRATION_FILENAME).with_suffix(
+                PurePosixPath(voice_row.storage_key).suffix or ".wav"
+            ),
         )
         if is_err(voice):
             return await _mux_failed(rt, ctx, job, voice.error)

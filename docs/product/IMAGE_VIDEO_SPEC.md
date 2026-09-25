@@ -414,6 +414,8 @@ enabled (now) it is skipped and the quote names the tier.
   refused at L1.
 - **GPU-reserved check** (§4.5) runs at ✅ Done (reserved → `media.busy`, no row created) and again
   when the quote is computed (reserved → the row goes to `cancelled`, tray → `media.busy`).
+  *As built (M4.R):* `media_screen` cancels a video row in that case, with no 🔁, and hands its
+  inputs to `media_cleanup`; an image keeps the §2.3.3 busy tray with 🔁.
 - **Back map** (⬅️ `media.back`): aspect → compose; tier → aspect; voice → tier, or aspect when the
   tier screen is skipped; voice_text / voice_note / voice_gender → voice; script_review → voice.
   Going back to compose from aspect sets the `drafting` row to `cancelled` (a later ✅ Done freezes a
@@ -1053,8 +1055,9 @@ trim is counted per language so the M4.4 budgets can be tightened (Q11 note).
   would make the language rule vacuous); `no_speech_prob` counts as high at ≥ 0.6 (whisper's own
   threshold) when silencedetect (−35 dB, 0.3 s) finds ≥ 0.5 s of speech; the word-rate rule is
   words < ⌊voiced s / 1.5⌋. An untrusted transcript refuses the request as `review` with
-  `error_code='voice_untrusted'` and no strike; a trusted one is stored in `voice_transcript` and
-  screened by G1 as `transcript`. The note is stored as sent (OGG/Opus, `audio/ogg`) with its
+  `error_code='voice_untrusted'` and no strike; so does one longer than `voice_transcript`'s 400
+  characters, which is never truncated, since its unscreened tail would still be delivered
+  (M4.R). A trusted one is stored in `voice_transcript` and screened by G1 as `transcript`. The note is stored as sent (OGG/Opus, `audio/ogg`) with its
   ffprobe `duration_ms`.
 - At render time `media_voice_prepare` reads the screened storage copy (sha256-verified): ffmpeg
   decode → `loudnorm` I=−16 LUFS → mono 48 kHz → pad (or trim within tolerance) to clip length →
@@ -1080,11 +1083,17 @@ sends `genai_script_model` with the key in `X-API-Key` plus the Access pair and 
 `{script}` schema; a `:cloud` model is refused by `Settings` and again by the client. Any gateway
 error, or no answer within `BAYRAM_GENAI_SCRIPT_TIMEOUT_S` (20 s), asks the D5 `llm_provider` and
 then its documented fallback, each once; a line that fails D10 + the budget also moves on to the
-next provider. Each line counts once against the screening budget (`{job}:script:{n}`). An L3
-`block`/`review` writes one more line while 🔄 would still be offered and is never shown; an
-unavailable guard or no writer at all leaves no line and draws `media.voice.script_failed` with
-✏️ (and 🔄 while any are left), no ✅. An L3 block is not a strike: the words are ours. With the
-writer registered, 🤖 is drawn (`BUILT_VOICE_MODES` is all four modes).
+next provider. Each line counts once against the screening budget (`{job}:script:{n}`), and a
+job writes exactly one line. An L3 `block`/`review` line is never shown; like an unavailable
+guard, no writer at all, or a strike store that cannot be read, it leaves no line and draws
+`media.voice.script_failed` with ✏️ (and 🔄 while any are left), no ✅ and never `media.busy`.
+The next line is the customer's own 🔄, so a refused line costs a regeneration and a screening
+(§6.4 L3). *(M4.R: M4.3 wrote a second line inside the job, which spent neither.)* An L3 block
+is not a strike: the words are ours. Nor is a TTS refusal of an unedited 🤖 line
+(`voice_mode='ai_llm'`); words typed after ✏️ go to screening as `ai_user` and are the
+customer's. ⬅️ out of the 🤖 branch sets the draft back to `voice_mode='none'`, so a line still
+being written neither lands on the row nor redraws the tray. With the writer registered, 🤖 is
+drawn (`BUILT_VOICE_MODES` is all four modes).
 
 ### 5.6 Mux
 
@@ -1104,11 +1113,14 @@ ffprobe verifies geometry and duration before output screening.
 - **Fetch.** ffprobe must find a video stream with a geometry and a positive duration. H.264
   `yuv420p` is re-wrapped `+faststart` with no audio track; anything else is re-encoded (libx264,
   CRF 20). The result is the `video_raw` output (24 h), with `width`/`height`/`duration_ms`, and
-  sets `render_ready_at`.
+  sets `render_ready_at`. Each fetch run stores under its own object key, and a run whose row
+  loses deletes its object, so a racing re-drive never replaces the bytes the winning row hashes.
 - **Voice, beside the render.** `media_tts` speaks `narration_text` in the chosen house voice. A
   take longer than clip × 1.15 is asked for once more with style `brisk`, and the shorter take is
-  kept (§5.3). A vendor content refusal fails the job (`narration_refused`) with a refund and two
-  strikes (§6.4 L5). Any other failure is retried three times and then fails the job
+  kept (§5.3). The take is stored with the MIME the vendor answered with and a matching suffix
+  (the §5.2 ElevenLabs fallback is `audio/mpeg`, `.mp3`). A vendor content refusal fails the job
+  (`narration_refused`) with a refund and two strikes (§6.4 L5), except for an unedited 🤖 line
+  (§5.5). Any other failure is retried three times and then fails the job
   (`narration_failed`) with a refund. `media_voice_prepare` reads the screened note (streamed from
   storage, sha256-checked) and writes loudnorm I=−16 mono 48 kHz WAV. Both store a 24 h
   `narration` output, set `audio_ready_at` and try the fan-in.
@@ -1121,9 +1133,12 @@ ffprobe verifies geometry and duration before output screening.
   as `output_frame`. Delivery is `sendVideo` with `supports_streaming` and the row's
   width/height/duration; above 50 MB it is `sendDocument`. The cloud Bot API caps a bot's upload
   at 50 MB for both methods, so the document fallback only helps on a local Bot API server. A
-  5 s 720p clip is a few MB.
+  5 s 720p clip is a few MB. An upload Telegram refuses as too large is final, not retried.
 - **Sweep.** It re-drives a stalled video's render and a voice that never arrived (after
-  `STALE_HEARTBEAT`). It also re-drives the mux of a `post` video that has no clip yet.
+  `STALE_HEARTBEAT`). A voice run holds a lease (`media:{job}:voice:lease`, one stage timeout)
+  from when it starts, and the sweep leaves a leased voice alone, so a slow narration does not
+  get a second paid run beside it. A voice still queued behind a backlog has no lease yet and
+  can still be re-driven. It also re-drives the mux of a `post` video that has no clip yet.
 
 ---
 

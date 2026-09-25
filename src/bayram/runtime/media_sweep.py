@@ -112,6 +112,7 @@ from bayram.runtime.media_jobs import (
     fail_job,
     image_fan_in,
     is_attempt_final,
+    is_voice_leased,
     media_runtime,
     reconcile_ambiguous,
     video_fan_in,
@@ -331,7 +332,13 @@ async def _redrive_video(rt: MediaRuntime, job: MediaJobRow, tick: int) -> None:
         rendered = bool(await list_outputs(session, job.id, role=MediaOutputRole.VIDEO_RAW))
     if not rendered:
         await _redrive_variant(rt, job, 0, latest.get(0), tick)
-    if job.voice_mode is not MediaVoiceMode.NONE and job.audio_ready_at is None:
+    # Not while a voice run started within its stage timeout (``is_voice_leased``): a slow
+    # narration is not a lost one, and a second copy would spend a second paid TTS call.
+    if (
+        job.voice_mode is not MediaVoiceMode.NONE
+        and job.audio_ready_at is None
+        and not await is_voice_leased(rt, job.id)
+    ):
         await enqueue_voice_stage(rt, job, n=tick)
     await video_fan_in(rt, job.id)
 

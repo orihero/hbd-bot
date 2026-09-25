@@ -612,6 +612,58 @@ async def test_ai_writes_asks_the_worker_and_uses_the_line_it_wrote(
     )
 
 
+async def test_back_from_a_line_being_written_stops_the_draft_asking_for_it(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    """⬅️ out of the 🤖 branch: the row stops being ``ai_llm``, so a ``media_script`` still in
+    flight neither stores its line nor redraws the tray over the voice screen (§2.4.2)."""
+    rig = Rig(video_on(settings), sessions)
+    frozen = await to_voice_screen(rig, bot)
+    await press(rig.dispatcher, bot, med(MediaAction.VOICE, arg=MediaVoiceMode.AI_LLM))
+    await press(rig.dispatcher, bot, med(MediaAction.GENDER, arg=MediaVoiceGender.MALE))
+    assert (await the_job(rig)).voice_mode is MediaVoiceMode.AI_LLM
+
+    await press(rig.dispatcher, bot, med(MediaAction.BACK))
+
+    assert await rig.fsm_state() == VideoOrder.voice.state
+    job = await the_job(rig)
+    assert job.id == frozen.id and job.state is MediaJobState.DRAFTING
+    assert (job.voice_mode, job.narration_text) == (MediaVoiceMode.NONE, None)
+
+
+async def test_words_typed_after_edit_are_the_customers_not_ours(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    """✏️ under a 🤖 line: the typed words go to screening as ``ai_user`` — ``ai_llm`` means
+    the unedited line we wrote, which a TTS refusal does not strike (§5.5)."""
+    rig = Rig(video_on(settings), sessions)
+    frozen = await to_voice_screen(rig, bot)
+    await press(rig.dispatcher, bot, med(MediaAction.VOICE, arg=MediaVoiceMode.AI_LLM))
+    await press(rig.dispatcher, bot, med(MediaAction.GENDER, arg=MediaVoiceGender.FEMALE))
+    async with rig.sessions.begin() as db:
+        await db.execute(
+            sa.update(MediaJobRow)
+            .where(MediaJobRow.id == frozen.id)
+            .values(narration_text="Happy birthday, dear friend")
+        )
+    await press(rig.dispatcher, bot, med(MediaAction.SCRIPT, arg=ScriptPick.EDIT))
+
+    await send(rig.dispatcher, bot, "Happy birthday, Dilnoza")
+
+    job = await the_job(rig)
+    assert job.state is MediaJobState.SCREENING
+    assert (job.voice_mode, job.narration_text) == (
+        MediaVoiceMode.AI_USER,
+        "Happy birthday, Dilnoza",
+    )
+
+
 async def test_ai_writes_is_offered_now_that_the_writer_is_built(
     settings: Settings,
     sessions: async_sessionmaker[AsyncSession],

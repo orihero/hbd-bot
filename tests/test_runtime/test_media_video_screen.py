@@ -51,7 +51,9 @@ from bayram.db.media import add_input, create_job, load_job
 from bayram.db.models import Base, UserRow
 from bayram.db.models.media_input import MediaInputRow
 from bayram.db.models.media_job import MediaJobRow
+from bayram.media.gate import QuoteBlock
 from bayram.media.stages import (
+    MEDIA_CLEANUP_JOB,
     MEDIA_PRESCREEN_JOB,
     MEDIA_SCREEN_JOB,
     prescreen_job_id,
@@ -59,6 +61,7 @@ from bayram.media.stages import (
 )
 from bayram.media.voice_probe import VoiceMeasure
 from bayram.moderation.contracts import MEDIA_POLICY_VERSION, VoiceTranscript
+from bayram.runtime import media_jobs
 from bayram.runtime.media_jobs import MediaErrorCode
 from bayram.runtime.media_sweep import sweep_media
 from tests.conftest import FIXED_NOW
@@ -376,6 +379,47 @@ async def test_a_transcript_whisper_made_up_refuses_the_note(
     # Refused before any guard judged it, and not struck (§6.4: a review is no strike).
     assert harness.moderator.subjects_screened("text") == ()
     assert await harness.strikes.suspension(USER, now=harness.clock()) is None
+
+
+async def test_a_transcript_too_long_to_store_whole_refuses_the_note(
+    harness: Harness, probe: ScriptedProbe
+) -> None:
+    """L1 screens only the stored transcript (varchar 400): one that would be cut would leave
+    its tail in the delivered audio unscreened, so it is refused — never truncated."""
+    long_text = "happy birthday my dear friend " * 15
+    assert len(long_text) > 400
+    harness.moderator.transcript = dataclasses.replace(harness.moderator.transcript, text=long_text)
+    job_id = await _video_row(
+        harness, state=MediaJobState.SCREENING, voice_mode=MediaVoiceMode.OWN, voice_note=True
+    )
+
+    await _screen(harness, job_id)
+
+    job = await _job(harness, job_id)
+    assert job.state is MediaJobState.REJECTED
+    assert job.error_code == MediaErrorCode.VOICE_UNTRUSTED
+    assert job.voice_transcript is None
+    assert harness.moderator.subjects_screened("text") == ()
+    assert await harness.strikes.suspension(USER, now=harness.clock()) is None
+
+
+async def test_a_reserved_gpu_at_a_video_quote_cancels_the_row(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§2.4.1: reserved at the quote → ``cancelled`` and ``media.busy`` with no 🔁 — not held
+    open in ``screening`` for the whole reserved window."""
+    monkeypatch.setattr(media_jobs, "quote_block", lambda *_, **__: QuoteBlock.GPU_RESERVED)
+    job_id = await _video_row(harness, state=MediaJobState.SCREENING)
+
+    await _screen(harness, job_id)
+
+    job = await _job(harness, job_id)
+    assert job.state is MediaJobState.CANCELLED
+    assert job.screen_decision is MediaScreenDecision.ALLOW
+    text, markup = _last_tray(harness)
+    assert text == translate("media.busy", Language.EN)
+    assert markup is None
+    assert harness.queue.ran_named(MEDIA_CLEANUP_JOB)
 
 
 # ---------------------------------------------------------------------------

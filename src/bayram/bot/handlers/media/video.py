@@ -547,8 +547,11 @@ async def handle_voice_text(message: Message, state: FSMContext, deps: BotDeps) 
         )
         return
     line = normalise_narration(text)
-    voice = draft.voice if draft.voice is MediaVoiceMode.AI_LLM else MediaVoiceMode.AI_USER
-    await _finalize(message, state, deps, draft.updated(voice=voice, narration_text=line))
+    # Typed words are the customer's, even after ✏️ under a 🤖 line: ``ai_llm`` on the row means
+    # the unedited, L3-screened line WE wrote, which a TTS refusal does not strike (§5.5).
+    await _finalize(
+        message, state, deps, draft.updated(voice=MediaVoiceMode.AI_USER, narration_text=line)
+    )
 
 
 async def handle_voice_in_text_step(message: Message, state: FSMContext, deps: BotDeps) -> None:
@@ -705,6 +708,16 @@ async def handle_back(callback: CallbackQuery, state: FSMContext, deps: BotDeps)
             await present(callback, _aspect_screen(language))
         return
     if current in _BACK_TO_VOICE:
+        job_id = _frozen_id(draft)
+        if draft.voice is MediaVoiceMode.AI_LLM and deps.media is not None and job_id is not None:
+            # Leaving the 🤖 branch: a line still being written must not land on the row or
+            # redraw the tray over the voice screen (§2.4.2). Best effort — a line that lands
+            # anyway is overwritten or ignored by the next choice.
+            left = await deps.media.leave_script(job_id, telegram_user_id=callback.from_user.id)
+            if isinstance(left, Err):
+                _LOG.warning(
+                    "a video draft could not leave the script", extra={"media_job_id": str(job_id)}
+                )
         await _show_voice(
             callback, state, deps, draft.updated(narration_text=None, voice_note=None)
         )

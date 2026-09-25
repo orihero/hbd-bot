@@ -287,6 +287,8 @@ class MediaDesk(Protocol):
         n: int,
     ) -> Result[bool]: ...
 
+    async def leave_script(self, job_id: UUID, *, telegram_user_id: int) -> Result[bool]: ...
+
 
 def _is_prescreened_draft(row: MediaJobRow | None, telegram_user_id: int) -> bool:
     """A video ``drafting`` row of this account whose prompt and photos passed
@@ -681,3 +683,27 @@ class SqlMediaDesk:
             return await enqueue_script(self._queue, job_id, n=n)
 
         return await run_guarded("media.request_script", run, media_job_id=str(job_id))
+
+    async def leave_script(self, job_id: UUID, *, telegram_user_id: int) -> Result[bool]:
+        """⬅️ out of the 🤖 branch (§2.4.1): the draft stops asking for a line. A
+        ``media_script`` still in flight then finds ``voice_mode`` is not ``ai_llm`` and
+        neither stores its line nor redraws the tray over the screen the customer is on.
+        True when a draft was asking and now is not."""
+
+        async def run() -> bool:
+            async with self._sessions.begin() as session:
+                row = await load_job(session, job_id)
+                if (
+                    not _is_prescreened_draft(row, telegram_user_id)
+                    or row is None
+                    or row.voice_mode is not MediaVoiceMode.AI_LLM
+                ):
+                    return False
+                return await update_draft(
+                    session,
+                    job_id,
+                    now=self._clock(),
+                    values={"voice_mode": MediaVoiceMode.NONE, "narration_text": None},
+                )
+
+        return await run_guarded("media.leave_script", run, media_job_id=str(job_id))

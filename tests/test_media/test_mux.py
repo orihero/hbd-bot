@@ -2,9 +2,10 @@
 
 The fit, the filter chains, the argv and the ffprobe parser are pure and run everywhere. The
 second half renders with the REAL ffmpeg against the vendored 5.06 s clip the fake backend
-serves, is marked ``integration``, and skips when the binary is absent — the §10 M4.3 line
-"mux output duration = video duration" is asserted on what ffmpeg actually wrote, never on a
-mock of it (the ``tests/test_audio`` rule).
+serves, and skips only when the binary is absent. It is NOT marked ``integration`` (it needs no
+Postgres or Redis), so the §10 M4.3 line "mux output duration = video duration" gates every
+``make test`` and unit CI run, asserted on what ffmpeg actually wrote, never on a mock of it
+(the ``tests/test_audio`` rule).
 """
 
 from __future__ import annotations
@@ -142,7 +143,6 @@ def _wav(tmp_path: Path, seconds: float) -> Path:
     return path
 
 
-@pytest.mark.integration
 @requires_ffmpeg
 async def test_normalise_reads_the_clip_and_keeps_its_shape(
     tools: FfmpegVideoTools, clip: Path, tmp_path: Path
@@ -155,7 +155,6 @@ async def test_normalise_reads_the_clip_and_keeps_its_shape(
     assert is_streamable(made.value) and not made.value.has_audio
 
 
-@pytest.mark.integration
 @requires_ffmpeg
 @pytest.mark.parametrize(
     ("voice_s", "may_speed_up", "fit"),
@@ -186,7 +185,6 @@ async def test_the_muxed_clip_is_exactly_as_long_as_the_video(
     assert not (tmp_path / "video.mp4.part").exists()
 
 
-@pytest.mark.integration
 @requires_ffmpeg
 async def test_a_silent_clip_is_rewrapped_without_audio(
     tools: FfmpegVideoTools, clip: Path, tmp_path: Path
@@ -198,7 +196,6 @@ async def test_a_silent_clip_is_rewrapped_without_audio(
     assert made.value.duration_s == pytest.approx(_CLIP_S, abs=_SLACK_S)
 
 
-@pytest.mark.integration
 @requires_ffmpeg
 async def test_frames_are_the_first_one_a_second_and_the_last(
     tools: FfmpegVideoTools, clip: Path, tmp_path: Path
@@ -238,7 +235,6 @@ def opus_note(tmp_path: Path) -> Path:
     return note
 
 
-@pytest.mark.integration
 @requires_ffmpeg
 async def test_an_own_note_is_loudness_normalised_to_mono_48k(
     tools: FfmpegVideoTools, opus_note: Path, tmp_path: Path

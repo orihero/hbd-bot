@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from aiogram import Bot
-from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.exceptions import TelegramBadRequest, TelegramEntityTooLarge, TelegramForbiddenError
 from aiogram.methods import EditMessageText, SendDocument, SendMediaGroup, SendPhoto, SendVideo
 from aiogram.types import Chat, Document, File, Message, PhotoSize, Video
 
@@ -214,3 +214,23 @@ async def test_a_blocked_customer_is_final_for_a_video_too(
     assert is_err(sent)
     assert sent.error.context[BLOCKED_BY_CUSTOMER_KEY] is True
     assert sent.error.is_retryable is False
+
+
+async def test_an_upload_over_the_bot_api_limit_is_not_retried(
+    bot: Bot, session: RecordingSession, tmp_path: Path
+) -> None:
+    """aiogram raises it as a network error, not a 400 — the same file never fits later."""
+    session.failures["SendDocument"] = TelegramEntityTooLarge(
+        method=SendDocument(chat_id=CHAT_ID, document="x"), message="Request Entity Too Large"
+    )
+
+    sent = await TelegramMediaMessenger(bot).send_video(
+        CHAT_ID,
+        _clip(tmp_path, VIDEO_MAX_BYTES + 1),
+        caption="x",
+        width=None,
+        height=None,
+        duration_s=None,
+    )
+
+    assert is_err(sent) and sent.error.is_retryable is False
