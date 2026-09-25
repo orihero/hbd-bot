@@ -31,6 +31,10 @@ grant cannot leave the gate silently open for ever. And :meth:`TermsGate.require
 fail-CLOSED question: per D20/D26 the Terms are the only control for real people in uploaded
 photos, so **every media path from M2 on — quote, submit, upload — must call it before an
 upload is accepted or any provider or guard call is made**, and treat its ``Err`` as a refusal.
+The bot's media handlers do, through ``bot.media_offer.is_terms_unconfirmed``: before a row is
+frozen (image shape pick, video ✅ Done), at a video's last voice step (a note joins the row
+there) and at each start press (💳 🎟 🎁). Every provider and guard call is the worker's, on a
+row that exists only because one of those passed.
 
 **The cache is ``terms:ok:{tg}``** (IMAGE_VIDEO_SPEC §2.1), valued with the version PAIR and
 held a day. Only a positive answer is cached: a negative one would be stale the instant the

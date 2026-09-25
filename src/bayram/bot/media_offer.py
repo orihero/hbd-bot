@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Final
 
 from bayram.bot.deps import BotDeps
+from bayram.contracts import Err
 from bayram.db.enums import MediaKind, MediaSku, MediaTier
 from bayram.media.offering import media_offered, sku_price_minor
 from bayram.media.overrides import read_paused
@@ -21,6 +22,7 @@ __all__ = [
     "SKU_FOR_KIND",
     "SKU_FOR_TIER",
     "is_sku_paused",
+    "is_terms_unconfirmed",
     "offered_kinds",
     "offered_tiers",
 ]
@@ -49,6 +51,20 @@ async def is_sku_paused(deps: BotDeps, sku: MediaSku) -> bool:
     if deps.media_kv is None:
         return False
     return await read_paused(deps.media_kv, sku)
+
+
+async def is_terms_unconfirmed(deps: BotDeps, telegram_user_id: int) -> bool:
+    """True when this account's acceptance of the Terms in force cannot be CONFIRMED now.
+
+    The fail-CLOSED read (``TermsGate.require``; D20, D26, O4): the Terms are the whole of the
+    real-person control, so a request is never frozen and never started on the fail-open answer
+    ``TermsGateMiddleware`` gives the song flow when the ledger cannot be read. Asked where a
+    photo or a voice note becomes part of a row (the freeze, a video's last voice step) and at
+    every start press (💳 🎟 🎁). No gate wired (``deps.terms is None``) asks nothing.
+    """
+    if deps.terms is None:
+        return False
+    return isinstance(await deps.terms.require(telegram_user_id), Err)
 
 
 async def offered_kinds(deps: BotDeps, telegram_user_id: int | None) -> frozenset[MediaKind]:

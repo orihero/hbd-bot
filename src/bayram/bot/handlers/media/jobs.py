@@ -31,7 +31,7 @@ from bayram.bot.handlers.media.video import start_video
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import media_pay_link_keyboard
 from bayram.bot.media_draft import MediaRef
-from bayram.bot.media_offer import is_sku_paused, offered_kinds
+from bayram.bot.media_offer import is_sku_paused, is_terms_unconfirmed, offered_kinds
 from bayram.bot.pricing import format_amount
 from bayram.bot.screens import Screen
 from bayram.bot.states import ImageOrder, VideoOrder
@@ -63,6 +63,7 @@ _TOO_LATE_KEY: Final[str] = "media.cancel_too_late"
 _SCREENING_KEY: Final[str] = "media.screening"
 _PHOTOS_NOT_KEPT_KEY: Final[str] = "media.compose.photos_not_kept"
 _PAY_LINK_KEY: Final[str] = "media.pay_link"
+_BUSY_KEY: Final[str] = "media.busy"
 #: §7.6: today's paid requests of this kind are used up. Shared with the worker's refusal.
 DAILY_CAP_KEY: Final[str] = "media.daily_cap"
 #: The link's two facts (12 hours, one open payment) read the same for every product.
@@ -126,6 +127,16 @@ async def _leave_compose(state: FSMContext) -> None:
 # ---------------------------------------------------------------------------
 # 💳 🎟 🎁 — starting the request
 # ---------------------------------------------------------------------------
+async def _refuse_unconfirmed_terms(
+    callback: CallbackQuery, deps: BotDeps, language: Language
+) -> bool:
+    """Nothing starts on the fail-open Terms answer (§2.1, D26): ``True`` when refused."""
+    if not await is_terms_unconfirmed(deps, callback.from_user.id):
+        return False
+    await callback.answer(translate(_BUSY_KEY, language), show_alert=True)
+    return True
+
+
 async def _no_pay_path() -> Result[MediaPayLink]:
     """A deployment with no database wires no pay path; its 💳 is refused and writes nothing."""
     return err(
@@ -151,6 +162,8 @@ async def handle_pay(
         return
     if job.state not in _PAYABLE_STATES:
         await _stale(callback, language)
+        return
+    if await _refuse_unconfirmed_terms(callback, deps, language):
         return
     charge = deps.media_charge
 
@@ -190,6 +203,8 @@ async def handle_credit(
     job = await _owned_job(callback, callback_data, deps, language)
     if job is None or deps.media is None:
         return
+    if await _refuse_unconfirmed_terms(callback, deps, language):
+        return
     spent = await deps.media.spend_credit(
         job.id,
         telegram_user_id=callback.from_user.id,
@@ -220,6 +235,8 @@ async def handle_beta(
     language = await ui_language(state, deps)
     job = await _owned_job(callback, callback_data, deps, language)
     if job is None or deps.media is None:
+        return
+    if await _refuse_unconfirmed_terms(callback, deps, language):
         return
     started = await deps.media.start_beta(
         job.id,

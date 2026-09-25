@@ -5,8 +5,14 @@ already taken on `feat/capture-start-payload` and lands with M0.4, so this spec'
 `0030`–`0032`. Cite this document by section —
 `IMAGE_VIDEO_SPEC §4.2` — never by path, so the citation survives the file moving.
 
-**Status, 2026-09-24 — plan only. Nothing here is built.** It specifies `DECISIONS.md` **D20–D26**
-and is the build plan for them. The research it rests on is
+**Status, 2026-09-25 — the code is built; go-live is owner-pending.** Every code item of M0–M6
+is on `feat/media-products` (one alembic head, `0033`), each milestone closed by a review commit
+(M0.R–M6.R) and the branch by a whole-flow review (FINAL). What is left needs the owner or
+counsel: the approved Terms text (M1.3), the gateway hardening and guard models on the 5090
+(M2.6's `doctor` green from the host, M3.3), the listening test (M4.4), Payme production and the
+go-live flags (M5.3), and counsel's view before Fast is switched on (M6.3). §10 opens with the
+per-item status and commit ids. It specifies `DECISIONS.md` **D20–D26**
+and is the build plan for them. *(Written 2026-09-24 as a plan, with nothing built.)* The research it rests on is
 `docs/research/RESEARCH-image-video-pipeline.md` (frozen, same date).
 
 **The owner's answers of 2026-09-24 are binding** (§0.2). The request they answer is quoted
@@ -242,6 +248,11 @@ existing user, accepted_version < terms_version ──┘   (accept → back to 
   media SKU is offered.
 - The terms screen replaces LR-54's "notice at first use" requirement for the whole bot (D26); the
   song flow's S3 recipient-data notice stays.
+- *As built (FINAL):* the gate's read **fails open** for the song flow when the ledger cannot be
+  read (a database blip must not silence the bot), so media cannot rest on it. Every media path
+  asks the fail-**closed** `TermsGate.require` instead — before a row is frozen (image shape pick,
+  video ✅ Done), at a video's last voice step (a voice note joins the row there) and at 💳 🎟 🎁 —
+  and an unconfirmed acceptance answers `media.busy` with nothing frozen or started.
 
 | Key | en | ru | uz_latn |
 | --- | --- | --- | --- |
@@ -1683,6 +1694,44 @@ production (D13/D14).
 Each item is one PR unless noted. Product tests live in `tests/`, use `FakeMediaProvider`,
 `FakeModerator`, `FakeTts` and MemoryStorage — **no network in unit tests**. Gateway/Gemini
 contract checks are separate make targets.
+
+### Build status, 2026-09-25
+
+**Built** means the code, its tests and its docs are committed on `feat/media-products`; **owner**
+means only the owner (or counsel) can close it, and the code around it — flags, boot refusals,
+runbook steps — is already built. Commit ids are short hashes on that branch.
+
+| Item | Status | Commit(s) |
+| --- | --- | --- |
+| M0.1 zero-greeting replay | Built | `61f57d7` |
+| M0.2 song moderator fails closed | Built | `d1910b0` |
+| M0.3 workspace sweep, `put_file` | Built | `1926b74` |
+| M0.4 row-existence fix, `0029` | Built (merge) | `7bec7ea` |
+| M0.5 SCOPE amendment blocks | Built | `fc1b867` |
+| M0.6 stale price | Built | `5e6fd4d` (M0.R) |
+| M1.1 `0030 terms_acceptances` | Built | `bcb295c`, `2afdaf6` (M1.R) |
+| M1.2 Terms + Privacy gate | Built | `c99eaf5`, `2afdaf6` (M1.R) |
+| M1.3 approved Terms/Privacy text | **Owner** — counsel sign-off; the DRAFT copy ships and boot refuses media for everyone without a version pair | — |
+| M2.1 `0031` media tables | Built | `c3e14ab` |
+| M2.2 provider, gateway client, flags, boot | Built | `c73688d` |
+| M2.3 collage | Built | `5296038` |
+| M2.4 stage jobs, GPU lock, delivery | Built | `ae1f377` |
+| M2.5 ✨ picker, `ImageOrder`, tray | Built | `25a5306` |
+| M2.6 `doctor`, runbook `12-media-gateway` | Code built (`4caeb19`); **owner** — gateway hardening (§9.1) and `doctor` green from the production host | `4caeb19`, `a916bb1` (M2.R) |
+| M3.1 guard client, L0–L4, strikes, legal hold | Built | `d7b7d84` |
+| M3.2 `0032 moderation_reviews`, admin queue | Built (`0033` hold records added at M3.R) | `7472f06`, `9dd87a3` (M3.R) |
+| M3.3 guard models on the 5090, calibration sets | **Owner** | — |
+| M4.1 `VideoOrder`, voice screens, own-voice intake | Built | `9677f6e` |
+| M4.2 Gemini TTS, key pool, ElevenLabs fallback | Built | `3e97392` |
+| M4.3 script writer, mux, fan-in, video delivery | Built | `7db9aa2`, `4969051` (M4.R) |
+| M4.4 listening test, house voice | **Owner** | — |
+| M5.1 SKUs on Payme, §7.3 match sites, settle | Built | `3cded96` |
+| M5.2 credits, refunds, caps, finance | Built | `3ec74df` |
+| M5.3 go-live boot refusals and flag set | Code built (`a04e9c4`); **owner** — Payme production (PAYME_INTEGRATION §8.6), then the flags in runbook `12-media-gateway §8` | `a04e9c4`, `f0bcb19` (M5.R) |
+| M6.1 Higgsfield provider, ceilings | Built | `42e6f96` |
+| M6.2 tier screen, Fast, native multi-ref | Built | `5876694`, `4784dbb` (M6.R) |
+| M6.3 counsel on photos abroad (R6) | **Owner** — precondition in runbook `12-media-gateway §6.5`; Fast ships off with no price | — |
+| FINAL whole-branch review | Built — media paths read the Terms fail-closed (§2.1); paid image and each of the four video voice kinds walked from the quote to delivery on the live Payme rail | FINAL |
 
 ### M0 — prerequisites (no media code)
 

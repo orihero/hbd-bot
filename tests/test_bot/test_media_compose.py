@@ -60,12 +60,14 @@ from bayram.db.models import Base
 from bayram.db.models.media_input import MediaInputRow
 from bayram.db.models.media_job import MediaJobRow
 from bayram.db.models.media_purchase import MediaPurchaseRow
+from bayram.errors import StorageError
 from bayram.media.desk import JobView, SqlMediaDesk
 from bayram.media.overrides import GPU_RESERVED_KEY
 from bayram.media.payment import MediaPayLink
 from bayram.media.stages import MEDIA_CLEANUP_JOB, MEDIA_SCREEN_JOB, MEDIA_START_JOB
 from bayram.moderation.lexicon import PROMPT_MAX_WORDS
 from bayram.moderation.strikes import MemoryStrikeStore, SuspensionReason
+from bayram.terms import InMemoryTermsCache, TermsGate, TermsVersions
 from tests.test_bot.conftest import (
     BOT_ID,
     CHAT_ID,
@@ -81,6 +83,7 @@ from tests.test_bot.conftest import (
     last_reply_keyboard,
     reply_buttons,
 )
+from tests.test_bot.test_terms_gate import FakeTermsLedger
 from tests.test_bot.test_wizard_flow import complete_onboarding, press, send, tap
 from tests.test_runtime.media_fakes import ArqLikeQueue, MemoryKV
 
@@ -131,6 +134,7 @@ class Rig:
         profiles: FakeProfiles | None = None,
         media_charge: Callable[[JobView], Awaitable[Result[MediaPayLink]]] | None = None,
         strikes: MemoryStrikeStore | None = None,
+        terms: TermsGate | None = None,
     ) -> None:
         self.settings = settings
         self.strikes = strikes if strikes is not None else MemoryStrikeStore()
@@ -150,6 +154,7 @@ class Rig:
             media_kv=self.kv,
             media_charge=media_charge,
             media_strikes=self.strikes,
+            terms=terms,
         )
         self.dispatcher: Dispatcher = build_dispatcher(self.deps, storage=self.storage)
 
@@ -689,6 +694,67 @@ async def test_beta_re_checks_the_allowlist_at_press_time(
     assert still.state is MediaJobState.QUOTED
     assert MEDIA_START_JOB not in [stage.name for stage in rig.queue.pending]
     assert session.last_named("AnswerCallbackQuery").text == translate("media.stale", Language.EN)
+
+
+# ---------------------------------------------------------------------------
+# The Terms, read fail-CLOSED (§2.1, D20, D26, O4)
+# ---------------------------------------------------------------------------
+def _unreadable_terms() -> tuple[FakeTermsLedger, InMemoryTermsCache, TermsGate]:
+    """A gate whose ledger cannot be read. The song flow's read fails OPEN on it (onboarding
+    and ``TermsGateMiddleware`` let the chat through); a media request must not."""
+    ledger = FakeTermsLedger()
+    ledger.failure = StorageError("terms_acceptances is unreachable")
+    cache = InMemoryTermsCache()
+    return ledger, cache, TermsGate(ledger, TermsVersions("v1", "v1"), cache=cache)
+
+
+async def test_an_unreadable_terms_ledger_freezes_no_image_request(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    ledger, _, gate = _unreadable_terms()
+    rig = Rig(media_on(settings), sessions, terms=gate)
+    await open_image_compose(rig, bot)
+
+    await freeze(rig, bot)
+
+    assert await rig.jobs() == []
+    assert rig.queue.pending == type(rig.queue.pending)()
+    assert session.last_named("AnswerCallbackQuery").text == translate("media.busy", Language.EN)
+    assert await rig.fsm_state() == ImageOrder.aspect.state
+    # The ledger answers again, with the pair accepted: the same shape press freezes.
+    ledger.failure = None
+    await ledger.accept(USER_ID, gate.versions, language=Language.EN, source="gate")
+    await press(rig.dispatcher, bot, med(MediaAction.ASPECT, arg=AspectPick.SQUARE))
+    assert len(await rig.jobs()) == 1
+
+
+async def test_an_unreadable_terms_ledger_starts_nothing_at_the_beta_press(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    ledger, cache, gate = _unreadable_terms()
+    ledger.failure = None
+    await ledger.accept(USER_ID, gate.versions, language=Language.EN, source="gate")
+    rig = Rig(media_on(settings), sessions, terms=gate)
+    await open_image_compose(rig, bot)
+    await freeze(rig, bot)
+    (job,) = await rig.jobs()
+    await rig.move(job.id, MediaJobState.QUOTED)
+    # The day-long positive cache entry lapses and the ledger goes away.
+    cache.values.clear()
+    ledger.failure = StorageError("terms_acceptances is unreachable")
+
+    await press(rig.dispatcher, bot, med(MediaAction.BETA, job=job.id))
+
+    (still,) = await rig.jobs()
+    assert still.state is MediaJobState.QUOTED
+    assert MEDIA_START_JOB not in [stage.name for stage in rig.queue.pending]
+    assert session.last_named("AnswerCallbackQuery").text == translate("media.busy", Language.EN)
 
 
 async def test_a_press_on_somebody_elses_job_is_stale(

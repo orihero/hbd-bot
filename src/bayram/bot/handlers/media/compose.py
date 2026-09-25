@@ -59,7 +59,7 @@ from bayram.bot.media_draft import (
     MediaRef,
     load_media_draft,
 )
-from bayram.bot.media_offer import offered_kinds
+from bayram.bot.media_offer import is_terms_unconfirmed, offered_kinds
 from bayram.bot.middleware import resolve_language
 from bayram.bot.screens import Screen
 from bayram.bot.states import ImageOrder, VideoOrder
@@ -654,6 +654,11 @@ async def handle_aspect(
     if await is_suspended(deps, callback.from_user.id):
         # Suspended since ✅ (another request's block): nothing is frozen (§6.4).
         await refuse_suspended(callback, state, language)
+        return
+    if await is_terms_unconfirmed(deps, callback.from_user.id):
+        # The photos become a row only on a CONFIRMED acceptance (§2.1, D26): an unreadable
+        # ledger freezes nothing, and the shape can be picked again.
+        await callback.answer(translate(_BUSY_KEY, language), show_alert=True)
         return
     await callback.answer()
     # BEFORE the freeze: the worker edits this same message into the quote once the enqueue

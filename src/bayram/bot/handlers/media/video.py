@@ -69,7 +69,7 @@ from bayram.bot.keyboards import (
     media_voice_step_keyboard,
 )
 from bayram.bot.media_draft import MediaDraft, MediaRef, MediaVoiceNoteRef
-from bayram.bot.media_offer import SKU_FOR_TIER, offered_tiers
+from bayram.bot.media_offer import SKU_FOR_TIER, is_terms_unconfirmed, offered_tiers
 from bayram.bot.pricing import format_amount
 from bayram.bot.screens import Screen
 from bayram.bot.states import VideoOrder
@@ -288,6 +288,10 @@ async def handle_done(callback: CallbackQuery, state: FSMContext, deps: BotDeps)
         return
     if draft.prompt is None:
         await callback.answer(translate(_NEED_PROMPT_KEY, language), show_alert=True)
+        return
+    if await is_terms_unconfirmed(deps, callback.from_user.id):
+        # Fail closed (§2.1, D26): no row, no prescreen; the tray stays for a later ✅.
+        await callback.answer(translate(_BUSY_KEY, language), show_alert=True)
         return
     offered = await offered_tiers(deps, callback.from_user.id)
     tiers = await _open_tiers(deps, offered)
@@ -627,6 +631,13 @@ async def _finalize(event: Event, state: FSMContext, deps: BotDeps, draft: Media
         or tier not in await offered_tiers(deps, user.id)
     ):
         await _stale_screen(event, state, language)
+        return
+    if await is_terms_unconfirmed(deps, user.id):
+        # A voice note joins the row here (§2.1, D26): fail closed, and the step stays open.
+        if isinstance(event, CallbackQuery):
+            await event.answer(translate(_BUSY_KEY, language), show_alert=True)
+        else:
+            await say(event, translate(_BUSY_KEY, language))
         return
     screening = Screen(translate(_SCREENING_KEY, language), None)
     tray_id: int | None = None
