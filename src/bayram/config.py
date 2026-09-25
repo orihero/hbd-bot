@@ -806,6 +806,14 @@ class Settings(BaseSettings):
     image_backend: MediaBackendName = Field(default="local")
     video_standard_backend: MediaBackendName = Field(default="local")
     video_fast_backend: MediaBackendName = Field(default="higgsfield")
+    #: Where a SKU's job moves when its backend refuses a submit BEFORE anything was created
+    #: there — unavailable, quota, rate-limited, a 502 with no job id — and nothing of the
+    #: job was ever posted (IMAGE_VIDEO_SPEC §3.3, §4.1). Never after an ambiguous submit.
+    #: Empty (the default) = no fallback: the job retries on its own backend. A configured
+    #: fallback for an offered SKU is held to the same boot checks as its backend (§4.5).
+    image_fallback_backend: MediaBackendName | None = Field(default=None)
+    video_standard_fallback_backend: MediaBackendName | None = Field(default=None)
+    video_fast_fallback_backend: MediaBackendName | None = Field(default=None)
     #: Prices in minor units (UZS tiyin), hand-set per currency, no FX (§7.1). ``None`` —
     #: an empty variable — means "not sellable", and an offered SKU with no price refuses to
     #: boot. 500_000 == 5 000 soʻm for ONE request yielding two images (O5).
@@ -1249,6 +1257,9 @@ class Settings(BaseSettings):
         "image_price_minor",
         "video_standard_price_minor",
         "video_fast_price_minor",
+        "image_fallback_backend",
+        "video_standard_fallback_backend",
+        "video_fast_fallback_backend",
         "media_uzs_per_usd",
         "higgsfield_usd_per_credit",
         "higgsfield_image_usd_per_output",

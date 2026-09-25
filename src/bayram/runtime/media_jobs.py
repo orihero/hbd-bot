@@ -142,12 +142,14 @@ from bayram.db.media import (
     list_inputs,
     list_outputs,
     load_job,
+    lock_job_backend,
     media_balance,
     place_legal_hold,
     record_input_stored,
     record_output_file_id,
     set_attempt_status,
     stamp_input_backstop,
+    switch_backend,
     touch_job,
     transition,
     update_draft,
@@ -169,11 +171,12 @@ from bayram.logging import get_logger
 from bayram.media.composite import (
     COLLAGE_MIME,
     build_collage,
-    needs_collage,
     target_size,
 )
 from bayram.media.contracts import (
     ATTEMPT_STATUS_FOR_PHASE,
+    PRE_SUBMIT,
+    SUBMIT_PHASE_KEY,
     GatewayQueueReader,
     JobHandle,
     JobPhase,
@@ -194,6 +197,14 @@ from bayram.media.offering import (
     media_offered,
 )
 from bayram.media.overrides import MediaSwitchStore, read_backend_override, read_overrides
+from bayram.media.routing import (
+    can_carry,
+    collage_needed_on,
+    fallback_backend,
+    is_fallback_error,
+    refs_sent,
+    route_backends,
+)
 from bayram.media.script_writer import GatewayScriptLlm, LlmScriptWriter, ScriptWriter
 from bayram.media.service import MediaQueue, is_at_daily_cap
 from bayram.media.stages import (
@@ -1439,11 +1450,18 @@ async def media_screen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
             return heard
         voice, job = heard.screened, heard.job
 
-    # 2. The collage, when the backend takes fewer references than there are photos (§4.4).
+    # 2. The collage, when a backend on the route takes fewer references than there are
+    #    photos (§4.4). A multi-ref primary still gets the originals (O6, M6.2); the collage
+    #    is screened too so that a fallback onto a one-ref backend has bytes to send.
     overrides = await read_overrides(rt.switches, job.sku)
     backend = effective_backend(rt.settings, job.sku, overrides.backend)
+    route = route_backends(rt.settings, job.sku, overrides.backend)
     inputs: list[_Screened] = list(photos)
-    if needs_collage(len(photos), rt.providers(backend).capabilities().max_reference_images):
+    if collage_needed_on(
+        [rt.providers(each).capabilities() for each in route],
+        _kind_name(job.kind),
+        photos=len(photos),
+    ):
         existing = next((row for row in rows if row.role is MediaInputRole.COLLAGE), None)
         collage = await _store_collage(rt, job, photos, existing, workdir)
         if is_err(collage):
@@ -2153,12 +2171,20 @@ async def _refresh_progress(rt: MediaRuntime, job_id: UUID) -> None:
 async def _build_request(
     rt: MediaRuntime, job: MediaJobRow, variant: int, workdir: Path
 ) -> Result[MediaRequest]:
-    """The generation request, built only from the row and the SCREENED inputs (§3.3)."""
+    """The generation request, built only from the row and the SCREENED inputs (§3.3).
+
+    The photos go natively when the job's backend takes that many for the kind — a
+    multi-ref model (§4.4, O6, M6.2) — and the screened collage otherwise.
+    """
     async with rt.sessions() as session:
         rows = await list_inputs(session, job.id)
     collage = next((row for row in rows if row.role is MediaInputRole.COLLAGE), None)
     photos = [row for row in rows if row.role is MediaInputRole.PHOTO]
-    chosen = [collage] if collage is not None else photos
+    caps = rt.providers(_backend(job)).capabilities()
+    native = refs_sent(
+        caps, _kind_name(job.kind), photos=len(photos), has_collage=collage is not None
+    ) == len(photos)
+    chosen = photos if native or collage is None else [collage]
     refs: list[Path] = []
     for row in chosen:
         if row.storage_key is None:
@@ -2426,17 +2452,29 @@ async def media_submit(
             return _result("waiting_for_gpu", jid, variant=variant, rank=rank)
 
     async with rt.sessions.begin() as session:
-        inserted = await insert_attempt(
-            session,
-            job_id=jid,
-            stage=_stage(job.kind),
-            variant=variant,
-            attempt=attempt,
-            provider=provider.name,
-            now=now,
-            model_id=job.model_id,
-            attempt_id=attempt_id,
+        # Under the job's row lock: a fallback that moved the job since it was loaded
+        # (§3.3) must not find an attempt posted to the backend it just left.
+        moved = await lock_job_backend(session, jid) is not backend
+        inserted = (
+            None
+            if moved
+            else await insert_attempt(
+                session,
+                job_id=jid,
+                stage=_stage(job.kind),
+                variant=variant,
+                attempt=attempt,
+                provider=provider.name,
+                now=now,
+                model_id=job.model_id,
+                attempt_id=attempt_id,
+            )
         )
+    if moved:
+        if uses_gpu:
+            await _gpu_call("release", rt.gpu.release(str(attempt_id)), False)
+        await enqueue_submit(rt, jid, variant, attempt, defer_s=0)
+        return _result("requeued_backend_moved", jid, variant=variant)
     if inserted is None:
         # A sibling copy of this very submit got there first; it owns the attempt.
         if uses_gpu:
@@ -2454,6 +2492,8 @@ async def media_submit(
         # A backend that bills per call (§4.3): no POST without a known cost that fits.
         gated = await _cost_gate(rt, job, provider, request.value)
         if is_err(gated):
+            # A backend that cannot even estimate (down, out of balance) may be fallen back
+            # from (§3.3); a cost over the ceiling is about the request and moves nothing.
             return await _attempt_failed_before_post(
                 rt,
                 job,
@@ -2463,6 +2503,7 @@ async def media_submit(
                 gated.error,
                 uses_gpu=uses_gpu,
                 error_code=MediaErrorCode.COST_CEILING,
+                fallback_to=_fallback_for(rt, job, gated.error),
             )
         cost_usd = gated.value
     cost_source = CostSource.ESTIMATED if cost_usd is not None else None
@@ -2475,6 +2516,9 @@ async def media_submit(
     if is_err(submitted):
         error = submitted.error
         status = MediaAttemptStatus.AMBIGUOUS if is_ambiguous(error) else MediaAttemptStatus.FAILED
+        fallback_to = (
+            None if status is MediaAttemptStatus.AMBIGUOUS else _fallback_for(rt, job, error)
+        )
         # An ambiguous POST may have been billed: its estimate counts against the ceiling. A
         # plain failure created nothing, so a retry is not charged for it.
         billed = status is MediaAttemptStatus.AMBIGUOUS
@@ -2494,6 +2538,12 @@ async def media_submit(
         # instead of retrying (§4.3). A plain failure queued nothing, so the slot goes now.
         if uses_gpu and status is not MediaAttemptStatus.AMBIGUOUS:
             await _gpu_call("release", rt.gpu.release(str(attempt_id)), False)
+        if fallback_to is not None and await _fall_back(
+            rt, job, variant, attempt, current=backend, to=fallback_to, error=error
+        ):
+            return _result(
+                "fell_back", jid, variant=variant, backend=fallback_to.value, attempt=attempt + 1
+            )
         await _after_attempt(rt, jid, variant, attempt, status)
         return _result("submit_failed", jid, variant=variant, status=status.value)
 
@@ -2539,6 +2589,84 @@ async def media_submit(
     return _result("submitted", jid, variant=variant, attempt=attempt)
 
 
+def _fallback_for(rt: MediaRuntime, job: MediaJobRow, error: BayramError) -> MediaBackend | None:
+    """The backend this job may move to after ``error``, or ``None`` (§3.3, §4.1).
+
+    Only a pre-submit refusal of the named classes (:func:`is_fallback_error`), and only to
+    the SKU's configured fallback. :func:`_fall_back` then holds it to the job as screened.
+    """
+    if not is_fallback_error(error):
+        return None
+    return fallback_backend(rt.settings, job.sku, _backend(job))
+
+
+async def _fall_back(
+    rt: MediaRuntime,
+    job: MediaJobRow,
+    variant: int,
+    attempt: int,
+    *,
+    current: MediaBackend,
+    to: MediaBackend,
+    error: BayramError,
+) -> bool:
+    """Move the job onto ``to`` and post this variant's next attempt there. True if moved.
+
+    The move is :func:`bayram.db.media.switch_backend`'s: refused once anything of the job
+    was posted, so one job renders on one backend (the other variant, already running on
+    ``current``, keeps it there — this variant then retries where it is). The job leaves or
+    joins the GPU queue with its backend (§3.4). The next attempt number is ``attempt + 1``
+    and counts toward ``media_max_attempts`` like any other.
+    """
+    async with rt.sessions() as session:
+        rows = await list_inputs(session, job.id)
+    photos = sum(1 for row in rows if row.role is MediaInputRole.PHOTO)
+    has_collage = any(row.role is MediaInputRole.COLLAGE for row in rows)
+    if not can_carry(
+        rt.providers(to).capabilities(),
+        _kind_name(job.kind),
+        photos=photos,
+        has_collage=has_collage,
+    ):
+        _LOG.warning(
+            "the media fallback cannot render this job as screened; staying on its backend",
+            extra={"media_job_id": str(job.id), "backend": current.value, "fallback": to.value},
+        )
+        return False
+    async with rt.sessions.begin() as session:
+        moved = await switch_backend(
+            session,
+            job.id,
+            stage=_stage(job.kind),
+            current=current,
+            to=to,
+            model_id=_model_id(rt, to, job.kind),
+            working=_WORKING_STATES,
+            now=rt.clock(),
+        )
+    if not moved:
+        return False
+    _LOG.warning(
+        "a media job fell back to another backend after a pre-submit refusal",
+        extra={
+            **error.to_log_dict(),
+            "media_job_id": str(job.id),
+            "from_backend": current.value,
+            "to_backend": to.value,
+        },
+    )
+    members = _members(job)
+    if current in GPU_BACKENDS and to not in GPU_BACKENDS:
+        for member in members:
+            await _gpu_call("leave", rt.gpu.leave(member), None)
+    elif to in GPU_BACKENDS and current not in GPU_BACKENDS:
+        paid_at = job.paid_at or rt.clock()
+        for other in range(job.outputs_requested):
+            await _gpu_call("join", rt.gpu.join(members[other], queue_score(paid_at, other)), None)
+    await enqueue_submit(rt, job.id, variant, attempt + 1, defer_s=0)
+    return True
+
+
 async def _attempt_failed_before_post(
     rt: MediaRuntime,
     job: MediaJobRow,
@@ -2549,9 +2677,11 @@ async def _attempt_failed_before_post(
     *,
     uses_gpu: bool,
     error_code: MediaErrorCode = MediaErrorCode.INPUT_CHANGED,
+    fallback_to: MediaBackend | None = None,
 ) -> dict[str, Any]:
     """Nothing was posted: the attempt is plainly ``failed`` — our inputs, or (§4.3) a cost
-    the request cannot carry. The retry policy decides, as for any failed attempt."""
+    the request cannot carry. The retry policy decides, as for any failed attempt — unless
+    the backend itself refused and the job may move to ``fallback_to`` (§3.3)."""
     _LOG.warning(
         "a media attempt was not posted", extra={**error.to_log_dict(), "why": error_code.value}
     )
@@ -2566,6 +2696,10 @@ async def _attempt_failed_before_post(
         )
     if uses_gpu:
         await _gpu_call("release", rt.gpu.release(str(attempt_id)), False)
+    if fallback_to is not None and await _fall_back(
+        rt, job, variant, attempt, current=_backend(job), to=fallback_to, error=error
+    ):
+        return _result("fell_back", job.id, variant=variant, backend=fallback_to.value)
     await _after_attempt(rt, job.id, variant, attempt, MediaAttemptStatus.FAILED)
     return _result("request_failed", job.id, variant=variant)
 
@@ -2582,7 +2716,8 @@ async def _cost_gate(
     """
     estimated = await provider.estimate_cost(request)
     if is_err(estimated):
-        return estimated
+        # An estimate creates nothing at the vendor: whatever failed, it failed pre-submit.
+        return err(estimated.error.with_context(**{SUBMIT_PHASE_KEY: PRE_SUBMIT}))
     usd = estimated.value.usd
     ceiling = request_cost_ceiling_usd(rt.settings, job.sku)
     async with rt.sessions() as session:

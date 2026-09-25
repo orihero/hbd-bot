@@ -69,7 +69,7 @@ from bayram.bot.keyboards import (
     media_voice_step_keyboard,
 )
 from bayram.bot.media_draft import MediaDraft, MediaRef, MediaVoiceNoteRef
-from bayram.bot.media_offer import SKU_FOR_TIER, offered_kinds, offered_tiers
+from bayram.bot.media_offer import SKU_FOR_TIER, offered_tiers
 from bayram.bot.pricing import format_amount
 from bayram.bot.screens import Screen
 from bayram.bot.states import VideoOrder
@@ -78,7 +78,6 @@ from bayram.db.enums import (
     MediaAspect,
     MediaJobState,
     MediaKind,
-    MediaSku,
     MediaTier,
     MediaVoiceGender,
     MediaVoiceMode,
@@ -290,18 +289,19 @@ async def handle_done(callback: CallbackQuery, state: FSMContext, deps: BotDeps)
     if draft.prompt is None:
         await callback.answer(translate(_NEED_PROMPT_KEY, language), show_alert=True)
         return
-    if await is_gpu_reserved(deps, MediaSku.VIDEO_STANDARD):
+    offered = await offered_tiers(deps, callback.from_user.id)
+    tiers = await _open_tiers(deps, offered)
+    if offered and not tiers:
+        # Every tier this account may buy renders on the reserved GPU (§4.5, O11).
         await callback.answer(translate(_BUSY_KEY, language), show_alert=True)
         return
+    # The row's SKU is a placeholder until the last voice step (§2.4.1): the first tier
+    # still open, so a prescreen never meets a GPU window Fast does not render on.
+    placeholder = min(tiers, key=list(MediaTier).index, default=MediaTier.STANDARD)
     desk = deps.media
-    price = sku_price_minor(deps.settings, MediaSku.VIDEO_STANDARD)
+    price = sku_price_minor(deps.settings, SKU_FOR_TIER[placeholder])
     message = callback.message
-    if (
-        desk is None
-        or price is None
-        or not isinstance(message, Message)
-        or MediaKind.VIDEO not in await offered_kinds(deps, callback.from_user.id)
-    ):
+    if desk is None or price is None or not isinstance(message, Message) or not offered:
         await _stale(callback, language)
         await clear_keeping_identity(state)
         await present(callback, Screen(translate(_STALE_KEY, language), None))
@@ -314,7 +314,7 @@ async def handle_done(callback: CallbackQuery, state: FSMContext, deps: BotDeps)
             chat_id=message.chat.id,
             tray_message_id=message.message_id,
             kind=MediaKind.VIDEO,
-            sku=MediaSku.VIDEO_STANDARD,
+            sku=SKU_FOR_TIER[placeholder],
             # A placeholder until the shape is picked: the last voice step writes the real
             # one (and the tier's SKU and price) onto the row.
             aspect=MediaAspect.PORTRAIT,
@@ -325,7 +325,7 @@ async def handle_done(callback: CallbackQuery, state: FSMContext, deps: BotDeps)
             price_minor=price,
             currency=deps.settings.kit_currency,
             state=MediaJobState.DRAFTING,
-            tier=MediaTier.STANDARD,
+            tier=placeholder,
         )
     )
     if isinstance(frozen, Err):
@@ -364,15 +364,24 @@ async def handle_aspect(
         return
     await callback.answer()
     draft = draft.updated(aspect=aspect)
-    tiers = await offered_tiers(deps, callback.from_user.id)
+    tiers = await _open_tiers(deps, await offered_tiers(deps, callback.from_user.id))
     if len(tiers) >= 2:
         await state.set_state(VideoOrder.tier)
         await write_draft(state, draft)
         await present(callback, _tier_screen(deps, draft.ui_language, tiers))
         return
-    # One tier: no screen (§2.4.1). The quote names it.
+    # One tier: no screen (§2.4.1). The quote names it — and a reserved GPU there answers
+    # ``media.busy`` at the quote, as it always has (§4.5).
     only = next(iter(tiers), MediaTier.STANDARD)
     await _show_voice(callback, state, deps, draft.updated(tier=only))
+
+
+async def _open_tiers(deps: BotDeps, offered: frozenset[MediaTier]) -> frozenset[MediaTier]:
+    """The offered tiers not inside the operator's GPU window (§4.5, O11): with Fast on
+    Higgsfield, a reserved GPU closes Standard alone and Fast is still sold (M6.2)."""
+    return frozenset(
+        [tier for tier in offered if not await is_gpu_reserved(deps, SKU_FOR_TIER[tier])]
+    )
 
 
 async def handle_tier(
@@ -699,7 +708,7 @@ async def handle_back(callback: CallbackQuery, state: FSMContext, deps: BotDeps)
         await present(callback, _aspect_screen(language))
         return
     if current == VideoOrder.voice.state:
-        tiers = await offered_tiers(deps, callback.from_user.id)
+        tiers = await _open_tiers(deps, await offered_tiers(deps, callback.from_user.id))
         if len(tiers) >= 2:
             await state.set_state(VideoOrder.tier)
             await present(callback, _tier_screen(deps, language, tiers))

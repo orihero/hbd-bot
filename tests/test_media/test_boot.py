@@ -378,3 +378,56 @@ def test_a_guard_address_on_plain_http_refuses(base: Settings) -> None:
 def test_a_fake_moderator_with_media_offered_still_refuses(base: Settings) -> None:
     with pytest.raises(ConfigError, match="BAYRAM_MEDIA_MODERATOR"):
         refuse_unsafe_media_config(_beta(base, media_moderator="fake"))
+
+
+# ---------------------------------------------------------------------------
+# A configured fallback backend (IMAGE_VIDEO_SPEC §3.3, M6.2)
+# ---------------------------------------------------------------------------
+def test_a_fallback_that_passes_the_same_checks_boots(base: Settings) -> None:
+    # Local primary, Higgsfield fallback with its key pair and a cost inside the margin.
+    refuse_unsafe_media_config(
+        _on_higgsfield(base, image_backend="local", image_fallback_backend="higgsfield")
+    )
+
+
+def test_a_fallback_is_held_to_the_same_checks_as_the_backend(base: Settings) -> None:
+    # The primary is fine; the fallback has no secret, so a moved job could never render.
+    fallback = _on_higgsfield(
+        base, image_backend="local", image_fallback_backend="higgsfield", higgsfield_api_secret=""
+    )
+
+    with pytest.raises(ConfigError, match="BAYRAM_HIGGSFIELD_API_SECRET"):
+        refuse_unsafe_media_config(fallback)
+
+
+def test_a_fallback_above_the_margin_refuses_naming_the_fallback(base: Settings) -> None:
+    fallback = _on_higgsfield(
+        base,
+        image_backend="local",
+        image_fallback_backend="higgsfield",
+        higgsfield_image_usd_per_output=0.14,
+    )
+
+    with pytest.raises(ConfigError, match="margin check fails on BAYRAM_IMAGE_FALLBACK_BACKEND"):
+        refuse_unsafe_media_config(fallback)
+
+
+def test_an_unbuilt_or_fake_fallback_refuses(base: Settings) -> None:
+    with pytest.raises(ConfigError, match="BAYRAM_IMAGE_FALLBACK_BACKEND is 'fal'"):
+        refuse_unsafe_media_config(_beta(base, image_fallback_backend="fal"))
+    with pytest.raises(ConfigError, match="BAYRAM_IMAGE_FALLBACK_BACKEND is 'fake'"):
+        refuse_unsafe_media_config(_beta(base, image_fallback_backend="fake"))
+
+
+def test_production_refuses_a_fake_fallback_even_unoffered(base: Settings) -> None:
+    with pytest.raises(ConfigError, match="BAYRAM_VIDEO_FAST_FALLBACK_BACKEND"):
+        refuse_unsafe_media_config(
+            _with(base, environment="prod", video_fast_fallback_backend="fake")
+        )
+
+
+def test_an_empty_fallback_variable_is_no_fallback(base: Settings) -> None:
+    # ``BAYRAM_IMAGE_FALLBACK_BACKEND=`` as ``.env.example`` ships it.
+    parsed = Settings.model_validate({**base.model_dump(), "image_fallback_backend": ""})
+
+    assert parsed.image_fallback_backend is None

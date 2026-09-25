@@ -36,6 +36,7 @@ from bayram.media.contracts import (
     MediaGenProvider,
     is_ambiguous,
     is_pre_submit,
+    max_references,
 )
 from bayram.providers.media.factory import build_media_provider, higgsfield_submit_ceilings
 from bayram.providers.media.higgsfield import (
@@ -137,7 +138,7 @@ async def _submit(provider: HiggsfieldProvider, req: Any, **kwargs: Any) -> Any:
     "model_key", [key for key, model in HIGGSFIELD_MODELS.items() if model.kind == "video"]
 )
 def test_every_video_model_is_asked_for_silence(model_key: str) -> None:
-    built = build_payload(video_request(model_key=model_key), image_url=None)
+    built = build_payload(video_request(model_key=model_key), image_urls=())
 
     assert is_ok(built)
     payload = built.value
@@ -147,8 +148,8 @@ def test_every_video_model_is_asked_for_silence(model_key: str) -> None:
 
 
 def test_the_payload_is_built_from_a_closed_set_of_keys(tmp_path: Path) -> None:
-    video = build_payload(_kling(refs=(jpeg_file(tmp_path),)), image_url=PUBLIC_URL)
-    image = build_payload(_soul(), image_url=None)
+    video = build_payload(_kling(refs=(jpeg_file(tmp_path),)), image_urls=(PUBLIC_URL,))
+    image = build_payload(_soul(), image_urls=())
 
     assert is_ok(video) and is_ok(image)
     assert set(video.value) <= {"prompt", "aspect_ratio", "duration", "sound", "image_url"}
@@ -158,8 +159,8 @@ def test_the_payload_is_built_from_a_closed_set_of_keys(tmp_path: Path) -> None:
 def test_an_image_url_goes_only_with_a_reference_and_to_the_models_field(tmp_path: Path) -> None:
     ref = jpeg_file(tmp_path)
 
-    with_ref = build_payload(_kling(refs=(ref,)), image_url=PUBLIC_URL)
-    stray = build_payload(_kling(), image_url=PUBLIC_URL)
+    with_ref = build_payload(_kling(refs=(ref,)), image_urls=(PUBLIC_URL,))
+    stray = build_payload(_kling(), image_urls=(PUBLIC_URL,))
 
     assert is_ok(with_ref) and with_ref.value["image_url"] == PUBLIC_URL
     assert is_err(stray) and is_pre_submit(stray.error)
@@ -177,13 +178,13 @@ def test_an_image_url_goes_only_with_a_reference_and_to_the_models_field(tmp_pat
 def test_a_request_the_adapter_cannot_send_is_refused_pre_submit(
     overrides: dict[str, Any], why: str
 ) -> None:
-    built = build_payload(_kling(**overrides), image_url=None)
+    built = build_payload(_kling(**overrides), image_urls=())
 
     assert is_err(built) and is_pre_submit(built.error), why
 
 
 def test_a_text_only_image_model_refuses_a_reference(tmp_path: Path) -> None:
-    built = build_payload(_soul(refs=(jpeg_file(tmp_path),)), image_url=PUBLIC_URL)
+    built = build_payload(_soul(refs=(jpeg_file(tmp_path),)), image_urls=(PUBLIC_URL,))
 
     assert is_err(built) and is_pre_submit(built.error)
 
@@ -217,6 +218,70 @@ async def test_a_submit_estimates_then_uploads_then_posts_once(tmp_path: Path) -
     assert "image_url" not in orjson.loads(vendor.seen[0].content)
     posted = orjson.loads(vendor.seen[-1].content)
     assert posted["image_url"] == PUBLIC_URL and posted["sound"] == "off"
+
+
+# ---------------------------------------------------------------------------
+# Several references, natively (§4.4, O6, M6.2)
+# ---------------------------------------------------------------------------
+SEEDANCE_R2V = "/bytedance/seedance/v2.0/reference-to-video"
+
+
+def _r2v(**overrides: Any) -> Any:
+    return video_request(**{"model_key": "seedance_2_0_r2v", **overrides})
+
+
+def _refs(directory: Path, count: int) -> tuple[Path, ...]:
+    return tuple(jpeg_file(directory, f"ref-{index}.jpg") for index in range(count))
+
+
+def test_capabilities_report_the_configured_models_reference_limits() -> None:
+    kling = _provider(Vendor()).capabilities()
+    r2v = _provider(Vendor(), health_model="seedance_2_0_r2v").capabilities()
+
+    # Kling I2V takes one photo (collage first); Soul none; Seedance R2V several.
+    assert (max_references(kling, "video"), max_references(kling, "image")) == (1, 0)
+    assert max_references(r2v, "video") == HIGGSFIELD_MODELS["seedance_2_0_r2v"].max_refs > 1
+    assert r2v.max_reference_images == max_references(r2v, "video")
+
+
+def test_a_multi_ref_model_gets_every_url_as_a_list(tmp_path: Path) -> None:
+    urls = tuple(f"https://cdn.example.test/in/{index}.jpg" for index in range(3))
+
+    built = build_payload(_r2v(refs=_refs(tmp_path, 3)), image_urls=urls)
+
+    assert is_ok(built)
+    assert built.value["image_urls"] == list(urls)
+    assert built.value["generate_audio"] is False
+    assert "image_url" not in built.value
+
+
+def test_a_one_ref_model_refuses_several_references_pre_submit(tmp_path: Path) -> None:
+    refs = _refs(tmp_path, 2)
+
+    built = build_payload(_kling(refs=refs), image_urls=(PUBLIC_URL, PUBLIC_URL))
+
+    assert is_err(built) and is_pre_submit(built.error)
+
+
+def test_urls_that_do_not_match_the_references_are_refused(tmp_path: Path) -> None:
+    built = build_payload(_r2v(refs=_refs(tmp_path, 3)), image_urls=(PUBLIC_URL,))
+
+    assert is_err(built) and is_pre_submit(built.error)
+
+
+async def test_a_multi_ref_submit_uploads_each_photo_then_posts_once(tmp_path: Path) -> None:
+    vendor = Vendor()
+    provider = _provider(vendor, health_model="seedance_2_0_r2v")
+
+    result = await _submit(provider, _r2v(refs=_refs(tmp_path, 3)))
+
+    assert is_ok(result)
+    assert len(vendor.posts_to("/files/generate-upload-url")) == 3
+    assert len([r for r in vendor.seen if r.method == "PUT"]) == 3
+    assert len(vendor.posts_to(SEEDANCE_R2V)) == 1
+    assert "image_urls" not in orjson.loads(vendor.posts_to(f"/estimate{SEEDANCE_R2V}")[0].content)
+    posted = orjson.loads(vendor.posts_to(SEEDANCE_R2V)[0].content)
+    assert posted["image_urls"] == [PUBLIC_URL] * 3 and posted["generate_audio"] is False
 
 
 async def test_the_key_goes_to_the_api_host_and_nowhere_else(tmp_path: Path) -> None:

@@ -933,6 +933,13 @@ JPEG q90 as a `collage` input (also screened, L2). When
 The compose copy tells video users photos are combined into the opening frame (residual quality
 risk: Q10).
 
+*As built (M6.2):* the limit is per kind (`MediaCapabilities.reference_limits`, read through
+`max_references`): Higgsfield reports its configured models' limits — Kling 3.0 I2V 1, Soul 0,
+Seedance 2.0 R2V (`seedance_2_0_r2v`) 9 — so with a multi-ref video model the photos go natively
+as a list of uploaded URLs and no collage is made. `media_screen` builds and screens the collage
+whenever **any** backend on the SKU's route (primary, then fallback, §4.5) needs one, and
+`media_submit` sends the originals to a backend that takes that many and the collage otherwise.
+
 ### 4.5 Feature flags, overrides, kill switches
 
 | Setting (env, `BAYRAM_` prefix) | Type / default |
@@ -951,6 +958,18 @@ the `payme.pause` / `admin/rail_switch.py` pattern):
 | `media:backend:<sku>` | overrides the env backend for new submits (must be in the Literal; unknown → ignored + alert) |
 | `media:paused:<sku>` | kill switch: SKU hidden from the picker; open quotes answer `media.busy`; paid jobs continue |
 | `media:gpu:reserved_until` | ISO timestamp; while in the future, every SKU whose effective backend is `local` refuses at Done/quote with `media.busy` (O11); paid jobs already queued continue |
+
+*As built (M6.2):* an optional `IMAGE_FALLBACK_BACKEND`, `VIDEO_STANDARD_FALLBACK_BACKEND`,
+`VIDEO_FAST_FALLBACK_BACKEND` (same Literal, empty = none) is the backend a job moves to under
+§3.3's rule — a pre-submit `ProviderUnavailableError`, `ProviderQuotaExhaustedError`,
+`ProviderRateLimitedError` or gateway 502-without-job_id, never an ambiguous submit, never our own
+refusal of the request (a reference the model cannot take, the cost ceiling) — and only while
+**nothing of the job was ever posted** (no attempt with a remote id, in flight, ambiguous or
+finished), so one job renders on one backend and every poll asks the backend holding its id. The
+move re-stamps `backend` + `model_id` under the row lock the attempt insert also takes; the
+variant's next attempt (N+1) goes to the fallback, and the job leaves or joins the GPU queue with
+it. A fallback for an offered SKU is held to every boot check its backend is, margin included, at
+that SKU's price; a `fake` fallback is refused in production like a `fake` backend.
 
 The effective backend is stamped on `media_jobs.backend` + `model_id` at submit, so the admin panel
 reads the row and never mirrors the flag. **Boot refusals** (in `refuse_an_unsafe_checkout_rail`,
@@ -1726,7 +1745,7 @@ contract checks are separate make targets.
 | --- | --- | --- |
 | M6.1 | `HiggsfieldProvider` (upload, estimate, submit, poll, fetch, webhook trigger, ceiling) | ambiguous POST never repeated; 400 concurrency → rate-limited; 402/403 → quota; `sound:"off"` always sent; geometry normalised |
 | M6.2 | Tier screen, Fast price, multi-ref native path | with Fast enabled the tier screen shows both; >1 ref goes native, no collage |
-| M6.3 | Counsel view on sending photos abroad (R6) recorded before enabling | — |
+| M6.3 | Counsel view on sending photos abroad (R6) recorded before enabling | — (owner only: a precondition in runbook 12-media-gateway §6.5 and a boot warning; no code gate) |
 
 ---
 

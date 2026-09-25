@@ -12,7 +12,9 @@ fails silently and on the money path, and nothing else in the process would noti
    whatever the environment, unless the whole process is on fakes (the test suite, the demo).
 4. **Each offered SKU is sellable**: a price, a backend that is built, the gateway's address
    and key for ``local`` — the address on HTTPS (loopback excepted) with no ``?api_key=`` in
-   it (§9.1) — and a margin (§4.3).
+   it (§9.1) — and a margin (§4.3). A configured fallback backend (§3.3) is held to the same
+   checks at the SKU's price: a job may be moved onto it after payment, so it must be as
+   sellable as the backend it stands in for.
 5. **The gateway models are on the allowlist** (§4.2), always — so ``zootopia`` cannot be
    configured even for a SKU that is off today and switched on tomorrow. Higgsfield's two
    model settings are held to ``HIGGSFIELD_MODELS`` the same way (§4.3).
@@ -48,6 +50,7 @@ from bayram.media.offering import (
     offered_skus,
     sku_price_minor,
 )
+from bayram.media.routing import SKU_FALLBACK_FIELDS, configured_fallback
 from bayram.moderation.factory import is_gateway_host, moderator_base_url
 from bayram.moderation.legal_hold import parse_public_key
 from bayram.providers.media.higgsfield import HIGGSFIELD_MODELS
@@ -184,7 +187,7 @@ def _refuse_fakes_in_production(settings: Settings) -> None:
         return
     fakes = [
         _var(field)
-        for field in SKU_BACKEND_FIELDS.values()
+        for field in (*SKU_BACKEND_FIELDS.values(), *SKU_FALLBACK_FIELDS.values())
         if str(getattr(settings, field)) == MediaBackend.FAKE.value
     ]
     if settings.media_moderator == "fake":
@@ -231,8 +234,19 @@ def _refuse_an_unsellable_sku(settings: Settings, sku: MediaSku) -> None:
             "SKU needs a price (IMAGE_VIDEO_SPEC §7.4).",
             sku=sku.value,
         )
-    backend = env_backend(settings, sku)
-    backend_var = _var(SKU_BACKEND_FIELDS[sku])
+    _refuse_an_unusable_backend(
+        settings, sku, env_backend(settings, sku), _var(SKU_BACKEND_FIELDS[sku])
+    )
+    fallback = configured_fallback(settings, sku)
+    if fallback is not None:
+        _refuse_an_unusable_backend(settings, sku, fallback, _var(SKU_FALLBACK_FIELDS[sku]))
+
+
+def _refuse_an_unusable_backend(
+    settings: Settings, sku: MediaSku, backend: MediaBackend, backend_var: str
+) -> None:
+    """``backend`` — the SKU's own, or its fallback (§3.3) — can render it at its price."""
+    offered_var = _var(SKU_OFFERED_FIELDS[sku])
     if backend is MediaBackend.FAKE and not settings.use_fake_providers:
         raise _refuse(
             f"{offered_var} is true and {backend_var} is 'fake': customers would be sold "
@@ -271,15 +285,25 @@ def _refuse_an_unsellable_sku(settings: Settings, sku: MediaSku) -> None:
     verdict = check_margin(settings, sku, backend)
     if not verdict.is_ok:
         raise _refuse(
-            f"{offered_var} is true but the margin check fails: {verdict.reason} "
-            "(IMAGE_VIDEO_SPEC §4.3).",
+            f"{offered_var} is true but the margin check fails on {backend_var}: "
+            f"{verdict.reason} (IMAGE_VIDEO_SPEC §4.3).",
             sku=sku.value,
             backend=backend.value,
         )
 
 
 def _refuse_an_unreachable_higgsfield(settings: Settings, offered_var: str, sku: MediaSku) -> None:
-    """A SKU on Higgsfield needs the key pair and an HTTPS API host (§4.3, §9.5)."""
+    """A SKU on Higgsfield needs the key pair and an HTTPS API host (§4.3, §9.5).
+
+    Counsel's view on customers' photos going abroad (§11 R6, M6.3) is an owner precondition
+    recorded in runbook 12-media-gateway §6.5, not something configuration can prove: boot
+    says so once, and does not refuse on it.
+    """
+    _LOG.warning(
+        "a media SKU can render on Higgsfield, abroad: counsel's view on sending customers' "
+        "photos there (IMAGE_VIDEO_SPEC R6, M6.3) must be on record before it is sold",
+        extra={"sku": sku.value},
+    )
     if not (settings.higgsfield_api_key_id.strip() and settings.higgsfield_api_secret.strip()):
         raise _refuse(
             f"{offered_var} is true on higgsfield but BAYRAM_HIGGSFIELD_API_KEY_ID or "

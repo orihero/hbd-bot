@@ -19,7 +19,7 @@ attempt is marked ``ambiguous`` and reconciled, never re-posted). :func:`is_pre_
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
@@ -46,6 +46,7 @@ __all__ = [
     "AMBIGUOUS",
     "is_pre_submit",
     "is_ambiguous",
+    "max_references",
     "ATTEMPT_STATUS_FOR_PHASE",
 ]
 
@@ -75,6 +76,23 @@ class MediaCapabilities:
     idempotent_submit: bool
     provider_moderation: bool
     output_retention_s: int | None
+    #: A per-kind limit where it differs from :attr:`max_reference_images` — Higgsfield's
+    #: configured image model may take no photo while its video model takes several.
+    #: Read through :func:`max_references`, never directly.
+    reference_limits: Mapping[MediaKindName, int] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+
+
+def max_references(caps: MediaCapabilities, kind: MediaKindName) -> int:
+    """How many reference photos ``kind`` may carry natively on this backend (§4.4).
+
+    0 for a kind the backend does not render. More than one is the native multi-ref path
+    (O6): the photos go as they are and no collage is sent.
+    """
+    if kind not in caps.kinds:
+        return 0
+    return caps.reference_limits.get(kind, caps.max_reference_images)
 
 
 @dataclass(frozen=True, slots=True)

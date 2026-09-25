@@ -295,6 +295,76 @@ async def test_with_fast_offered_the_tier_screen_shows_both_and_fast_is_sold(
     assert (job.sku, job.tier, job.price_minor) == (MediaSku.VIDEO_FAST, MediaTier.FAST, 4_000_000)
 
 
+async def test_fast_offered_without_a_price_is_not_sellable_and_the_screen_is_skipped(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    # §7.1: ``video_fast_price_minor`` unset (the default) = not sellable, whatever the flag.
+    rig = Rig(video_on(settings, is_video_fast_offered=True), sessions)
+
+    await to_voice_screen(rig, bot)
+
+    assert await rig.fsm_state() == VideoOrder.voice.state
+    assert translate("button.media.tier.fast", Language.EN) not in labels(session)
+    draft = load_media_draft(await rig.fsm())
+    assert draft is not None and draft.tier is MediaTier.STANDARD
+
+
+async def test_with_the_gpu_reserved_fast_is_still_sold_and_standard_is_not_offered(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    # O11 closes the local tier only; Fast renders on Higgsfield (M6.2).
+    rig = Rig(
+        video_on(settings, is_video_fast_offered=True, video_fast_price_minor=4_000_000),
+        sessions,
+    )
+    rig.kv.values[GPU_RESERVED_KEY] = (FIXED_MOMENT + timedelta(hours=1)).isoformat()
+
+    frozen = await to_voice_screen(rig, bot)
+
+    # The draft row's placeholder is the open tier, and the tier screen is skipped.
+    assert (frozen.sku, frozen.tier, frozen.price_minor) == (
+        MediaSku.VIDEO_FAST,
+        MediaTier.FAST,
+        4_000_000,
+    )
+    assert await rig.fsm_state() == VideoOrder.voice.state
+    await press(rig.dispatcher, bot, med(MediaAction.VOICE, arg=MediaVoiceMode.NONE))
+    job = await the_job(rig)
+    assert (job.sku, job.tier, job.state) == (
+        MediaSku.VIDEO_FAST,
+        MediaTier.FAST,
+        MediaJobState.SCREENING,
+    )
+
+
+async def test_video_is_in_the_picker_with_fast_alone(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    rig = Rig(
+        video_on(
+            settings,
+            is_video_standard_offered=False,
+            is_video_fast_offered=True,
+            video_fast_price_minor=4_000_000,
+        ),
+        sessions,
+    )
+    await complete_onboarding(rig.dispatcher, bot)
+
+    await tap(rig.dispatcher, bot, "menu.generate", Language.EN)
+
+    assert translate("button.create.video", Language.EN) in labels(session)
+
+
 # ---------------------------------------------------------------------------
 # The voice (§2.4.2)
 # ---------------------------------------------------------------------------

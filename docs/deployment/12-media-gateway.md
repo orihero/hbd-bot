@@ -333,6 +333,37 @@ dashboard, and failed with a credit by `media_sweep` after two hours. A `nsfw` v
 vendor fails the job `provider_rejected` with one credit. 402/403 is the balance: top up, then
 `resume`.
 
+### 6.5 The Fast tier, several photos natively, and the fallback (spec §3.3, §4, M6.2)
+
+**Turning Fast on.** The code is built and the tier screen appears by itself once a second
+tier is sellable: `BAYRAM_IS_VIDEO_FAST_OFFERED=true` **and** `BAYRAM_VIDEO_FAST_PRICE_MINOR`
+set (35 000–45 000 soʻm recommended, spec §7.1). With the price empty Fast is not sellable
+whatever the flag says, and boot refuses an offered SKU with no price. With Fast on, a GPU
+reserved window (§6.1) closes Standard only — Fast is still sold, since it renders on
+Higgsfield.
+
+**Precondition, owner only — M6.3, spec R6 / Q6.** Before `BAYRAM_IS_VIDEO_FAST_OFFERED=true`
+(and before any other SKU or fallback is pointed at `higgsfield`), record counsel's view on
+sending customers' photos abroad under the Personal Data law (amendment 1125), with its date,
+in the PR or change note that flips the flag. Nothing in code checks this. If counsel advises
+against: keep Fast off, or keep every SKU that takes photos on `local` (R6's "Fast tier
+text-only" needs a code change — ask for it; it is not built).
+
+**Several photos, natively.** With `BAYRAM_HIGGSFIELD_VIDEO_MODEL=kling3_0_std` (the default)
+several photos are still combined into one collage frame. `seedance_2_0_r2v` takes up to nine
+references, so a Fast request's photos (at most four) go as they are and no collage is made.
+Its path (`bytedance/seedance/v2.0/reference-to-video`) and list key (`image_urls`) are from
+the documentation: verify them with one `/estimate` as in §6.4 step 2 before switching.
+
+**Fallback.** `BAYRAM_<SKU>_FALLBACK_BACKEND` (empty by default) names where a job moves when
+its backend refuses a submit **before** anything was created there — unavailable, out of
+quota, rate-limited, a gateway 502 with no job id — and only while nothing of that job has
+been posted. An ambiguous submit never falls back (§6.4 still holds it). A fallback for an
+offered SKU passes the same boot checks as a backend, including the margin at that SKU's
+price: a Standard job moved to Higgsfield is paid at 25 000 soʻm. The row's `backend` shows
+where the job actually rendered, and the log line `a media job fell back to another backend`
+records each move.
+
 ## 7. Troubleshooting by doctor row
 
 | Row → status | Likely cause | Fix |
@@ -417,4 +448,5 @@ next restart if the pause is going to last.
 | `doctor` in `bayram-release verify` | code, reviewed | IMAGE_VIDEO_SPEC §9.1 item 4 in full |
 | §8 go-live flip (Payme production, approved Terms pair, flags, smoke test) | owner | M5.3; media for everyone |
 | §6.4 Higgsfield account, verified paths, measured `/estimate` figures, counsel (R6) | owner | any SKU on `higgsfield` (M6.2) |
+| §6.5 counsel's view on photos abroad recorded (M6.3), Fast price set | owner | `BAYRAM_IS_VIDEO_FAST_OFFERED=true` |
 | A public route for Higgsfield's webhook (a doorbell only: re-poll by id) | code, reviewed | nothing — the poll chain reads status every 15 s |

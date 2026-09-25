@@ -35,8 +35,9 @@ SKU_FOR_TIER: Final[dict[MediaTier, MediaSku]] = {
     MediaTier.FAST: MediaSku.VIDEO_FAST,
 }
 
-#: The SKU the picker's row for a kind sells. Video's tier is chosen after compose (§2.4.1),
-#: so the picker asks about Standard, the tier that exists (O2).
+#: The SKU the picker's row for a kind sells. Video's tier is chosen after compose (§2.4.1):
+#: its row is drawn when ANY tier is (:func:`offered_tiers`), so Fast alone still shows 🎬;
+#: this entry is the tier asked about first (O2).
 SKU_FOR_KIND: Final[dict[MediaKind, MediaSku]] = {
     MediaKind.IMAGE: MediaSku.IMAGE,
     MediaKind.VIDEO: MediaSku.VIDEO_STANDARD,
@@ -56,6 +57,10 @@ async def offered_kinds(deps: BotDeps, telegram_user_id: int | None) -> frozense
         return frozenset()
     offered: set[MediaKind] = set()
     for kind in sorted(BUILT_COMPOSE_KINDS):
+        if kind is MediaKind.VIDEO:
+            if await offered_tiers(deps, telegram_user_id):
+                offered.add(kind)
+            continue
         sku = SKU_FOR_KIND[kind]
         # The switch is read only for an account the rest of the rule admits, so a customer
         # outside the beta costs no Redis round trip on every ✨.
@@ -69,8 +74,9 @@ async def offered_kinds(deps: BotDeps, telegram_user_id: int | None) -> frozense
 async def offered_tiers(deps: BotDeps, telegram_user_id: int) -> frozenset[MediaTier]:
     """The video tiers this account may buy now (§2.4.1): offered, priced and not paused.
 
-    The tier screen is drawn only when this holds two; with Fast flagged off (until M6) it is
-    Standard alone, the screen is skipped and the quote names the tier.
+    The tier screen is drawn only when this holds two; with Fast flagged off, or offered
+    with no ``video_fast_price_minor`` (not sellable, §7.1), it is Standard alone, the screen
+    is skipped and the quote names the tier (M6.2).
     """
     tiers: set[MediaTier] = set()
     for tier, sku in SKU_FOR_TIER.items():

@@ -54,10 +54,11 @@ from __future__ import annotations
 import hashlib
 import math
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Final, Literal
 from urllib.parse import urlsplit
 
@@ -125,18 +126,28 @@ class HiggsfieldModel:
     kind: MediaKindName
     text_path: str
     ref_path: str | None
-    #: The body key the model reads its reference image URL from.
+    #: The body key the model reads its reference image URL from — one URL, or a list of
+    #: them when :attr:`max_refs` is above one.
     ref_field: str | None
     #: The key that turns the model's own soundtrack off (§4.3). ``None`` only for images.
     audio_switch: AudioSwitch | None
     #: Clip lengths the model accepts, in seconds; a request is rounded to the nearest.
     durations_s: tuple[int, ...] = ()
+    #: Reference photos the model takes natively (research §3). Above one, several photos
+    #: go as they are and no collage is made (§4.4, O6, M6.2); 0 for a text-only model.
+    max_refs: int = 1
+
+    @property
+    def takes_a_list(self) -> bool:
+        """The reference field is a list of URLs (a multi-ref model), not one URL."""
+        return self.max_refs > 1
 
 
 #: The models bayram may ask Higgsfield for. A dict in code, not a setting: widening it is a
 #: decision (D21, D22), and each entry carries its silence switch so none can be forgotten.
 #: Kling 3.0 standard is the Fast tier's default (§4.3); its I2V takes one image, so several
-#: photos are a collage first (§4.4) until M6.2 routes a multi-ref model natively.
+#: photos are a collage first (§4.4). Seedance 2.0 reference-to-video takes up to nine
+#: (research §3): configured as the video model, several photos go natively (M6.2, O6).
 HIGGSFIELD_MODELS: Final[Mapping[str, HiggsfieldModel]] = {
     "kling3_0_std": HiggsfieldModel(
         kind="video",
@@ -160,6 +171,16 @@ HIGGSFIELD_MODELS: Final[Mapping[str, HiggsfieldModel]] = {
         ref_path=None,
         ref_field=None,
         audio_switch=None,
+        max_refs=0,
+    ),
+    "seedance_2_0_r2v": HiggsfieldModel(
+        kind="video",
+        text_path="bytedance/seedance/v2.0/text-to-video",
+        ref_path="bytedance/seedance/v2.0/reference-to-video",
+        ref_field="image_urls",
+        audio_switch="generate_audio",
+        durations_s=(5, 10),
+        max_refs=9,
     ),
 }
 
@@ -273,12 +294,13 @@ def model_path(req: MediaRequest) -> Result[str]:
     return ok(model.ref_path)
 
 
-def build_payload(req: MediaRequest, *, image_url: str | None) -> Result[dict[str, Any]]:
+def build_payload(req: MediaRequest, *, image_urls: Sequence[str]) -> Result[dict[str, Any]]:
     """The submit body from a closed set of keys. Pure; no IO. Every refusal is PRE-submit.
 
-    ``image_url`` is the public URL of the uploaded reference, or ``None`` — for a text
-    request, and for the estimate of a reference request (the photo is not uploaded until
-    the cost is known).
+    ``image_urls`` are the public URLs of the uploaded references, one per ``req.refs`` in
+    order, or empty — for a text request, and for the estimate of a reference request (the
+    photos are not uploaded until the cost is known). A one-ref model gets one URL; a
+    multi-ref model (:attr:`HiggsfieldModel.takes_a_list`) gets the list (§4.4, M6.2).
     """
     path = model_path(req)
     if is_err(path):
@@ -286,20 +308,32 @@ def build_payload(req: MediaRequest, *, image_url: str | None) -> Result[dict[st
     model = HIGGSFIELD_MODELS[req.model_key]
     if not req.prompt.strip():
         return err(_refuse("the prompt is empty"))
-    if len(req.refs) > 1:
+    if len(req.refs) > max(model.max_refs, 1):
         return err(
-            _refuse("this model takes one reference image; composite first", refs=len(req.refs))
+            _refuse(
+                "this model takes fewer reference images; composite first",
+                refs=len(req.refs),
+                max_refs=model.max_refs,
+            )
         )
-    if image_url is not None and not req.refs:
+    if image_urls and not req.refs:
         return err(_refuse("an image URL was given for a request with no reference"))
+    if image_urls and len(image_urls) != len(req.refs):
+        return err(
+            _refuse(
+                "the uploaded URLs do not match the references",
+                urls=len(image_urls),
+                refs=len(req.refs),
+            )
+        )
     aspect = aspect_ratio_of(req.width, req.height)
     if aspect is None:
         return err(
             _refuse("the target size is not a sold aspect", width=req.width, height=req.height)
         )
     payload: dict[str, Any] = {"prompt": req.prompt, "aspect_ratio": aspect}
-    if image_url is not None and model.ref_field is not None:
-        payload[model.ref_field] = image_url
+    if image_urls and model.ref_field is not None:
+        payload[model.ref_field] = list(image_urls) if model.takes_a_list else image_urls[0]
     if req.kind == "image":
         payload["seed"] = req.seed
         return ok(payload)
@@ -399,6 +433,7 @@ class HiggsfieldProvider:
         base_url: str = DEFAULT_BASE_URL,
         usd_per_credit: float | None = None,
         health_model: str = "kling3_0_std",
+        image_model: str = "soul_standard",
         client: httpx.AsyncClient | None = None,
         health_timeout_s: float = DEFAULT_HEALTH_TIMEOUT_S,
         clock: Callable[[], datetime] = _utc_now,
@@ -409,6 +444,8 @@ class HiggsfieldProvider:
         self._base_url = base_url.rstrip("/")
         self._usd_per_credit = usd_per_credit
         self._health_model = health_model
+        #: The model each kind renders on (``higgsfield_*_model``): what capabilities report.
+        self._models: dict[MediaKindName, str] = {"image": image_model, "video": health_model}
         self._health_timeout_s = health_timeout_s
         self._clock = clock
         self._owns_client = client is None
@@ -421,10 +458,16 @@ class HiggsfieldProvider:
 
     # -- MediaGenProvider ---------------------------------------------------
     def capabilities(self) -> MediaCapabilities:
+        # Per kind, from the configured model (research §3): Kling 3.0 I2V takes one image,
+        # Seedance 2.0 R2V several — the stage chain sends those natively (§4.4, M6.2).
+        limits: dict[MediaKindName, int] = {
+            kind: entry.max_refs if (entry := HIGGSFIELD_MODELS.get(key)) is not None else 0
+            for kind, key in self._models.items()
+        }
         return MediaCapabilities(
             kinds=frozenset({"image", "video"}),
-            # Kling 3.0 I2V takes one image (research §3); M6.2 routes multi-ref natively.
-            max_reference_images=1,
+            max_reference_images=max(limits.values()),
+            reference_limits=MappingProxyType(limits),
             native_audio=True,
             durations_s=(5.0,),
             aspects=frozenset(_ASPECTS.values()),
@@ -445,7 +488,7 @@ class HiggsfieldProvider:
         path = model_path(req)
         if is_err(path):
             return path
-        built = build_payload(req, image_url=None)
+        built = build_payload(req, image_urls=())
         if is_err(built):
             return built
         context: dict[str, Any] = {"model": req.model_key, "operation": "estimate"}
@@ -536,13 +579,15 @@ class HiggsfieldProvider:
                     )
                 )
             )
-        image_url: str | None = None
-        if req.refs:
-            uploaded = await self._upload(req.refs[0], timeout_s=timeout_s)
+        # A multi-ref model's photos each go up the same way; the first that fails stops the
+        # submit before the POST, so a half-uploaded request is never posted.
+        image_urls: list[str] = []
+        for ref in req.refs:
+            uploaded = await self._upload(ref, timeout_s=timeout_s)
             if is_err(uploaded):
                 return err(_pre_submit(uploaded.error))
-            image_url = uploaded.value
-        built = build_payload(req, image_url=image_url)
+            image_urls.append(uploaded.value)
+        built = build_payload(req, image_urls=image_urls)
         if is_err(built):
             return built
         params = {WEBHOOK_QUERY_PARAM: webhook_url} if webhook_url is not None else None

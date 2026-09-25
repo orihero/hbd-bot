@@ -138,6 +138,7 @@ def build_media_provider(
             usd_per_credit=settings.higgsfield_usd_per_credit,
             max_submit_cost_usd=higgsfield_submit_ceilings(settings),
             health_model=settings.higgsfield_video_model,
+            image_model=settings.higgsfield_image_model,
             client=client,
         )
     return UnbuiltMediaProvider(backend)

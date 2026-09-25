@@ -48,6 +48,7 @@ from bayram.db.enums import (
     MediaAspect,
     MediaAttemptStage,
     MediaAttemptStatus,
+    MediaBackend,
     MediaCreditReason,
     MediaInputRole,
     MediaJobState,
@@ -92,6 +93,8 @@ __all__ = [
     "clear_csam_blocks",
     "cleanup_job_media",
     "insert_attempt",
+    "lock_job_backend",
+    "switch_backend",
     "set_attempt_status",
     "list_inputs",
     "list_outputs",
@@ -711,6 +714,78 @@ async def insert_attempt(
     if rowcount_of(await session.execute(statement)) != 1:
         return None
     return attempt_id
+
+
+async def lock_job_backend(session: AsyncSession, job_id: UUID) -> MediaBackend | None:
+    """The job's stamped backend, read under a row lock (``FOR UPDATE``) until commit.
+
+    ``media_submit`` reads it in the transaction that inserts its attempt, and
+    :func:`switch_backend` takes the same lock: an attempt is therefore written only for the
+    backend the job is on, and a job never moves once an attempt of it is in flight
+    (IMAGE_VIDEO_SPEC §3.3 "fallback only on a pre-submit error"). SQLite has no row locks;
+    its writers are serialised anyway.
+    """
+    return await session.scalar(
+        sa.select(MediaJobRow.backend).where(MediaJobRow.id == job_id).with_for_update()
+    )
+
+
+#: An attempt in one of these, or with a remote id, means something of the job reached a
+#: backend (or may have): the job stays where it is.
+_POSTED_ATTEMPT_STATES: Final[tuple[MediaAttemptStatus, ...]] = (
+    MediaAttemptStatus.SUBMITTING,
+    MediaAttemptStatus.SUBMITTED,
+    MediaAttemptStatus.AMBIGUOUS,
+    MediaAttemptStatus.SUCCEEDED,
+    MediaAttemptStatus.REJECTED,
+)
+
+
+async def switch_backend(
+    session: AsyncSession,
+    job_id: UUID,
+    *,
+    stage: MediaAttemptStage,
+    current: MediaBackend,
+    to: MediaBackend,
+    model_id: str,
+    working: Collection[MediaJobState],
+    now: datetime,
+) -> bool:
+    """Re-stamp a working job from ``current`` onto its fallback ``to``. True when moved.
+
+    Only while NOTHING of the job was ever posted (§3.3): every attempt so far failed before
+    a POST (no ``remote_id``, not in flight, not ambiguous). One job therefore renders on
+    one backend, and a poll or fetch never asks a backend for another backend's id. Reads
+    the job under :func:`lock_job_backend` first, so a sibling variant's attempt insert
+    either lands before (and blocks the move) or sees the new backend.
+    """
+    if await lock_job_backend(session, job_id) is not current:
+        return False
+    posted = await session.scalar(
+        sa.select(sa.func.count())
+        .select_from(MediaAttemptRow)
+        .where(
+            MediaAttemptRow.job_id == job_id,
+            MediaAttemptRow.stage == stage,
+            sa.or_(
+                MediaAttemptRow.remote_id.is_not(None),
+                MediaAttemptRow.status.in_(_POSTED_ATTEMPT_STATES),
+            ),
+        )
+    )
+    if posted:
+        return False
+    result = await session.execute(
+        sa.update(MediaJobRow)
+        .where(
+            MediaJobRow.id == job_id,
+            MediaJobRow.backend == current,
+            MediaJobRow.state.in_(tuple(working)),
+        )
+        .values(backend=to, model_id=model_id, updated_at=now)
+    )
+    return rowcount_of(result) == 1
 
 
 async def set_attempt_status(
