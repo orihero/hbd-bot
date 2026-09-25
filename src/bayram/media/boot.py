@@ -14,6 +14,9 @@ fails silently and on the money path, and nothing else in the process would noti
    and key for ``local``, and a margin (§4.3).
 5. **The gateway models are on the allowlist** (§4.2), always — so ``zootopia`` cannot be
    configured even for a SKU that is off today and switched on tomorrow.
+6. **The Cloudflare Access service token is both halves or neither** (§9.1 item 2): one
+   without the other sends a header Access rejects, and every submit would fail as a
+   refused credential with nothing saying which variable is missing.
 """
 
 from __future__ import annotations
@@ -56,6 +59,7 @@ def _refuse(message: str, **context: object) -> ConfigError:
 def refuse_unsafe_media_config(settings: Settings) -> None:
     """Raise ``ConfigError`` naming the variable when media is unsafe to run; else return."""
     _refuse_models_off_the_allowlist(settings)
+    _refuse_half_an_access_token(settings)
     _refuse_fakes_in_production(settings)
     offered = offered_skus(settings)
     if not offered:
@@ -82,6 +86,18 @@ def _refuse_models_off_the_allowlist(settings: Settings) -> None:
                 field=field,
                 model=model,
             )
+
+
+def _refuse_half_an_access_token(settings: Settings) -> None:
+    has_id = bool(settings.genai_access_client_id.strip())
+    has_secret = bool(settings.genai_access_client_secret.strip())
+    if has_id != has_secret:
+        missing = "genai_access_client_secret" if has_id else "genai_access_client_id"
+        raise _refuse(
+            f"{_var(missing)} is unset while its other half is set; the Cloudflare Access "
+            "service token is both variables or neither (IMAGE_VIDEO_SPEC §9.1).",
+            missing=_var(missing),
+        )
 
 
 def _refuse_fakes_in_production(settings: Settings) -> None:

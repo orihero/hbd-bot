@@ -145,3 +145,23 @@ def test_a_gateway_model_off_the_allowlist_refuses_even_with_media_off(
 ) -> None:
     with pytest.raises(ConfigError, match=field.upper()):
         refuse_unsafe_media_config(_with(base, **{field: model}))
+
+
+@pytest.mark.parametrize(
+    ("update", "missing"),
+    [
+        ({"genai_access_client_id": "id.access"}, "BAYRAM_GENAI_ACCESS_CLIENT_SECRET"),
+        ({"genai_access_client_secret": "s"}, "BAYRAM_GENAI_ACCESS_CLIENT_ID"),
+    ],
+)
+def test_half_an_access_token_refuses_even_with_media_off(
+    base: Settings, update: dict[str, str], missing: str
+) -> None:
+    with pytest.raises(ConfigError, match=missing):
+        refuse_unsafe_media_config(_with(base, **update))
+
+
+def test_a_whole_access_token_boots(base: Settings) -> None:
+    refuse_unsafe_media_config(
+        _with(base, genai_access_client_id="id.access", genai_access_client_secret="s")
+    )

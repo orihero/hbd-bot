@@ -123,6 +123,8 @@ def build_media_provider(
         return LocalGatewayProvider(
             base_url=settings.genai_base_url,
             api_key=settings.genai_api_key,
+            access_client_id=settings.genai_access_client_id,
+            access_client_secret=settings.genai_access_client_secret,
             client=client,
         )
     return UnbuiltMediaProvider(backend)

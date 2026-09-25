@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from shutil import which
 
+import httpx
 import pytest
 from PIL import Image
 
@@ -16,7 +17,7 @@ from bayram.errors import ProviderUnavailableError
 from bayram.media.contracts import JobHandle, JobPhase, MediaGenProvider, is_pre_submit
 from bayram.providers.media.factory import UnbuiltMediaProvider, build_media_provider
 from bayram.providers.media.fake import FakeMediaProvider, fake_clip_bytes
-from bayram.providers.media.local_gateway import LocalGatewayProvider
+from bayram.providers.media.local_gateway import ACCESS_CLIENT_ID_HEADER, LocalGatewayProvider
 from tests.test_media.conftest import image_request, video_request
 
 
@@ -147,6 +148,28 @@ def test_the_factory_builds_the_gateway_for_local(settings: Settings) -> None:
 
     assert isinstance(provider, LocalGatewayProvider)
     assert isinstance(provider, MediaGenProvider)
+
+
+async def test_the_factory_passes_the_access_token_to_the_gateway(settings: Settings) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    configured = settings.model_copy(
+        update={
+            "genai_base_url": "https://genai.example.test",
+            "genai_api_key": "k",
+            "genai_access_client_id": "id.access",
+            "genai_access_client_secret": "not-a-real-secret",
+        }
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        provider = build_media_provider(configured, MediaBackend.LOCAL, client=client)
+        await provider.health()
+
+    assert seen[0].headers[ACCESS_CLIENT_ID_HEADER] == "id.access"
 
 
 @pytest.mark.parametrize("backend", [MediaBackend.HIGGSFIELD, MediaBackend.FAL])

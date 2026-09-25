@@ -151,6 +151,9 @@ VENDOR_SECRET_FIELDS: Final[tuple[str, ...]] = (
     # The local generation gateway's key (IMAGE_VIDEO_SPEC §9.5). Optional — media is off by
     # default — so it is here and not in REQUIRED_VENDOR_SECRET_FIELDS.
     "genai_api_key",
+    # The Cloudflare Access service token in front of that gateway (IMAGE_VIDEO_SPEC §9.1
+    # item 2). The client id is not secret-shaped; the secret is.
+    "genai_access_client_secret",
 )
 
 #: The subset the bot and the worker cannot run without — the ones
@@ -845,6 +848,12 @@ class Settings(BaseSettings):
     genai_base_url: str = Field(default="", max_length=255)
     #: Sent as a header only, never ``?api_key=`` (§4.2). Secret — see VENDOR_SECRET_FIELDS.
     genai_api_key: str = Field(default="")
+    #: The Cloudflare Access service token for the tunnel in front of the gateway (§9.1 item 2),
+    #: sent as ``CF-Access-Client-Id`` / ``CF-Access-Client-Secret`` headers. Both or neither:
+    #: boot refuses one without the other. Empty is a gateway with no Access policy, which
+    #: ``python -m bayram.tools.media doctor`` reports as a warning (12-media-gateway §2.4).
+    genai_access_client_id: str = Field(default="", max_length=128)
+    genai_access_client_secret: str = Field(default="")
     #: Must be members of ``LOCAL_MODEL_ALLOWLIST`` (flux2, wan); boot refuses anything else,
     #: so ``zootopia``, ``storybook`` and ``hunyuan`` are unreachable from bayram (§1.2).
     genai_image_model: str = Field(default="flux2", min_length=1, max_length=32)

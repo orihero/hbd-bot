@@ -28,10 +28,14 @@ from bayram.media.contracts import (
     is_pre_submit,
 )
 from bayram.providers.media.local_gateway import (
+    ACCESS_CLIENT_ID_HEADER,
+    ACCESS_CLIENT_SECRET_HEADER,
     API_KEY_HEADER,
     CLIENT_TAG,
+    GENERATE_PAYLOAD_KEYS,
     LOCAL_MODEL_ALLOWLIST,
     LocalGatewayProvider,
+    access_headers,
     build_generate_payload,
 )
 from tests.test_media.conftest import image_request, jpeg_file, video_request
@@ -135,9 +139,8 @@ def test_every_payload_is_a_closed_dict_with_an_allowlisted_model(
     built = build_generate_payload(request_, image=image)  # type: ignore[arg-type]
 
     assert is_ok(built)
-    allowed = {"type", "model", "prompt", "width", "height", "steps", "seed", "client"}
-    allowed |= {"image", "denoise", "length", "fps"}
-    assert set(built.value) <= allowed
+    # The same set the doctor's contract smoke diffs against the live /openapi.json.
+    assert set(built.value) <= GENERATE_PAYLOAD_KEYS
     assert built.value["model"] in LOCAL_MODEL_ALLOWLIST
     assert built.value["client"] == CLIENT_TAG
 
@@ -179,6 +182,36 @@ async def test_submit_posts_the_closed_payload_with_the_key_in_a_header_only() -
     body = orjson.loads(request.content)
     assert body["model"] == "flux2"
     assert (body["width"], body["height"]) == (768, 1344)
+
+
+async def test_the_access_service_token_rides_on_every_request() -> None:
+    handler, seen = _recording(httpx.Response(200, json={"job_id": "job-1"}))
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    provider = LocalGatewayProvider(
+        base_url=BASE_URL,
+        api_key=API_KEY,
+        access_client_id="id.access",
+        access_client_secret="not-a-real-secret",
+        client=client,
+    )
+
+    await provider.submit(image_request(), correlation_key="k", webhook_url=None, timeout_s=5.0)
+    await provider.health()
+
+    assert len(seen) == 2
+    for request in seen:
+        assert request.headers[ACCESS_CLIENT_ID_HEADER] == "id.access"
+        assert request.headers[ACCESS_CLIENT_SECRET_HEADER] == "not-a-real-secret"
+        _assert_key_in_header_only(request)
+
+
+def test_half_an_access_token_sends_no_access_header() -> None:
+    assert access_headers("id.access", "") == {}
+    assert access_headers("", "secret") == {}
+    assert access_headers(" id ", " s ") == {
+        ACCESS_CLIENT_ID_HEADER: "id",
+        ACCESS_CLIENT_SECRET_HEADER: "s",
+    }
 
 
 async def test_a_reference_travels_as_a_base64_data_url(tmp_path: Path) -> None:

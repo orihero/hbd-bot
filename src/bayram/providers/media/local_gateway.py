@@ -73,9 +73,13 @@ __all__ = [
     "LOCAL_MODEL_ALLOWLIST",
     "MODEL_KINDS",
     "API_KEY_HEADER",
+    "ACCESS_CLIENT_ID_HEADER",
+    "ACCESS_CLIENT_SECRET_HEADER",
     "CLIENT_TAG",
     "DEFAULT_VIDEO_LENGTH_FRAMES",
     "DEFAULT_VIDEO_FPS",
+    "GENERATE_PAYLOAD_KEYS",
+    "access_headers",
     "build_generate_payload",
     "encode_reference",
 ]
@@ -94,6 +98,10 @@ MODEL_KINDS: Final[Mapping[str, MediaKindName]] = {"flux2": "image", "wan": "vid
 
 #: The header the gateway reads. ``Authorization: Bearer`` also works; one spelling is used.
 API_KEY_HEADER: Final[str] = "X-API-Key"
+#: Cloudflare Access service-token headers for the tunnel in front of the gateway (§9.1 item 2).
+#: Access reads them at the edge; the gateway never sees them.
+ACCESS_CLIENT_ID_HEADER: Final[str] = "CF-Access-Client-Id"
+ACCESS_CLIENT_SECRET_HEADER: Final[str] = "CF-Access-Client-Secret"
 
 #: Stamped on every job so the owner's marketing scripts can see a customer job in
 #: ``GET /queue`` and yield (§3.4, until gateway change G5 adds a real ``priority``).
@@ -102,6 +110,15 @@ CLIENT_TAG: Final[str] = "bayram"
 #: Wan 2.2 at 16 fps: 81 frames is the 5.06 s clip the product sells (§1.3).
 DEFAULT_VIDEO_LENGTH_FRAMES: Final[int] = 81
 DEFAULT_VIDEO_FPS: Final[int] = 16
+
+#: Every key :func:`build_generate_payload` can write. The operator's contract smoke
+#: (``python -m bayram.tools.media doctor --contract``) diffs it against the live
+#: ``/openapi.json``: the gateway accepts undeclared keys only while its schema says
+#: ``additionalProperties: true``, and ``length`` and ``client`` are undeclared today (§4.2).
+GENERATE_PAYLOAD_KEYS: Final[frozenset[str]] = frozenset(
+    {"type", "model", "prompt", "width", "height", "steps", "seed", "client", "image"}
+    | {"denoise", "length", "fps"}
+)
 
 #: The gateway works in latent blocks; every size we configure is a multiple of 16 (§1.3).
 _DIMENSION_STEP: Final[int] = 16
@@ -190,6 +207,20 @@ def encode_reference(path: Path) -> Result[str]:
 
 def _refuse(message: str, **context: Any) -> Result[dict[str, Any]]:
     return err(ValidationError(message, context={SUBMIT_PHASE_KEY: PRE_SUBMIT, **context}))
+
+
+def access_headers(client_id: str, client_secret: str) -> dict[str, str]:
+    """The Cloudflare Access service-token headers, or none when the token is unset.
+
+    Half a token sends nothing: boot refuses that configuration (``bayram.media.boot``), and a
+    lone id would only earn a 403 at the edge that reads like a refused gateway key.
+    """
+    if not (client_id.strip() and client_secret.strip()):
+        return {}
+    return {
+        ACCESS_CLIENT_ID_HEADER: client_id.strip(),
+        ACCESS_CLIENT_SECRET_HEADER: client_secret.strip(),
+    }
 
 
 def _is_valid_dimension(value: int) -> bool:
@@ -290,12 +321,15 @@ class LocalGatewayProvider:
         *,
         base_url: str,
         api_key: str,
+        access_client_id: str = "",
+        access_client_secret: str = "",
         client: httpx.AsyncClient | None = None,
         health_timeout_s: float = DEFAULT_HEALTH_TIMEOUT_S,
         clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
+        self._access_headers = access_headers(access_client_id, access_client_secret)
         self._health_timeout_s = health_timeout_s
         self._clock = clock
         self._owns_client = client is None
@@ -648,6 +682,7 @@ class LocalGatewayProvider:
     def _headers(self) -> dict[str, str]:
         """The key rides in a header and only there (§4.2, §9.1 item 3)."""
         return {
+            **self._access_headers,
             API_KEY_HEADER: self._api_key,
             "content-type": "application/json",
             "accept": "application/json",

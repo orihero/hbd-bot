@@ -59,7 +59,7 @@ ENV_FILES := BAYRAM_ENV_FILE=.env.$(ENV) BAYRAM_ADMIN_ENV_FILE=.env.admin.$(ENV)
 endif
 
 .DEFAULT_GOAL := help
-.PHONY: help install up down dev worker admin admin-bootstrap payme demo test test-all cov cov-admin lint format typecheck check migrate revision clean ui-install ui ui-build ui-check
+.PHONY: help install up down dev worker admin admin-bootstrap payme demo gateway-doctor gateway-contract test test-all cov cov-admin lint format typecheck check migrate revision clean ui-install ui ui-build ui-check
 
 # `0-9` stays in the target-name class even though no current target has a digit: it cost
 # nothing and the omission has already bitten once, when `ui-e2e` and `ui-e2e-install` were
@@ -152,6 +152,12 @@ ui-check: ## The deployed console's CI gates: typecheck, lint, vitest, locales, 
 
 demo: ## One full kit, offline: no keys, no Redis, no Postgres, no spend
 	BAYRAM_USE_FAKE_PROVIDERS=1 $(PYTHON) -m bayram.demo
+
+gateway-doctor: ## Check the local media gateway from here (IMAGE_VIDEO_SPEC §9.1). Network; ENV=prod reads .env.prod
+	$(ENV_FILES) $(PYTHON) -m bayram.tools.media doctor
+
+gateway-contract: ## gateway-doctor plus a diff of the live /openapi.json against what we send. Network; never in pytest
+	$(ENV_FILES) $(PYTHON) -m bayram.tools.media doctor --contract
 
 test: ## Unit tests only — no network, Redis, Postgres or ffmpeg
 	$(PYTHON) -m pytest -m "not integration"
