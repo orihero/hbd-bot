@@ -917,6 +917,23 @@ CATALOGUE: Final[dict[str, str]] = {
         "⏳ This request is already paid for, or its payment is being processed, so it "
         "can't be cancelled now. It will arrive here."
     ),
+    # -- media: paying on Payme (IMAGE_VIDEO_SPEC §7.2, §2.6) -------------------------
+    # The pay link replaces the quote; the three settled sentences are sent COLD by the
+    # worker's settlement job. ``{amount}`` is grouped and carries no currency word.
+    "media.pay_link": (
+        "🔗 <b>Almost there.</b>\n\n"
+        "Tap the button below to pay <b>{amount} UZS</b>. Nothing is made until the payment "
+        "lands, and I will tell you here the moment it does."
+    ),
+    "media.paid": "✅ Payment received — your {kind} is being made. It will arrive here.",
+    "media.paid_late_credit": (
+        "💳 Your payment arrived after this request had been closed, so nothing was made. "
+        "We've added 1 credit ({kind}) to your balance; use it any time."
+    ),
+    "media.paid_unmatched": (
+        "💳 We received your payment but could not match it to a request. Please write to "
+        "/support and we will sort it out."
+    ),
     "button.media.done": "✅ Done",
     "button.media.clear_photos": "🗑️ Clear photos",
     "button.media.aspect.portrait": "📱 Portrait 9:16",

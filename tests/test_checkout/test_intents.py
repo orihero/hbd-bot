@@ -90,6 +90,8 @@ class _RecordingOpener:
         # below kept passing against a fake whose signature no longer matched (checkout.py's
         # own docstring says this is what mypy is for).
         resume_order_id: UUID | None = None,
+        # The media SKUs' marker (IMAGE_VIDEO_SPEC §7.2), added with the M5.1 pay path.
+        resume_media_job_id: UUID | None = None,
     ) -> Result[PaymentIntent]:
         self.keys.append(idempotency_key)
         return ok(_intent())

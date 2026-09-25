@@ -59,9 +59,9 @@ See ``DECISIONS.md D11``, ``PAYME_INTEGRATION §3`` for the settlement's orderin
 from __future__ import annotations
 
 import secrets
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
-from typing import Final
+from typing import Final, assert_never
 from uuid import UUID, uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -70,9 +70,16 @@ from bayram.checkout import PaymentIntent, Product, Purchase
 from bayram.checkout import PaymentIntentState as CheckoutIntentState
 from bayram.contracts import Result
 from bayram.db.base import utc_now
-from bayram.db.enums import IntentProduct, PaymentIntentState, PaymeState
+from bayram.db.enums import (
+    IntentProduct,
+    MediaJobState,
+    MediaSku,
+    PaymentIntentState,
+    PaymeState,
+)
 from bayram.db.fulfilment import write_plan_sale, write_single_sale
 from bayram.db.guard import not_found, run_guarded
+from bayram.db.media import media_job_state, settle_payme_sale
 from bayram.db.models.payme_transaction import PaymeTransactionRow
 from bayram.db.models.payment_intent import SETTLE_NOTE_LENGTH, PaymentIntentRow
 from bayram.db.payme_sql import (
@@ -99,6 +106,7 @@ from bayram.db.payme_sql import (
 )
 from bayram.errors import PaymentError, StorageError
 from bayram.logging import get_logger
+from bayram.media.stages import DEFAULT_SKU_DEADLINES
 from bayram.payme.errors import (
     PaymeAccountFault,
     PaymeAmountMismatch,
@@ -182,6 +190,7 @@ def _intent_view(row: PaymentIntentRow) -> PaymentIntent:
         settled_at=row.settled_at,
         notified_at=row.notified_at,
         resume_order_id=row.resume_order_id,
+        resume_media_job_id=row.resume_media_job_id,
     )
 
 
@@ -228,6 +237,10 @@ class SqlPaymeLedger:
       third-party packages pick something else again; shipping it as a value means a
       certification finding is an environment variable rather than a release.
 
+    ``media_deadlines`` is each media SKU's paid-to-delivered deadline (IMAGE_VIDEO_SPEC §3.5),
+    which a media settlement adds to ``paid_at`` for the uploads' backstop clock (§3.2.2). The
+    worker passes its configured values; the gateway, which reads no ``Settings``, the defaults.
+
     ``account_field`` is here for the same reason: the ``-31050..-31055`` family is the only one
     that carries ``data``, its value is the subfield name a human typed into the cabinet's
     «Настройка Аккаунт» form, and the refusals are raised in here — inside the transaction —
@@ -244,8 +257,10 @@ class SqlPaymeLedger:
         intent_ttl_s: int = DEFAULT_INTENT_TTL_S,
         duplicate_code: int = PaymeErrorCode.STATE_REFUSAL,
         account_field: str = DEFAULT_ACCOUNT_FIELD,
+        media_deadlines: Mapping[MediaSku, timedelta] = DEFAULT_SKU_DEADLINES,
     ) -> None:
         self._sessions = session_factory
+        self._media_deadlines = media_deadlines
         self._merchant_id = merchant_id
         self._clock = clock
         self._timeout_ms = transaction_timeout_ms
@@ -268,6 +283,7 @@ class SqlPaymeLedger:
         plan_songs: int | None = None,
         plan_days: int | None = None,
         resume_order_id: UUID | None = None,
+        resume_media_job_id: UUID | None = None,
     ) -> Result[PaymentIntent]:
         return await run_guarded(
             "payme.open_intent",
@@ -283,6 +299,7 @@ class SqlPaymeLedger:
                 plan_songs=plan_songs,
                 plan_days=plan_days,
                 resume_order_id=resume_order_id,
+                resume_media_job_id=resume_media_job_id,
             ),
             telegram_user_id=telegram_user_id,
             idempotency_key=idempotency_key,
@@ -425,6 +442,7 @@ class SqlPaymeLedger:
         plan_songs: int | None,
         plan_days: int | None,
         resume_order_id: UUID | None = None,
+        resume_media_job_id: UUID | None = None,
     ) -> PaymentIntent:
         """Insert-or-ignore, then read the WINNER back. A replay writes nothing.
 
@@ -467,6 +485,7 @@ class SqlPaymeLedger:
                 language=language,
                 valid_until=now + timedelta(seconds=self._intent_ttl_s),
                 resume_order_id=resume_order_id,
+                resume_media_job_id=resume_media_job_id,
                 now=now,
             )
             row = await intent_by_key(session, idempotency_key)
@@ -505,12 +524,13 @@ class SqlPaymeLedger:
         statement or five, the isolation is what makes the answer a snapshot.
         """
         async with self._sessions.begin() as session:
-            self._payable_intent_or_refuse(
+            intent = self._payable_intent_or_refuse(
                 await intent_by_ref(session, public_ref),
                 public_ref=public_ref,
                 amount_minor=amount_minor,
                 now=now,
             )
+            await self._media_job_payable_or_refuse(session, intent)
 
     async def _create(
         self,
@@ -563,6 +583,7 @@ class SqlPaymeLedger:
                     amount_minor=amount_minor,
                     now=now,
                 )
+                await self._media_job_payable_or_refuse(session, intent)
                 return await self._open_transaction(
                     session,
                     intent=intent,
@@ -1055,37 +1076,130 @@ class SqlPaymeLedger:
             currency=intent.currency,
             is_paid=True,
         )
-        if intent.product is IntentProduct.SINGLE:
-            await write_single_sale(
-                session,
-                telegram_user_id=telegram_user_id,
-                purchase=purchase,
-                idempotency_key=intent.idempotency_key,
-                now=now,
-            )
-            return
-        if intent.plan_songs is None or intent.plan_days is None:
-            # ``ck_payment_intents_plan_fields_present`` makes this unreachable through any
-            # write this package performs. It is checked anyway because the alternative is a
-            # ``None`` reaching ``plan_purchases.songs_included`` — NOT NULL — as an
-            # ``IntegrityError`` raised from inside the money transaction, whose message names
-            # a constraint rather than the intent that is malformed.
+        match intent.product:
+            case IntentProduct.SINGLE:
+                await write_single_sale(
+                    session,
+                    telegram_user_id=telegram_user_id,
+                    purchase=purchase,
+                    idempotency_key=intent.idempotency_key,
+                    now=now,
+                )
+            case IntentProduct.STARTER:
+                if intent.plan_songs is None or intent.plan_days is None:
+                    # ``ck_payment_intents_plan_fields_present`` makes this unreachable through
+                    # any write this package performs. It is checked anyway because the
+                    # alternative is a ``None`` reaching ``plan_purchases.songs_included`` —
+                    # NOT NULL — as an ``IntegrityError`` raised from inside the money
+                    # transaction, whose message names a constraint rather than the intent
+                    # that is malformed.
+                    raise StorageError(
+                        "a plan intent reached settlement without its plan snapshot",
+                        context={
+                            "public_ref": intent.public_ref,
+                            "plan_songs": intent.plan_songs,
+                            "plan_days": intent.plan_days,
+                        },
+                    )
+                await write_plan_sale(
+                    session,
+                    telegram_user_id=telegram_user_id,
+                    purchase=purchase,
+                    songs=intent.plan_songs,
+                    days=intent.plan_days,
+                    idempotency_key=intent.idempotency_key,
+                    now=now,
+                )
+            case IntentProduct.IMAGE | IntentProduct.VIDEO_STANDARD | IntentProduct.VIDEO_FAST:
+                await self._write_media_sale(
+                    session,
+                    intent=intent,
+                    telegram_user_id=telegram_user_id,
+                    reference=reference,
+                    now=now,
+                )
+            case _ as unreachable:
+                # A product with no arm fails closed at the type level (mypy) and, should
+                # one ever arrive from a row, raises inside the money commit so the whole
+                # settlement unwinds rather than being filed in the wrong book (§7.3).
+                assert_never(unreachable)
+
+    async def _write_media_sale(
+        self,
+        session: AsyncSession,
+        *,
+        intent: PaymentIntentRow,
+        telegram_user_id: int,
+        reference: str,
+        now: datetime,
+    ) -> None:
+        """The media arm (IMAGE_VIDEO_SPEC §7.2 step 3): the receipt, then the conditional move.
+
+        Both in this commit, through :func:`bayram.db.media.settle_payme_sale`. A job that is
+        no longer awaiting payment is left as it is and the receipt still commits; the
+        settlement job grants the ``late_settlement`` credit afterwards, outside the money
+        commit. An intent that names no job is refused — it cannot have been opened by the
+        media pay path, and taking money for it would buy nothing.
+        """
+        sku = MediaSku(intent.product.value)
+        job_id = intent.resume_media_job_id
+        if job_id is None:
             raise StorageError(
-                "a plan intent reached settlement without its plan snapshot",
-                context={
-                    "public_ref": intent.public_ref,
-                    "plan_songs": intent.plan_songs,
-                    "plan_days": intent.plan_days,
-                },
+                "a media intent reached settlement without its media job",
+                context={"public_ref": intent.public_ref, "product": intent.product.value},
             )
-        await write_plan_sale(
+        moved = await settle_payme_sale(
             session,
+            job_id,
+            sku=sku,
             telegram_user_id=telegram_user_id,
-            purchase=purchase,
-            songs=intent.plan_songs,
-            days=intent.plan_days,
+            intent_id=intent.id,
+            amount_minor=intent.amount_minor,
+            currency=intent.currency,
+            reference=reference,
             idempotency_key=intent.idempotency_key,
             now=now,
+            deadline=self._media_deadlines.get(sku, DEFAULT_SKU_DEADLINES[sku]),
+        )
+        if not moved:
+            _log.warning(
+                "a media payment settled for a job no longer awaiting payment; receipt kept, "
+                "the settlement job grants the late credit",
+                extra={"public_ref": intent.public_ref, "media_job_id": str(job_id)},
+            )
+
+    async def _media_job_payable_or_refuse(
+        self, session: AsyncSession, intent: PaymentIntentRow
+    ) -> None:
+        """The media rung of the account ladder (IMAGE_VIDEO_SPEC §7.2 step 3, §2.6).
+
+        ``CheckPerformTransaction`` and ``CreateTransaction`` refuse a media intent whose job
+        is no longer ``awaiting_payment`` — cancelled, abandoned, or gone — with an ACCOUNT
+        error (``-31050..-31099``), so the customer is refused on the payment page before a
+        card is touched instead of paying for a request we already let go. ``-31052``
+        (cancelled) for a job in any other state, ``-31050`` (unknown) for one that does not
+        exist. A song intent passes straight through. Reads only; ``_quote`` writes nothing.
+        """
+        match intent.product:
+            case IntentProduct.SINGLE | IntentProduct.STARTER:
+                return
+            case IntentProduct.IMAGE | IntentProduct.VIDEO_STANDARD | IntentProduct.VIDEO_FAST:
+                pass
+            case _ as unreachable:
+                assert_never(unreachable)
+        job_id = intent.resume_media_job_id
+        state = None if job_id is None else await media_job_state(session, job_id)
+        if state is MediaJobState.AWAITING_PAYMENT:
+            return
+        code = PaymeErrorCode.ACCOUNT_UNKNOWN if state is None else PaymeErrorCode.ACCOUNT_CANCELLED
+        raise PaymeAccountFault(
+            "the media request this order pays for is no longer awaiting payment",
+            rpc_code=code,
+            account_field=self._account_field,
+            context={
+                "public_ref": intent.public_ref,
+                "media_job_state": None if state is None else state.value,
+            },
         )
 
     async def _open_transaction(

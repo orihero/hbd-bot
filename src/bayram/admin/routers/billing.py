@@ -56,7 +56,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Annotated, Final
+from typing import Annotated, Final, assert_never
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -111,6 +111,7 @@ from bayram.admin.security.permissions import Permission
 from bayram.admin.window import resolve_window
 from bayram.db.admin.audit import AuditEntry
 from bayram.db.admin.credits import ledger_for_key
+from bayram.db.admin.media_purchases import receipt_for_key as media_receipt_for_key
 from bayram.db.admin.payme_rpc_log import (
     CallFilters,
     call_totals,
@@ -862,15 +863,34 @@ async def _receipt_for(
 
     ``product`` is what ``db.payme._settle`` branched on when it wrote the row, so reading the
     same column is reading the same decision rather than re-making it. A future product is a new
-    member of ``IntentProduct`` and lands here as "single", which is the safe direction: it
-    reports no receipt for a sale it cannot find rather than a receipt from the wrong book.
+    member of ``IntentProduct`` and must be given an arm in the exhaustive ``match`` below;
+    a stored value this build does not know reports no receipt rather than a receipt from the
+    wrong book. The media SKUs read ``media_purchases`` (IMAGE_VIDEO_SPEC §7.3).
 
     The key is a PARAMETER and is deliberately not re-fetched here: one read per dossier, in the
     handler, is what keeps the number of places this string exists at one.
     """
-    if detail.product == IntentProduct.STARTER.value:
-        return await plan_receipt_for_key(db, idempotency_key=idempotency_key)
-    return await topup_receipt_for_key(db, idempotency_key=idempotency_key)
+    match _intent_product(detail.product):
+        case IntentProduct.SINGLE:
+            return await topup_receipt_for_key(db, idempotency_key=idempotency_key)
+        case IntentProduct.STARTER:
+            return await plan_receipt_for_key(db, idempotency_key=idempotency_key)
+        case IntentProduct.IMAGE | IntentProduct.VIDEO_STANDARD | IntentProduct.VIDEO_FAST:
+            return await media_receipt_for_key(db, idempotency_key=idempotency_key)
+        case None:
+            # A product this build does not know: no receipt rather than one from the wrong
+            # book (IMAGE_VIDEO_SPEC §7.3 — fail closed).
+            return None
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
+def _intent_product(value: str) -> IntentProduct | None:
+    """The stored product as the enum, or ``None`` for a value this build does not know."""
+    try:
+        return IntentProduct(value)
+    except ValueError:
+        return None
 
 
 async def _flip(

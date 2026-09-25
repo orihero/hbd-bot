@@ -29,8 +29,10 @@ from bayram.bot.handlers.common import (
 from bayram.bot.handlers.media.compose import open_create, read_media_draft, start_image
 from bayram.bot.handlers.media.video import start_video
 from bayram.bot.i18n import translate
+from bayram.bot.keyboards import media_pay_link_keyboard
 from bayram.bot.media_draft import MediaRef
 from bayram.bot.media_offer import is_sku_paused, offered_kinds
+from bayram.bot.pricing import format_amount
 from bayram.bot.screens import Screen
 from bayram.bot.states import ImageOrder, VideoOrder
 from bayram.contracts import Err, Language, Result, err
@@ -39,6 +41,7 @@ from bayram.errors import CheckoutError
 from bayram.logging import get_logger
 from bayram.media.desk import CancelOutcome, CreditStart, JobView
 from bayram.media.offering import MEDIA_STUB_CHARGE_KEY, guarded_media_charge
+from bayram.media.payment import MediaPayLink
 from bayram.media.service import BetaStart
 
 __all__ = [
@@ -59,6 +62,9 @@ _CANCELLED_KEY: Final[str] = "media.cancelled"
 _TOO_LATE_KEY: Final[str] = "media.cancel_too_late"
 _SCREENING_KEY: Final[str] = "media.screening"
 _PHOTOS_NOT_KEPT_KEY: Final[str] = "media.compose.photos_not_kept"
+_PAY_LINK_KEY: Final[str] = "media.pay_link"
+#: The link's two facts (12 hours, one open payment) read the same for every product.
+_PAY_LINK_HINT_KEY: Final[str] = "checkout.pending_hint"
 
 #: The states a quote's 💳 applies to: the quote itself, and a pay link being re-sent (§2.3.3).
 _PAYABLE_STATES: Final[frozenset[MediaJobState]] = frozenset(
@@ -118,13 +124,11 @@ async def _leave_compose(state: FSMContext) -> None:
 # ---------------------------------------------------------------------------
 # 💳 🎟 🎁 — starting the request
 # ---------------------------------------------------------------------------
-async def _pay_path_not_built() -> Result[None]:
-    """The live-paid half of 💳 — ``CheckoutProvider.charge`` with ``resume_media_job_id`` —
-    arrives with the payment arms (IMAGE_VIDEO_SPEC §7.3, M5.1). Until then a press on a
-    live-paid rail is refused like the stub's, and nothing is written."""
+async def _no_pay_path() -> Result[MediaPayLink]:
+    """A deployment with no database wires no pay path; its 💳 is refused and writes nothing."""
     return err(
         CheckoutError(
-            "the media pay path is not built yet (M5.1)", user_message_key=MEDIA_STUB_CHARGE_KEY
+            "this deployment has no media pay path", user_message_key=MEDIA_STUB_CHARGE_KEY
         )
     )
 
@@ -132,7 +136,13 @@ async def _pay_path_not_built() -> Result[None]:
 async def handle_pay(
     callback: CallbackQuery, callback_data: MediaCB, state: FSMContext, deps: BotDeps
 ) -> None:
-    """💳 — refused on every rail that is not live-paid, whatever the button said (§7.2)."""
+    """💳 — refused on every rail that is not live-paid, whatever the button said (§7.2).
+
+    On a live-paid rail the charge opens (or re-opens) the job's one intent and moves the row
+    to ``awaiting_payment``; the quote then becomes the pay-link message, whose ✖️ cancels
+    while no Payme transaction holds the intent (§2.6). Nothing starts here: the job starts
+    when the settlement moves it to ``paid`` (§7.2 steps 3–4).
+    """
     language = await ui_language(state, deps)
     job = await _owned_job(callback, callback_data, deps, language)
     if job is None:
@@ -142,8 +152,8 @@ async def handle_pay(
         return
     charge = deps.media_charge
 
-    async def pay() -> Result[None]:
-        return await charge(job) if charge is not None else await _pay_path_not_built()
+    async def pay() -> Result[MediaPayLink]:
+        return await charge(job) if charge is not None else await _no_pay_path()
 
     charged = await guarded_media_charge(deps.settings, job.sku, pay)
     if isinstance(charged, Err):
@@ -154,6 +164,20 @@ async def handle_pay(
         await callback.answer(error_text(charged.error, language), show_alert=True)
         return
     await callback.answer()
+    link = charged.value
+    await present(
+        callback,
+        Screen(
+            "\n\n".join(
+                (
+                    translate(_PAY_LINK_KEY, language, amount=format_amount(link.amount_minor)),
+                    translate(_PAY_LINK_HINT_KEY, language),
+                )
+            ),
+            media_pay_link_keyboard(language, link.url, job.id),
+        ),
+    )
+    await _leave_compose(state)
 
 
 async def handle_credit(

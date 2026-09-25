@@ -63,6 +63,7 @@ const NOTE_KEYS: Readonly<Record<LifelineNote, TranslationPath>> = {
   awaiting_rail: "billing.lifeline.notes.awaitingRail",
   buyer_erased: "billing.lifeline.notes.buyerErased",
   plan_grants_nothing: "billing.lifeline.notes.planGrantsNothing",
+  media_grants_nothing: "billing.lifeline.notes.mediaGrantsNothing",
   not_settled: "billing.lifeline.notes.notSettled",
   already_told: "billing.lifeline.notes.alreadyTold",
   purged: "billing.lifeline.notes.purged",

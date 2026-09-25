@@ -31,6 +31,7 @@ from bayram.entitlements import EntitlementStore
 from bayram.lyric_budget import LyricBudgetStore
 from bayram.media.desk import JobView, MediaDesk
 from bayram.media.overrides import MediaSwitchStore
+from bayram.media.payment import MediaPayLink
 from bayram.moderation.strikes import StrikeStore
 from bayram.pipeline.ports import ContentWriter
 from bayram.support import SupportTicketStore
@@ -322,9 +323,10 @@ class BotDeps:
     #: and the handlers so an album counts once and is answered once. In-process by design.
     albums: AlbumMemory = field(default_factory=AlbumMemory)
     #: The live-paid half of a media 💳 — ``CheckoutProvider.charge`` with
-    #: ``resume_media_job_id`` (IMAGE_VIDEO_SPEC §7.2, §7.3). ``None`` until the payment arms
-    #: land (M5.1), which the handler answers as "not built". It is only ever called through
+    #: ``resume_media_job_id``, then ``quoted → awaiting_payment`` (IMAGE_VIDEO_SPEC §7.2,
+    #: :class:`bayram.media.payment.SqlMediaCharge`). ``None`` — a deployment with no database
+    #: — answers every 💳 as refused. It is only ever called through
     #: ``offering.guarded_media_charge``, so on any rail that is not live-paid it is never
     #: called at all (§10 M2.2); a seam, so a test can prove exactly that. Trailing and
     #: defaulted, for the reason ``terms`` gives.
-    media_charge: Callable[[JobView], Awaitable[Result[None]]] | None = None
+    media_charge: Callable[[JobView], Awaitable[Result[MediaPayLink]]] | None = None

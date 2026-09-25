@@ -226,6 +226,7 @@ _IDENTIFIERS: Final[Mapping[str, object]] = {
     "ticket_id": uuid4(),
     "review_id": uuid4(),
     "job_id": uuid4(),
+    "output_id": uuid4(),
 }
 
 

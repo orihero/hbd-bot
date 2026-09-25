@@ -2180,6 +2180,8 @@ export const uz: TranslationSchema = {
           "Xaridor oʻzini oʻchirishni soʻradi. Pul oʻtdi, lekin kredit beradigan ham, xabar beradigan ham qolmadi — bu holat, nomuvofiqlik emas.",
         planGrantsNothing:
           "Tarif qoʻshiqlarni ishlatilgani sari beradi, shuning uchun xarid paytida kredit bermaydi.",
+        mediaGrantsNothing:
+          "Rasm yoki video xaridi bitta media soʻrov uchun toʻlanadi, shuning uchun qoʻshiq krediti berilmaydi.",
         notSettled:
           "Bu toʻlov yakunlanmagan, shuning uchun undan keyingi hech narsa boʻlishi ham kerak emas edi.",
         alreadyTold: "Tasdiq yuborilgan.",
@@ -2208,6 +2210,8 @@ export const uz: TranslationSchema = {
         "Bu toʻlov kiruvchi jurnal saqlanadigan 90 kundan eski, shuning uchun uning chaqiruvlari muddati boʻyicha oʻchirilgan. Oʻchirilgan, yoʻq boʻlgan emas.",
       chainStopSingle:
         "Tizim tuzilishiga koʻra javob yoʻq. Kredit balansi — partiyalarsiz bitta son, shuning uchun hech bir soʻrov sotib olingan kredit qaysi qoʻshiqqa ketganini isbotlay olmaydi.",
+      chainStopMedia:
+        "Zanjir kredit orqali emas, bu toʻlov toʻlangan holatga oʻtkazgan media soʻrov orqali davom etadi.",
       chainStopPlan:
         "Tarif boʻyicha {included} tadan {used} ta qoʻshiq ishlatilgan.",
       chainStopPlanUnknown:

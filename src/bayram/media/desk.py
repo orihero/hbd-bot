@@ -60,7 +60,8 @@ from bayram.db.media import (
 )
 from bayram.db.models.media_input import MediaInputRow
 from bayram.db.models.media_job import MediaJobRow
-from bayram.db.retention import resolve_retention_policy
+from bayram.db.payme_sql import cancel_pending_intent
+from bayram.db.retention import RetentionPolicy, resolve_retention_policy
 from bayram.db.users_sql import ensure_user
 from bayram.logging import get_logger
 from bayram.media.offering import media_offered
@@ -318,6 +319,32 @@ async def _blocking_row(
     ).first()
 
 
+async def _cancel_awaiting(
+    session: AsyncSession, row: MediaJobRow, *, now: datetime, policy: RetentionPolicy
+) -> CancelOutcome:
+    """✖️ / ``/cancel`` on a row whose pay link is out (IMAGE_VIDEO_SPEC §2.6).
+
+    Allowed only while no Payme transaction holds the intent: the intent is moved
+    ``pending → cancelled`` first — the same row the rail's hold is taken on, so exactly one of
+    the two wins — and only then the job ``awaiting_payment → cancelled``. A held, paid or
+    missing intent is money that may be in flight: :attr:`CancelOutcome.TOO_LATE`, and the
+    row is left for the settlement (late money on a cancelled row is credited, §7.2 step 3).
+    """
+    if row.payment_intent_id is None or not await cancel_pending_intent(
+        session, intent_id=row.payment_intent_id, now=now
+    ):
+        return CancelOutcome.TOO_LATE
+    moved = await transition(
+        session,
+        row.id,
+        expected=(MediaJobState.AWAITING_PAYMENT,),
+        to=MediaJobState.CANCELLED,
+        now=now,
+        policy=policy,
+    )
+    return CancelOutcome.CANCELLED if moved else CancelOutcome.STALE
+
+
 def _photo_refs(rows: list[MediaInputRow]) -> tuple[InputRef, ...]:
     return tuple(
         InputRef(file_id=row.tg_file_id, file_unique_id=row.tg_file_unique_id)
@@ -448,19 +475,22 @@ class SqlMediaDesk:
                 row = await load_job(session, job_id)
                 if row is None or row.telegram_user_id != telegram_user_id:
                     return CancelOutcome.STALE
-                if row.state in BLOCKING_STATES:
-                    # §2.6: from awaiting_payment only while no Payme transaction exists — the
-                    # intent check arrives with the pay path (M5.1); until then a pay link that
-                    # is out is treated as money in flight, the safe reading.
+                if row.state is MediaJobState.AWAITING_PAYMENT:
+                    outcome = await _cancel_awaiting(session, row, now=now, policy=self._policy)
+                    if outcome is not CancelOutcome.CANCELLED:
+                        return outcome
+                    moved = True
+                elif row.state in BLOCKING_STATES:
                     return CancelOutcome.TOO_LATE
-                moved = await transition(
-                    session,
-                    job_id,
-                    expected=CANCELLABLE_STATES,
-                    to=MediaJobState.CANCELLED,
-                    now=now,
-                    policy=self._policy,
-                )
+                else:
+                    moved = await transition(
+                        session,
+                        job_id,
+                        expected=CANCELLABLE_STATES,
+                        to=MediaJobState.CANCELLED,
+                        now=now,
+                        policy=self._policy,
+                    )
             if not moved:
                 return CancelOutcome.STALE
             await self._cleanup([job_id])
@@ -482,6 +512,13 @@ class SqlMediaDesk:
                     policy=self._policy,
                 )
                 blocking = await _blocking_row(session, telegram_user_id, None)
+                if blocking is not None and blocking.state is MediaJobState.AWAITING_PAYMENT:
+                    withdrawn = await _cancel_awaiting(
+                        session, blocking, now=now, policy=self._policy
+                    )
+                    if withdrawn is CancelOutcome.CANCELLED:
+                        cancelled.append(blocking.id)
+                        blocking = await _blocking_row(session, telegram_user_id, None)
             if cancelled:
                 await self._cleanup(cancelled)
                 return CancelOutcome.CANCELLED

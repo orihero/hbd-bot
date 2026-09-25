@@ -359,8 +359,14 @@ async def authorise_media_reveal(
     field_name: str,
     now: datetime,
     window_s: int,
+    subject_type: str = ASSET_SUBJECT_TYPE,
 ) -> None:
     """Step up, charge, audit — in that order — or raise before a single byte is read.
+
+    ``asset_id`` is the SUBJECT's id and ``subject_type`` names its table: a song asset by
+    default, a ``media_outputs`` row for the media reveal (IMAGE_VIDEO_SPEC §8) — same gate,
+    same window, its own subject so "everything anyone revealed of this output" is one
+    indexed equality.
 
     ``window_s`` of ``0`` means "every request is its own reveal", which is what the lyric
     route wants: one request returns the whole sheet, so there is nothing to deduplicate and
@@ -403,6 +409,7 @@ async def authorise_media_reveal(
         field_name=field_name,
         record_count=decision.records_charged,
         now=now,
+        subject_type=subject_type,
     )
 
 
@@ -446,6 +453,7 @@ async def _record_reveal(
     field_name: str,
     record_count: int,
     now: datetime,
+    subject_type: str = ASSET_SUBJECT_TYPE,
 ) -> None:
     """Commit the audit row in its own transaction, before the caller reads anything.
 
@@ -460,7 +468,7 @@ async def _record_reveal(
         actor_id=admin.admin_user_id,
         actor_username=admin.username[:ACTOR_USERNAME_LENGTH],
         actor_role=admin.role,
-        subject_type=ASSET_SUBJECT_TYPE,
+        subject_type=subject_type,
         subject_id=str(asset_id),
         field_names=(field_name,),
         record_count=record_count,

@@ -1446,6 +1446,20 @@ still starts the job exactly once; a settled media intent never shows the song k
 | `admin/schemas/billing.py:1030, 1280`; `admin/routers/billing.py:871` | binary | `match`; media rows labelled by SKU |
 | `checkout.py:89-101` `Product`; `db/enums.py:201-262` `IntentProduct`/`TopupKind` | 2 members | add 3; a test asserts every member has an arm in each site |
 
+*As built (M5.1):* `Product` and `IntentProduct` gained `image`, `video_standard`, `video_fast`;
+**`TopupKind` did not** — it names `topup_purchases` rows and a media sale is never one. Every site
+above is an exhaustive `match` with `assert_never`; the song checkout refuses a media SKU before a key
+is minted. 💳 is `media.payment.SqlMediaCharge` (charge → `quoted`/`awaiting_payment` →
+`awaiting_payment` with `payment_intent_id`); ✖️ on the pay link or `/cancel` moves the intent
+`pending → cancelled` (the same row the rail's hold takes, so one of the two wins) and then the job,
+and answers `media.cancel_too_late` once a transaction holds it. Check/Create answer `-31052` for a
+job no longer awaiting payment and `-31050` for an intent naming no job. The settlement counts media
+receipts on the receipts side of the three-way invariant. The gateway reads no `Settings`, so the
+Perform arm resets the uploads' clock with the shipped deadlines (`DEFAULT_SKU_DEADLINES`). The §8
+reveal is `GET /api/media-outputs/{id}/stream` on the existing `reveal.media.read` + `reveal.media`
+pair (no separate `media.reveal` permission yet), subject type `media_output`, image/png, image/jpeg
+and video/mp4 in their own allowlist so the song route stays audio-only.
+
 ### 7.4 Boot refusal
 
 Extend `refuse_an_unsafe_checkout_rail` (`main.py:117`) and the worker's startup equivalent:

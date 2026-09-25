@@ -197,6 +197,10 @@ SUBJECT_TYPES: Final[frozenset[str]] = frozenset(
         # did to this request" is one indexed equality whether it was held once or twice. Not
         # ``order``: a media job is not a song order and the two share no table.
         "media_job",
+        # ONE delivered image or video, by ``media_outputs.id`` — the subject of the media
+        # reveal stream (IMAGE_VIDEO_SPEC §8). The output and not its job: an image job has two,
+        # and "which of the two did the operator open" is the fact the row exists to keep.
+        "media_output",
     }
 )
 

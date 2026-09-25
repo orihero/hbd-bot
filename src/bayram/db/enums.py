@@ -282,10 +282,19 @@ class IntentProduct(StrEnum):
     **A second product needs NO migration.** ``bayram.db.base.enum_type`` renders a plain
     ``VARCHAR(32)`` with ``create_constraint`` off, so a member is Python validation and no
     DDL — the same property revision 0015 relies on for ``CreditReason``.
+
+    **The three media SKUs are members too** (IMAGE_VIDEO_SPEC §7.1, §7.3), value for value
+    with :class:`MediaSku`: their receipt is ``media_purchases`` and their settlement moves a
+    ``media_jobs`` row. :class:`TopupKind` deliberately does NOT gain them — it names the rows
+    of ``topup_purchases``, and a media sale is never one. The longest, ``video_standard``, is
+    14 characters.
     """
 
     SINGLE = "single"
     STARTER = "starter"
+    IMAGE = "image"
+    VIDEO_STANDARD = "video_standard"
+    VIDEO_FAST = "video_fast"
 
 
 class PaymentIntentState(StrEnum):

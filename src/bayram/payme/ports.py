@@ -243,6 +243,8 @@ class PaymeLedger(Protocol):
         is_sandbox: bool,
         plan_songs: int | None = None,
         plan_days: int | None = None,
+        resume_order_id: UUID | None = None,
+        resume_media_job_id: UUID | None = None,
     ) -> Result[PaymentIntent]:
         """As ``bayram.checkout.PaymentIntentOpener.open_intent``. Idempotent on the key."""
         ...

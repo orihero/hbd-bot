@@ -576,6 +576,8 @@ async def seed_world(container: AdminContainer, fake_redis: FakeRedis) -> dict[s
         # Unseeded: the review queue answers an empty list and a 404, bodies that must carry no
         # plaintext either.
         "review_id": UUID(int=0x5EED),
+        # Unseeded: the media output reveal answers a 404 before any grant is asked for.
+        "output_id": UUID(int=0x0D7),
     }
 
 

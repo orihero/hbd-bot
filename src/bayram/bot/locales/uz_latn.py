@@ -919,6 +919,21 @@ CATALOGUE: Final[dict[str, str]] = {
         "⏳ Bu soʻrov allaqachon toʻlangan yoki toʻlovi koʻrib chiqilmoqda, shuning uchun "
         "hozir bekor qilib boʻlmaydi. Natija shu yerga keladi."
     ),
+    # -- media: Payme orqali toʻlov (IMAGE_VIDEO_SPEC §7.2, §2.6) ----------------------
+    "media.pay_link": (
+        "🔗 <b>Sal qoldi.</b>\n\n"
+        "Quyidagi tugmani bosing va <b>{amount} soʻm</b> toʻlang. Toʻlov oʻtmaguncha hech "
+        "narsa yaratilmaydi — u oʻtishi bilan shu yerda xabar beraman."
+    ),
+    "media.paid": "✅ Toʻlov qabul qilindi — {kind} yaratilmoqda. Natija shu yerga keladi.",
+    "media.paid_late_credit": (
+        "💳 Toʻlovingiz bu soʻrov yopilganidan keyin keldi, shuning uchun hech narsa "
+        "yaratilmadi. Balansingizga 1 ta kredit ({kind}) qoʻshildi; istalgan vaqtda foydalaning."
+    ),
+    "media.paid_unmatched": (
+        "💳 Toʻlovingizni oldik, lekin uni soʻrovga bogʻlay olmadik. /support ga yozing, "
+        "hammasini hal qilamiz."
+    ),
     "button.media.done": "✅ Tayyor",
     "button.media.clear_photos": "🗑️ Rasmlarni olib tashlash",
     "button.media.aspect.portrait": "📱 Tik 9:16",

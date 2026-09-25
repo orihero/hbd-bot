@@ -68,12 +68,14 @@ from bayram.db.models.media_input import MediaInputRow, MediaOutputRow
 from bayram.db.models.media_job import CSAM_BLOCKED_ERROR_CODE, MediaJobRow
 from bayram.db.models.media_purchase import MediaPurchaseRow
 from bayram.db.retention import DEFAULT_RETENTION_POLICY, RetentionClass, RetentionPolicy
+from bayram.errors import StorageError
 
 __all__ = [
     "MEDIA_REVIEW_SLA",
     "INTERMEDIATE_OUTPUT_ROLES",
     "create_job",
     "load_job",
+    "media_job_state",
     "transition",
     "update_draft",
     "delete_inputs",
@@ -98,6 +100,7 @@ __all__ = [
     "record_output_file_id",
     "average_run_ms",
     "record_purchase",
+    "settle_payme_sale",
     "media_balance",
     "grant_refund",
     "spend_credit",
@@ -201,6 +204,14 @@ async def load_job(session: AsyncSession, job_id: UUID) -> MediaJobRow | None:
     transaction, and a plain ``session.get`` would hand back the stale object.
     """
     return await session.get(MediaJobRow, job_id, populate_existing=True)
+
+
+async def media_job_state(session: AsyncSession, job_id: UUID) -> MediaJobState | None:
+    """One job's state, or ``None`` when there is no such job. A single-column read."""
+    state: MediaJobState | None = await session.scalar(
+        sa.select(MediaJobRow.state).where(MediaJobRow.id == job_id)
+    )
+    return state
 
 
 async def transition(
@@ -904,6 +915,69 @@ async def record_purchase(
         set_=None,
     )
     return rowcount_of(await session.execute(statement)) == 1
+
+
+async def settle_payme_sale(
+    session: AsyncSession,
+    job_id: UUID,
+    *,
+    sku: MediaSku,
+    telegram_user_id: int,
+    intent_id: UUID,
+    amount_minor: int,
+    currency: str,
+    reference: str,
+    idempotency_key: str,
+    now: datetime,
+    deadline: timedelta,
+) -> bool:
+    """The media arm of ``PerformTransaction`` (IMAGE_VIDEO_SPEC §7.2 step 3), in ITS commit.
+
+    Two writes, in this order: the ``media_purchases`` receipt (insert-or-ignore on the
+    intent's own key, so a replayed or operator-forced settlement writes one), then the
+    conditional ``awaiting_payment → paid`` (:func:`mark_paid`, which also resets the uploads'
+    backstop clock). True when THIS call moved the job.
+
+    **It never touches a row that is not awaiting payment.** A job cancelled or abandoned
+    while the customer was paying keeps its state — its uploads are already gone and there is
+    nothing to revive — and the receipt still commits: the money moved, and refusing inside
+    the money commit would unwind a charge the rail has already taken. False is that late
+    settlement; the settlement job grants the one ``late_settlement`` credit, outside this
+    commit (§2.6). Terminal rows never re-enter the open states, so the one-open-request
+    index cannot fire here.
+
+    A job of a different SKU than the intent is a defect, not a late payment: it raises, and
+    the whole settlement unwinds rather than filing an image's money against a video.
+    """
+    job_sku = await session.scalar(sa.select(MediaJobRow.sku).where(MediaJobRow.id == job_id))
+    if job_sku is not None and job_sku is not sku:
+        raise StorageError(
+            "a media payment names a job of another SKU",
+            context={"media_job_id": str(job_id), "sku": sku.value, "job_sku": job_sku.value},
+        )
+    await record_purchase(
+        session,
+        telegram_user_id=telegram_user_id,
+        job_id=job_id,
+        sku=sku,
+        amount_minor=amount_minor,
+        currency=currency,
+        provider=MediaPurchaseProvider.PAYME,
+        reference=reference,
+        idempotency_key=idempotency_key,
+        now=now,
+    )
+    if job_sku is None:
+        return False
+    return await mark_paid(
+        session,
+        job_id,
+        paid_via=MediaPaidVia.PAYME,
+        now=now,
+        deadline=deadline,
+        expected=(MediaJobState.AWAITING_PAYMENT,),
+        values={"payment_intent_id": intent_id},
+    )
 
 
 async def media_balance(session: AsyncSession, *, telegram_user_id: int, sku: MediaSku) -> int:

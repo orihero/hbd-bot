@@ -76,6 +76,7 @@ from bayram.admin.routers.assets import (
     ASSET_STREAM_PATH,
     ASSET_TEXT_PATH,
     ASSETS_PATH,
+    MEDIA_OUTPUT_STREAM_PATH,
 )
 from bayram.admin.routers.audit import AUDIT_PATH, VERIFY_PATH
 from bayram.admin.routers.billing import (
@@ -352,6 +353,8 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         # has read. Both run on every request; neither is sufficient alone.
         ("GET", ASSET_STREAM_PATH, Permission.REVEAL_MEDIA_READ),
         ("GET", ASSET_TEXT_PATH, Permission.REVEAL_MEDIA_READ),
+        # The media output reveal (IMAGE_VIDEO_SPEC §8), the same split on the same router.
+        ("GET", MEDIA_OUTPUT_STREAM_PATH, Permission.REVEAL_MEDIA_READ),
         # The wizard-state projection is a second router precisely so it can carry a
         # different cell from the records around it (§12.2 row 5).
         ("GET", WIZARD_STATE_PATH, Permission.WIZARD_STATE_READ),
@@ -1029,6 +1032,7 @@ MUTATION_IDENTIFIERS: Final[dict[str, object]] = {
     "ticket_id": UUID(int=8),
     "review_id": UUID(int=10),
     "job_id": UUID(int=11),
+    "output_id": UUID(int=12),
 }
 
 
@@ -1200,6 +1204,8 @@ async def test_no_get_route_changes_domain_state(
         "ticket_id": UUID(int=9),
         # Nor a review: the queue answers an empty list and the detail a 404.
         "review_id": UUID(int=12),
+        # Nor a media output: the reveal stream answers 404 before any grant is asked for.
+        "output_id": UUID(int=13),
     }
     await create_account(container, role=AdminRole.OWNER)
     assert (await sign_in(client)).status_code == 200
@@ -1232,6 +1238,7 @@ _PROBE_IDENTIFIERS: Final[dict[str, object]] = {
     "ticket_id": UUID(int=8),
     "review_id": UUID(int=10),
     "job_id": UUID(int=11),
+    "output_id": UUID(int=12),
 }
 
 

@@ -2231,6 +2231,7 @@ export interface BillingTranslations {
       readonly awaitingRail: string;
       readonly buyerErased: string;
       readonly planGrantsNothing: string;
+      readonly mediaGrantsNothing: string;
       readonly notSettled: string;
       readonly alreadyTold: string;
       readonly purged: string;
@@ -2253,6 +2254,7 @@ export interface BillingTranslations {
     readonly callsNever: string;
     readonly callsPurged: string;
     readonly chainStopSingle: string;
+    readonly chainStopMedia: string;
     readonly chainStopPlan: string;
     readonly chainStopPlanUnknown: string;
     readonly settleByHand: string;

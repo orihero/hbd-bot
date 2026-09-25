@@ -62,6 +62,7 @@ from bayram.db.models.media_job import MediaJobRow
 from bayram.db.models.media_purchase import MediaPurchaseRow
 from bayram.media.desk import JobView, SqlMediaDesk
 from bayram.media.overrides import GPU_RESERVED_KEY
+from bayram.media.payment import MediaPayLink
 from bayram.media.stages import MEDIA_CLEANUP_JOB, MEDIA_SCREEN_JOB, MEDIA_START_JOB
 from bayram.moderation.lexicon import PROMPT_MAX_WORDS
 from bayram.moderation.strikes import MemoryStrikeStore, SuspensionReason
@@ -128,7 +129,7 @@ class Rig:
         kv: MemoryKV | None = None,
         queue: ArqLikeQueue | None = None,
         profiles: FakeProfiles | None = None,
-        media_charge: Callable[[JobView], Awaitable[Result[None]]] | None = None,
+        media_charge: Callable[[JobView], Awaitable[Result[MediaPayLink]]] | None = None,
         strikes: MemoryStrikeStore | None = None,
     ) -> None:
         self.settings = settings
@@ -721,9 +722,9 @@ class RecordingCharge:
     def __init__(self) -> None:
         self.charged: list[UUID] = []
 
-    async def __call__(self, job: JobView) -> Result[None]:
+    async def __call__(self, job: JobView) -> Result[MediaPayLink]:
         self.charged.append(job.id)
-        return ok(None)
+        return ok(MediaPayLink(url="https://checkout.test/pay", amount_minor=500_000))
 
 
 async def test_pay_on_the_stub_rail_writes_no_receipt_and_starts_nothing(

@@ -102,6 +102,7 @@ __all__ = [
     "media_tray_keyboard",
     "media_aspect_keyboard",
     "media_open_request_keyboard",
+    "media_pay_link_keyboard",
     "media_video_aspect_keyboard",
     "media_tier_keyboard",
     "media_voice_pick_keyboard",
@@ -1097,6 +1098,20 @@ def media_open_request_keyboard(language: Language, job_id: UUID) -> InlineKeybo
             _media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id),
         ]
     )
+
+
+def media_pay_link_keyboard(language: Language, url: str, job_id: UUID) -> InlineKeyboardMarkup:
+    """The media pay link (§7.2 step 2): 🔗 pay over there, or ✖️ cancel THIS row (§2.6).
+
+    ✖️ rather than 🏠, unlike :func:`checkout_link_keyboard`: a media request is a row, not a
+    wizard run, and cancelling it while no Payme transaction holds its intent marks the intent
+    cancelled too, so the link stops being payable. Once money is in flight the press answers
+    ``media.cancel_too_late``.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text=translate(PAY_NOW_LABEL_KEY, language), url=url))
+    builder.row(*_media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id))
+    return builder.as_markup()
 
 
 # ---------------------------------------------------------------------------

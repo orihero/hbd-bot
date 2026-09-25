@@ -59,6 +59,7 @@ from bayram.errors import BayramError, ConfigError
 from bayram.logging import configure_logging, get_logger
 from bayram.media.boot import refuse_unsafe_media_config
 from bayram.media.desk import SqlMediaDesk
+from bayram.media.payment import SqlMediaCharge
 from bayram.moderation.strikes import RedisStrikeStore
 from bayram.payme.pause import is_paused
 from bayram.pipeline.content import LlmContentWriter
@@ -545,6 +546,14 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         media=(
             SqlMediaDesk(container.session_factory, queue=pool, settings=settings)
             if container.session_factory is not None and pool is not None
+            else None
+        ),
+        # The live-paid half of a media 💳 (IMAGE_VIDEO_SPEC §7.2): the SAME checkout the song
+        # buttons use, so the pause switch and the link builder apply. It is only ever called
+        # through ``offering.guarded_media_charge``, which keeps it off the stub and sandbox.
+        media_charge=(
+            SqlMediaCharge(container.session_factory, checkout=container.checkout)
+            if container.session_factory is not None
             else None
         ),
         # The operator switches and ``menu:v:{tg}`` (§2.2, §4.5), on that same pool.

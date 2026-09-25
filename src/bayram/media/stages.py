@@ -48,6 +48,8 @@ __all__ = [
     "MEDIA_TTS_JOB",
     "MEDIA_VOICE_PREPARE_JOB",
     "SKU_DEADLINE_FIELDS",
+    "DEFAULT_SKU_DEADLINES",
+    "sku_deadlines",
     "prescreen_job_id",
     "screen_job_id",
     "script_job_id",
@@ -178,6 +180,23 @@ def mux_job_id(job_id: UUID | str, n: int = 0) -> str:
 def sku_deadline(settings: Settings, sku: MediaSku) -> timedelta:
     seconds = getattr(settings, SKU_DEADLINE_FIELDS[sku])
     return timedelta(seconds=int(seconds))
+
+
+def sku_deadlines(settings: Settings) -> Mapping[MediaSku, timedelta]:
+    """Every SKU's configured deadline, for a caller that is handed them rather than
+    ``Settings`` — the Payme ledger's media settlement (IMAGE_VIDEO_SPEC §3.2.2, §7.2)."""
+    return MappingProxyType({sku: sku_deadline(settings, sku) for sku in MediaSku})
+
+
+#: The deadlines as shipped (§3.5), for the Payme gateway, which reads no ``Settings``. It uses
+#: them only for the uploads' backstop clock on a media settlement; the deadline itself is
+#: enforced by the worker's ``media_sweep`` from the configured values.
+DEFAULT_SKU_DEADLINES: Final[Mapping[MediaSku, timedelta]] = MappingProxyType(
+    {
+        sku: timedelta(seconds=int(Settings.model_fields[field].default))
+        for sku, field in SKU_DEADLINE_FIELDS.items()
+    }
+)
 
 
 def content_sha256(

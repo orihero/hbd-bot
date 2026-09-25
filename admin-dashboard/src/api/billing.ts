@@ -101,9 +101,15 @@ export const INTENT_STATE_VALUES = [
 export const intentStateSchema = z.enum(INTENT_STATE_VALUES);
 export type IntentState = z.infer<typeof intentStateSchema>;
 
-/** `IntentProduct` — a single song, or the starter plan. Two members, and `starter` is the
- * only one that carries `planSongs`/`planDays`. */
-export const INTENT_PRODUCT_VALUES = ["single", "starter"] as const;
+/** `IntentProduct` — a single song, the starter plan, or one of the three media SKUs
+ * (IMAGE_VIDEO_SPEC §7.1). `starter` is the only one that carries `planSongs`/`planDays`. */
+export const INTENT_PRODUCT_VALUES = [
+  "single",
+  "starter",
+  "image",
+  "video_standard",
+  "video_fast",
+] as const;
 export const intentProductSchema = z.enum(INTENT_PRODUCT_VALUES);
 export type IntentProduct = z.infer<typeof intentProductSchema>;
 
@@ -207,6 +213,7 @@ export const LIFELINE_NOTE_VALUES = [
   "awaiting_rail",
   "buyer_erased",
   "plan_grants_nothing",
+  "media_grants_nothing",
   "not_settled",
   "already_told",
   "purged",
@@ -214,8 +221,8 @@ export const LIFELINE_NOTE_VALUES = [
 export const lifelineNoteSchema = z.enum(LIFELINE_NOTE_VALUES);
 export type LifelineNote = z.infer<typeof lifelineNoteSchema>;
 
-/** `ChainStopKind` — which of the two endings this payment has. See `ChainStopView`. */
-export const CHAIN_STOP_KIND_VALUES = ["single_song", "plan"] as const;
+/** `ChainStopKind` — which of the three endings this payment has. See `ChainStopView`. */
+export const CHAIN_STOP_KIND_VALUES = ["single_song", "plan", "media"] as const;
 export const chainStopKindSchema = z.enum(CHAIN_STOP_KIND_VALUES);
 export type ChainStopKind = z.infer<typeof chainStopKindSchema>;
 
