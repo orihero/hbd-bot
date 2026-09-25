@@ -935,6 +935,13 @@ class Settings(BaseSettings):
     #: so ``zootopia``, ``storybook`` and ``hunyuan`` are unreachable from bayram (§1.2).
     genai_image_model: str = Field(default="flux2", min_length=1, max_length=32)
     genai_video_model: str = Field(default="wan", min_length=1, max_length=32)
+    #: The model the 🤖 "AI writes" line is asked of on the gateway's
+    #: ``/v1/chat/completions`` (IMAGE_VIDEO_SPEC §5.5). A local model only: a ``:cloud`` tag
+    #: would send the customer's prompt off the box, so it is refused here.
+    genai_script_model: str = Field(default="qwen3.8:27b-q4_K_M", min_length=1, max_length=64)
+    #: How long the gateway may take to write a line before the D5 LLM stack is asked
+    #: instead (§5.5: "unavailable or busy > 20 s"). A Wan render holds the GPU for minutes.
+    genai_script_timeout_s: float = Field(default=20.0, gt=0.0, le=120.0)
 
     # -- languages ----------------------------------------------------------
     default_ui_language: Language = Field(default=Language.UZ_LATN)
@@ -1136,6 +1143,15 @@ class Settings(BaseSettings):
         if len(set(value)) != len(value):
             raise ValueError(f"duplicate strategies in name_candidate_order: {value}")
         return value
+
+    @field_validator("genai_script_model")
+    @classmethod
+    def _script_model_must_be_local(cls, value: str) -> str:
+        # IMAGE_VIDEO_SPEC §5.5: the script model sits in its own local-only allowlist; a
+        # ``:cloud`` model is served by a third party and would carry the prompt with it.
+        if value.strip().lower().endswith(":cloud"):
+            raise ValueError("genai_script_model must be a local model, not a ':cloud' one")
+        return value.strip()
 
     @field_validator("supported_languages")
     @classmethod

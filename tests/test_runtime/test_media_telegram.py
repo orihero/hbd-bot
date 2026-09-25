@@ -8,12 +8,16 @@ from pathlib import Path
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
-from aiogram.methods import EditMessageText, SendMediaGroup, SendPhoto
-from aiogram.types import Chat, File, Message, PhotoSize
+from aiogram.methods import EditMessageText, SendDocument, SendMediaGroup, SendPhoto, SendVideo
+from aiogram.types import Chat, Document, File, Message, PhotoSize, Video
 
 from bayram.bot.delivery import BLOCKED_BY_CUSTOMER_KEY
 from bayram.contracts import is_err, is_ok
-from bayram.runtime.media_telegram import TOO_LARGE_KEY, TelegramMediaMessenger
+from bayram.runtime.media_telegram import (
+    TOO_LARGE_KEY,
+    VIDEO_MAX_BYTES,
+    TelegramMediaMessenger,
+)
 from tests.test_bot.conftest import CHAT_ID, FIXED_MOMENT, RecordingSession
 
 
@@ -130,3 +134,83 @@ async def test_a_bad_request_is_not_retried(
     sent = await TelegramMediaMessenger(bot).send_photos(CHAT_ID, photos, caption="x")
 
     assert is_err(sent) and sent.error.is_retryable is False
+
+
+# ---------------------------------------------------------------------------
+# Video delivery (§3.3 ``media_deliver``, M4.3)
+# ---------------------------------------------------------------------------
+def _clip(tmp_path: Path, size: int) -> Path:
+    path = tmp_path / "video.mp4"
+    with path.open("wb") as handle:
+        handle.truncate(size)  # sparse: the size is what is under test, not the bytes
+    return path
+
+
+async def test_a_video_goes_by_send_video_streamable_with_its_measured_shape(
+    bot: Bot, session: RecordingSession, tmp_path: Path
+) -> None:
+    session.responses["SendVideo"] = Message(
+        message_id=9,
+        date=FIXED_MOMENT,
+        chat=Chat(id=CHAT_ID, type="private"),
+        video=Video(file_id="vid-1", file_unique_id="v", width=720, height=1280, duration=5),
+    )
+
+    sent = await TelegramMediaMessenger(bot).send_video(
+        CHAT_ID,
+        _clip(tmp_path, 3 * 1024 * 1024),
+        caption="made",
+        width=720,
+        height=1280,
+        duration_s=5.0625,
+    )
+
+    assert is_ok(sent) and sent.value == "vid-1"
+    call = session.last_named("SendVideo")
+    assert isinstance(call, SendVideo)
+    assert call.supports_streaming is True
+    assert (call.width, call.height, call.duration, call.caption) == (720, 1280, 5, "made")
+    assert session.named("SendDocument") == ()
+
+
+async def test_a_video_over_50_mb_goes_as_a_document(
+    bot: Bot, session: RecordingSession, tmp_path: Path
+) -> None:
+    session.responses["SendDocument"] = Message(
+        message_id=10,
+        date=FIXED_MOMENT,
+        chat=Chat(id=CHAT_ID, type="private"),
+        document=Document(file_id="doc-1", file_unique_id="d"),
+    )
+
+    sent = await TelegramMediaMessenger(bot).send_video(
+        CHAT_ID,
+        _clip(tmp_path, VIDEO_MAX_BYTES + 1),
+        caption="made",
+        width=720,
+        height=1280,
+        duration_s=5.0,
+    )
+
+    assert is_ok(sent) and sent.value == "doc-1"
+    call = session.last_named("SendDocument")
+    assert isinstance(call, SendDocument)
+    assert call.caption == "made"
+    assert session.named("SendVideo") == ()
+
+
+async def test_a_blocked_customer_is_final_for_a_video_too(
+    bot: Bot, session: RecordingSession, tmp_path: Path
+) -> None:
+    session.failures["SendVideo"] = TelegramForbiddenError(
+        method=SendVideo(chat_id=CHAT_ID, video="x"),
+        message="Forbidden: bot was blocked by the user",
+    )
+
+    sent = await TelegramMediaMessenger(bot).send_video(
+        CHAT_ID, _clip(tmp_path, 1024), caption="x", width=None, height=None, duration_s=None
+    )
+
+    assert is_err(sent)
+    assert sent.error.context[BLOCKED_BY_CUSTOMER_KEY] is True
+    assert sent.error.is_retryable is False

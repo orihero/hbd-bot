@@ -43,10 +43,12 @@ waiting submit and each poll re-render it from the row and the GPU queue — edi
 the queue position or the rounded-minute ETA changed, and at most once a minute. Delivery is a
 new message, so it notifies.
 
-**Video** shares submit/poll/fetch and has its fan-in written here (render + narration →
-``media_mux``), but narration, mux and video delivery are M4. Until they exist ``media_start``
-fails a video job before it reaches the GPU (``video_not_built``), so no customer pays for a
-render nothing can finish.
+**Video** shares submit/poll/fetch: its fetch normalises the clip with ffprobe/ffmpeg
+(:mod:`bayram.media.mux`) into a ``video_raw`` output and sets ``render_ready_at``, while
+``media_tts`` (an AI voice) or ``media_voice_prepare`` (an own note) runs beside the render
+and sets ``audio_ready_at``. Whichever finishes second
+fans in to ``media_mux``, once, by a conditional UPDATE; the output screen reads frames of the
+muxed clip and the delivery sends it by ``sendVideo`` (a document above 50 MB).
 
 Moderation goes through :class:`~bayram.moderation.contracts.MediaModerator` — the fake in tests,
 ``GatewayGuardModerator`` (G1, G2, G8) in production — and every ``Err`` from it is
@@ -65,7 +67,7 @@ import asyncio
 import hashlib
 import math
 import shutil
-from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -87,12 +89,24 @@ from bayram.bot.keyboards import (
     media_busy_keyboard,
     media_quote_keyboard,
     media_refused_keyboard,
+    media_script_review_keyboard,
     media_video_aspect_keyboard,
     media_voice_too_long_keyboard,
 )
 from bayram.bot.pricing import format_amount
 from bayram.config import Settings
-from bayram.contracts import Err, HealthState, Result, Storage, err, is_err, ok
+from bayram.contracts import (
+    Err,
+    HealthState,
+    NarrationProvider,
+    NarrationRequest,
+    Result,
+    Storage,
+    VoiceGender,
+    err,
+    is_err,
+    ok,
+)
 from bayram.db.base import utc_now
 from bayram.db.credit_sql import rowcount_of
 from bayram.db.enums import (
@@ -138,10 +152,10 @@ from bayram.db.media import (
 )
 from bayram.db.media_reviews import load_review, mark_applied, open_review
 from bayram.db.models.media_attempt import MediaAttemptRow
-from bayram.db.models.media_input import MediaInputRow
+from bayram.db.models.media_input import MediaInputRow, MediaOutputRow
 from bayram.db.models.media_job import CSAM_BLOCKED_ERROR_CODE, MediaJobRow
 from bayram.db.retention import RetentionPolicy, resolve_retention_policy
-from bayram.errors import BayramError, PipelineError, StorageError, ValidationError
+from bayram.errors import BayramError, ErrorCode, PipelineError, StorageError, ValidationError
 from bayram.logging import get_logger
 from bayram.media.composite import (
     COLLAGE_MIME,
@@ -161,6 +175,7 @@ from bayram.media.contracts import (
     is_ambiguous,
 )
 from bayram.media.gate import QuoteBlock, quote_block
+from bayram.media.mux import MAX_TEMPO, AudioFit, FfmpegVideoTools, VideoTools
 from bayram.media.narration import fits_budget, is_voice_note_too_long, narration_budget
 from bayram.media.offering import (
     effective_backend,
@@ -169,6 +184,7 @@ from bayram.media.offering import (
     media_offered,
 )
 from bayram.media.overrides import MediaSwitchStore, read_backend_override, read_overrides
+from bayram.media.script_writer import GatewayScriptLlm, LlmScriptWriter, ScriptWriter
 from bayram.media.service import MediaQueue
 from bayram.media.stages import (
     MEDIA_CLEANUP_JOB,
@@ -180,16 +196,22 @@ from bayram.media.stages import (
     MEDIA_PRESCREEN_JOB,
     MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
+    MEDIA_SCRIPT_JOB,
     MEDIA_START_JOB,
     MEDIA_SUBMIT_JOB,
+    MEDIA_TTS_JOB,
+    MEDIA_VOICE_PREPARE_JOB,
     cleanup_job_id,
     content_sha256,
     deliver_job_id,
     fetch_job_id,
+    mux_job_id,
     output_screen_job_id,
     poll_job_id,
     sku_deadline,
     submit_job_id,
+    tts_job_id,
+    voice_prepare_job_id,
 )
 from bayram.media.voice_probe import FfmpegVoiceProbe, VoiceProbe
 from bayram.moderation.contracts import (
@@ -259,6 +281,11 @@ __all__ = [
     "video_fan_in",
     "enqueue_stage",
     "enqueue_submit",
+    "enqueue_voice_stage",
+    "media_script",
+    "media_tts",
+    "media_voice_prepare",
+    "media_mux",
     "is_attempt_final",
     "media_workspace",
 ]
@@ -355,6 +382,7 @@ _QUEUED_KEY: Final[str] = "media.progress.queued"
 _QUEUED_FREE_KEY: Final[str] = "media.progress.queued_free"
 _RENDERING_KEY: Final[str] = "media.progress.rendering"
 _DELIVERED_KEY: Final[str] = "media.image.delivered"
+_VIDEO_DELIVERED_KEY: Final[str] = "media.video.delivered"
 _AGAIN_KEY: Final[str] = "media.delivered.again"
 _PARTIAL_KEY: Final[str] = "media.image.partial"
 _PARTIAL_REFUNDED_KEY: Final[str] = "media.image.partial_refunded"
@@ -365,6 +393,8 @@ _ETA_MINUTES_KEY: Final[str] = "media.eta.minutes"
 _VIDEO_QUOTE_KEY: Final[str] = "media.video.quote"
 _ASPECT_KEY: Final[str] = "media.aspect"
 _VOICE_TOO_LONG_KEY: Final[str] = "media.voice_note.too_long"
+_SCRIPT_REVIEW_KEY: Final[str] = "media.voice.script_review"
+_SCRIPT_FAILED_KEY: Final[str] = "media.voice.script_failed"
 _TIER_STANDARD_KEY: Final[str] = "media.tier_name.standard"
 _TIER_FAST_KEY: Final[str] = "media.tier_name.fast"
 _TIER_NAME_KEYS: Final[Mapping[MediaTier, str]] = {
@@ -389,6 +419,18 @@ _VOICE_NOTE_MIME: Final[str] = "audio/ogg"
 _VOICE_NOTE_MAX_BYTES: Final[int] = 2 * 1024 * 1024
 #: ``media_jobs.voice_transcript`` is varchar(400) (§3.2.2).
 _TRANSCRIPT_MAX_CHARS: Final[int] = 400
+#: The video's files (§3.6): the normalised render, the voice track, the delivered clip.
+_VIDEO_RAW_FILENAME: Final[str] = "video-raw.mp4"
+_VIDEO_FILENAME: Final[str] = "video.mp4"
+_NARRATION_FILENAME: Final[str] = "narration.wav"
+_VIDEO_MIME: Final[str] = "video/mp4"
+_WAV_MIME: Final[str] = "audio/wav"
+#: One narration call (§5.1): a unary WAV of five seconds.
+_NARRATION_TIMEOUT_S: Final[float] = 60.0
+#: §5.3: the delivery asked for when a line runs past what ``atempo`` absorbs.
+_BRISK_STYLE: Final[str] = "brisk"
+#: The muxed clip may differ from the render by an AAC frame or two, never more.
+_MUX_DURATION_SLACK_S: Final[float] = 0.15
 
 
 class MediaErrorCode(StrEnum):
@@ -401,7 +443,6 @@ class MediaErrorCode(StrEnum):
     OUTPUT_BLOCKED = "output_blocked"
     SCREEN_STALE = "screen_stale"
     NOT_ENTITLED = "not_entitled"
-    VIDEO_NOT_BUILT = "video_not_built"
     FORGET_REQUESTED = "forget_requested"
     CUSTOMER_BLOCKED = "customer_blocked"
     DELIVERY_FAILED = "delivery_failed"
@@ -428,6 +469,14 @@ class MediaErrorCode(StrEnum):
     #: §5.4: whisper's transcript of an own voice note did not read as real speech, so the
     #: note could not be screened. A ``review`` refusal, never a strike.
     VOICE_UNTRUSTED = "voice_untrusted"
+    #: §6.4 L5: the TTS vendor refused the line on content grounds. Final: refund + strike.
+    NARRATION_REFUSED = "narration_refused"
+    #: §5.1: no voice could be made (every route and the fallback failed, or none is wired).
+    NARRATION_FAILED = "narration_failed"
+    #: §5.4: the stored own voice note could not be read or prepared.
+    VOICE_PREPARE_FAILED = "voice_prepare_failed"
+    #: §5.6: ffmpeg could not mux or re-wrap the clip.
+    MUX_FAILED = "mux_failed"
 
 
 class MediaKV(Protocol):
@@ -472,6 +521,13 @@ class MediaRuntime:
     clock: Callable[[], datetime] = field(default=utc_now)
     #: ffprobe + silencedetect on an own voice note (§5.4); a fake in tests.
     voice_probe: VoiceProbe = field(default_factory=FfmpegVoiceProbe)
+    #: ffprobe/ffmpeg for a video: normalise, prepare a note, mux, frames (§5.6); a fake in tests.
+    video: VideoTools = field(default_factory=FfmpegVideoTools)
+    #: The video voice (§5.1, §5.2). ``None`` is "not wired": a narration fails the job with a
+    #: refund rather than guessing a voice.
+    narration: NarrationProvider | None = None
+    #: 🤖 "AI writes" (§5.5). ``None`` answers the tray that no line could be written.
+    script_writer: ScriptWriter | None = None
 
 
 def media_runtime(ctx: Mapping[str, Any]) -> MediaRuntime:
@@ -512,10 +568,62 @@ def media_runtime(ctx: Mapping[str, Any]) -> MediaRuntime:
         voice_probe=FfmpegVoiceProbe(
             ffprobe_binary=settings.ffprobe_binary, ffmpeg_binary=settings.ffmpeg_binary
         ),
+        video=FfmpegVideoTools(
+            ffmpeg_binary=settings.ffmpeg_binary,
+            ffprobe_binary=settings.ffprobe_binary,
+            timeout_s=settings.ffmpeg_timeout_s,
+        ),
+        narration=_build_narration(settings, container.require_session_factory(), redis),
+        script_writer=_build_script_writer(settings, container),
     )
     if isinstance(ctx, dict):
         ctx[MEDIA_CTX_KEY] = runtime
     return runtime
+
+
+def _build_narration(
+    settings: Settings, sessions: async_sessionmaker[AsyncSession], redis: Any
+) -> NarrationProvider:
+    """The narration table over the Gemini key pool, ElevenLabs behind it (§5.1, §5.2)."""
+    # Imported here for the reason ``AppContainer`` is: the vendor half of the graph.
+    import httpx
+
+    from bayram.db.vendor_usage import DbUsageSink
+    from bayram.providers.tts.key_pool import RedisKeyPoolStore
+    from bayram.runtime.providers import build_narration_provider
+
+    return build_narration_provider(
+        settings,
+        store=RedisKeyPoolStore(redis),
+        client=httpx.AsyncClient(),
+        usage=DbUsageSink(sessions),
+    )
+
+
+def _build_script_writer(settings: Settings, container: Any) -> ScriptWriter:
+    """The gateway's local LLM first, the D5 stack behind it (§5.5)."""
+    gateway = (
+        GatewayScriptLlm(
+            base_url=settings.genai_base_url,
+            api_key=settings.genai_api_key,
+            model_id=settings.genai_script_model,
+            access_client_id=settings.genai_access_client_id,
+            access_client_secret=settings.genai_access_client_secret,
+        )
+        if settings.genai_base_url.strip() and not settings.use_fake_providers
+        else None
+    )
+    providers = getattr(container, "providers", None)
+    fallbacks = (
+        [p for p in (providers.llm, providers.llm_fallback) if p is not None]
+        if providers is not None
+        else []
+    )
+    return LlmScriptWriter(
+        gateway=gateway,
+        fallbacks=fallbacks,
+        gateway_timeout_s=settings.genai_script_timeout_s,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -682,6 +790,66 @@ async def _materialise(
     dest.parent.mkdir(parents=True, exist_ok=True)
     await asyncio.to_thread(dest.write_bytes, data)
     return ok(dest)
+
+
+async def _materialise_file(
+    rt: MediaRuntime, *, key: str, sha256: str | None, dest: Path
+) -> Result[Path]:
+    """:func:`_materialise` for a video or its voice: streamed to disk through
+    ``Storage.open_range`` and hashed on the way, never held in memory (§3.6)."""
+    if (
+        dest.exists()
+        and sha256 is not None
+        and await asyncio.to_thread(_sha256_file, dest) == sha256
+    ):
+        return ok(dest)
+    size = await rt.storage.size(key)
+    if is_err(size):
+        return size
+    if size.value <= 0:
+        return err(StorageError("a stored media object is empty", context={"key": key}))
+    opened = await rt.storage.open_range(key, start=0, end=size.value - 1)
+    if is_err(opened):
+        return opened
+    stream = opened.value
+    digest = hashlib.sha256()
+    part = dest.with_name(f"{dest.name}.part")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with part.open("wb") as handle:
+            async for chunk in stream:
+                digest.update(chunk)
+                handle.write(chunk)
+    except OSError as exc:
+        part.unlink(missing_ok=True)
+        return err(
+            StorageError(
+                "a stored media object could not be copied to the workspace",
+                context={"key": key, "failure": type(exc).__name__},
+                cause=exc,
+            )
+        )
+    finally:
+        closer = getattr(stream, "aclose", None)
+        if closer is not None:
+            await closer()
+    if sha256 is not None and digest.hexdigest() != sha256:
+        part.unlink(missing_ok=True)
+        return err(
+            StorageError(
+                "a stored media object no longer matches the hash it was screened with",
+                context={"key": key},
+            )
+        )
+    part.replace(dest)
+    return ok(dest)
+
+
+def _take_name(filename: str) -> str:
+    """``narration.wav`` → ``narration-1a2b3c4d.wav``: one run's own file and object key, so
+    two runs of a stage (a sweep re-drive beside a slow first run) never share one."""
+    stem, dot, suffix = filename.rpartition(".")
+    return f"{stem}-{uuid4().hex[:8]}{dot}{suffix}"
 
 
 def _translate(job: MediaJobRow, key: str, **params: Any) -> str:
@@ -1579,12 +1747,16 @@ async def media_prescreen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> di
     return _result("prescreened", jid)
 
 
-async def _screen_gate(rt: MediaRuntime, job: MediaJobRow) -> dict[str, Any] | None:
+async def _screen_gate(
+    rt: MediaRuntime, job: MediaJobRow, *, budget_id: str | None = None
+) -> dict[str, Any] | None:
     """§6.4 L0, before a byte is downloaded: a suspended account, or one past today's
     screening budget, is refused unscreened — and not struck, since nothing was judged.
 
     The budget counts this JOB once, so a 🔁 on a busy tray does not spend twice. A Redis
     that cannot answer is ``busy``: the suspension could not be read, so nothing is screened.
+    ``budget_id`` counts something else once instead — each 🤖 line is its own screening
+    (§2.4.2), so the writer passes one id per line.
 
     **A CSAM-class suspension is read from the database too** (``csam_blocked`` rows no
     operator cleared): Redis is a cache on this deployment, and a restart without persistence
@@ -1593,7 +1765,9 @@ async def _screen_gate(rt: MediaRuntime, job: MediaJobRow) -> dict[str, Any] | N
     now = rt.clock()
     try:
         suspended = await rt.strikes.suspension(job.telegram_user_id, now=now)
-        screens = await rt.strikes.count_screen(job.telegram_user_id, job_id=str(job.id), now=now)
+        screens = await rt.strikes.count_screen(
+            job.telegram_user_id, job_id=budget_id or str(job.id), now=now
+        )
         if suspended is None:
             async with rt.sessions() as session:
                 if await has_standing_csam_block(session, job.telegram_user_id):
@@ -1682,16 +1856,6 @@ async def media_start(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[s
             notify=False,
         )
         return _result("failed_forgotten", jid)
-    if job.kind is MediaKind.VIDEO:
-        # M4 seam: narration, mux and video delivery do not exist yet (module docstring).
-        await fail_job(
-            rt,
-            jid,
-            expected=paid_expected,
-            error_code=MediaErrorCode.VIDEO_NOT_BUILT,
-            refund=MediaCreditReason.GENERATION_FAILED,
-        )
-        return _result("failed_video_not_built", jid)
     if (
         job.screen_decision is not MediaScreenDecision.ALLOW
         or job.screen_policy_version != MEDIA_POLICY_VERSION
@@ -1752,7 +1916,28 @@ async def media_start(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[s
             0,
             job_id=submit_job_id(jid, variant, 1, 0),
         )
+    # A video's voice runs beside its render (§3.3): TTS for an AI voice, the prepared note
+    # for an own one. Whichever of the two finishes second fans in to the mux.
+    await enqueue_voice_stage(rt, job, n=0)
     return _result("started", jid, backend=backend.value)
+
+
+async def enqueue_voice_stage(rt: MediaRuntime, job: MediaJobRow, *, n: int) -> bool:
+    """``media_tts`` or ``media_voice_prepare`` for a video with a voice; nothing otherwise.
+    ``n`` is 0 from ``media_start`` and the sweep's tick when it re-drives a lost one."""
+    if job.kind is not MediaKind.VIDEO:
+        return False
+    if job.voice_mode in (MediaVoiceMode.AI_USER, MediaVoiceMode.AI_LLM):
+        return await enqueue_stage(rt, MEDIA_TTS_JOB, str(job.id), n, job_id=tts_job_id(job.id, n))
+    if job.voice_mode is MediaVoiceMode.OWN:
+        return await enqueue_stage(
+            rt,
+            MEDIA_VOICE_PREPARE_JOB,
+            str(job.id),
+            n,
+            job_id=voice_prepare_job_id(job.id, n),
+        )
+    return False
 
 
 def _model_id(rt: MediaRuntime, backend: MediaBackend, kind: MediaKind) -> str:
@@ -2500,10 +2685,8 @@ async def _fetch(
     rt: MediaRuntime, ctx: Mapping[str, Any], job: MediaJobRow, row: MediaAttemptRow
 ) -> dict[str, Any]:
     variant = row.variant
-    if job.kind is not MediaKind.IMAGE:
-        # M4: the raw clip becomes a ``video_raw`` output and ``render_ready_at`` is set, then
-        # :func:`video_fan_in`. Unreachable until then (media_start refuses video).
-        raise PipelineError("video fetch is M4", context={"media_job_id": str(job.id)})
+    if job.kind is MediaKind.VIDEO:
+        return await _fetch_video(rt, ctx, job, row)
     outdir = media_workspace(rt, job.id) / "out"
     raw = outdir / f"raw-{variant}-{row.attempt}.part"
     provider = rt.providers(_backend(job))
@@ -2560,6 +2743,80 @@ async def _fetch(
     await _gpu_call("leave", rt.gpu.leave(queue_member(job.id, variant)), None)
     await image_fan_in(rt, job.id)
     return _result("fetched", job.id, variant=variant)
+
+
+async def _fetch_video(
+    rt: MediaRuntime, ctx: Mapping[str, Any], job: MediaJobRow, row: MediaAttemptRow
+) -> dict[str, Any]:
+    """The clip → ffprobe-verified, streamable ``video_raw`` → ``render_ready_at`` → fan-in.
+
+    The render is silent (Wan has no audio; §4.3 sends ``sound:"off"``), and whatever came
+    back is re-wrapped — or re-encoded when it is not H.264 ``yuv420p`` — so the mux can
+    stream-copy it and Telegram can play it inline. A file ffprobe does not read as a video is
+    a failed attempt, and the retry policy decides (§3.3 "Retries").
+    """
+    outdir = media_workspace(rt, job.id) / "out"
+    raw = outdir / f"raw-{row.variant}-{row.attempt}.part"
+    provider = rt.providers(_backend(job))
+    fetched = await provider.fetch(
+        _handle(job, row),
+        0,
+        raw,
+        max_bytes=_RESULT_MAX_BYTES[job.kind],
+        timeout_s=_FETCH_TIMEOUT_S,
+    )
+    if is_err(fetched):
+        return await _fetch_failed(rt, ctx, job, row, fetched.error)
+    final = outdir / _VIDEO_RAW_FILENAME
+    normalised = await rt.video.normalise(fetched.value.path, final)
+    raw.unlink(missing_ok=True)
+    if is_err(normalised):
+        return await _fetch_failed(rt, ctx, job, row, normalised.error)
+    if await _is_forgotten(rt, job.id):
+        final.unlink(missing_ok=True)
+        await _gpu_call("leave", rt.gpu.leave(queue_member(job.id, row.variant)), None)
+        await fail_job(
+            rt,
+            job.id,
+            expected=_WORKING_STATES,
+            error_code=MediaErrorCode.FORGET_REQUESTED,
+            refund=None,
+            notify=False,
+        )
+        return _result("discarded_forgotten", job.id, variant=row.variant)
+    stored = await rt.storage.put_file(
+        media_key(job.id, is_output=True, filename=_VIDEO_RAW_FILENAME),
+        final,
+        content_type=_VIDEO_MIME,
+    )
+    if is_err(stored):
+        return await _fetch_failed(rt, ctx, job, row, stored.error)
+    clip = normalised.value
+    now = rt.clock()
+    async with rt.sessions.begin() as session:
+        await add_output(
+            session,
+            job_id=job.id,
+            role=MediaOutputRole.VIDEO_RAW,
+            variant=row.variant,
+            storage_key=stored.value.key,
+            now=now,
+            mime=_VIDEO_MIME,
+            size_bytes=stored.value.size_bytes,
+            sha256=stored.value.sha256,
+            width=clip.width,
+            height=clip.height,
+            duration_ms=round(clip.duration_s * 1000),
+            policy=_policy(rt),
+        )
+        await session.execute(
+            sa.update(MediaJobRow)
+            .where(MediaJobRow.id == job.id, MediaJobRow.state == MediaJobState.GENERATING)
+            .values(render_ready_at=now, updated_at=now)
+        )
+    await _gpu_call("leave", rt.gpu.leave(queue_member(job.id, row.variant)), None)
+    await video_fan_in(rt, job.id)
+    return _result("fetched", job.id, variant=row.variant)
 
 
 async def _fetch_failed(
@@ -2672,8 +2929,11 @@ async def video_fan_in(rt: MediaRuntime, job_id: UUID) -> bool:
     """Whichever of render and narration finishes second moves ``generating → post`` and
     enqueues ``media_mux`` (§3.3). The conditional UPDATE fires once whatever the order.
 
-    Written now so M4 only adds the two producers (``media_fetch`` for video, ``media_tts``);
-    ``media_mux`` is not registered until then, which is why ``media_start`` refuses video.
+    Each producer (the video fetch, ``media_tts``, ``media_voice_prepare``) COMMITS its own
+    ``*_ready_at`` before calling this, so the second caller's UPDATE — which waits on the
+    first's row lock and re-reads the row — sees both, and the first's sees at most one. A
+    narration ready while the render still queues finds the row ``queued`` and changes
+    nothing; the render's fetch is then the second, and fires it.
     """
     async with rt.sessions.begin() as session:
         result = await session.execute(
@@ -2691,7 +2951,7 @@ async def video_fan_in(rt: MediaRuntime, job_id: UUID) -> bool:
         )
         moved = int(getattr(result, "rowcount", 0) or 0) == 1
     if moved:
-        await enqueue_stage(rt, MEDIA_MUX_JOB, str(job_id), job_id=f"media:{job_id}:mux")
+        await enqueue_stage(rt, MEDIA_MUX_JOB, str(job_id), 0, job_id=mux_job_id(job_id))
     return moved
 
 
@@ -2716,6 +2976,55 @@ async def _output_paths(rt: MediaRuntime, job: MediaJobRow) -> Result[list[tuple
     return ok(found)
 
 
+async def _delivered_video(
+    rt: MediaRuntime, job: MediaJobRow
+) -> Result[tuple[MediaOutputRow, Path]]:
+    """The muxed clip on local disk (streamed, hash-checked) with its output row."""
+    async with rt.sessions() as session:
+        outputs = await list_outputs(session, job.id, role=MediaOutputRole.VIDEO)
+    if not outputs:
+        return err(
+            StorageError("the video has no muxed output", context={"media_job_id": str(job.id)})
+        )
+    output = outputs[0]
+    local = await _materialise_file(
+        rt,
+        key=output.storage_key,
+        sha256=output.sha256,
+        dest=media_workspace(rt, job.id) / "out" / _VIDEO_FILENAME,
+    )
+    if is_err(local):
+        return local
+    return ok((output, local.value))
+
+
+async def _output_items(rt: MediaRuntime, job: MediaJobRow) -> Result[list[ImageItem]]:
+    """What L4 looks at (§6.4): both images, or the first, last and 1 fps frames (≤ 8) of the
+    muxed clip. The narration's words were screened at L1/L3 already."""
+    if job.kind is MediaKind.IMAGE:
+        paths = await _output_paths(rt, job)
+        if is_err(paths):
+            return paths
+        return ok(
+            [
+                ImageItem(id=f"output-{index}", subject="output_image", path=path)
+                for index, (_, path) in enumerate(paths.value)
+            ]
+        )
+    video = await _delivered_video(rt, job)
+    if is_err(video):
+        return video
+    frames = await rt.video.frames(video.value[1], media_workspace(rt, job.id) / "frames")
+    if is_err(frames):
+        return frames
+    return ok(
+        [
+            ImageItem(id=f"frame-{index}", subject="output_frame", path=path)
+            for index, path in enumerate(frames.value)
+        ]
+    )
+
+
 async def media_output_screen(ctx: Mapping[str, Any], job_id: str, seq: int = 0) -> dict[str, Any]:
     """L4 on every output before delivery. allow → deliver; review → ``held``; block → failed
     with one credit (the whole request, even if one image was fine, §6.4); unavailable → again
@@ -2737,18 +3046,15 @@ async def media_output_screen(ctx: Mapping[str, Any], job_id: str, seq: int = 0)
             notify=False,
         )
         return _result("failed_forgotten", jid)
-    paths = await _output_paths(rt, job)
+    items = await _output_items(rt, job)
     decision = MediaScreenDecision.UNAVAILABLE
     categories: tuple[CategoryCode, ...] = ()
     # No outputs to look at is ``unavailable``, never an ``allow`` of nothing (§6.3): a job
-    # that reached ``post`` without image rows (a video in M4, a future path) retries and
-    # is finally held, and is never delivered unscreened.
-    if not is_err(paths) and paths.value:
+    # that reached ``post`` without its outputs (a video whose frames could not be read)
+    # retries and is finally held, and is never delivered unscreened.
+    if not is_err(items) and items.value:
         verdict = await rt.moderator.screen_images(
-            [
-                ImageItem(id=f"output-{index}", subject="output_image", path=path)
-                for index, (_, path) in enumerate(paths.value)
-            ],
+            items.value,
             policy=MEDIA_POLICY_VERSION,
             lang_hint=lang_hint_for(job.language),
         )
@@ -2864,7 +3170,17 @@ async def media_deliver(ctx: Mapping[str, Any], job_id: str) -> dict[str, Any]:
             notify=False,
         )
         return _result("failed_forgotten", jid)
-    paths = await _output_paths(rt, job)
+    video: MediaOutputRow | None = None
+    paths: Result[list[tuple[UUID, Path]]]
+    if job.kind is MediaKind.VIDEO:
+        clip = await _delivered_video(rt, job)
+        if is_err(clip):
+            paths = clip
+        else:
+            video = clip.value[0]
+            paths = ok([(video.id, clip.value[1])])
+    else:
+        paths = await _output_paths(rt, job)
     if is_err(paths):
         await fail_job(
             rt,
@@ -2886,11 +3202,7 @@ async def media_deliver(ctx: Mapping[str, Any], job_id: str) -> dict[str, Any]:
     if not claimed:
         return _result("noop_claimed_elsewhere", jid)
     try:
-        sent = await rt.messenger.send_photos(
-            job.chat_id,
-            [path for _, path in paths.value],
-            caption=_translate(job, _DELIVERED_KEY),
-        )
+        sent = await _send_outputs(rt, job, paths.value, video)
     except BaseException:
         # The messenger never raises by contract; if it does, the claim is handed back so the
         # re-run can take it — a row left in ``delivering`` is one nothing else moves but the
@@ -2933,6 +3245,33 @@ async def media_deliver(ctx: Mapping[str, Any], job_id: str) -> dict[str, Any]:
     await rt.messenger.send(job.chat_id, _translate(job, _AGAIN_KEY), _again(job))
     await enqueue_stage(rt, MEDIA_CLEANUP_JOB, str(jid), job_id=cleanup_job_id(jid))
     return _result("delivered", jid, photos=len(sent.value), partial_refund=refunded)
+
+
+async def _send_outputs(
+    rt: MediaRuntime,
+    job: MediaJobRow,
+    paths: Sequence[tuple[UUID, Path]],
+    video: MediaOutputRow | None,
+) -> Result[tuple[str, ...]]:
+    """One album of the images, or the clip by ``sendVideo`` with the geometry and duration
+    ffprobe measured (a document above 50 MB, ``media_telegram``). The ``file_id`` of each."""
+    if video is None:
+        return await rt.messenger.send_photos(
+            job.chat_id,
+            [path for _, path in paths],
+            caption=_translate(job, _DELIVERED_KEY),
+        )
+    sent = await rt.messenger.send_video(
+        job.chat_id,
+        paths[0][1],
+        caption=_translate(job, _VIDEO_DELIVERED_KEY),
+        width=video.width,
+        height=video.height,
+        duration_s=video.duration_ms / 1000 if video.duration_ms else None,
+    )
+    if is_err(sent):
+        return sent
+    return ok((sent.value,))
 
 
 async def _delivery_failed(
@@ -3132,6 +3471,484 @@ async def media_cleanup(ctx: Mapping[str, Any], job_id: str) -> dict[str, Any]:
     return _result("cleaned", jid, objects=len(keys), failed=failed)
 
 
+# ---------------------------------------------------------------------------
+# media_script (§2.4.2, §5.5): 🤖 "AI writes" on a prescreened draft
+# ---------------------------------------------------------------------------
+async def media_script(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[str, Any]:
+    """Write line ``n`` for a ``drafting`` video whose prompt the prescreen allowed, re-screen
+    it at L3, and turn the tray into ``media.voice.script_review`` (✅ / ✏️ / 🔄).
+
+    The prompt is read from the row — never from ARQ arguments — and only once the prescreen
+    allowed it (§2.4.1). Each line counts against the screening budget (§6.4 L0). A line L3
+    refuses is regenerated once while 🔄 would still be offered (§6.4 L3: a block counts
+    against the regenerations); a writer or guard that cannot answer leaves the draft as it is
+    and says so on the tray, with ✏️ to type the words instead — fail closed, no line is ever
+    shown unscreened.
+    """
+    rt = media_runtime(ctx)
+    jid = _uuid(job_id)
+    async with rt.sessions() as session:
+        job = await load_job(session, jid)
+    if (
+        job is None
+        or job.kind is not MediaKind.VIDEO
+        or job.state is not MediaJobState.DRAFTING
+        or job.voice_mode is not MediaVoiceMode.AI_LLM
+    ):
+        return _result("noop_not_asking", jid, n=n)
+    if (
+        job.screen_decision is not MediaScreenDecision.ALLOW
+        or job.screen_policy_version != MEDIA_POLICY_VERSION
+    ):
+        return _result("noop_not_prescreened", jid, n=n)
+    if job.narration_text:
+        return _result("noop_written", jid, n=n)
+    gated = await _screen_gate(rt, job, budget_id=f"{jid}:script:{n}")
+    if gated is not None:
+        return gated
+    budget = narration_budget(rt.settings, job.language)
+    can_regenerate = n < rt.settings.media_script_max_regens
+    line: str | None = None
+    for _ in range(2 if can_regenerate else 1):
+        if rt.script_writer is None:
+            break
+        written = await rt.script_writer.write(
+            job.prompt or "", language=job.language, budget=budget
+        )
+        if is_err(written):
+            break
+        verdict = await rt.moderator.screen_text(
+            [TextItem(id="script", subject="script", content=written.value)],
+            policy=MEDIA_POLICY_VERSION,
+            lang_hint=lang_hint_for(job.language),
+        )
+        if is_err(verdict) or verdict.value.decision is MediaScreenDecision.UNAVAILABLE:
+            break
+        if verdict.value.decision is MediaScreenDecision.ALLOW:
+            line = written.value
+            break
+        _LOG.info(
+            "a written line was refused at L3; writing another",
+            extra={"media_job_id": str(jid), "decision": verdict.value.decision.value},
+        )
+    if line is None:
+        await _show_tray(
+            rt,
+            job,
+            _translate(job, _SCRIPT_FAILED_KEY),
+            media_script_review_keyboard(
+                job.language, can_regenerate=can_regenerate, can_use=False
+            ),
+        )
+        return _result("script_failed", jid, n=n)
+    async with rt.sessions.begin() as session:
+        stored = await session.execute(
+            sa.update(MediaJobRow)
+            .where(
+                MediaJobRow.id == jid,
+                MediaJobRow.state == MediaJobState.DRAFTING,
+                MediaJobRow.voice_mode == MediaVoiceMode.AI_LLM,
+                MediaJobRow.narration_text.is_(None),
+            )
+            .values(narration_text=line, updated_at=rt.clock())
+        )
+    if rowcount_of(stored) != 1:
+        return _result("noop_lost_race", jid, n=n)
+    await _show_tray(
+        rt,
+        job,
+        _translate(job, _SCRIPT_REVIEW_KEY, script=line),
+        media_script_review_keyboard(job.language, can_regenerate=can_regenerate),
+    )
+    return _result("script_written", jid, n=n)
+
+
+# ---------------------------------------------------------------------------
+# media_tts / media_voice_prepare (§5): the voice, beside the render
+# ---------------------------------------------------------------------------
+async def _voice_job(
+    rt: MediaRuntime, jid: UUID, modes: Collection[MediaVoiceMode]
+) -> MediaJobRow | None:
+    """The job, when it is a working video with one of ``modes`` and no voice yet."""
+    async with rt.sessions() as session:
+        job = await load_job(session, jid)
+    if (
+        job is None
+        or job.kind is not MediaKind.VIDEO
+        or job.voice_mode not in modes
+        or job.state not in _WORKING_STATES
+        or job.forget_requested_at is not None
+    ):
+        return None
+    return job
+
+
+async def _voice_failed(
+    rt: MediaRuntime,
+    ctx: Mapping[str, Any],
+    job: MediaJobRow,
+    error: BayramError,
+    code: MediaErrorCode,
+) -> dict[str, Any]:
+    """A voice that could not be made. A vendor's content refusal is final (§6.4 L5: fail,
+    refund, strike); a transient failure is retried by ARQ; the last try fails the job with
+    one credit — no render is delivered without the voice the customer paid for."""
+    if error.error_code is ErrorCode.CONTENT_REJECTED:
+        failed = await fail_job(
+            rt,
+            job.id,
+            expected=_WORKING_STATES,
+            error_code=MediaErrorCode.NARRATION_REFUSED,
+            refund=MediaCreditReason.GENERATION_FAILED,
+        )
+        if failed:
+            await _strike(rt, job, layer="tts", weight=OUTPUT_BLOCK_STRIKES, is_csam=False)
+        return _result("voice_refused", job.id)
+    if error.is_retryable and _job_try(ctx) < MEDIA_STAGE_MAX_TRIES:
+        raise Retry(defer=rt.settings.provider_backoff_base_s * _job_try(ctx))
+    _LOG.warning("a video's voice could not be made", extra=error.to_log_dict())
+    await fail_job(
+        rt,
+        job.id,
+        expected=_WORKING_STATES,
+        error_code=code,
+        refund=MediaCreditReason.GENERATION_FAILED,
+    )
+    return _result("voice_failed", job.id, error_code=code.value)
+
+
+async def _voice_ready(
+    rt: MediaRuntime, ctx: Mapping[str, Any], job: MediaJobRow, path: Path, seconds: float
+) -> dict[str, Any]:
+    """Store the voice track (an intermediate, 24 h), stamp ``audio_ready_at``, fan in.
+
+    ``path``'s name is this run's own (``_take_name``), and so is the stored key: a sweep
+    re-drive racing a slow first run can never overwrite the object the winning row hashes.
+    The run whose row lost deletes its own object and only tries the fan-in."""
+    stored = await rt.storage.put_file(
+        media_key(job.id, is_output=True, filename=path.name),
+        path,
+        content_type=_WAV_MIME,
+    )
+    if is_err(stored):
+        return await _voice_failed(rt, ctx, job, stored.error, MediaErrorCode.NARRATION_FAILED)
+    now = rt.clock()
+    async with rt.sessions.begin() as session:
+        wrote = await add_output(
+            session,
+            job_id=job.id,
+            role=MediaOutputRole.NARRATION,
+            variant=0,
+            storage_key=stored.value.key,
+            now=now,
+            mime=_WAV_MIME,
+            size_bytes=stored.value.size_bytes,
+            sha256=stored.value.sha256,
+            duration_ms=round(seconds * 1000),
+            policy=_policy(rt),
+        )
+        if wrote:
+            await session.execute(
+                sa.update(MediaJobRow)
+                .where(MediaJobRow.id == job.id, MediaJobRow.state.in_(_WORKING_STATES))
+                .values(audio_ready_at=now, updated_at=now)
+            )
+    if not wrote:
+        await rt.storage.delete(stored.value.key)
+    fired = await video_fan_in(rt, job.id)
+    return _result("voice_ready", job.id, seconds=round(seconds, 2), fanned_in=fired)
+
+
+async def _speak(
+    rt: MediaRuntime, request: NarrationRequest, key: str, dest: Path
+) -> Result[float]:
+    """One narration call, written to ``dest``; its length by ffprobe (the vendor's figure
+    when ffprobe cannot read it)."""
+    assert rt.narration is not None
+    rendered = await rt.narration.narrate(
+        request, idempotency_key=key, timeout_s=_NARRATION_TIMEOUT_S
+    )
+    if is_err(rendered):
+        return rendered
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(dest.write_bytes, rendered.value.data)
+    measured = await rt.video.audio_seconds(dest)
+    return ok(measured.value if not is_err(measured) else rendered.value.duration_s)
+
+
+async def media_tts(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[str, Any]:
+    """The AI voice (§5.1–§5.3): the screened ``narration_text`` in the chosen house voice.
+
+    A line over the clip by more than the mux can absorb with ``atempo`` (§5.3: 15 %) is
+    asked for once more in a brisk delivery, and the shorter of the two is kept; whatever
+    still runs long is trimmed with a fade at the mux — never a failed paid job. ``n`` only
+    tells a sweep re-drive from the first run.
+    """
+    del n
+    rt = media_runtime(ctx)
+    jid = _uuid(job_id)
+    job = await _voice_job(rt, jid, (MediaVoiceMode.AI_USER, MediaVoiceMode.AI_LLM))
+    if job is None:
+        return _result("noop_no_voice_needed", jid)
+    if job.audio_ready_at is not None:
+        await video_fan_in(rt, jid)
+        return _result("noop_voice_ready", jid)
+    if rt.narration is None or not job.narration_text or job.voice_gender is None:
+        return await _voice_failed(
+            rt,
+            ctx,
+            job,
+            PipelineError("the narration cannot be made", is_retryable=False),
+            MediaErrorCode.NARRATION_FAILED,
+        )
+    request = NarrationRequest(
+        text=job.narration_text,
+        language=job.language,
+        gender=VoiceGender(job.voice_gender.value),
+    )
+    outdir = media_workspace(rt, jid) / "out"
+    first = outdir / _take_name(_NARRATION_FILENAME)
+    spoken = await _speak(rt, request, tts_job_id(jid), first)
+    if is_err(spoken):
+        return await _voice_failed(rt, ctx, job, spoken.error, MediaErrorCode.NARRATION_FAILED)
+    seconds = spoken.value
+    clip_s = float(rt.settings.narration_max_seconds)
+    if seconds > clip_s * MAX_TEMPO:
+        brisk_path = outdir / _take_name(_NARRATION_FILENAME)
+        brisk = await _speak(
+            rt,
+            request.model_copy(update={"style": _BRISK_STYLE}),
+            f"{tts_job_id(jid)}:brisk",
+            brisk_path,
+        )
+        _LOG.info(
+            "a narration ran long and was asked for again, brisk",
+            extra={
+                "media_job_id": str(jid),
+                "language": job.language.value,
+                "seconds": round(seconds, 2),
+                "brisk_seconds": None if is_err(brisk) else round(brisk.value, 2),
+            },
+        )
+        if not is_err(brisk) and brisk.value < seconds:
+            brisk_path.replace(first)
+            seconds = brisk.value
+        else:
+            brisk_path.unlink(missing_ok=True)
+    return await _voice_ready(rt, ctx, job, first, seconds)
+
+
+async def media_voice_prepare(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[str, Any]:
+    """An own voice note for the mux (§5.4): the SCREENED stored copy (hash-checked, never
+    re-downloaded by ``file_id``), loudness-normalised to mono 48 kHz — no cloning, no voice
+    conversion. ``n`` only tells a sweep re-drive from the first run."""
+    del n
+    rt = media_runtime(ctx)
+    jid = _uuid(job_id)
+    job = await _voice_job(rt, jid, (MediaVoiceMode.OWN,))
+    if job is None:
+        return _result("noop_no_voice_needed", jid)
+    if job.audio_ready_at is not None:
+        await video_fan_in(rt, jid)
+        return _result("noop_voice_ready", jid)
+    async with rt.sessions() as session:
+        rows = await list_inputs(session, jid)
+    note = next((row for row in rows if row.role is MediaInputRole.VOICE_NOTE), None)
+    if note is None or note.storage_key is None or note.sha256 is None:
+        return await _voice_failed(
+            rt,
+            ctx,
+            job,
+            ValidationError("the screened voice note is missing"),
+            MediaErrorCode.VOICE_PREPARE_FAILED,
+        )
+    workdir = media_workspace(rt, jid)
+    local = await _materialise_file(
+        rt, key=note.storage_key, sha256=note.sha256, dest=workdir / "in" / _VOICE_NOTE_FILENAME
+    )
+    if is_err(local):
+        return await _voice_failed(rt, ctx, job, local.error, MediaErrorCode.VOICE_PREPARE_FAILED)
+    prepared_path = workdir / "out" / _take_name(_NARRATION_FILENAME)
+    prepared_path.parent.mkdir(parents=True, exist_ok=True)
+    prepared = await rt.video.prepare_voice(local.value, prepared_path)
+    if is_err(prepared):
+        return await _voice_failed(
+            rt, ctx, job, prepared.error, MediaErrorCode.VOICE_PREPARE_FAILED
+        )
+    return await _voice_ready(rt, ctx, job, prepared_path, prepared.value)
+
+
+# ---------------------------------------------------------------------------
+# media_mux (§5.6): the voice onto the clip, once, after the fan-in
+# ---------------------------------------------------------------------------
+async def media_mux(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[str, Any]:
+    """``post`` video → the delivered clip (``video`` output) → the output screen.
+
+    A silent request is re-wrapped with ``+faststart``; a voiced one gets its track muxed on
+    and cut at the clip's own length (§5.3 fit: pad, ``atempo`` ≤ 1.15 for an AI voice, else
+    a trim with a 250 ms fade — counted per language so the budgets can be tightened, Q11).
+    ffprobe checks the result against the render's geometry and length before anything
+    screens it. A no-op unless the row is ``post``; a clip already muxed only re-asks the
+    output screen (a re-drive after a lost enqueue). ``n`` tells re-drives apart.
+    """
+    del n
+    rt = media_runtime(ctx)
+    jid = _uuid(job_id)
+    async with rt.sessions() as session:
+        job = await load_job(session, jid)
+        outputs = {
+            role: await list_outputs(session, jid, role=role)
+            for role in (
+                MediaOutputRole.VIDEO,
+                MediaOutputRole.VIDEO_RAW,
+                MediaOutputRole.NARRATION,
+            )
+        }
+    if job is None or job.kind is not MediaKind.VIDEO or job.state is not MediaJobState.POST:
+        return _result("noop_not_post", jid)
+    if job.forget_requested_at is not None:
+        await fail_job(
+            rt,
+            jid,
+            expected=(MediaJobState.POST,),
+            error_code=MediaErrorCode.FORGET_REQUESTED,
+            refund=None,
+            notify=False,
+        )
+        return _result("failed_forgotten", jid)
+    if outputs[MediaOutputRole.VIDEO]:
+        await _ask_output_screen(rt, job)
+        return _result("noop_muxed", jid)
+    raw_rows = outputs[MediaOutputRole.VIDEO_RAW]
+    voice_rows = outputs[MediaOutputRole.NARRATION]
+    needs_voice = job.voice_mode is not MediaVoiceMode.NONE
+    if not raw_rows or (needs_voice and not voice_rows):
+        return await _mux_failed(rt, ctx, job, StorageError("a mux input is missing"))
+    raw_row = raw_rows[0]
+    workdir = media_workspace(rt, jid)
+    raw = await _materialise_file(
+        rt,
+        key=raw_row.storage_key,
+        sha256=raw_row.sha256,
+        dest=workdir / "out" / _VIDEO_RAW_FILENAME,
+    )
+    if is_err(raw):
+        return await _mux_failed(rt, ctx, job, raw.error)
+    final = workdir / "out" / _take_name(_VIDEO_FILENAME)
+    fit: AudioFit | None = None
+    if not needs_voice:
+        made = await rt.video.rewrap(raw.value, final)
+        if is_err(made):
+            return await _mux_failed(rt, ctx, job, made.error)
+        clip = made.value
+    else:
+        voice_row = voice_rows[0]
+        voice = await _materialise_file(
+            rt,
+            key=voice_row.storage_key,
+            sha256=voice_row.sha256,
+            dest=workdir / "out" / _NARRATION_FILENAME,
+        )
+        if is_err(voice):
+            return await _mux_failed(rt, ctx, job, voice.error)
+        muxed = await rt.video.mux(
+            raw.value,
+            voice.value,
+            final,
+            # An own note is muxed as-is: trimmed with a fade inside its tolerance, never
+            # sped up (§5.4).
+            may_speed_up=job.voice_mode is not MediaVoiceMode.OWN,
+        )
+        if is_err(muxed):
+            return await _mux_failed(rt, ctx, job, muxed.error)
+        clip, fit = muxed.value.probe, muxed.value.fit
+        if fit is not AudioFit.PAD:
+            _LOG.info(
+                "a video's voice was fitted to the clip",
+                extra={
+                    "media_job_id": str(jid),
+                    "language": job.language.value,
+                    "voice_mode": job.voice_mode.value,
+                    "fit": fit.value,
+                    "audio_s": round(muxed.value.audio_s, 2),
+                },
+            )
+    expected_s = (raw_row.duration_ms or 0) / 1000
+    if (
+        clip.width != raw_row.width
+        or clip.height != raw_row.height
+        or (expected_s and abs(clip.duration_s - expected_s) > _MUX_DURATION_SLACK_S)
+    ):
+        return await _mux_failed(
+            rt,
+            ctx,
+            job,
+            ValidationError(
+                "the muxed clip does not match the render",
+                is_retryable=False,
+                context={
+                    "width": clip.width,
+                    "height": clip.height,
+                    "duration_s": round(clip.duration_s, 3),
+                    "expected_s": round(expected_s, 3),
+                },
+            ),
+        )
+    stored = await rt.storage.put_file(
+        media_key(jid, is_output=True, filename=final.name), final, content_type=_VIDEO_MIME
+    )
+    if is_err(stored):
+        return await _mux_failed(rt, ctx, job, stored.error)
+    async with rt.sessions.begin() as session:
+        wrote = await add_output(
+            session,
+            job_id=jid,
+            role=MediaOutputRole.VIDEO,
+            variant=0,
+            storage_key=stored.value.key,
+            now=rt.clock(),
+            mime=_VIDEO_MIME,
+            size_bytes=stored.value.size_bytes,
+            sha256=stored.value.sha256,
+            width=clip.width,
+            height=clip.height,
+            duration_ms=round(clip.duration_s * 1000),
+            policy=_policy(rt),
+        )
+    if not wrote:
+        # A re-drive muxed it first; its row names its own object, so this one goes.
+        await rt.storage.delete(stored.value.key)
+    await _ask_output_screen(rt, job)
+    return _result("muxed", jid, fit=fit.value if fit is not None else None)
+
+
+async def _ask_output_screen(rt: MediaRuntime, job: MediaJobRow) -> None:
+    await enqueue_stage(
+        rt,
+        MEDIA_OUTPUT_SCREEN_JOB,
+        str(job.id),
+        job.oscreen_seq,
+        job_id=output_screen_job_id(job.id, job.oscreen_seq),
+    )
+
+
+async def _mux_failed(
+    rt: MediaRuntime, ctx: Mapping[str, Any], job: MediaJobRow, error: BayramError
+) -> dict[str, Any]:
+    """ffmpeg or storage let us down: retried by ARQ while it may pass, then one credit."""
+    if error.is_retryable and _job_try(ctx) < MEDIA_STAGE_MAX_TRIES:
+        raise Retry(defer=rt.settings.provider_backoff_base_s * _job_try(ctx))
+    _LOG.warning("a video could not be muxed", extra=error.to_log_dict())
+    await fail_job(
+        rt,
+        job.id,
+        expected=(MediaJobState.POST,),
+        error_code=MediaErrorCode.MUX_FAILED,
+        refund=MediaCreditReason.GENERATION_FAILED,
+    )
+    return _result("mux_failed", job.id)
+
+
 assert media_prescreen.__name__ == MEDIA_PRESCREEN_JOB
 assert media_screen.__name__ == MEDIA_SCREEN_JOB
 assert media_start.__name__ == MEDIA_START_JOB
@@ -3142,3 +3959,7 @@ assert media_output_screen.__name__ == MEDIA_OUTPUT_SCREEN_JOB
 assert media_deliver.__name__ == MEDIA_DELIVER_JOB
 assert media_cleanup.__name__ == MEDIA_CLEANUP_JOB
 assert media_review_apply.__name__ == MEDIA_REVIEW_JOB
+assert media_script.__name__ == MEDIA_SCRIPT_JOB
+assert media_tts.__name__ == MEDIA_TTS_JOB
+assert media_voice_prepare.__name__ == MEDIA_VOICE_PREPARE_JOB
+assert media_mux.__name__ == MEDIA_MUX_JOB

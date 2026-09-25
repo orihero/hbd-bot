@@ -859,6 +859,7 @@ CATALOGUE: Final[dict[str, str]] = {
     "media.progress.queued_free": "✅ Qabul qilindi. Navbatda #{pos}-siz, taxminan {eta}.",
     "media.progress.rendering": "🎨 Yaratilmoqda… taxminan {minutes} daqiqa qoldi.",
     "media.image.delivered": "@bayram_uzbot yordamida sunʼiy intellekt bilan yaratildi.",
+    "media.video.delivered": "@bayram_uzbot yordamida sunʼiy intellekt bilan yaratildi.",
     "media.delivered.again": (
         "✨ Yana bittasini xohlaysizmi? 🔁 tavsifni saqlaydi — rasmlarni qayta yuboring."
     ),
@@ -947,6 +948,9 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "media.voice.script_wait": "✍️ Siz uchun jumla yozilmoqda…",
     "media.voice.script_review": "Taklif qilingan jumla: «{script}»",
+    "media.voice.script_failed": (
+        "😔 Hozir jumla yozib boʻlmadi. ✏️ tugmasini bosib, oʻz soʻzlaringizni yozing."
+    ),
     "media.voice.send_note": "🎙️ {seconds} soniyagacha ovozli xabar yozib, shu yerga yuboring.",
     "media.voice_note.too_long": (
         "Bu ovozli xabar {dur} soniya — iltimos, {seconds} soniyagacha yozing."

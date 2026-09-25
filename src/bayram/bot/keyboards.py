@@ -1181,16 +1181,21 @@ def media_voice_step_keyboard(language: Language) -> InlineKeyboardMarkup:
 
 
 def media_script_review_keyboard(
-    language: Language, *, can_regenerate: bool
+    language: Language, *, can_regenerate: bool, can_use: bool = True
 ) -> InlineKeyboardMarkup:
     """``media.voice.script_review`` (§2.4.2): ✅ use · ✏️ edit · 🔄 another (while any of the
-    ``media_script_max_regens`` are left) · ⬅️ · ✖️. Drawn by the script writer (M4.3)."""
-    rows = [
-        _pre_freeze_button(language, "button.media.voice.use", MediaAction.SCRIPT, ScriptPick.USE),
-        _pre_freeze_button(
-            language, "button.media.voice.edit", MediaAction.SCRIPT, ScriptPick.EDIT
-        ),
-    ]
+    ``media_script_max_regens`` are left) · ⬅️ · ✖️. Drawn by the script writer
+    (``media_script``); under ``media.voice.script_failed`` there is no line, so no ✅."""
+    rows = []
+    if can_use:
+        rows.append(
+            _pre_freeze_button(
+                language, "button.media.voice.use", MediaAction.SCRIPT, ScriptPick.USE
+            )
+        )
+    rows.append(
+        _pre_freeze_button(language, "button.media.voice.edit", MediaAction.SCRIPT, ScriptPick.EDIT)
+    )
     if can_regenerate:
         rows.append(
             _pre_freeze_button(

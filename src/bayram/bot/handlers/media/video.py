@@ -6,7 +6,7 @@
         ─► VideoOrder.tier (only with two tiers) ─► VideoOrder.voice
              ├─🔇 ─────────────────────────────────────────────────────────┐
              ├─🗣 ─► voice_gender ─► voice_text (typed, within the budget) ─┤
-             ├─🤖 ─► voice_gender ─► script_review (media_script, M4.3) ────┤
+             ├─🤖 ─► voice_gender ─► script_review (media_script) ──────────┤
              └─🎙 ─► voice_note (F.voice, ≤ the clip) ──────────────────────┤
                                                                            ▼
                                         drafting → screening, media_screen ─► quote
@@ -117,13 +117,10 @@ _LOG = get_logger(__name__)
 #: One clip per request (§1.3).
 VIDEO_OUTPUTS: Final[int] = 1
 
-#: The voice modes this build can finish. 🤖 "AI writes" needs the script writer
-#: (``media_script``, §5.5), which is M4.3: until it is registered in the worker the button
-#: would wait for ever, so it is not drawn and a hand-made press is stale. Every handler
-#: behind it is here and tested, so M4.3 only adds ``MediaVoiceMode.AI_LLM``.
-BUILT_VOICE_MODES: Final[frozenset[MediaVoiceMode]] = frozenset(
-    {MediaVoiceMode.NONE, MediaVoiceMode.AI_USER, MediaVoiceMode.OWN}
-)
+#: The voice modes this build can finish — all four since the script writer
+#: (``media_script``, §5.5) is registered in the worker (M4.3). A mode left out of this set is
+#: not drawn and a hand-made press of it is stale, so a mode can be switched off here alone.
+BUILT_VOICE_MODES: Final[frozenset[MediaVoiceMode]] = frozenset(MediaVoiceMode)
 
 #: A typical wait per tier for the tier screen (§1.3: Standard ~17.5 min on the GPU, Fast
 #: ~1–3 min). The quote gives the real ETA; this only tells the two tiers apart.

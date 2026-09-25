@@ -60,6 +60,7 @@ from bayram.db.enums import (
     MediaReviewDecision,
     MediaScreenDecision,
     MediaSku,
+    MediaVoiceMode,
     PaymentIntentState,
 )
 from bayram.db.media import (
@@ -81,6 +82,7 @@ from bayram.media.stages import (
     MEDIA_CLEANUP_JOB,
     MEDIA_DELIVER_JOB,
     MEDIA_FETCH_JOB,
+    MEDIA_MUX_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
     MEDIA_PRESCREEN_JOB,
@@ -91,6 +93,7 @@ from bayram.media.stages import (
     cleanup_job_id,
     deliver_job_id,
     fetch_job_id,
+    mux_job_id,
     output_screen_job_id,
     poll_job_id,
     prescreen_job_id,
@@ -105,11 +108,13 @@ from bayram.runtime.media_jobs import (
     MediaRuntime,
     enqueue_stage,
     enqueue_submit,
+    enqueue_voice_stage,
     fail_job,
     image_fan_in,
     is_attempt_final,
     media_runtime,
     reconcile_ambiguous,
+    video_fan_in,
 )
 
 __all__ = [
@@ -318,6 +323,24 @@ async def _redrive_variant(
         await enqueue_submit(rt, job.id, variant, latest.attempt + 1, defer_s=0.0)
 
 
+async def _redrive_video(rt: MediaRuntime, job: MediaJobRow, tick: int) -> None:
+    """A stalled video (§3.3): the render's own re-drive, the voice if it never arrived, and
+    the fan-in — idempotent, so a chain that only lost the fan-in's enqueue moves on."""
+    async with rt.sessions() as session:
+        latest = await latest_attempts(session, job.id, stage=_STAGE_FOR_KIND[job.kind])
+        rendered = bool(await list_outputs(session, job.id, role=MediaOutputRole.VIDEO_RAW))
+    if not rendered:
+        await _redrive_variant(rt, job, 0, latest.get(0), tick)
+    if job.voice_mode is not MediaVoiceMode.NONE and job.audio_ready_at is None:
+        await enqueue_voice_stage(rt, job, n=tick)
+    await video_fan_in(rt, job.id)
+
+
+async def _has_clip(rt: MediaRuntime, job_id: UUID) -> bool:
+    async with rt.sessions() as session:
+        return bool(await list_outputs(session, job_id, role=MediaOutputRole.VIDEO))
+
+
 async def _redrive(rt: MediaRuntime, now: datetime) -> int:
     async with rt.sessions() as session:
         working = (
@@ -332,7 +355,7 @@ async def _redrive(rt: MediaRuntime, now: datetime) -> int:
         ).all()
         stuck_post = (
             await session.execute(
-                sa.select(MediaJobRow.id, MediaJobRow.output_decision)
+                sa.select(MediaJobRow.id, MediaJobRow.output_decision, MediaJobRow.kind)
                 .where(
                     MediaJobRow.state == MediaJobState.POST,
                     MediaJobRow.updated_at < now - _STALE_POST,
@@ -388,8 +411,9 @@ async def _redrive(rt: MediaRuntime, now: datetime) -> int:
             rt, MEDIA_PRESCREEN_JOB, str(job_id), tick, job_id=prescreen_job_id(job_id, tick)
         )
     for job in working:
-        if job.kind is not MediaKind.IMAGE:
-            continue  # M4: the video chain re-drives its own producers.
+        if job.kind is MediaKind.VIDEO:
+            await _redrive_video(rt, job, tick)
+            continue
         async with rt.sessions() as session:
             latest = await latest_attempts(session, job.id, stage=_STAGE_FOR_KIND[job.kind])
             done = {
@@ -401,7 +425,13 @@ async def _redrive(rt: MediaRuntime, now: datetime) -> int:
                 await _redrive_variant(rt, job, variant, latest.get(variant), tick)
         # Every variant may already be finished with the fan-in lost; it is idempotent.
         await image_fan_in(rt, job.id)
-    for job_id, decision in stuck_post:
+    for job_id, decision, kind in stuck_post:
+        if kind is MediaKind.VIDEO and decision is None and not await _has_clip(rt, job_id):
+            # The fan-in moved it to ``post`` and the mux enqueue was lost (or the mux died).
+            await enqueue_stage(
+                rt, MEDIA_MUX_JOB, str(job_id), tick, job_id=mux_job_id(job_id, tick)
+            )
+            continue
         if decision is MediaScreenDecision.ALLOW:
             # Screened and allowed; the delivery enqueue was lost.
             await enqueue_stage(rt, MEDIA_DELIVER_JOB, str(job_id), job_id=deliver_job_id(job_id))

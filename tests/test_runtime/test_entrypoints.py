@@ -23,14 +23,18 @@ from bayram.media.stages import (
     MEDIA_CLEANUP_JOB,
     MEDIA_DELIVER_JOB,
     MEDIA_FETCH_JOB,
+    MEDIA_MUX_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
     MEDIA_PRESCREEN_JOB,
     MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
+    MEDIA_SCRIPT_JOB,
     MEDIA_START_JOB,
     MEDIA_SUBMIT_JOB,
     MEDIA_SWEEP_JOB,
+    MEDIA_TTS_JOB,
+    MEDIA_VOICE_PREPARE_JOB,
 )
 from bayram.runtime.container import build_container
 from bayram.runtime.jobs import (
@@ -267,6 +271,11 @@ async def test_the_worker_registers_the_job_the_submitter_enqueues(settings: Set
         # The review queue's apply job (IMAGE_VIDEO_SPEC §6.6): the ADMIN panel enqueues it by
         # the string ``bayram.admin.queue`` restates, so a rename strands a decided review.
         MEDIA_REVIEW_JOB,
+        # The video's own stages (M4.3): the BOT enqueues the script writer by this name.
+        MEDIA_SCRIPT_JOB,
+        MEDIA_TTS_JOB,
+        MEDIA_VOICE_PREPARE_JOB,
+        MEDIA_MUX_JOB,
         MEDIA_SWEEP_JOB,
     ]
     assert worker_settings.max_jobs == settings.worker_concurrency

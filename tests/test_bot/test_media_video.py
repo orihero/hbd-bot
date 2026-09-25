@@ -257,10 +257,11 @@ async def test_the_tier_screen_is_skipped_with_one_tier(
     )
     shown = labels(session)
     assert translate("button.media.tier.standard", Language.EN) not in shown
-    # 🤖 waits for the script writer (M4.3); the other three, ⬅️ and ✖️ are drawn.
+    # All four voices (🤖 since the script writer, M4.3), ⬅️ and ✖️ are drawn.
     assert shown == [
         translate("button.media.voice.none", Language.EN),
         translate("button.media.voice.ai_mine", Language.EN),
+        translate("button.media.voice.ai_llm", Language.EN),
         translate("button.media.voice.own", Language.EN),
         translate("button.media.back", Language.EN),
         translate("button.media.cancel", Language.EN),
@@ -570,7 +571,6 @@ async def test_ai_writes_asks_the_worker_and_uses_the_line_it_wrote(
     session: RecordingSession,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The writer is M4.3; the bot half is here, behind the mode it will switch on.
     monkeypatch.setattr(video, "BUILT_VOICE_MODES", frozenset(MediaVoiceMode))
     rig = Rig(video_on(settings, media_script_max_regens=1), sessions)
     frozen = await to_voice_screen(rig, bot)
@@ -612,20 +612,20 @@ async def test_ai_writes_asks_the_worker_and_uses_the_line_it_wrote(
     )
 
 
-async def test_ai_writes_is_refused_while_the_writer_is_not_built(
+async def test_ai_writes_is_offered_now_that_the_writer_is_built(
     settings: Settings,
     sessions: async_sessionmaker[AsyncSession],
     bot: Bot,
     session: RecordingSession,
 ) -> None:
+    # M4.3 registered ``media_script``, so 🤖 is drawn and leads to the voice choice.
     rig = Rig(video_on(settings), sessions)
     await to_voice_screen(rig, bot)
+    assert translate("button.media.voice.ai_llm", Language.EN) in labels(session)
 
     await press(rig.dispatcher, bot, med(MediaAction.VOICE, arg=MediaVoiceMode.AI_LLM))
 
-    assert last_answer(session) == translate("media.stale", Language.EN)
-    assert await rig.fsm_state() == VideoOrder.voice.state
-    assert queued(rig, MEDIA_SCRIPT_JOB) == []
+    assert await rig.fsm_state() == VideoOrder.voice_gender.state
 
 
 async def test_edit_on_a_video_quote_reopens_a_video_compose(

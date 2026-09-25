@@ -46,6 +46,7 @@ __all__ = [
     "MEDIA_REVIEW_JOB",
     "MEDIA_MUX_JOB",
     "MEDIA_TTS_JOB",
+    "MEDIA_VOICE_PREPARE_JOB",
     "SKU_DEADLINE_FIELDS",
     "prescreen_job_id",
     "screen_job_id",
@@ -58,6 +59,9 @@ __all__ = [
     "deliver_job_id",
     "cleanup_job_id",
     "review_job_id",
+    "tts_job_id",
+    "voice_prepare_job_id",
+    "mux_job_id",
     "sku_deadline",
     "content_sha256",
 ]
@@ -79,14 +83,13 @@ MEDIA_SWEEP_JOB: Final[str] = "media_sweep"
 #: enqueues it and restates the string (``bayram.admin.queue``), which may not import this
 #: package's worker half; ``tests/test_admin/test_queue.py`` holds the two spellings together.
 MEDIA_REVIEW_JOB: Final[str] = "media_review_apply"
-#: Video stages, M4. Named now so the video fan-in has one spelling to enqueue; NOT registered
-#: in ``WorkerSettings`` until their functions exist, and ``media_start`` refuses a video job
-#: until then (``bayram.runtime.media_jobs``), so nothing enqueues them early.
+#: The video stages (M4.3, ``bayram.runtime.media_jobs``): the narration (AI voice) or the
+#: prepared own note runs beside the render after ``media_start``, and whichever finishes
+#: second fans in to ``media_mux`` (§3.3).
 MEDIA_MUX_JOB: Final[str] = "media_mux"
 MEDIA_TTS_JOB: Final[str] = "media_tts"
-#: 🤖 "AI writes" (§2.4.2, §5.5): the bot enqueues it against the ``drafting`` row. The
-#: writer is M4.3; until it is registered the bot does not draw 🤖
-#: (``bayram.bot.handlers.media.video.BUILT_VOICE_MODES``).
+MEDIA_VOICE_PREPARE_JOB: Final[str] = "media_voice_prepare"
+#: 🤖 "AI writes" (§2.4.2, §5.5): the bot enqueues it against the ``drafting`` row.
 MEDIA_SCRIPT_JOB: Final[str] = "media_script"
 
 #: The ``Settings`` field holding each SKU's paid → delivered deadline (§3.5).
@@ -155,6 +158,21 @@ def review_job_id(review_id: UUID | str, n: int = 0) -> str:
     Spelled again in ``bayram.admin.queue.job_id_for_media_review``."""
     base = f"media:review:{review_id}"
     return base if n == 0 else f"{base}:{n}"
+
+
+def tts_job_id(job_id: UUID | str, n: int = 0) -> str:
+    """``n`` is 0 from ``media_start``; the sweep's tick when it re-drives a lost narration."""
+    return f"{_prefix(job_id)}:tts" if n == 0 else f"{_prefix(job_id)}:tts:{n}"
+
+
+def voice_prepare_job_id(job_id: UUID | str, n: int = 0) -> str:
+    """An own voice note's preparation (§5.4); ``n`` as for :func:`tts_job_id`."""
+    return f"{_prefix(job_id)}:voice" if n == 0 else f"{_prefix(job_id)}:voice:{n}"
+
+
+def mux_job_id(job_id: UUID | str, n: int = 0) -> str:
+    """``n`` is 0 from the fan-in; the sweep's tick when it re-drives a lost mux."""
+    return f"{_prefix(job_id)}:mux" if n == 0 else f"{_prefix(job_id)}:mux:{n}"
 
 
 def sku_deadline(settings: Settings, sku: MediaSku) -> timedelta:

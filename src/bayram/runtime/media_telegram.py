@@ -1,8 +1,8 @@
-"""The four Telegram calls the media stages make, behind one port (IMAGE_VIDEO_SPEC §3.3).
+"""The Telegram calls the media stages make, behind one port (IMAGE_VIDEO_SPEC §3.3).
 
 The stage jobs (:mod:`bayram.runtime.media_jobs`) never touch ``aiogram`` directly: they
-download an upload, edit the tray, send or edit the progress message, and deliver an album.
-Putting those four behind :class:`MediaMessenger` keeps the stage tests about the state machine
+download an upload, edit the tray, send or edit the progress message, and deliver an album or
+a video. Putting those behind :class:`MediaMessenger` keeps the stage tests about the state machine
 — a fake records what would have been sent — and keeps the Telegram rules in one place:
 
 * **size is checked twice** on a download (``avatar.py``'s pattern): Telegram's claimed
@@ -13,6 +13,9 @@ Putting those four behind :class:`MediaMessenger` keeps the stage tests about th
   to the customer's photo;
 * **an edit that changes nothing is a success.** Telegram answers "message is not modified"
   with a 400; the progress frame re-renders from the row and may legitimately be identical;
+* **a video over 50 MB goes as a document** (§3.3 ``media_deliver``): ``sendVideo`` takes
+  at most 50 MB from a bot, with ``supports_streaming`` and the geometry and duration ffprobe
+  measured, so it plays inline;
 * **delivery says whether the customer blocked us** (``bot.delivery.is_blocked_by_customer``),
   because that failure is final and must not be retried or refunded as ours.
 """
@@ -32,7 +35,7 @@ from bayram.contracts import Result, err, ok
 from bayram.errors import DeliveryError, ValidationError
 from bayram.logging import get_logger
 
-__all__ = ["MediaMessenger", "TelegramMediaMessenger", "TOO_LARGE_KEY"]
+__all__ = ["MediaMessenger", "TelegramMediaMessenger", "TOO_LARGE_KEY", "VIDEO_MAX_BYTES"]
 
 _LOG = get_logger(__name__)
 
@@ -41,6 +44,10 @@ _LOG = get_logger(__name__)
 TOO_LARGE_KEY: Final[str] = "is_too_large"
 
 _NOT_MODIFIED: Final[str] = "message is not modified"
+
+#: The largest file ``sendVideo`` takes from a bot; above it the clip goes by ``sendDocument``
+#: (§3.3 ``media_deliver``). A 5 s 720p render is a few megabytes, so this is the edge case.
+VIDEO_MAX_BYTES: Final[int] = 50 * 1024 * 1024
 
 
 @runtime_checkable
@@ -74,6 +81,20 @@ class MediaMessenger(Protocol):
         photo, ``sendPhoto``, since an album takes two to ten. The ``file_id`` of each
         photo, in order. ``Err(DeliveryError)`` carries ``BLOCKED_BY_CUSTOMER_KEY`` when the
         customer blocked the bot, and ``is_retryable`` for a failure worth trying again."""
+        ...
+
+    async def send_video(
+        self,
+        chat_id: int,
+        video: Path,
+        *,
+        caption: str,
+        width: int | None,
+        height: int | None,
+        duration_s: float | None,
+    ) -> Result[str]:
+        """``sendVideo`` (streamable, with the measured geometry), or ``sendDocument`` above
+        :data:`VIDEO_MAX_BYTES`. The ``file_id``; errors as :meth:`send_photos`."""
         ...
 
 
@@ -176,23 +197,65 @@ class TelegramMediaMessenger:
             ]
             sent = await self._bot.send_media_group(chat_id, media=list(media))
         except TelegramAPIError as exc:
-            blocked = is_blocked_by_customer(exc)
+            return err(_delivery_error("the media album could not be delivered", exc))
+        return ok(tuple(_largest_photo_id(message) for message in sent))
+
+    async def send_video(
+        self,
+        chat_id: int,
+        video: Path,
+        *,
+        caption: str,
+        width: int | None,
+        height: int | None,
+        duration_s: float | None,
+    ) -> Result[str]:
+        try:
+            size = video.stat().st_size
+        except OSError as exc:
             return err(
                 DeliveryError(
-                    "the media album could not be delivered",
-                    # A 400 is the request, not the moment: sending it again changes nothing.
-                    is_retryable=not blocked and not isinstance(exc, TelegramBadRequest),
-                    context={
-                        BLOCKED_BY_CUSTOMER_KEY: blocked,
-                        "failure": type(exc).__name__,
-                        "retry_after": getattr(exc, "retry_after", None)
-                        if isinstance(exc, TelegramRetryAfter)
-                        else None,
-                    },
+                    "the video to deliver could not be read",
+                    is_retryable=False,
+                    context={"failure": type(exc).__name__},
                     cause=exc,
                 )
             )
-        return ok(tuple(_largest_photo_id(message) for message in sent))
+        try:
+            if size > VIDEO_MAX_BYTES:
+                document = await self._bot.send_document(
+                    chat_id, FSInputFile(video), caption=caption
+                )
+                return ok(document.document.file_id if document.document else "")
+            sent = await self._bot.send_video(
+                chat_id,
+                FSInputFile(video),
+                caption=caption,
+                width=width,
+                height=height,
+                duration=max(1, round(duration_s)) if duration_s else None,
+                supports_streaming=True,
+            )
+        except TelegramAPIError as exc:
+            return err(_delivery_error("the video could not be delivered", exc))
+        return ok(sent.video.file_id if sent.video else "")
+
+
+def _delivery_error(message: str, exc: TelegramAPIError) -> DeliveryError:
+    blocked = is_blocked_by_customer(exc)
+    return DeliveryError(
+        message,
+        # A 400 is the request, not the moment: sending it again changes nothing.
+        is_retryable=not blocked and not isinstance(exc, TelegramBadRequest),
+        context={
+            BLOCKED_BY_CUSTOMER_KEY: blocked,
+            "failure": type(exc).__name__,
+            "retry_after": getattr(exc, "retry_after", None)
+            if isinstance(exc, TelegramRetryAfter)
+            else None,
+        },
+        cause=exc,
+    )
 
 
 def _largest_photo_id(message: Message) -> str:

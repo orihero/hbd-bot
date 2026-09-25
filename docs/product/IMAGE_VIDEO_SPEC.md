@@ -1072,6 +1072,20 @@ trim is counted per language so the M4.4 budgets can be tightened (Q11 note).
 - Gateway unavailable or busy > 20 s → fallback to the D5 LLM stack (`llm_provider`, Gemini 3.7
   Flash on the paid tier) through the existing client.
 
+*As built (M4.3):* `media_script(job_id, n)` acts only on a `drafting` video whose prescreen
+allowed it, and reads the prompt from the row. The user message is one `json.dumps` object
+`{video_description, language, max_words, max_chars}`; the system prompt names
+`video_description` as material, never instructions. The gateway client (`media/script_writer.py`)
+sends `genai_script_model` with the key in `X-API-Key` plus the Access pair and a strict
+`{script}` schema; a `:cloud` model is refused by `Settings` and again by the client. Any gateway
+error, or no answer within `BAYRAM_GENAI_SCRIPT_TIMEOUT_S` (20 s), asks the D5 `llm_provider` and
+then its documented fallback, each once; a line that fails D10 + the budget also moves on to the
+next provider. Each line counts once against the screening budget (`{job}:script:{n}`). An L3
+`block`/`review` writes one more line while 🔄 would still be offered and is never shown; an
+unavailable guard or no writer at all leaves no line and draws `media.voice.script_failed` with
+✏️ (and 🔄 while any are left), no ✅. An L3 block is not a strike: the words are ours. With the
+writer registered, 🤖 is drawn (`BUILT_VOICE_MODES` is all four modes).
+
 ### 5.6 Mux
 
 `media/mux.py`, subprocess via `asyncio.create_subprocess_exec` (ffmpeg is already a host
@@ -1084,6 +1098,32 @@ ffmpeg -i video_raw.mp4 -i narration.wav -map 0:v:0 -map 1:a:0 \
 
 Silent videos (`voice_mode=none`) skip the mux and are re-wrapped with `-movflags +faststart`.
 ffprobe verifies geometry and duration before output screening.
+
+*As built (M4.3), `media/mux.py` behind a `VideoTools` seam:*
+
+- **Fetch.** ffprobe must find a video stream with a geometry and a positive duration. H.264
+  `yuv420p` is re-wrapped `+faststart` with no audio track; anything else is re-encoded (libx264,
+  CRF 20). The result is the `video_raw` output (24 h), with `width`/`height`/`duration_ms`, and
+  sets `render_ready_at`.
+- **Voice, beside the render.** `media_tts` speaks `narration_text` in the chosen house voice. A
+  take longer than clip × 1.15 is asked for once more with style `brisk`, and the shorter take is
+  kept (§5.3). A vendor content refusal fails the job (`narration_refused`) with a refund and two
+  strikes (§6.4 L5). Any other failure is retried three times and then fails the job
+  (`narration_failed`) with a refund. `media_voice_prepare` reads the screened note (streamed from
+  storage, sha256-checked) and writes loudnorm I=−16 mono 48 kHz WAV. Both store a 24 h
+  `narration` output, set `audio_ready_at` and try the fan-in.
+- **Mux.** The voice is padded (`apad`), or sped up with `atempo` ≤ 1.15 (AI voice only), or
+  trimmed with a 250 ms fade. It is cut at the render's own ffprobe duration. Every `atempo` or
+  trim is logged with its language (Q11). The result must match the render's geometry and be
+  within 0.15 s of its length; otherwise, or when ffmpeg fails three times, the job fails
+  (`mux_failed`) with a refund.
+- **L4 and delivery.** L4 screens the first frame, one frame a second, and the last frame (≤ 8)
+  as `output_frame`. Delivery is `sendVideo` with `supports_streaming` and the row's
+  width/height/duration; above 50 MB it is `sendDocument`. The cloud Bot API caps a bot's upload
+  at 50 MB for both methods, so the document fallback only helps on a local Bot API server. A
+  5 s 720p clip is a few MB.
+- **Sweep.** It re-drives a stalled video's render and a voice that never arrived (after
+  `STALE_HEARTBEAT`). It also re-drives the mux of a `post` video that has no clip yet.
 
 ---
 

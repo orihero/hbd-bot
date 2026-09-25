@@ -79,9 +79,10 @@ twenty-one of them now, each in its own module and each registered here:
   module: an unposted card and an undelivered reply are both already visible to an operator —
   on the board and on the ticket's timeline — where a settled-but-unannounced payment was
   visible to nobody, which is the whole reason ``run_payme_sweep`` has a third arm;
-* the media stage chain (:mod:`bayram.runtime.media_jobs`) — nine short jobs that take an
-  image request from screening to delivery, one conditional state move each, the ninth
-  applying a review decision the admin panel recorded (§6.6) — and its
+* the media stage chain (:mod:`bayram.runtime.media_jobs`) — fourteen short jobs that take an
+  image or video request from screening to delivery, one conditional state move each: the
+  video's script writer, voice and mux beside the shared ones, and one applying a review
+  decision the admin panel recorded (§6.6) — and its
   five-minutely backstop (:mod:`bayram.runtime.media_sweep`). A media request is a CHAIN
   rather than one long job because it can wait an hour for the owner's one GPU, and a job that
   waited in a worker slot would starve every song behind it (IMAGE_VIDEO_SPEC §3.3).
@@ -124,14 +125,18 @@ from bayram.media.stages import (
     MEDIA_CLEANUP_JOB,
     MEDIA_DELIVER_JOB,
     MEDIA_FETCH_JOB,
+    MEDIA_MUX_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
     MEDIA_PRESCREEN_JOB,
     MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
+    MEDIA_SCRIPT_JOB,
     MEDIA_START_JOB,
     MEDIA_SUBMIT_JOB,
     MEDIA_SWEEP_JOB,
+    MEDIA_TTS_JOB,
+    MEDIA_VOICE_PREPARE_JOB,
 )
 from bayram.payments import PIPELINE_ACTOR
 from bayram.pipeline import worker as pipeline_worker
@@ -166,13 +171,17 @@ from bayram.runtime.media_jobs import (
     media_cleanup,
     media_deliver,
     media_fetch,
+    media_mux,
     media_output_screen,
     media_poll,
     media_prescreen,
     media_review_apply,
     media_screen,
+    media_script,
     media_start,
     media_submit,
+    media_tts,
+    media_voice_prepare,
 )
 from bayram.runtime.media_sweep import MEDIA_SWEEP_CRON_MINUTES, media_sweep
 from bayram.runtime.payme_jobs import (
@@ -544,9 +553,7 @@ async def _release_session(
     )
 
 
-async def _record_file_id(
-    container: AppContainer, *, order_id: UUID, file_id: str | None
-) -> None:
+async def _record_file_id(container: AppContainer, *, order_id: UUID, file_id: str | None) -> None:
     """Store the song's Telegram handle, and never let that failure cost a delivered kit.
 
     ``deliver_kit`` reports the handle; this writes it down — the same division of labour
@@ -973,10 +980,10 @@ def build_kit_worker_settings(
             # Payme settlement will enqueue ``media_start`` (M5), so every name is stated
             # explicitly from ``bayram.media.stages``, the one spelling both sides import.
             #
-            # ``max_tries`` is ``MEDIA_STAGE_MAX_TRIES`` for every one: only a fetch or a
-            # delivery raises ``Retry`` (a transient download or Telegram failure), and each
-            # reads the same number back before it does, so its last permitted try takes the
-            # terminal path instead of vanishing. A waiting submit or a running poll does NOT
+            # ``max_tries`` is ``MEDIA_STAGE_MAX_TRIES`` for every one: only a fetch, a
+            # delivery, a video's voice or its mux raises ``Retry`` (a transient failure), and
+            # each reads the same number back before it does, so its last permitted try takes
+            # the terminal path instead of vanishing. A waiting submit or a running poll does NOT
             # retry — it re-enqueues itself under a NEW id (``submit_seq``, the tick), which is
             # the only way to wait hours without spending ``max_tries``. ``media_sweep`` below
             # re-drives whatever a lost enqueue stranded.
@@ -1001,6 +1008,10 @@ def build_kit_worker_settings(
                     (media_deliver, MEDIA_DELIVER_JOB),
                     (media_cleanup, MEDIA_CLEANUP_JOB),
                     (media_review_apply, MEDIA_REVIEW_JOB),
+                    (media_script, MEDIA_SCRIPT_JOB),
+                    (media_tts, MEDIA_TTS_JOB),
+                    (media_voice_prepare, MEDIA_VOICE_PREPARE_JOB),
+                    (media_mux, MEDIA_MUX_JOB),
                 )
             ),
             # The media sweep, registered as well as scheduled, for every other cron's reason.

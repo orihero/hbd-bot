@@ -195,6 +195,11 @@ def _kit_payload(prompt: str) -> dict[str, Any]:
     }
 
 
+def _script_payload(_: str) -> dict[str, Any]:
+    """A video line (IMAGE_VIDEO_SPEC §5.5): short enough for every language's budget."""
+    return {"script": "Happy birthday, with love"}
+
+
 #: Shape probes, most specific first. A response model is matched by the fields it
 #: declares, so neither payload package has to be imported here.
 _ANSWERS: Final[tuple[tuple[frozenset[str], Any], ...]] = (
@@ -202,6 +207,7 @@ _ANSWERS: Final[tuple[tuple[frozenset[str], Any], ...]] = (
     (frozenset({"is_allowed"}), _moderation_payload),
     (frozenset({"greetings"}), _greetings_payload),
     (frozenset({"sections"}), _lyrics_payload),
+    (frozenset({"script"}), _script_payload),
 )
 
 

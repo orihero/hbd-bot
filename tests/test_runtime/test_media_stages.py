@@ -710,26 +710,6 @@ async def test_a_beta_press_off_the_allowlist_starts_nothing(
     assert harness.queue.pending == type(harness.queue.pending)()
 
 
-async def test_a_video_job_is_refused_before_the_gpu_until_m4(harness: Harness) -> None:
-    from bayram.db.enums import MediaKind
-
-    job_id = await freeze_job(harness, photos=(), kind=MediaKind.VIDEO, price_minor=2_500_000)
-    await harness.queue.enqueue_job(MEDIA_SCREEN_JOB, str(job_id), 0, _job_id=screen_job_id(job_id))
-    object.__setattr__(
-        harness.rt,
-        "settings",
-        media_settings(harness.rt.settings, is_video_standard_offered=True),
-    )
-    await harness.drain()
-    await _pay(harness, job_id, via=MediaPaidVia.BETA)
-
-    await harness.drain()
-
-    job = await _job(harness, job_id)
-    assert job.state is MediaJobState.FAILED and job.error_code == "video_not_built"
-    assert harness.provider.submits == []
-
-
 async def test_inputs_of_a_collage_are_recorded_with_their_role(harness: Harness) -> None:
     job_id = await freeze_job(harness, photos=_TWO_PHOTOS)
 

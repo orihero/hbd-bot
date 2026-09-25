@@ -864,6 +864,7 @@ CATALOGUE: Final[dict[str, str]] = {
     "media.progress.queued_free": "✅ Accepted. You're #{pos} in line, about {eta}.",
     "media.progress.rendering": "🎨 Creating… about {minutes} min left.",
     "media.image.delivered": "Made with AI by @bayram_uzbot.",
+    "media.video.delivered": "Made with AI by @bayram_uzbot.",
     "media.delivered.again": (
         "✨ Want another? 🔁 keeps your description — attach the photos again."
     ),
@@ -942,6 +943,9 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "media.voice.script_wait": "✍️ Writing a line for you…",
     "media.voice.script_review": "Suggested line: «{script}»",
+    "media.voice.script_failed": (
+        "😔 We couldn't write a line this time. Tap ✏️ to type your own words."
+    ),
     "media.voice.send_note": (
         "🎙️ Record a voice message of up to {seconds} seconds and send it here."
     ),

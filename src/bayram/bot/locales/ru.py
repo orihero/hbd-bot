@@ -809,6 +809,7 @@ CATALOGUE: Final[dict[str, str]] = {
     "media.progress.queued_free": "✅ Принято. Вы #{pos} в очереди, примерно {eta}.",
     "media.progress.rendering": "🎨 Создаём… осталось примерно {minutes} мин.",
     "media.image.delivered": "Создано ИИ в @bayram_uzbot.",
+    "media.video.delivered": "Создано ИИ в @bayram_uzbot.",
     "media.delivered.again": "✨ Хотите ещё? 🔁 сохранит описание — фото пришлите заново.",
     "media.failed.refunded": (
         "😔 Извините — не получилось. Мы добавили на ваш баланс 1 кредит ({kind}); "
@@ -889,6 +890,9 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "media.voice.script_wait": "✍️ Пишем для вас фразу…",
     "media.voice.script_review": "Предлагаем фразу: «{script}»",
+    "media.voice.script_failed": (
+        "😔 Сейчас не получилось написать фразу. Нажмите ✏️ и напишите свои слова."
+    ),
     "media.voice.send_note": (
         "🎙️ Запишите голосовое сообщение до {seconds} секунд и отправьте его сюда."
     ),

@@ -111,6 +111,8 @@ def test_env_example_documents_every_media_setting_with_an_empty_secret() -> Non
         "genai_api_key",
         "genai_image_model",
         "genai_video_model",
+        "genai_script_model",
+        "genai_script_timeout_s",
         "gemini_tts_enabled",
         "gemini_tts_api_keys",
         "gemini_tts_model",

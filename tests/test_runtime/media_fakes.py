@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import contextlib
 import io
+import shutil
+import wave
 from collections import deque
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
@@ -41,21 +43,28 @@ from bayram.media.contracts import (
     MediaRequest,
     QueuedJob,
 )
+from bayram.media.mux import MuxOutcome, VideoProbe, audio_fit
+from bayram.media.narration import NarrationBudget
 from bayram.media.stages import (
     MEDIA_CLEANUP_JOB,
     MEDIA_DELIVER_JOB,
     MEDIA_FETCH_JOB,
+    MEDIA_MUX_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
     MEDIA_PRESCREEN_JOB,
     MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
+    MEDIA_SCRIPT_JOB,
     MEDIA_START_JOB,
     MEDIA_SUBMIT_JOB,
+    MEDIA_TTS_JOB,
+    MEDIA_VOICE_PREPARE_JOB,
 )
 from bayram.moderation.fake import FakeModerator
 from bayram.moderation.strikes import MemoryStrikeStore
 from bayram.providers.media.fake import FakeMediaProvider
+from bayram.providers.tts.fakes import FakeNarrationProvider
 from bayram.runtime.gpu_lock import MemoryGpuSlotStore
 from bayram.runtime.media_jobs import (
     MEDIA_CTX_KEY,
@@ -63,13 +72,17 @@ from bayram.runtime.media_jobs import (
     media_cleanup,
     media_deliver,
     media_fetch,
+    media_mux,
     media_output_screen,
     media_poll,
     media_prescreen,
     media_review_apply,
     media_screen,
+    media_script,
     media_start,
     media_submit,
+    media_tts,
+    media_voice_prepare,
 )
 from bayram.runtime.media_telegram import TOO_LARGE_KEY
 from bayram.storage import LocalFileStorage
@@ -91,6 +104,10 @@ STAGES: Final[dict[str, StageFn]] = {
     MEDIA_DELIVER_JOB: media_deliver,
     MEDIA_CLEANUP_JOB: media_cleanup,
     MEDIA_REVIEW_JOB: media_review_apply,
+    MEDIA_SCRIPT_JOB: media_script,
+    MEDIA_TTS_JOB: media_tts,
+    MEDIA_VOICE_PREPARE_JOB: media_voice_prepare,
+    MEDIA_MUX_JOB: media_mux,
 }
 
 
@@ -134,6 +151,129 @@ class Album:
 
 
 @dataclass
+class SentVideo:
+    chat_id: int
+    path: Path
+    caption: str
+    width: int | None
+    height: int | None
+    duration_s: float | None
+    data: bytes
+
+
+def wav_seconds(path: Path) -> float:
+    with wave.open(str(path), "rb") as reader:
+        return reader.getnframes() / float(reader.getframerate())
+
+
+@dataclass
+class FakeVideoTools:
+    """``VideoTools`` without ffmpeg: copies bytes and answers the shape it is told.
+
+    A WAV is measured for real (the fake narration writes one); anything else is
+    :attr:`audio_s`. The render is :attr:`clip`; a mux answers the clip with audio and the
+    fit :func:`~bayram.media.mux.audio_fit` gives, so a test reads what would have happened.
+    """
+
+    clip: VideoProbe = field(
+        default_factory=lambda: VideoProbe(
+            width=144,
+            height=256,
+            duration_s=5.0625,
+            codec="h264",
+            pix_fmt="yuv420p",
+            has_audio=False,
+        )
+    )
+    audio_s: float = 4.0
+    muxes: list[tuple[Path, Path, bool]] = field(default_factory=list)
+    rewraps: list[Path] = field(default_factory=list)
+    #: Failures handed to the next mux or re-wrap calls, in order.
+    failures: list[BayramError] = field(default_factory=list)
+
+    def _fail(self) -> Err | None:
+        return err(self.failures.pop(0)) if self.failures else None
+
+    async def probe(self, path: Path) -> Result[VideoProbe]:
+        return ok(self.clip)
+
+    async def normalise(self, src: Path, dest: Path) -> Result[VideoProbe]:
+        shutil.copyfile(src, dest)
+        return ok(self.clip)
+
+    async def prepare_voice(self, src: Path, dest: Path) -> Result[float]:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dest)
+        return ok(self.audio_s)
+
+    async def audio_seconds(self, path: Path) -> Result[float]:
+        try:
+            return ok(wav_seconds(path))
+        except (wave.Error, EOFError):
+            return ok(self.audio_s)
+
+    async def mux(
+        self, video: Path, audio: Path, dest: Path, *, may_speed_up: bool
+    ) -> Result[MuxOutcome]:
+        failed = self._fail()
+        if failed is not None:
+            return failed
+        self.muxes.append((video, audio, may_speed_up))
+        measured = await self.audio_seconds(audio)
+        audio_s = measured.value if not isinstance(measured, Err) else self.audio_s
+        shutil.copyfile(video, dest)
+        return ok(
+            MuxOutcome(
+                probe=VideoProbe(
+                    width=self.clip.width,
+                    height=self.clip.height,
+                    duration_s=self.clip.duration_s,
+                    codec="h264",
+                    pix_fmt="yuv420p",
+                    has_audio=True,
+                ),
+                audio_s=audio_s,
+                fit=audio_fit(audio_s, self.clip.duration_s, may_speed_up=may_speed_up),
+            )
+        )
+
+    async def rewrap(self, src: Path, dest: Path) -> Result[VideoProbe]:
+        failed = self._fail()
+        if failed is not None:
+            return failed
+        self.rewraps.append(src)
+        shutil.copyfile(src, dest)
+        return ok(self.clip)
+
+    async def frames(self, video: Path, outdir: Path) -> Result[tuple[Path, ...]]:
+        outdir.mkdir(parents=True, exist_ok=True)
+        found = []
+        for index in range(2):
+            frame = outdir / f"frame-{index}.jpg"
+            frame.write_bytes(jpeg_bytes(exif=False))
+            found.append(frame)
+        return ok(tuple(found))
+
+
+@dataclass
+class FakeScriptWriter:
+    """Answers :attr:`lines` in turn (the last one repeats), or :attr:`failure`."""
+
+    lines: list[str] = field(default_factory=lambda: ["Happy birthday, dear friend"])
+    failure: BayramError | None = None
+    calls: list[tuple[str, Language, NarrationBudget]] = field(default_factory=list)
+
+    async def write(
+        self, prompt: str, *, language: Language, budget: NarrationBudget
+    ) -> Result[str]:
+        self.calls.append((prompt, language, budget))
+        if self.failure is not None:
+            return err(self.failure)
+        index = min(len(self.calls), len(self.lines)) - 1
+        return ok(self.lines[index])
+
+
+@dataclass
 class FakeMessenger:
     """Records every screen; serves downloads from :attr:`files` by ``file_id``."""
 
@@ -141,7 +281,9 @@ class FakeMessenger:
     sent: list[tuple[int, str, InlineKeyboardMarkup | None]] = field(default_factory=list)
     edits: list[tuple[int, int, str, InlineKeyboardMarkup | None]] = field(default_factory=list)
     albums: list[Album] = field(default_factory=list)
+    #: Failures handed to the next deliveries (an album or a video), in order.
     album_failures: list[BayramError] = field(default_factory=list)
+    videos: list[SentVideo] = field(default_factory=list)
     _next_id: int = 1000
 
     async def download(self, file_id: str, dest: Path, *, max_bytes: int) -> Result[int]:
@@ -181,6 +323,24 @@ class FakeMessenger:
             assert path.exists(), path
         self.albums.append(Album(chat_id=chat_id, photos=listed, caption=caption))
         return ok(tuple(f"tg-photo-{index}" for index in range(len(listed))))
+
+    async def send_video(
+        self,
+        chat_id: int,
+        video: Path,
+        *,
+        caption: str,
+        width: int | None,
+        height: int | None,
+        duration_s: float | None,
+    ) -> Result[str]:
+        if self.album_failures:
+            return err(self.album_failures.pop(0))
+        assert video.exists(), video
+        self.videos.append(
+            SentVideo(chat_id, video, caption, width, height, duration_s, video.read_bytes())
+        )
+        return ok(f"tg-video-{len(self.videos)}")
 
     def tray_texts(self) -> list[str]:
         return [text for _, message_id, text, _ in self.edits if message_id == TRAY_ID]
@@ -311,6 +471,9 @@ class Harness:
     sessions: async_sessionmaker[AsyncSession]
     storage: LocalFileStorage
     workspace: Path
+    video: FakeVideoTools
+    narration: FakeNarrationProvider
+    writer: FakeScriptWriter
 
     def ctx(self, job_try: int = 1) -> dict[str, Any]:
         return {MEDIA_CTX_KEY: self.rt, "job_try": job_try}
@@ -385,6 +548,9 @@ def build_harness(
     strikes = MemoryStrikeStore()
     storage = LocalFileStorage(tmp_path / "archive")
     workspace = tmp_path / "workspace"
+    video = FakeVideoTools()
+    narration = FakeNarrationProvider()
+    writer = FakeScriptWriter()
     rt = MediaRuntime(
         settings=settings,
         sessions=sessions,
@@ -399,6 +565,9 @@ def build_harness(
         queue=queue,
         strikes=strikes,
         clock=clock,
+        video=video,
+        narration=narration,
+        script_writer=writer,
     )
     return Harness(
         rt=rt,
@@ -414,6 +583,9 @@ def build_harness(
         sessions=sessions,
         storage=storage,
         workspace=workspace,
+        video=video,
+        narration=narration,
+        writer=writer,
     )
 
 
