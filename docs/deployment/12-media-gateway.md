@@ -323,7 +323,13 @@ The adapter is built and **off**: nothing reaches it until a SKU's backend (env 
 4. Keep `BAYRAM_IMAGE_MAX_COST_USD` / `BAYRAM_VIDEO_FAST_MAX_COST_USD` at or above one
    attempt's estimate per output: the stage chain refuses to post an attempt whose estimate
    would take the request past its ceiling (every variant, every retry), and the adapter
-   refuses any single submit above the ceiling's per-output share.
+   refuses any single submit above the ceiling's per-output share. Standard has no paid
+   ceiling unless `BAYRAM_VIDEO_STANDARD_MAX_COST_USD` is set: without it, boot refuses a
+   Standard route (or fallback) onto Higgsfield, and an override onto it quotes busy. Every
+   quote on Higgsfield also reads a live `/estimate` — a price that rose above the margin or
+   the ceiling quotes busy before anyone pays. The one allowlisted image model
+   (`soul_standard`) takes no photo: an image SKU on it needs
+   `BAYRAM_MEDIA_MAX_REFERENCE_IMAGES=0`, or boot refuses.
 5. Counsel's view on sending customers' photos abroad (spec R6, M6.3) before any SKU with
    photos is routed here.
 

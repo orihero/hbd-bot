@@ -983,6 +983,10 @@ class Settings(BaseSettings):
     #: against it before the POST; an attempt that would cross it is never posted.
     image_max_cost_usd: float = Field(default=0.20, gt=0.0, le=100.0)
     video_fast_max_cost_usd: float = Field(default=1.00, gt=0.0, le=100.0)
+    #: Standard is a GPU tier and has no paid ceiling unless one is set here: unset, boot
+    #: refuses a Standard route onto a paid backend, and a runtime override onto one is
+    #: quoted ``busy`` and never posted (§4.3).
+    video_standard_max_cost_usd: float | None = Field(default=None, gt=0.0, le=100.0)
 
     # -- languages ----------------------------------------------------------
     default_ui_language: Language = Field(default=Language.UZ_LATN)
@@ -1264,6 +1268,7 @@ class Settings(BaseSettings):
         "higgsfield_usd_per_credit",
         "higgsfield_image_usd_per_output",
         "higgsfield_video_usd_per_output",
+        "video_standard_max_cost_usd",
         mode="before",
     )
     @classmethod

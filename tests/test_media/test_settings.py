@@ -132,6 +132,7 @@ def test_env_example_documents_every_media_setting_with_an_empty_secret() -> Non
         "higgsfield_video_usd_per_output",
         "image_max_cost_usd",
         "video_fast_max_cost_usd",
+        "video_standard_max_cost_usd",
     ):
         assert f"\nBAYRAM_{field.upper()}=" in text, field
     assert "\nBAYRAM_GENAI_API_KEY=\n" in text
@@ -150,6 +151,7 @@ def test_the_higgsfield_defaults_are_the_specs(settings: Settings) -> None:
     # §9.5: per-request ceilings; Kling 3.0 standard for Fast (§4.3); unknown costs unset.
     assert settings.image_max_cost_usd == 0.20
     assert settings.video_fast_max_cost_usd == 1.00
+    assert settings.video_standard_max_cost_usd is None  # Standard is a GPU tier
     assert settings.higgsfield_video_model == "kling3_0_std"
     assert settings.higgsfield_usd_per_credit is None
     assert settings.higgsfield_video_usd_per_output is None

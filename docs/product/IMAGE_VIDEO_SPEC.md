@@ -1663,6 +1663,7 @@ BAYRAM_HIGGSFIELD_API_KEY_ID=
 BAYRAM_HIGGSFIELD_API_SECRET=           # secret
 BAYRAM_IMAGE_MAX_COST_USD=0.20         # per request: both images, all attempts
 BAYRAM_VIDEO_FAST_MAX_COST_USD=1.00     # per request, all attempts
+BAYRAM_VIDEO_STANDARD_MAX_COST_USD=     # unset: Standard has no paid route (boot refuses one; M6.R)
 BAYRAM_FAL_API_KEY=                     # secret
 # --- terms (M1)
 BAYRAM_TERMS_VERSION=

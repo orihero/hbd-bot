@@ -32,7 +32,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import StaticPool
 
 from bayram.config import Settings
-from bayram.contracts import Err, err
+from bayram.contracts import Err, Result, err, ok
 from bayram.db.engine import create_session_factory
 from bayram.db.enums import (
     MediaAttemptStage,
@@ -50,10 +50,17 @@ from bayram.errors import (
     ProviderUnavailableError,
     ValidationError,
 )
-from bayram.media.contracts import AMBIGUOUS, PRE_SUBMIT, SUBMIT_PHASE_KEY, MediaRequest
+from bayram.media.contracts import (
+    AMBIGUOUS,
+    PRE_SUBMIT,
+    SUBMIT_PHASE_KEY,
+    CostEstimate,
+    MediaRequest,
+)
 from bayram.media.service import BetaStart, start_free_beta
-from bayram.media.stages import MEDIA_SCREEN_JOB, screen_job_id
+from bayram.media.stages import MEDIA_SCREEN_JOB, MEDIA_SUBMIT_JOB, screen_job_id
 from bayram.providers.media.fake import FakeMediaProvider
+from bayram.runtime.gpu_lock import queue_member
 from tests.conftest import FIXED_NOW
 from tests.test_runtime.media_fakes import (
     USER,
@@ -394,7 +401,8 @@ async def test_a_paid_backend_that_cannot_estimate_falls_back_onto_the_gpu_queue
     settings: Settings, sessions: async_sessionmaker[AsyncSession], tmp_path: Path
 ) -> None:
     # Arrange — Higgsfield primary (no GPU), the local gateway as its fallback. Its /estimate
-    # is down: an estimate creates nothing, so this is a pre-submit refusal (§4.3, §3.3).
+    # answers at the quote and is down by the submit: an estimate creates nothing, so this is
+    # a pre-submit refusal (§4.3, §3.3).
     harness, backends = _harness(
         settings,
         sessions,
@@ -405,11 +413,11 @@ async def test_a_paid_backend_that_cannot_estimate_falls_back_onto_the_gpu_queue
         media_uzs_per_usd=12_500.0,
         image_max_cost_usd=0.20,
     )
-    backends.primary.estimate_error = ProviderUnavailableError("down", provider="higgsfield")
     job_id = await freeze_job(harness, photos=())
 
     # Act
     await _quote_and_start(harness, job_id)
+    backends.primary.estimate_error = ProviderUnavailableError("down", provider="higgsfield")
     await harness.drain()
 
     # Assert — nothing was posted to Higgsfield; both images came from the GPU, which the
@@ -435,13 +443,167 @@ async def test_a_cost_over_the_ceiling_does_not_fall_back(
         media_uzs_per_usd=12_500.0,
         image_max_cost_usd=0.20,
     )
-    backends.primary.estimate_usd = 0.50  # one image alone is over the whole request's ceiling
     job_id = await freeze_job(harness, photos=())
 
     await _quote_and_start(harness, job_id)
+    # The price rose between the quote and the submit: one image alone is now over the whole
+    # request's ceiling.
+    backends.primary.estimate_usd = 0.50
     await harness.drain()
 
     job = await _job(harness, job_id)
     assert job.state is MediaJobState.FAILED
     assert job.backend is MediaBackend.HIGGSFIELD
     assert backends.fallback.inner.submits == [] and backends.primary.inner.submits == []
+    # A ceiling refusal is final: one estimate per variant, never re-estimated (§4.3).
+    assert await _attempts(harness, job_id) == [
+        (0, 1, "primary", "failed"),
+        (1, 1, "primary", "failed"),
+    ]
+    async with harness.sessions() as session:
+        codes = set(
+            (
+                await session.scalars(
+                    sa.select(MediaAttemptRow.error_code).where(MediaAttemptRow.job_id == job_id)
+                )
+            ).all()
+        )
+    assert codes == {"cost_ceiling"}
+
+
+async def test_a_live_estimate_over_the_ceiling_is_busy_at_the_quote_never_paid(
+    settings: Settings, sessions: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    # Arrange — the static figure passes boot, but the live /estimate says the price rose
+    # (§4.3 "estimate before quote", NFR-20).
+    harness, backends = _harness(
+        settings,
+        sessions,
+        tmp_path,
+        image_backend="higgsfield",
+        higgsfield_image_usd_per_output=0.02,
+        media_uzs_per_usd=12_500.0,
+        image_max_cost_usd=0.20,
+    )
+    backends.primary.estimate_usd = 0.15  # × 2 images = 0.30, over the 0.20 ceiling
+    job_id = await freeze_job(harness, photos=())
+
+    # Act
+    await harness.queue.enqueue_job(MEDIA_SCREEN_JOB, str(job_id), 0, _job_id=screen_job_id(job_id))
+    await harness.drain()
+
+    # Assert — busy on the tray, the row still screening, nothing posted.
+    job = await _job(harness, job_id)
+    assert job.state is MediaJobState.SCREENING
+    assert backends.primary.estimates == 1 and backends.primary.inner.submits == []
+
+
+async def test_an_unreadable_estimate_at_the_quote_is_busy(
+    settings: Settings, sessions: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    harness, backends = _harness(
+        settings,
+        sessions,
+        tmp_path,
+        image_backend="higgsfield",
+        higgsfield_image_usd_per_output=0.02,
+        media_uzs_per_usd=12_500.0,
+    )
+    backends.primary.estimate_error = ProviderUnavailableError("down", provider="higgsfield")
+    job_id = await freeze_job(harness, photos=())
+
+    await harness.queue.enqueue_job(MEDIA_SCREEN_JOB, str(job_id), 0, _job_id=screen_job_id(job_id))
+    await harness.drain()
+
+    assert (await _job(harness, job_id)).state is MediaJobState.SCREENING
+
+
+async def test_a_photo_order_on_a_text_only_image_model_is_never_quoted(
+    settings: Settings, sessions: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    # Arrange — the primary takes no reference (Higgsfield's soul_standard, max_refs=0).
+    harness, backends = _harness(
+        settings,
+        sessions,
+        tmp_path,
+        image_backend="higgsfield",
+        higgsfield_image_usd_per_output=0.02,
+        media_uzs_per_usd=12_500.0,
+    )
+    backends.primary = HookedProvider(FakeMediaProvider(name="primary", max_reference_images=0))
+    job_id = await freeze_job(harness, photos=_THREE_PHOTOS[:1])
+
+    # Act
+    await harness.queue.enqueue_job(MEDIA_SCREEN_JOB, str(job_id), 0, _job_id=screen_job_id(job_id))
+    await harness.drain()
+
+    # Assert — busy before payment; no estimate asked, nothing posted (§4.3, NFR-20).
+    assert (await _job(harness, job_id)).state is MediaJobState.SCREENING
+    assert backends.primary.estimates == 0 and backends.primary.inner.submits == []
+
+
+async def test_the_fallback_is_not_taken_on_the_last_attempt(
+    settings: Settings, sessions: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    # Arrange — one attempt per variant: a fallback would be attempt 2, past the budget
+    # (§3.3 "counts toward media_max_attempts").
+    harness, backends = _harness(
+        settings, sessions, tmp_path, image_fallback_backend="local", media_max_attempts=1
+    )
+    _fail_every_submit_with(backends, _unavailable)
+    job_id = await freeze_job(harness, photos=())
+
+    # Act
+    await _quote_and_start(harness, job_id)
+    await harness.drain()
+
+    # Assert — never moved, never an attempt 2.
+    job = await _job(harness, job_id)
+    assert job.state is MediaJobState.FAILED and job.backend is MediaBackend.FAKE
+    assert backends.fallback.inner.submits == []
+    assert {attempt for _, attempt, _, _ in await _attempts(harness, job_id)} == {1}
+
+
+async def test_a_move_onto_the_gpu_queues_only_the_variant_that_moves(
+    settings: Settings, sessions: async_sessionmaker[AsyncSession], tmp_path: Path
+) -> None:
+    # Arrange — Higgsfield primary, the GPU as fallback. Variant 1 is refused at the cost
+    # ceiling first (final, nothing posted); then variant 0's estimate is down and the job
+    # moves onto the GPU (§3.3).
+    harness, backends = _harness(
+        settings,
+        sessions,
+        tmp_path,
+        image_backend="higgsfield",
+        image_fallback_backend="local",
+        higgsfield_image_usd_per_output=0.02,
+        media_uzs_per_usd=12_500.0,
+        image_max_cost_usd=0.20,
+    )
+    job_id = await freeze_job(harness, photos=())
+    await _quote_and_start(harness, job_id)
+    await harness.drain(stop=lambda stage: stage.name == MEDIA_SUBMIT_JOB)
+    base_seed = job_id.int % 2_000_000_000
+
+    def estimate(req: MediaRequest) -> Result[CostEstimate]:
+        if req.seed == base_seed + 1:
+            return ok(CostEstimate(usd=0.50, basis="exact"))
+        return err(ProviderUnavailableError("down", provider="higgsfield"))
+
+    backends.primary.estimate_hook = estimate
+    submits = sorted(
+        (stage for stage in harness.queue.pending if stage.name == MEDIA_SUBMIT_JOB),
+        key=lambda stage: -int(stage.args[1]),
+    )
+    assert len(submits) == 2
+    harness.queue.pending.clear()
+
+    # Act — variant 1's submit, then variant 0's.
+    for stage in submits:
+        await harness.run(stage.name, *stage.args)
+
+    # Assert — the job moved; only variant 0 waits on the GPU, not the finished variant 1,
+    # whose member nothing would ever remove (§3.4).
+    job = await _job(harness, job_id)
+    assert job.backend is MediaBackend.LOCAL
+    assert await harness.gpu.members() == (queue_member(job_id, 0),)

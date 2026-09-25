@@ -209,12 +209,15 @@ def test_an_offered_sku_on_an_unbuilt_backend_refuses(base: Settings) -> None:
 # Higgsfield (§4.3, M6.1): built, but only with its keys, an HTTPS host and a known cost
 # ---------------------------------------------------------------------------
 def _on_higgsfield(settings: Settings, **update: Any) -> Settings:
+    # soul_standard, the one allowlisted Higgsfield image model, takes no photo: an image
+    # SKU on it is text-only (§4.3 "caps drive routing").
     values: dict[str, Any] = {
         "image_backend": "higgsfield",
         "higgsfield_api_key_id": "id",
         "higgsfield_api_secret": "s",
         "higgsfield_image_usd_per_output": 0.02,
         "media_uzs_per_usd": 12_500.0,
+        "media_max_reference_images": 0,
     }
     values.update(update)
     return _beta(settings, **values)
@@ -383,6 +386,43 @@ def test_a_fake_moderator_with_media_offered_still_refuses(base: Settings) -> No
 # ---------------------------------------------------------------------------
 # A configured fallback backend (IMAGE_VIDEO_SPEC §3.3, M6.2)
 # ---------------------------------------------------------------------------
+def test_an_image_sku_on_a_text_only_higgsfield_model_with_photos_allowed_refuses(
+    base: Settings,
+) -> None:
+    # Every photo order would be paid for, then refused at each submit (§4.3, NFR-20).
+    with pytest.raises(ConfigError, match="takes no reference photo"):
+        refuse_unsafe_media_config(_on_higgsfield(base, media_max_reference_images=4))
+
+
+def test_a_text_only_higgsfield_fallback_with_photos_allowed_boots(base: Settings) -> None:
+    # The fallback is held to each job's photos when a job moves; text-only orders use it.
+    refuse_unsafe_media_config(
+        _on_higgsfield(
+            base,
+            image_backend="local",
+            image_fallback_backend="higgsfield",
+            media_max_reference_images=4,
+        )
+    )
+
+
+def test_a_standard_route_onto_a_paid_backend_with_no_ceiling_of_its_own_refuses(
+    base: Settings,
+) -> None:
+    # §4.3: Standard is never held to Fast's ceiling; unset, it has no paid route at all.
+    settings = _on_higgsfield(
+        base,
+        image_backend="local",
+        is_video_standard_offered=True,
+        video_standard_fallback_backend="higgsfield",
+        higgsfield_video_usd_per_output=0.01,
+    )
+
+    with pytest.raises(ConfigError, match="BAYRAM_VIDEO_STANDARD_MAX_COST_USD"):
+        refuse_unsafe_media_config(settings)
+    refuse_unsafe_media_config(_with(settings, video_standard_max_cost_usd=0.50))
+
+
 def test_a_fallback_that_passes_the_same_checks_boots(base: Settings) -> None:
     # Local primary, Higgsfield fallback with its key pair and a cost inside the margin.
     refuse_unsafe_media_config(

@@ -29,6 +29,9 @@ class QuoteBlock(StrEnum):
     #: The backend's ``health()`` is not healthy (§7.2 step 1). Set by ``media_screen``, which
     #: holds the provider; this pure function never makes a call.
     UNHEALTHY = "unhealthy"
+    #: The backend cannot take the job's photos as screened (§4.3 "caps drive routing"),
+    #: e.g. a text-only image model. Set by ``media_screen``, which holds the capabilities.
+    CANNOT_CARRY = "cannot_carry"
 
 
 def quote_block(

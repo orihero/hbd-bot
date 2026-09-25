@@ -40,7 +40,7 @@ from bayram.config import Settings
 from bayram.db.enums import MediaBackend, MediaSku
 from bayram.errors import ConfigError
 from bayram.logging import get_logger
-from bayram.media.margin import check_margin
+from bayram.media.margin import check_margin, request_cost_ceiling_usd
 from bayram.media.offering import (
     SKU_BACKEND_FIELDS,
     SKU_OFFERED_FIELDS,
@@ -68,6 +68,12 @@ _LOG = get_logger(__name__)
 #: offered SKU pointed at it would quote a product nothing can render.
 BUILT_BACKENDS: Final[frozenset[MediaBackend]] = frozenset(
     {MediaBackend.LOCAL, MediaBackend.FAKE, MediaBackend.HIGGSFIELD}
+)
+
+
+#: Backends that bill per call and are therefore held to a per-request cost ceiling (§4.3).
+_PAID_BACKENDS: Final[frozenset[MediaBackend]] = frozenset(
+    {MediaBackend.HIGGSFIELD, MediaBackend.FAL}
 )
 
 
@@ -239,11 +245,18 @@ def _refuse_an_unsellable_sku(settings: Settings, sku: MediaSku) -> None:
     )
     fallback = configured_fallback(settings, sku)
     if fallback is not None:
-        _refuse_an_unusable_backend(settings, sku, fallback, _var(SKU_FALLBACK_FIELDS[sku]))
+        _refuse_an_unusable_backend(
+            settings, sku, fallback, _var(SKU_FALLBACK_FIELDS[sku]), is_fallback=True
+        )
 
 
 def _refuse_an_unusable_backend(
-    settings: Settings, sku: MediaSku, backend: MediaBackend, backend_var: str
+    settings: Settings,
+    sku: MediaSku,
+    backend: MediaBackend,
+    backend_var: str,
+    *,
+    is_fallback: bool = False,
 ) -> None:
     """``backend`` — the SKU's own, or its fallback (§3.3) — can render it at its price."""
     offered_var = _var(SKU_OFFERED_FIELDS[sku])
@@ -273,6 +286,15 @@ def _refuse_an_unusable_backend(
         )
     if backend is MediaBackend.HIGGSFIELD:
         _refuse_an_unreachable_higgsfield(settings, offered_var, sku)
+    if backend in _PAID_BACKENDS and request_cost_ceiling_usd(settings, sku) is None:
+        raise _refuse(
+            f"{offered_var} is true and {backend_var} is '{backend.value}', which bills per "
+            f"call, but {sku.value} has no per-request cost ceiling: set "
+            "BAYRAM_VIDEO_STANDARD_MAX_COST_USD, or keep the SKU on the GPU (IMAGE_VIDEO_SPEC "
+            "§4.3).",
+            sku=sku.value,
+            backend=backend.value,
+        )
     refusal = base_url_refusal(settings.genai_base_url) if backend is MediaBackend.LOCAL else None
     if refusal is not None:
         # §9.1 items 2–3: the doctor's ``base url`` / ``key in url`` rows, made a boot refusal,
@@ -289,6 +311,30 @@ def _refuse_an_unusable_backend(
             f"{verdict.reason} (IMAGE_VIDEO_SPEC §4.3).",
             sku=sku.value,
             backend=backend.value,
+        )
+    if backend is MediaBackend.HIGGSFIELD and not is_fallback:
+        # A fallback is held to the job's photos when it is moved onto (``_fall_back``), so
+        # a text-only fallback still serves the text-only orders; a primary would not.
+        _refuse_references_the_model_cannot_take(settings, sku, backend_var)
+
+
+def _refuse_references_the_model_cannot_take(
+    settings: Settings, sku: MediaSku, backend_var: str
+) -> None:
+    """An image order may carry photos (§1.3); a Higgsfield image model that takes none
+    would be quoted, paid and then refused at every submit (§4.3 "caps drive routing",
+    NFR-20). The quote refuses such an order too; this names the setting at boot."""
+    if sku is not MediaSku.IMAGE or settings.media_max_reference_images == 0:
+        return
+    model = HIGGSFIELD_MODELS.get(settings.higgsfield_image_model)
+    if model is not None and model.max_refs == 0:
+        raise _refuse(
+            f"{backend_var} is 'higgsfield' but BAYRAM_HIGGSFIELD_IMAGE_MODEL "
+            f"'{settings.higgsfield_image_model}' takes no reference photo while "
+            "BAYRAM_MEDIA_MAX_REFERENCE_IMAGES allows them: every image order with a photo "
+            "would be paid for and then fail (IMAGE_VIDEO_SPEC §4.3, §4.4). Choose a model "
+            "that takes references, or set BAYRAM_MEDIA_MAX_REFERENCE_IMAGES=0.",
+            model=settings.higgsfield_image_model,
         )
 
 

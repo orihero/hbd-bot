@@ -104,6 +104,7 @@ from bayram.media.stages import (
 )
 from bayram.runtime.gpu_lock import parse_queue_member, queue_member
 from bayram.runtime.media_jobs import (
+    GPU_BACKENDS,
     MediaErrorCode,
     MediaRuntime,
     enqueue_stage,
@@ -124,6 +125,7 @@ __all__ = [
     "STARTABLE_AFTER",
     "STALE_HEARTBEAT",
     "ORPHANED_HOLD_AFTER",
+    "PAID_RENDER_GRACE",
     "media_sweep",
     "sweep_media",
 ]
@@ -164,6 +166,10 @@ _STALE_DECISION: Final[timedelta] = timedelta(minutes=2)
 
 #: §4.3: a hold no review covers is refunded when it is still unresolved after this.
 ORPHANED_HOLD_AFTER: Final[timedelta] = timedelta(hours=2)
+
+#: §3.5: how long past its deadline a job on a paid backend may wait on a render the vendor
+#: still has (submitted, not yet terminal) before it is failed and refunded anyway.
+PAID_RENDER_GRACE: Final[timedelta] = timedelta(hours=2)
 
 #: §2.6: an ``awaiting_payment`` row is abandoned only this long after its intent ended.
 _INTENT_GRACE: Final[timedelta] = timedelta(minutes=10)
@@ -459,7 +465,24 @@ async def _redrive(rt: MediaRuntime, now: datetime) -> int:
 
 
 async def _fail_past_deadline(rt: MediaRuntime, now: datetime) -> int:
+    """Fail and refund every job past its SKU's deadline (§3.5).
+
+    Except, for a backend that bills per call, a job whose render is still with the vendor
+    (§3.5 "Higgsfield: only after status confirms terminal or 2 h ambiguity"): the vendor
+    keeps rendering and billing whatever we decide, so its late result is waited for — up to
+    :data:`PAID_RENDER_GRACE` past the deadline — rather than paid for and thrown away.
+    """
     failed = 0
+    in_flight = (
+        sa.select(MediaAttemptRow.id)
+        .where(
+            MediaAttemptRow.job_id == MediaJobRow.id,
+            MediaAttemptRow.status.in_(
+                (MediaAttemptStatus.SUBMITTING, MediaAttemptStatus.SUBMITTED)
+            ),
+        )
+        .exists()
+    )
     for sku in MediaSku:
         cutoff = now - sku_deadline(rt.settings, sku)
         async with rt.sessions() as session:
@@ -470,6 +493,12 @@ async def _fail_past_deadline(rt: MediaRuntime, now: datetime) -> int:
                         MediaJobRow.sku == sku,
                         MediaJobRow.state.in_(_DEADLINE_STATES),
                         MediaJobRow.paid_at < cutoff,
+                        sa.or_(
+                            MediaJobRow.backend.is_(None),
+                            MediaJobRow.backend.in_(tuple(GPU_BACKENDS)),
+                            MediaJobRow.paid_at < cutoff - PAID_RENDER_GRACE,
+                            ~in_flight,
+                        ),
                     )
                     .limit(SWEEP_BATCH)
                 )

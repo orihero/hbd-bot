@@ -147,8 +147,17 @@ def build_media_provider(
 def higgsfield_submit_ceilings(settings: Settings) -> dict[MediaKindName, float]:
     """The adapter's last-gate cap on ONE submit: the request's ceiling shared by its outputs
     (§4.3). The stage chain enforces the request's whole ceiling across retries on top."""
-    return {
-        "image": request_cost_ceiling_usd(settings, MediaSku.IMAGE)
-        / OUTPUTS_PER_REQUEST[MediaSku.IMAGE],
-        "video": request_cost_ceiling_usd(settings, MediaSku.VIDEO_FAST),
-    }
+    ceilings: dict[MediaKindName, float] = {}
+    image = request_cost_ceiling_usd(settings, MediaSku.IMAGE)
+    if image is not None:
+        ceilings["image"] = image / OUTPUTS_PER_REQUEST[MediaSku.IMAGE]
+    # One video kind serves both tiers: the larger of their ceilings bounds one submit, and
+    # the stage chain holds each request to its own SKU's (``_cost_gate``).
+    videos = [
+        ceiling
+        for sku in (MediaSku.VIDEO_FAST, MediaSku.VIDEO_STANDARD)
+        if (ceiling := request_cost_ceiling_usd(settings, sku)) is not None
+    ]
+    if videos:
+        ceilings["video"] = max(videos)
+    return ceilings

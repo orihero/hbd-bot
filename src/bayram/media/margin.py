@@ -117,10 +117,11 @@ def check_margin(
 
 
 def static_usd_per_output(settings: Settings, sku: MediaSku, backend: MediaBackend) -> float | None:
-    """The boot-time figure for one output of ``sku`` on ``backend``, or ``None`` (unknown).
+    """The static figure for one output of ``sku`` on ``backend``, or ``None`` (unknown).
 
-    Boot does no IO, so Higgsfield's figure is the operator's recorded ``/estimate``
-    (``BAYRAM_HIGGSFIELD_*_USD_PER_OUTPUT``); a quote passes the live one instead.
+    Boot does no IO, so Higgsfield's figure there is the operator's recorded ``/estimate``
+    (``BAYRAM_HIGGSFIELD_*_USD_PER_OUTPUT``). A quote on a paid backend reads the live
+    ``/estimate`` and passes it to :func:`check_margin` as ``usd_per_output`` (§4.3).
     """
     if backend is MediaBackend.HIGGSFIELD:
         if sku is MediaSku.IMAGE:
@@ -129,9 +130,18 @@ def static_usd_per_output(settings: Settings, sku: MediaSku, backend: MediaBacke
     return STATIC_USD_PER_OUTPUT[backend]
 
 
-def request_cost_ceiling_usd(settings: Settings, sku: MediaSku) -> float:
+def request_cost_ceiling_usd(settings: Settings, sku: MediaSku) -> float | None:
     """The hard per-REQUEST cash ceiling (§4.3): every variant and every retry of one request
-    together. The stage chain refuses to post an attempt whose estimate would cross it."""
-    if sku is MediaSku.IMAGE:
-        return settings.image_max_cost_usd
-    return settings.video_fast_max_cost_usd
+    together. The stage chain refuses to post an attempt whose estimate would cross it.
+
+    ``None`` — Standard with no ``BAYRAM_VIDEO_STANDARD_MAX_COST_USD`` — is no ceiling, and
+    therefore no paid render: Standard is a GPU tier, and one routed onto a paid backend (a
+    fallback or an operator override, §3.3) is never held to Fast's figure.
+    """
+    match sku:
+        case MediaSku.IMAGE:
+            return settings.image_max_cost_usd
+        case MediaSku.VIDEO_FAST:
+            return settings.video_fast_max_cost_usd
+        case MediaSku.VIDEO_STANDARD:
+            return settings.video_standard_max_cost_usd

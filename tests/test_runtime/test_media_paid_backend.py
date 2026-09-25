@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import StaticPool
 
 from bayram.config import Settings
-from bayram.contracts import CostSource, Language
+from bayram.contracts import CostSource, Err, Language, err
 from bayram.db.engine import create_session_factory
 from bayram.db.enums import (
     MediaAspect,
@@ -51,14 +51,18 @@ from bayram.db.models.media_attempt import MediaAttemptRow
 from bayram.db.models.media_credit import MediaCreditLedgerRow
 from bayram.db.models.media_job import MediaJobRow
 from bayram.errors import ProviderUnavailableError
-from bayram.media.contracts import JobPhase
+from bayram.media.contracts import JobPhase, MediaRequest
 from bayram.media.stages import (
+    MEDIA_POLL_JOB,
     MEDIA_SCREEN_JOB,
     MEDIA_START_JOB,
     MEDIA_SUBMIT_JOB,
     screen_job_id,
     sku_deadline,
 )
+from bayram.runtime.gpu_lock import queue_member
+from bayram.runtime.media_jobs import _quote_eta_minutes
+from bayram.runtime.media_sweep import PAID_RENDER_GRACE, sweep_media
 from tests.conftest import FIXED_NOW
 from tests.test_runtime.media_fakes import (
     PROMPT,
@@ -100,6 +104,9 @@ def harness(
             video_standard_backend="fake",
             image_max_cost_usd=0.20,
             video_fast_max_cost_usd=1.00,
+            # The video tests re-stamp a Standard job onto the paid backend, which needs a
+            # ceiling of its own (§4.3) — never Fast's.
+            video_standard_max_cost_usd=0.50,
         ),
         sessions,
         tmp_path,
@@ -262,6 +269,147 @@ async def test_an_unreadable_estimate_posts_nothing(harness: Harness) -> None:
     assert harness.provider.submits == []
     assert harness.hooked.estimates >= 2
     assert (await _job(harness, job_id)).state is MediaJobState.FAILED
+
+
+async def test_sibling_variants_are_held_to_the_ceiling_one_after_the_other(
+    harness: Harness,
+) -> None:
+    # Arrange — $0.12 an image against $0.20: one fits, two do not. Variant 1's submit runs
+    # while variant 0 is mid-POST, the race §4.3's ceiling must survive: variant 0's figure
+    # is reserved before its POST, so variant 1 sees it.
+    harness.hooked.estimate_usd = 0.12
+    job_id = await _paid(harness)
+    inner: list[dict[str, object]] = []
+
+    async def sibling_mid_post(request: MediaRequest, correlation_key: str) -> Err | None:
+        if correlation_key.endswith(":0:1") and not inner:
+            inner.append(await harness.run(MEDIA_SUBMIT_JOB, str(job_id), 1, 1, 99))
+        return None
+
+    harness.hooked.submit_hook = sibling_mid_post
+
+    # Act
+    await harness.drain()
+
+    # Assert — one POST; the sibling was refused at the ceiling, never posted.
+    assert inner and inner[0]["outcome"] == "request_failed"
+    assert len(harness.provider.submits) == 1
+    by_variant = {row.variant: row for row in await _attempts(harness, job_id)}
+    assert by_variant[0].cost_usd == pytest.approx(0.12)
+    assert by_variant[1].error_code == "cost_ceiling" and by_variant[1].cost_usd is None
+
+
+async def test_a_plain_submit_failure_drops_its_reserved_cost(harness: Harness) -> None:
+    harness.hooked.estimate_usd = 0.05
+
+    async def refused(request: MediaRequest, correlation_key: str) -> Err | None:
+        return err(ProviderUnavailableError("busy", provider="fake"))
+
+    harness.hooked.submit_hook = refused
+    job_id = await _paid(harness)
+
+    await harness.drain()
+
+    attempts = await _attempts(harness, job_id)
+    assert attempts and all(row.status is MediaAttemptStatus.FAILED for row in attempts)
+    assert all(row.cost_usd is None and row.cost_source is None for row in attempts)
+
+
+async def test_a_worker_killed_mid_post_leaves_its_cost_counted(harness: Harness) -> None:
+    # R7: the POST may have been billed; the reservation made before it stays on the row.
+    harness.hooked.estimate_usd = 0.05
+
+    async def killed(request: MediaRequest, correlation_key: str) -> Err | None:
+        raise RuntimeError("worker killed")
+
+    harness.hooked.submit_hook = killed
+    job_id = await _paid(harness)
+
+    with pytest.raises(RuntimeError):
+        await harness.drain()
+
+    (row,) = await _attempts(harness, job_id)
+    assert row.status is MediaAttemptStatus.SUBMITTING
+    assert row.cost_usd == pytest.approx(0.05) and row.cost_source is CostSource.ESTIMATED
+
+
+# ---------------------------------------------------------------------------
+# §4.3 "never paying twice": a render past its timeout on a paid backend
+# ---------------------------------------------------------------------------
+async def _past_render_timeout(harness: Harness, job_id: UUID) -> None:
+    harness.provider.polls_until_done = 10_000
+    await harness.drain(stop=lambda stage: stage.name == MEDIA_POLL_JOB)
+    for _ in range(2):  # both variants' first poll: "running", the render clock starts
+        first_poll = harness.queue.pending.popleft()
+        await harness.run(first_poll.name, *first_poll.args)
+    harness.clock.advance(seconds=harness.rt.settings.media_image_render_timeout_s + 30)
+
+
+async def test_a_paid_render_the_vendor_keeps_is_held_never_reposted(harness: Harness) -> None:
+    job_id = await _paid(harness)
+    await _past_render_timeout(harness, job_id)
+    harness.hooked.cancel_answer = False  # Higgsfield: running requests cannot be cancelled
+
+    await harness.drain(stop=lambda stage: stage.name == MEDIA_SUBMIT_JOB)
+
+    assert len(harness.hooked.cancelled) >= 1
+    assert len(harness.provider.submits) == 2  # nothing re-posted on top of a live render
+    job = await _job(harness, job_id)
+    assert job.state is MediaJobState.HELD and job.error_code == "ambiguous_submit"
+
+
+async def test_a_cancelled_paid_render_is_retried(harness: Harness) -> None:
+    job_id = await _paid(harness)
+    await _past_render_timeout(harness, job_id)
+    harness.hooked.cancel_answer = True
+
+    await harness.drain(stop=lambda stage: stage.name == MEDIA_SUBMIT_JOB)
+    harness.provider.polls_until_done = 0
+    await harness.drain()
+
+    attempts = await _attempts(harness, job_id)
+    assert {(row.attempt, row.status) for row in attempts if row.attempt == 1} == {
+        (1, MediaAttemptStatus.FAILED)
+    }
+    assert any(row.attempt == 2 for row in attempts)
+    assert (await _job(harness, job_id)).state is MediaJobState.DELIVERED
+
+
+# ---------------------------------------------------------------------------
+# §3.5: a paid render past the deadline is waited for, up to two hours
+# ---------------------------------------------------------------------------
+async def test_the_deadline_waits_on_a_render_the_vendor_still_has(harness: Harness) -> None:
+    harness.provider.polls_until_done = 10_000
+    job_id = await _paid(harness)
+    await harness.drain(stop=lambda stage: stage.name == MEDIA_POLL_JOB)
+    deadline = sku_deadline(harness.rt.settings, MediaSku.IMAGE)
+
+    harness.clock.advance(seconds=int(deadline.total_seconds()) + 60)
+    await sweep_media(harness.rt)
+    assert (await _job(harness, job_id)).state is MediaJobState.GENERATING
+
+    harness.clock.advance(seconds=int(PAID_RENDER_GRACE.total_seconds()))
+    await sweep_media(harness.rt)
+    job = await _job(harness, job_id)
+    assert job.state is MediaJobState.FAILED and job.error_code == "deadline"
+
+
+# ---------------------------------------------------------------------------
+# §1.3, R4: Fast's quote does not wait on the GPU queue
+# ---------------------------------------------------------------------------
+async def test_a_paid_backends_eta_ignores_the_gpu_queue(harness: Harness) -> None:
+    job_id = await _video_job(harness)
+    for n in range(3):
+        await harness.gpu.join(queue_member(uuid4(), 0), float(n))
+    job = await _job(harness, job_id)
+
+    paid = await _quote_eta_minutes(harness.rt, job, MediaBackend.HIGGSFIELD)
+    gpu = await _quote_eta_minutes(harness.rt, job, MediaBackend.FAKE)
+
+    assert paid == 3  # one Fast run before any history (§1.3: ~1–3 min)
+    fast_deadline = harness.rt.settings.media_video_fast_deadline_s // 60
+    assert paid < fast_deadline
+    assert gpu is not None and gpu > fast_deadline
 
 
 async def test_the_local_gpu_is_never_asked_for_an_estimate(harness: Harness) -> None:

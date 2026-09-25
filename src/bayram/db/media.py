@@ -802,12 +802,18 @@ async def set_attempt_status(
     gpu_seconds: float | None = None,
     cost_usd: float | None = None,
     cost_source: CostSource | None = None,
+    clear_cost: bool = False,
 ) -> bool:
     """Move an attempt iff it is in ``expected``. A terminal status stamps ``finished_at``.
 
     Only the measurements passed are written; ``None`` never overwrites one already stored.
+    ``clear_cost`` is the one exception: it drops a cost reserved before a POST that never
+    happened (IMAGE_VIDEO_SPEC §4.3), ``cost_usd`` and ``cost_source`` together.
     """
     values: dict[str, Any] = {"status": status}
+    if clear_cost:
+        values["cost_usd"] = None
+        values["cost_source"] = None
     for name, value in (
         ("remote_id", remote_id),
         ("error_code", error_code),

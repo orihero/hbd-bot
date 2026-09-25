@@ -425,12 +425,19 @@ class HookedProvider:
         self.estimate_usd: float | None = None
         self.estimate_error: BayramError | None = None
         self.estimates = 0
+        #: Answers ``/estimate`` in the fake's place when it returns a result (per request).
+        self.estimate_hook: Callable[[MediaRequest], Result[CostEstimate] | None] | None = None
+        #: What ``cancel`` answers (``None``: the fake's own ``Ok(False)``), and who asked.
+        self.cancel_answer: bool | None = None
+        self.cancelled: list[str] = []
 
     def capabilities(self) -> MediaCapabilities:
         return self.inner.capabilities()
 
     async def estimate_cost(self, req: MediaRequest) -> Result[CostEstimate]:
         self.estimates += 1
+        if self.estimate_hook is not None and (answer := self.estimate_hook(req)) is not None:
+            return answer
         if self.estimate_error is not None:
             return err(self.estimate_error)
         if self.estimate_usd is not None:
@@ -462,6 +469,9 @@ class HookedProvider:
         return await self.inner.fetch(handle, index, dest, max_bytes=max_bytes, timeout_s=timeout_s)
 
     async def cancel(self, handle: JobHandle) -> Result[bool]:
+        self.cancelled.append(handle.remote_id)
+        if self.cancel_answer is not None:
+            return ok(self.cancel_answer)
         return await self.inner.cancel(handle)
 
     async def health(self) -> Result[ProviderHealth]:
