@@ -5,8 +5,10 @@ Revises: 0031
 Create Date: 2026-09-25
 
 One new table, ``moderation_reviews``, and nothing else. Nothing is backfilled: a job held
-before this revision (none exist outside beta) is picked up by nobody and ends at its SKU
-deadline like any other stuck paid job.
+before this revision (none exist outside beta) has no review row, and the SKU deadline does
+NOT end it — ``held`` is not a deadline state. ``media_sweep``'s orphaned-hold arm (M3.R)
+fails it with one credit two hours after its last move, as it does a paid-backend
+``ambiguous_submit`` hold (§4.3), which opens no review either.
 
 * One row per time a paid media job is held for a person: the L4 guard answered ``review``, the
   guard did not answer for 30 minutes, or an operator held it. ``decision`` NULL is pending.

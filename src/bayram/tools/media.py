@@ -9,6 +9,7 @@ module's functions, so there is one spelling of each key and one truthiness rule
     reserve --minutes N / release           the GPU reserved window (O11)
     doctor [--contract] [--release]         is the local gateway fit for customers (§9.1)
     unsuspend <telegram_id>                 lift a media suspension and forget the strikes (§6.4)
+    legal-hold <job_id> --handover|--delete the escalation owner's reporting decision (§6.7)
 
 ``<sku>`` is ``image``, ``video_standard`` or ``video_fast``. The switches live in Redis, a
 cache in this deployment: a restart without persistence clears them, so re-run ``status``
@@ -20,7 +21,15 @@ after any Redis restart (the ``bayram.payme.pause`` caveat, inherited).
 (§9.1 item 4): red fails the release only while an offered SKU routes to the gateway.
 
 ``unsuspend`` is the only way a CSAM-class suspension ends (§6.4): it never expires on its
-own. Lift one only after the escalation owner's review of the held job (§6.7).
+own. Lift one only after the escalation owner's review of the held job (§6.7). It clears
+Redis AND stamps ``csam_cleared_at`` on the account's ``csam_blocked`` jobs, because those
+rows are the suspension's durable half — the screen gate reads them when Redis has lost it.
+
+``legal-hold`` records the escalation owner's decision on a held job within its 72 hours
+(§6.7): ``--handover`` keeps the held bytes past the clock for the authorities, and the purge
+skips them; ``--delete`` brings the clock forward, so the next purge deletes the bytes. Both
+keep the rows' hash and metadata, and both are logged at WARNING. A later decision replaces
+an earlier one (``--delete`` once a handover is done).
 
 Exit codes: ``0`` done, ``1`` refused (bad input; nothing written), ``2`` configuration or
 Redis failure (nothing written), ``3`` ``doctor`` found a failing check.
@@ -35,13 +44,16 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final
+from uuid import UUID
 
 from redis.asyncio import Redis
 
 from bayram.config import Settings, build_settings
-from bayram.db.enums import MediaBackend, MediaSku
+from bayram.db import create_engine, create_session_factory
+from bayram.db.enums import MediaBackend, MediaLegalHoldDecision, MediaSku
+from bayram.db.media import clear_csam_blocks, record_legal_hold_decision
 from bayram.errors import BayramError
-from bayram.logging import configure_logging
+from bayram.logging import configure_logging, get_logger
 from bayram.media.offering import effective_backend, env_backend
 from bayram.media.overrides import (
     MediaSwitchStore,
@@ -54,6 +66,8 @@ from bayram.moderation.strikes import RedisStrikeStore
 from bayram.tools.media_doctor import run_doctor, uses_the_gateway
 
 __all__ = ["main", "plan", "apply", "Request", "RefusedError"]
+
+_LOG = get_logger(__name__)
 
 EXIT_OK: Final[int] = 0
 EXIT_REFUSED: Final[int] = 1
@@ -78,6 +92,8 @@ class Request:
     contract: bool = False
     release: bool = False
     telegram_user_id: int | None = None
+    job_id: UUID | None = None
+    decision: MediaLegalHoldDecision | None = None
 
 
 def _sku(raw: str) -> MediaSku:
@@ -138,6 +154,11 @@ def _parser() -> argparse.ArgumentParser:
         help="bayram-release's verify step: red fails only while a SKU uses the gateway",
     )
     sub.add_parser("unsuspend", help="lift a media suspension (§6.4)").add_argument("telegram_id")
+    hold = sub.add_parser("legal-hold", help="record the reporting decision on a held job (§6.7)")
+    hold.add_argument("job_id")
+    which = hold.add_mutually_exclusive_group(required=True)
+    which.add_argument("--handover", action="store_true", help="keep the bytes for the authorities")
+    which.add_argument("--delete", action="store_true", help="delete the bytes at the next purge")
     return parser
 
 
@@ -158,6 +179,15 @@ def plan(argv: Sequence[str]) -> Request:
         return Request(verb=verb, contract=bool(args.contract), release=bool(args.release))
     if verb == "unsuspend":
         return Request(verb=verb, telegram_user_id=_telegram_id(args.telegram_id))
+    if verb == "legal-hold":
+        try:
+            job_id = UUID(str(args.job_id))
+        except ValueError:
+            raise RefusedError(f"'{args.job_id}' is not a media job id") from None
+        decision = (
+            MediaLegalHoldDecision.HANDOVER if args.handover else MediaLegalHoldDecision.DELETE
+        )
+        return Request(verb=verb, job_id=job_id, decision=decision)
     return Request(verb=verb)
 
 
@@ -211,16 +241,60 @@ async def _status(store: MediaSwitchStore, settings: Settings, *, now: datetime)
     return "\n".join(lines)
 
 
+async def _unsuspend(redis: Redis[bytes], settings: Settings, telegram_user_id: int) -> str:
+    """Redis and the database both: the ``csam_blocked`` rows are the durable suspension."""
+    lifted = await RedisStrikeStore(redis).clear(telegram_user_id)
+    engine = create_engine(settings.database_url)
+    try:
+        async with create_session_factory(engine).begin() as session:
+            cleared = await clear_csam_blocks(session, telegram_user_id, now=datetime.now(tz=UTC))
+    finally:
+        await engine.dispose()
+    if cleared:
+        _LOG.warning(
+            "a CSAM-class media suspension was cleared by an operator",
+            extra={"telegram_user_id": telegram_user_id, "jobs": cleared},
+        )
+    state = "lifted" if lifted or cleared else "no suspension or strikes were recorded"
+    return f"{telegram_user_id}: {state}"
+
+
+async def _legal_hold(settings: Settings, request: Request) -> str:
+    assert request.job_id is not None and request.decision is not None
+    engine = create_engine(settings.database_url)
+    try:
+        async with create_session_factory(engine).begin() as session:
+            held = await record_legal_hold_decision(
+                session, request.job_id, request.decision, now=datetime.now(tz=UTC)
+            )
+    finally:
+        await engine.dispose()
+    if held == 0:
+        raise RefusedError(f"media job {request.job_id} holds nothing; nothing was written")
+    # The one record of the decision an auditor reads beside the purge's own WARNING lines.
+    _LOG.warning(
+        "a legal-hold reporting decision was recorded",
+        extra={
+            "media_job_id": str(request.job_id),
+            "decision": request.decision.value,
+            "held_rows": held,
+        },
+    )
+    if request.decision is MediaLegalHoldDecision.HANDOVER:
+        return f"{request.job_id}: handover recorded; the purge keeps its {held} held object(s)"
+    return f"{request.job_id}: delete recorded; the next purge deletes the bytes, keeps the hash"
+
+
 async def _run(request: Request) -> str:
     # No vendor key is needed to flip a switch.
     settings = build_settings(require_vendor_secrets=False)
+    if request.verb == "legal-hold":
+        return await _legal_hold(settings, request)
     redis: Redis[bytes] = Redis.from_url(settings.redis_url)
     try:
         if request.verb == "unsuspend":
             assert request.telegram_user_id is not None
-            lifted = await RedisStrikeStore(redis).clear(request.telegram_user_id)
-            state = "lifted" if lifted else "no suspension or strikes were recorded"
-            return f"{request.telegram_user_id}: {state}"
+            return await _unsuspend(redis, settings, request.telegram_user_id)
         return await apply(redis, settings, request, now=datetime.now(tz=UTC))
     finally:
         await redis.aclose()  # type: ignore[attr-defined]

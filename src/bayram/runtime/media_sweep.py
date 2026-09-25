@@ -4,7 +4,7 @@ IMAGE_VIDEO_SPEC §3.3 (the ``media_sweep`` row), §3.4, §3.5, §2.6. Every sta
 successor after committing, and an enqueue can be lost (Redis blipped, the worker was killed
 between the commit and the enqueue). Media jobs are not on the song debit path, so the song
 sweeps never see them: this is their only backstop, and it is what makes "the row is the
-promise, the queue is only the nudge" true. Seven arms, each bounded by :data:`SWEEP_BATCH`:
+promise, the queue is only the nudge" true. Eight arms, each bounded by :data:`SWEEP_BATCH`:
 
 a. **abandon** unpaid rows past the quote TTL (``drafting``/``screening``/``quoted``) and
    ``awaiting_payment`` rows only once their Payme intent is EXPIRED or CANCELLED plus a
@@ -26,7 +26,11 @@ f. **unstick** ``delivering`` rows a dead worker left mid-send (§3.3 ``media_de
    any other is failed with one credit;
 g. **the review queue** (§6.6, M3.2): a pending review past its 24 h SLA is decided
    ``expired`` (→ failed + one credit), a decided review whose ``media_review_apply`` was lost
-   is re-driven, and a released ``held`` job whose delivery enqueue was lost is delivered.
+   is re-driven, and a released ``held`` job whose delivery enqueue was lost is delivered;
+h. **orphaned holds** (M3.R): a ``held`` job that no review will ever end — a paid-backend
+   ``ambiguous_submit`` hold (§4.3: "refund credit if unresolved in 2 h"), or one held before
+   revision 0032 — is failed with one credit two hours after its last move. Without this it
+   would sit in the one-open-request index for ever, and the customer could never ask again.
 
 Every re-enqueue takes the NEXT suffix — a bumped ``submit_seq``/``oscreen_seq``, or the sweep's
 own tick — never an id that ARQ might still be remembering (§3.3 "ARQ job ids").
@@ -69,7 +73,7 @@ from bayram.db.media import (
 from bayram.db.media_reviews import decide_review, overdue_reviews, unapplied_reviews
 from bayram.db.models.media_attempt import MediaAttemptRow
 from bayram.db.models.media_job import MediaJobRow
-from bayram.db.models.moderation_review import SYSTEM_REVIEW_ACTOR
+from bayram.db.models.moderation_review import SYSTEM_REVIEW_ACTOR, ModerationReviewRow
 from bayram.db.models.payment_intent import PaymentIntentRow
 from bayram.db.retention import resolve_retention_policy
 from bayram.logging import get_logger
@@ -111,6 +115,7 @@ __all__ = [
     "SWEEP_BATCH",
     "STARTABLE_AFTER",
     "STALE_HEARTBEAT",
+    "ORPHANED_HOLD_AFTER",
     "media_sweep",
     "sweep_media",
 ]
@@ -148,6 +153,9 @@ _STALE_DELIVERING: Final[timedelta] = timedelta(minutes=10)
 
 #: A decided review not yet applied this long after the decision lost its apply enqueue.
 _STALE_DECISION: Final[timedelta] = timedelta(minutes=2)
+
+#: §4.3: a hold no review covers is refunded when it is still unresolved after this.
+ORPHANED_HOLD_AFTER: Final[timedelta] = timedelta(hours=2)
 
 #: §2.6: an ``awaiting_payment`` row is abandoned only this long after its intent ended.
 _INTENT_GRACE: Final[timedelta] = timedelta(minutes=10)
@@ -617,8 +625,44 @@ async def _review_queue(rt: MediaRuntime, now: datetime) -> int:
     return len(expired) + len(lost)
 
 
+async def _orphaned_holds(rt: MediaRuntime, now: datetime) -> int:
+    """(h) ``held`` with no pending or unapplied review and no release waiting on delivery,
+    untouched for :data:`ORPHANED_HOLD_AFTER` → failed + one credit, no strike."""
+    live_review = sa.exists().where(
+        ModerationReviewRow.job_id == MediaJobRow.id,
+        sa.or_(ModerationReviewRow.decision.is_(None), ModerationReviewRow.applied_at.is_(None)),
+    )
+    async with rt.sessions() as session:
+        ids = (
+            await session.scalars(
+                sa.select(MediaJobRow.id)
+                .where(
+                    MediaJobRow.state == MediaJobState.HELD,
+                    MediaJobRow.updated_at < now - ORPHANED_HOLD_AFTER,
+                    sa.or_(
+                        MediaJobRow.output_decision.is_(None),
+                        MediaJobRow.output_decision != MediaScreenDecision.ALLOW,
+                    ),
+                    ~live_review,
+                )
+                .limit(SWEEP_BATCH)
+            )
+        ).all()
+    failed = 0
+    for job_id in ids:
+        if await fail_job(
+            rt,
+            job_id,
+            expected=(MediaJobState.HELD,),
+            error_code=MediaErrorCode.HELD_UNRESOLVED,
+            refund=MediaCreditReason.GENERATION_FAILED,
+        ):
+            failed += 1
+    return failed
+
+
 async def sweep_media(rt: MediaRuntime, *, now: datetime | None = None) -> dict[str, Any]:
-    """Run the seven arms once (GPU hygiene in two steps). A failed arm is contained, reported."""
+    """Run the eight arms once (GPU hygiene in two steps). A failed arm is contained, reported."""
     at = now or rt.clock()
     summary: dict[str, Any] = {}
     errors: list[str] = []
@@ -631,6 +675,7 @@ async def sweep_media(rt: MediaRuntime, *, now: datetime | None = None) -> dict[
         ("head_redriven", _redrive_head),
         ("delivering_unstuck", _unstick_delivering),
         ("reviews", _review_queue),
+        ("orphaned_holds_failed", _orphaned_holds),
     ):
         try:
             summary[name] = await arm(rt, at)

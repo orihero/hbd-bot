@@ -8,7 +8,7 @@ object opens only with the owner's private key.
 from __future__ import annotations
 
 import os
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -83,6 +83,13 @@ def test_normalise_folds_the_tricks(raw: str, folded: str) -> None:
         ("террористы", CategoryCode.EXTREMISM),
         ("uni oʻldir", CategoryCode.VIOLENCE),
         ("lolicon art", CategoryCode.SEXUAL_MINORS),
+        # The names whose stems were tightened (M3.R) still match in their own forms.
+        ("Donald Trump at a party", CategoryCode.POLITICS_OFFICIALS),
+        ("Трампом", CategoryCode.POLITICS_OFFICIALS),
+        ("Marvel's heroes", CategoryCode.COPYRIGHT_CHARACTER),
+        ("Marvel Studios poster", CategoryCode.COPYRIGHT_CHARACTER),
+        ("uni qatl qilish", CategoryCode.VIOLENCE),
+        ("zoʻrlab", CategoryCode.VIOLENCE),
     ],
 )
 def test_the_denylist_matches_in_every_script(text: str, category: CategoryCode) -> None:
@@ -96,6 +103,15 @@ def test_the_denylist_matches_in_every_script(text: str, category: CategoryCode)
         "Karimovlar oilasi uchun tabrik",  # a common surname is not an official
         "tugʻilgan kuning bilan, onajon",
         "бабушка с тортом",
+        # A stem is a prefix match, and these ordinary words begin with a listed name: each
+        # was a refusal and a strike before M3.R (§6.4 L0).
+        "a boy playing the trumpet at his party",
+        "прыжок с трамплина",
+        "a marvelous birthday cake",
+        "Marvellous sunset over the lake",
+        "the guests marvel at the cake",
+        "qatlamli tort va qatlama",  # a layer cake and the layered bread
+        "eng zoʻrlar uchun",  # "for the very best"
     ],
 )
 def test_an_ordinary_greeting_is_not_on_the_denylist(text: str) -> None:
@@ -239,6 +255,23 @@ async def test_a_csam_suspension_never_expires_or_downgrades() -> None:
     assert await store.suspension(USER, now=FIXED_NOW) is None
 
 
+async def test_a_csam_suspension_survives_a_strike_write_that_fails() -> None:
+    # M3.R: the suspension is written before the strikes, so a Redis error on the strike
+    # write cannot be what leaves a CSAM-class account unsuspended.
+    class FailingStrikes(MemoryStrikeStore):
+        async def add_strikes(
+            self, telegram_user_id: int, *, event_id: str, weight: int, now: datetime
+        ) -> int:
+            raise ConnectionError("redis went away")
+
+    store = FailingStrikes()
+    with pytest.raises(ConnectionError):
+        await record_block(store, USER, event_id="j:prepay", weight=3, is_csam=True, now=FIXED_NOW)
+
+    found = await store.suspension(USER, now=FIXED_NOW)
+    assert found is not None and found.reason is SuspensionReason.CSAM
+
+
 async def test_the_screening_budget_counts_a_job_once() -> None:
     store = MemoryStrikeStore()
     assert await store.count_screen(USER, job_id="j1", now=FIXED_NOW) == 1
@@ -266,6 +299,11 @@ async def test_the_redis_strike_store_against_a_live_redis() -> None:
         assert await store.count_screen(USER, job_id="j", now=FIXED_NOW) == 1
         assert await store.clear(USER)
         assert await store.suspension(USER, now=FIXED_NOW) is None
+        # The atomic strikes suspension (M3.R) sets a TTL on an empty key.
+        await store.suspend(USER, reason=SuspensionReason.STRIKES, now=FIXED_NOW)
+        found = await store.suspension(USER, now=FIXED_NOW)
+        assert found is not None and found.reason is SuspensionReason.STRIKES
+        assert await redis.ttl(f"{prefix}media:suspended:{USER}") > 0
     finally:
         keys = [key async for key in redis.scan_iter(match=f"{prefix}*")]
         if keys:
@@ -329,3 +367,21 @@ def test_unsuspend_takes_a_positive_telegram_id() -> None:
     for bad in ("0", "abc"):
         with pytest.raises(RefusedError):
             plan(["unsuspend", bad])
+
+
+def test_legal_hold_takes_a_job_id_and_exactly_one_decision() -> None:
+    # §6.7 (M3.R): the escalation owner's reporting decision, recorded on the host.
+    from bayram.db.enums import MediaLegalHoldDecision
+    from bayram.tools.media import RefusedError, plan
+
+    job_id = uuid4()
+    handover = plan(["legal-hold", str(job_id), "--handover"])
+    assert (handover.job_id, handover.decision) == (job_id, MediaLegalHoldDecision.HANDOVER)
+    assert plan(["legal-hold", str(job_id), "--delete"]).decision is MediaLegalHoldDecision.DELETE
+    for bad in (
+        ["legal-hold", "not-a-uuid", "--delete"],
+        ["legal-hold", str(job_id)],
+        ["legal-hold", str(job_id), "--handover", "--delete"],
+    ):
+        with pytest.raises(RefusedError):
+            plan(bad)

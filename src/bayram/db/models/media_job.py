@@ -43,6 +43,7 @@ from bayram.db.enums import (
     MediaBackend,
     MediaJobState,
     MediaKind,
+    MediaLegalHoldDecision,
     MediaPaidVia,
     MediaRefundState,
     MediaScreenDecision,
@@ -61,6 +62,7 @@ __all__ = [
     "TRANSCRIPT_LENGTH",
     "FAILED_REASON_LENGTH",
     "MEDIA_ERROR_CODE_LENGTH",
+    "CSAM_BLOCKED_ERROR_CODE",
 ]
 
 #: §1.3: a prompt is 3–800 characters.
@@ -73,6 +75,11 @@ TRANSCRIPT_LENGTH: Final[int] = 400
 FAILED_REASON_LENGTH: Final[int] = 256
 #: A closed ``bayram.errors`` code, as on ``vendor_usage``.
 MEDIA_ERROR_CODE_LENGTH: Final[int] = 48
+
+#: ``error_code`` of a CSAM-class block (§6.4 hard rule, §6.7) — the one value the database
+#: layer reads back: an uncleared one is a standing suspension (``csam_cleared_at``), and the
+#: purge keeps that row. ``runtime.media_jobs.MediaErrorCode.CSAM_BLOCKED`` is this string.
+CSAM_BLOCKED_ERROR_CODE: Final[str] = "csam_blocked"
 
 #: One open request per (account, kind), §7.6. Hand-named and spelled identically in 0031.
 OPEN_REQUEST_INDEX: Final[str] = "ix_media_jobs_one_open_request"
@@ -230,6 +237,17 @@ class MediaJobRow(Base):
     #: Set by ``/forget`` on a paid, unfinished job: it is not delivered and is purged at its
     #: next stage boundary (§9.3).
     forget_requested_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+
+    # -- CSAM-class blocks (§6.4, §6.7; revision 0033) ------------------------------------
+    #: The escalation owner's reporting decision on this job's held bytes; NULL undecided.
+    legal_hold_decision: Mapped[MediaLegalHoldDecision | None] = mapped_column(
+        enum_type(MediaLegalHoldDecision, length=_SHORT_ENUM), nullable=True
+    )
+    legal_hold_decided_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    #: When an operator lifted the account suspension this ``csam_blocked`` job caused
+    #: (``tools.media unsuspend``). NULL on such a job IS the suspension, durably: the
+    #: screen gate reads it beside Redis, so a Redis restart does not lift it.
+    csam_cleared_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
 
     # -- clocks ---------------------------------------------------------------------------
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utc_now)

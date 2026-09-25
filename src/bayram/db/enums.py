@@ -820,3 +820,16 @@ class MediaReviewDecision(StrEnum):
     RELEASED = "released"
     BLOCKED = "blocked"
     EXPIRED = "expired"
+
+
+class MediaLegalHoldDecision(StrEnum):
+    """The escalation owner's reporting decision on a CSAM-class hold (IMAGE_VIDEO_SPEC §6.7).
+
+    Recorded with ``python -m bayram.tools.media legal-hold``. ``HANDOVER`` — the bytes go to
+    the authorities — stops the legal-hold purge from deleting them at
+    ``legal_hold_expires_at``; ``DELETE`` brings that clock forward to now. Either way the
+    rows keep the hash and metadata. NULL is "not decided yet": the 72 h clock runs.
+    """
+
+    HANDOVER = "handover"
+    DELETE = "delete"

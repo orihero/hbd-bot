@@ -28,7 +28,7 @@ Broadcast delivery log  ``broadcast_recipients``, deleted outright     13 months
 Anonymised acceptances  ``terms_acceptances`` with no account, deleted 13 months
 Media uploads           ``media_inputs`` past ``expires_at``, deleted   24 h †
 Media outputs           ``media_outputs`` past ``expires_at``, deleted  30 days
-Media legal holds       ``legal_hold`` rows past their own clock        72 h
+Media legal holds       ``legal_hold`` objects past their own clock     72 h
 Media prompts           ``media_jobs`` text columns, nulled in place    30 days
 Unpaid media requests   ``media_jobs`` rejected/cancelled/abandoned     30 days
 Media attempts          ``media_attempts``, deleted outright            13 months
@@ -40,8 +40,10 @@ The media rows arrived with revision 0031 (IMAGE_VIDEO_SPEC §3.2.4). † An upl
 a BACKSTOP — ``media_cleanup`` deletes it at delivery or failure (O16) — reset on payment to
 the SKU's deadline plus the review SLA. Every media sweep that deletes bytes skips
 ``retention_class = 'legal_hold'`` except the legal-hold arm, which reads only
-``legal_hold_expires_at`` (§6.7) and logs every row it removes at WARNING, because a deletion
-of held material is the one purge an escalation owner must be able to reconstruct. An unpaid
+``legal_hold_expires_at`` (§6.7), deletes the held OBJECT but keeps its row (the hash and
+metadata, ``deleted_at`` set), skips a job whose escalation owner decided ``handover``, and
+logs every object it removes at WARNING with its hash, because a deletion of held material
+is the one purge an escalation owner must be able to reconstruct. An unpaid
 request row goes whole only once its text clock has run out and nothing under it is held; a
 paid one keeps its row, text-less, as the record of a sale. The two receipt tables are swept
 only once ``/forget`` has anonymised them — the ``terms_acceptances`` narrowing.
@@ -179,7 +181,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bayram.contracts import OrderState, Result
 from bayram.db.credits import settle_stale_debits
-from bayram.db.enums import MEDIA_UNPAID_TERMINAL_STATES, PaymentIntentState
+from bayram.db.enums import (
+    MEDIA_UNPAID_TERMINAL_STATES,
+    MediaLegalHoldDecision,
+    PaymentIntentState,
+)
 from bayram.db.guard import run_guarded
 from bayram.db.models.admin_audit import AdminAuditRow
 from bayram.db.models.admin_session import AdminSessionRow
@@ -192,7 +198,7 @@ from bayram.db.models.generation_attempt import GenerationAttemptRow
 from bayram.db.models.media_attempt import MediaAttemptRow
 from bayram.db.models.media_credit import MediaCreditLedgerRow
 from bayram.db.models.media_input import MediaInputRow, MediaOutputRow
-from bayram.db.models.media_job import MediaJobRow
+from bayram.db.models.media_job import CSAM_BLOCKED_ERROR_CODE, MediaJobRow
 from bayram.db.models.media_purchase import MediaPurchaseRow
 from bayram.db.models.name_record import NameRecordRow
 from bayram.db.models.order import OrderRow
@@ -854,10 +860,17 @@ def _media_outputs_due(now: datetime) -> sa.ColumnElement[bool]:
 def _media_holds_due(
     model: type[MediaInputRow] | type[MediaOutputRow], now: datetime
 ) -> sa.ColumnElement[bool]:
-    """Legal-hold rows past THEIR clock (§6.7) — ``expires_at`` is irrelevant to them."""
+    """Held objects past THEIR clock (§6.7) — ``expires_at`` is irrelevant to them — whose
+    bytes are still there, unless the escalation owner decided to hand them to the
+    authorities (``media_jobs.legal_hold_decision = 'handover'``)."""
     return sa.and_(
         model.retention_class == RetentionClass.LEGAL_HOLD,
         model.legal_hold_expires_at <= now,
+        model.deleted_at.is_(None),
+        ~sa.exists().where(
+            MediaJobRow.id == model.job_id,
+            MediaJobRow.legal_hold_decision == MediaLegalHoldDecision.HANDOVER,
+        ),
     )
 
 
@@ -879,12 +892,21 @@ def _unpaid_media_jobs_due(now: datetime) -> sa.ColumnElement[bool]:
     On ``text_expires_at``, which a terminal move sets to terminal + 30 d, so "30 days after
     the request ended" is one indexed predicate. The ``NOT EXISTS`` pair is the decision: a
     request rejected for CSAM-class content is exactly an unpaid terminal row, and deleting it
-    would cascade away the held evidence before its own clock (§6.7).
+    would cascade away the held evidence — whose rows outlive even the bytes, as the hash
+    and metadata record (§6.7). A CSAM-class row with no held media (a text-only request)
+    stays while its suspension stands (``csam_cleared_at`` NULL, §6.4): it IS the suspension.
     """
     return sa.and_(
         MediaJobRow.state.in_(tuple(MEDIA_UNPAID_TERMINAL_STATES)),
         MediaJobRow.paid_at.is_(None),
         MediaJobRow.text_expires_at <= now,
+        # Spelled as an OR, not ``NOT (a AND b)``: ``error_code`` is NULL on most rows, and
+        # NOT (NULL AND …) is NULL, which would keep every ordinary row for ever.
+        sa.or_(
+            MediaJobRow.error_code.is_(None),
+            MediaJobRow.error_code != CSAM_BLOCKED_ERROR_CODE,
+            MediaJobRow.csam_cleared_at.is_not(None),
+        ),
         ~sa.exists().where(
             MediaInputRow.job_id == MediaJobRow.id,
             MediaInputRow.retention_class == RetentionClass.LEGAL_HOLD,
@@ -1570,18 +1592,39 @@ async def _purge_media_holds(
     now: datetime,
     limit: int,
 ) -> tuple[tuple[str, ...], int]:
-    """Legal-hold rows whose ≤72 h clock ran out (§6.7): deleted, and each one logged.
+    """Held objects whose ≤72 h clock ran out (§6.7): the BYTES are deleted, the row is kept.
 
-    The WARNING line is the audit record — table, row and job, never the key's bytes or
-    anything the customer wrote — so an escalation owner can reconstruct what left and when.
+    "At expiry the bytes are deleted (hash + metadata kept)": the row stays ``legal_hold``
+    with ``deleted_at`` set, so its ``sha256``, size and times — what a report quotes — and
+    the job row above it survive. A ``handover`` decision keeps the bytes too
+    (:func:`_media_holds_due`). The WARNING line is the audit record — table, row, job and
+    the hash, never the bytes or anything the customer wrote — so an escalation owner can
+    reconstruct what left and when.
     """
-    keys, rows = await _delete_media_rows(session, model, _media_holds_due(model, now), limit=limit)
-    for row_id, job_id, _ in rows:
-        _log.warning(
-            "legal hold expired; held media deleted",
-            extra={"table": model.__tablename__, "row_id": str(row_id), "job_id": str(job_id)},
+    rows = (
+        await session.execute(
+            sa.select(model.id, model.job_id, model.storage_key, model.sha256)
+            .where(_media_holds_due(model, now))
+            .order_by(model.legal_hold_expires_at)
+            .limit(limit)
         )
-    return keys, len(rows)
+    ).all()
+    if not rows:
+        return (), 0
+    await session.execute(
+        sa.update(model).where(model.id.in_([row[0] for row in rows])).values(deleted_at=now)
+    )
+    for row_id, job_id, _, sha256 in rows:
+        _log.warning(
+            "legal hold expired; held bytes deleted, hash and metadata kept",
+            extra={
+                "table": model.__tablename__,
+                "row_id": str(row_id),
+                "job_id": str(job_id),
+                "sha256": sha256,
+            },
+        )
+    return tuple(key for _, _, key, _ in rows if key is not None), len(rows)
 
 
 async def _purge_media_job_texts(session: AsyncSession, *, now: datetime, limit: int) -> int:

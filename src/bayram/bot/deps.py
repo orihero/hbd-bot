@@ -31,6 +31,7 @@ from bayram.entitlements import EntitlementStore
 from bayram.lyric_budget import LyricBudgetStore
 from bayram.media.desk import JobView, MediaDesk
 from bayram.media.overrides import MediaSwitchStore
+from bayram.moderation.strikes import StrikeStore
 from bayram.pipeline.ports import ContentWriter
 from bayram.support import SupportTicketStore
 from bayram.terms import TermsCache, TermsGate
@@ -313,6 +314,10 @@ class BotDeps:
     #: §4.5) and the per-account menu version ``menu:v:{tg}`` (§2.2). ``None`` reads as "not
     #: paused" and "nothing to re-push". Trailing and defaulted, for the reason ``terms`` gives.
     media_kv: MediaSwitchStore | None = None
+    #: The media strike store (IMAGE_VIDEO_SPEC §6.4), read by the compose screens so a
+    #: suspended account is refused before a row is frozen. ``None`` reads "not suspended";
+    #: the worker's screen gate is the backstop. Trailing and defaulted, as ``terms`` gives.
+    media_strikes: StrikeStore | None = None
     #: The one-reply-per-album seen-set (IMAGE_VIDEO_SPEC §2.3.2), shared by the inbound gate
     #: and the handlers so an album counts once and is answered once. In-process by design.
     albums: AlbumMemory = field(default_factory=AlbumMemory)

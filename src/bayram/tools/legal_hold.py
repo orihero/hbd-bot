@@ -9,7 +9,9 @@ Run on the ESCALATION OWNER'S machine, never on the host::
 The host holds only the public key, so it can seal held bytes and can never read them back
 (``bayram.moderation.legal_hold``). Copying a held object off the host and opening it is the
 out-of-band access §6.7 describes; the reporting decision it serves is due within 72 hours
-(``legal_hold_expires_at``), after which the purge deletes the bytes and keeps the hash.
+(``legal_hold_expires_at``), after which the purge deletes the bytes and keeps the hash —
+unless the decision was recorded ON THE HOST as a handover
+(``python -m bayram.tools.media legal-hold <job_id> --handover``), which keeps them.
 
 Exit codes: ``0`` done, ``1`` refused (bad input, wrong key, not a sealed object).
 """

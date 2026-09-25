@@ -208,12 +208,41 @@ def test_an_offered_sku_whose_legal_hold_cannot_be_sealed_refuses(base: Settings
 
 def test_the_guards_default_to_the_gateway_and_may_live_elsewhere(base: Settings) -> None:
     refuse_unsafe_media_config(_beta(base))
-    refuse_unsafe_media_config(_beta(base, media_moderator_base_url="https://guards.example.test"))
+    refuse_unsafe_media_config(
+        _beta(
+            base,
+            media_moderator_base_url="https://guards.example.test",
+            media_moderator_api_key="hosted-guard-key",
+        )
+    )
+
+
+def test_a_guard_host_that_is_not_the_gateway_needs_its_own_key(base: Settings) -> None:
+    # M3.R: the gateway's key is never sent to another host, so that host needs its own.
+    with pytest.raises(ConfigError, match="BAYRAM_MEDIA_MODERATOR_API_KEY"):
+        refuse_unsafe_media_config(
+            _beta(base, media_moderator_base_url="https://guards.example.test")
+        )
+    with pytest.raises(ConfigError, match="ACCESS_CLIENT_ID"):
+        refuse_unsafe_media_config(
+            _beta(
+                base,
+                media_moderator_base_url="https://guards.example.test",
+                media_moderator_api_key="k",
+                media_moderator_access_client_id="half-a-token",
+            )
+        )
 
 
 def test_a_guard_address_on_plain_http_refuses(base: Settings) -> None:
     with pytest.raises(ConfigError, match="guard address"):
-        refuse_unsafe_media_config(_beta(base, media_moderator_base_url="http://203.0.113.9:8000"))
+        refuse_unsafe_media_config(
+            _beta(
+                base,
+                media_moderator_base_url="http://203.0.113.9:8000",
+                media_moderator_api_key="k",
+            )
+        )
 
 
 def test_a_fake_moderator_with_media_offered_still_refuses(base: Settings) -> None:

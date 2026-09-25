@@ -408,13 +408,24 @@ async def test_legal_hold_rows_survive_cleanup_forget_and_purge_until_their_own_
     clock.advance(days=_OUTPUT_DAYS + 1)
     after = await _purge(sessions, clock)
 
-    # Assert — the hold arm deletes both, and only then — later in the same run, since the
-    # hold arms go first — may the unpaid job row itself go.
+    # Assert — the hold arm deletes both OBJECTS, and keeps both rows — the hash and
+    # metadata a report quotes (§6.7, M3.R) — and so the job row above them stays too.
     assert (after.media_input_holds_deleted, after.media_output_holds_deleted) == (1, 1)
     assert {photo, held_output} <= set(after.storage_keys)
-    assert after.media_jobs_deleted == 1
-    assert await _count(sessions, MediaInputRow) == 0
-    assert await _count(sessions, MediaOutputRow) == 0
+    assert after.media_jobs_deleted == 0
+    assert await _count(sessions, MediaInputRow) == 1
+    assert await _count(sessions, MediaOutputRow) == 1
+    async with sessions() as session:
+        stamps = [
+            *(await session.scalars(sa.select(MediaInputRow.deleted_at))).all(),
+            *(await session.scalars(sa.select(MediaOutputRow.deleted_at))).all(),
+        ]
+    assert stamps == [clock.now, clock.now]
+
+    # And a later run deletes nothing twice.
+    clock.advance(days=1)
+    again = await _purge(sessions, clock)
+    assert (again.media_input_holds_deleted, again.media_output_holds_deleted) == (0, 0)
 
 
 async def test_a_held_rejection_keeps_its_job_row_past_the_text_clock(

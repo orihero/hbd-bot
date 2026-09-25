@@ -52,6 +52,7 @@ from bayram.db.enums import (
     MediaInputRole,
     MediaJobState,
     MediaKind,
+    MediaLegalHoldDecision,
     MediaOutputRole,
     MediaPaidVia,
     MediaPurchaseProvider,
@@ -64,7 +65,7 @@ from bayram.db.enums import (
 from bayram.db.models.media_attempt import MediaAttemptRow
 from bayram.db.models.media_credit import MediaCreditBalanceRow, MediaCreditLedgerRow
 from bayram.db.models.media_input import MediaInputRow, MediaOutputRow
-from bayram.db.models.media_job import MediaJobRow
+from bayram.db.models.media_job import CSAM_BLOCKED_ERROR_CODE, MediaJobRow
 from bayram.db.models.media_purchase import MediaPurchaseRow
 from bayram.db.retention import DEFAULT_RETENTION_POLICY, RetentionClass, RetentionPolicy
 
@@ -80,6 +81,9 @@ __all__ = [
     "record_input_stored",
     "add_output",
     "place_legal_hold",
+    "record_legal_hold_decision",
+    "has_standing_csam_block",
+    "clear_csam_blocks",
     "cleanup_job_media",
     "insert_attempt",
     "set_attempt_status",
@@ -456,6 +460,91 @@ async def place_legal_hold(
         )
         moved += rowcount_of(result)
     return moved
+
+
+async def record_legal_hold_decision(
+    session: AsyncSession, job_id: UUID, decision: MediaLegalHoldDecision, *, now: datetime
+) -> int:
+    """The escalation owner's reporting decision on a held job (§6.7). Held rows it covers.
+
+    ``HANDOVER`` keeps the bytes past ``legal_hold_expires_at`` — the purge skips the job
+    (``db.purge._media_holds_due``). ``DELETE`` brings every still-present held object's
+    clock forward to ``now``, so the next purge takes the bytes and keeps the rows. A later
+    decision replaces an earlier one (a handover done, then delete). 0 — and nothing
+    written — when the job holds nothing.
+    """
+    held = int(
+        await session.scalar(
+            sa.select(sa.func.count())
+            .select_from(MediaInputRow)
+            .where(
+                MediaInputRow.job_id == job_id,
+                MediaInputRow.retention_class == RetentionClass.LEGAL_HOLD,
+            )
+        )
+        or 0
+    ) + int(
+        await session.scalar(
+            sa.select(sa.func.count())
+            .select_from(MediaOutputRow)
+            .where(
+                MediaOutputRow.job_id == job_id,
+                MediaOutputRow.retention_class == RetentionClass.LEGAL_HOLD,
+            )
+        )
+        or 0
+    )
+    if held == 0:
+        return 0
+    await session.execute(
+        sa.update(MediaJobRow)
+        .where(MediaJobRow.id == job_id)
+        .values(legal_hold_decision=decision, legal_hold_decided_at=now)
+    )
+    if decision is MediaLegalHoldDecision.DELETE:
+        for model in (MediaInputRow, MediaOutputRow):
+            await session.execute(
+                sa.update(model)
+                .where(
+                    model.job_id == job_id,
+                    model.retention_class == RetentionClass.LEGAL_HOLD,
+                    model.deleted_at.is_(None),
+                    model.legal_hold_expires_at > now,
+                )
+                .values(legal_hold_expires_at=now)
+            )
+    return held
+
+
+def _standing_csam_block(telegram_user_id: int) -> sa.ColumnElement[bool]:
+    return sa.and_(
+        MediaJobRow.telegram_user_id == telegram_user_id,
+        MediaJobRow.error_code == CSAM_BLOCKED_ERROR_CODE,
+        MediaJobRow.csam_cleared_at.is_(None),
+    )
+
+
+async def has_standing_csam_block(session: AsyncSession, telegram_user_id: int) -> bool:
+    """Whether the account has a CSAM-class block no operator has cleared (§6.4).
+
+    The durable half of the suspension: Redis (``moderation.strikes``) is a cache here, and a
+    restart without persistence must not lift a suspension that only an operator may lift.
+    """
+    found = await session.scalar(
+        sa.select(MediaJobRow.id).where(_standing_csam_block(telegram_user_id)).limit(1)
+    )
+    return found is not None
+
+
+async def clear_csam_blocks(session: AsyncSession, telegram_user_id: int, *, now: datetime) -> int:
+    """An operator lifts the account's CSAM-class suspension (``tools.media unsuspend``).
+    Jobs cleared. The held bytes are untouched: they follow their own decision (§6.7)."""
+    result = await session.execute(
+        sa.update(MediaJobRow)
+        .where(_standing_csam_block(telegram_user_id))
+        .values(csam_cleared_at=now)
+    )
+    return rowcount_of(result)
 
 
 async def cleanup_job_media(session: AsyncSession, job_id: UUID) -> tuple[str, ...]:

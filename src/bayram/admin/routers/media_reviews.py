@@ -211,7 +211,11 @@ def build_media_reviews_router() -> APIRouter:
         review_id: UUID,
     ) -> MediaReviewActionResult:
         """Release a held output: the worker marks it allowed and delivers it. No step-up —
-        it delivers what the customer paid for and mints nothing (§8)."""
+        it delivers what the customer paid for and mints nothing (§8).
+
+        A ``guard_unavailable`` hold is the exception: no guard screened those outputs and
+        the panel cannot show them (reveal is M5), so its release asks the worker to screen
+        again, and only a guard's ``allow`` delivers (``media_review_apply``, M3.R)."""
         now = utc_now()
         view = await _pending(db, review_id)
         if not await decide_review(

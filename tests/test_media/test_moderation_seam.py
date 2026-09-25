@@ -19,7 +19,11 @@ from bayram.moderation.contracts import (
     TextItem,
     strictest,
 )
-from bayram.moderation.factory import UnbuiltGuardModerator, build_media_moderator
+from bayram.moderation.factory import (
+    UnbuiltGuardModerator,
+    build_media_moderator,
+    guard_credentials,
+)
 from bayram.moderation.fake import FakeModerator
 
 _VALID: dict[str, Any] = {
@@ -88,6 +92,44 @@ def test_the_factory_builds_the_fake_only_when_asked_or_under_fakes(settings: Se
         build_media_moderator(settings.model_copy(update={"use_fake_providers": True})),
         FakeModerator,
     )
+
+
+@pytest.mark.parametrize(
+    ("guard_url", "is_gateways"),
+    [
+        ("", True),
+        ("https://gpu.example.test/", True),
+        ("https://GPU.example.test/v1", True),
+        ("https://guards.example.test", False),
+        ("https://gpu.example.test:8443", False),
+        ("not a url", False),
+    ],
+)
+def test_the_gateways_credentials_go_only_to_the_gateways_host(
+    settings: Settings, guard_url: str, is_gateways: bool
+) -> None:
+    # M3.R: a hosted guard endpoint (D24 fallback) never receives the 5090's key or its
+    # Cloudflare Access token; it gets its own media_moderator_* credentials.
+    configured = settings.model_copy(
+        update={
+            "genai_base_url": "https://gpu.example.test",
+            "genai_api_key": "gateway-key",
+            "genai_access_client_id": "gateway-id",
+            "genai_access_client_secret": "gateway-secret",
+            "media_moderator_base_url": guard_url,
+            "media_moderator_api_key": "guard-key",
+        }
+    )
+
+    credentials = guard_credentials(configured)
+
+    if is_gateways:
+        assert credentials.api_key == "gateway-key"
+        assert credentials.access_client_secret == "gateway-secret"
+    else:
+        assert credentials.api_key == "guard-key"
+        assert credentials.access_client_id == ""
+        assert credentials.access_client_secret == ""
 
 
 async def test_the_fake_reports_the_strictest_subject_and_its_codes() -> None:

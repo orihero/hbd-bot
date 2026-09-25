@@ -27,7 +27,7 @@ from typing import Final, Literal, Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict
 
-from bayram.contracts import Result
+from bayram.contracts import Language, Result
 from bayram.db.enums import MediaScreenDecision
 
 __all__ = [
@@ -42,6 +42,7 @@ __all__ = [
     "DECISION_PRECEDENCE",
     "strictest",
     "unavailable_verdict",
+    "lang_hint_for",
 ]
 
 #: The policy the stored decisions were made under (§6.3). ``media_start`` refuses a job whose
@@ -50,7 +51,7 @@ __all__ = [
 #: ``moderation/policy.py`` (label mapping, thresholds, the hard rule) and
 #: ``moderation/lexicon.py`` (the denylist and youth lexicon): change either, bump this.
 #: Defined here rather than in ``policy`` because every verdict carries it.
-MEDIA_POLICY_VERSION: Final[str] = "m3.1-2026-09-25"
+MEDIA_POLICY_VERSION: Final[str] = "m3.r-2026-09-25"
 
 
 class CategoryCode(StrEnum):
@@ -119,12 +120,17 @@ class ImageItem:
 
 @dataclass(frozen=True, slots=True)
 class VoiceTranscript:
-    """What whisper heard in an own voice note (§5.4). M4 reads the quality numbers."""
+    """What whisper heard in an own voice note (§5.4). M4 reads the quality numbers.
+
+    Each number is the WORST segment's, since §5.4's hallucination checks refuse a note when
+    any one segment fails them — except ``avg_logprob``, the mean over segments."""
 
     text: str
     language: str
     avg_logprob: float | None = None
     no_speech_prob: float | None = None
+    #: The highest ``compression_ratio`` of any segment (§5.4: above 2.4 → refused).
+    max_compression_ratio: float | None = None
 
 
 @runtime_checkable
@@ -134,11 +140,11 @@ class MediaModerator(Protocol):
     name: str
 
     async def screen_text(
-        self, items: Sequence[TextItem], *, policy: str
+        self, items: Sequence[TextItem], *, policy: str, lang_hint: str | None = None
     ) -> Result[MediaVerdict]: ...
 
     async def screen_images(
-        self, items: Sequence[ImageItem], *, policy: str
+        self, items: Sequence[ImageItem], *, policy: str, lang_hint: str | None = None
     ) -> Result[MediaVerdict]: ...
 
     async def transcribe(self, audio: Path, *, language_hint: str) -> Result[VoiceTranscript]: ...
@@ -178,3 +184,15 @@ def unavailable_verdict(subject: VerdictSubject, *, model_id: str, policy: str) 
         model_id=model_id,
         policy_version=policy,
     )
+
+
+def lang_hint_for(language: Language) -> str:
+    """G1's ``lang_hint`` (§6.5) for a job's language: the ISO 639-1 code, so both Uzbek
+    scripts are ``uz`` — the guard is told the language, and reads the script itself."""
+    match language:
+        case Language.UZ_LATN | Language.UZ_CYRL:
+            return "uz"
+        case Language.RU:
+            return "ru"
+        case Language.EN:
+            return "en"

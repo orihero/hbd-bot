@@ -63,6 +63,8 @@ from bayram.db.models.media_purchase import MediaPurchaseRow
 from bayram.media.desk import JobView, SqlMediaDesk
 from bayram.media.overrides import GPU_RESERVED_KEY
 from bayram.media.stages import MEDIA_CLEANUP_JOB, MEDIA_SCREEN_JOB, MEDIA_START_JOB
+from bayram.moderation.lexicon import PROMPT_MAX_WORDS
+from bayram.moderation.strikes import MemoryStrikeStore, SuspensionReason
 from tests.test_bot.conftest import (
     BOT_ID,
     CHAT_ID,
@@ -127,8 +129,10 @@ class Rig:
         queue: ArqLikeQueue | None = None,
         profiles: FakeProfiles | None = None,
         media_charge: Callable[[JobView], Awaitable[Result[None]]] | None = None,
+        strikes: MemoryStrikeStore | None = None,
     ) -> None:
         self.settings = settings
+        self.strikes = strikes if strikes is not None else MemoryStrikeStore()
         self.sessions = sessions
         self.queue = queue if queue is not None else ArqLikeQueue()
         self.kv = kv if kv is not None else MemoryKV()
@@ -144,6 +148,7 @@ class Rig:
             media=SqlMediaDesk(sessions, queue=self.queue, settings=settings, clock=clock),
             media_kv=self.kv,
             media_charge=media_charge,
+            media_strikes=self.strikes,
         )
         self.dispatcher: Dispatcher = build_dispatcher(self.deps, storage=self.storage)
 
@@ -156,6 +161,7 @@ class Rig:
             kv=self.kv,
             queue=self.queue,
             profiles=self.profiles,
+            strikes=self.strikes,
         )
 
     async def fsm(self) -> dict[str, Any]:
@@ -406,6 +412,67 @@ async def test_done_while_the_gpu_is_reserved_is_busy_and_freezes_nothing(
     rig.kv.values[GPU_RESERVED_KEY] = (FIXED_MOMENT - timedelta(minutes=1)).isoformat()
     await press(rig.dispatcher, bot, med(MediaAction.DONE))
     assert await rig.fsm_state() == ImageOrder.aspect.state
+
+
+async def test_a_suspended_accounts_done_freezes_no_row(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    # §6.4 L0 "strike check" in the handler (M3.R): nothing is frozen, nothing downloaded.
+    rig = Rig(media_on(settings), sessions)
+    await open_image_compose(rig, bot)
+    await send(rig.dispatcher, bot, PROMPT)
+    await rig.dispatcher.feed_update(bot, photo_update("a"))
+    await rig.strikes.suspend(USER_ID, reason=SuspensionReason.CSAM, now=FIXED_MOMENT)
+
+    await press(rig.dispatcher, bot, med(MediaAction.DONE))
+
+    assert tray_edits(session)[-1] == translate("media.refused.suspended", Language.EN)
+    assert await rig.jobs() == []
+    assert not rig.queue.pending
+    assert await rig.fsm_state() != ImageOrder.aspect.state
+
+
+async def test_a_suspension_between_done_and_the_shape_freezes_no_row(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    rig = Rig(media_on(settings), sessions)
+    await open_image_compose(rig, bot)
+    await send(rig.dispatcher, bot, PROMPT)
+    await press(rig.dispatcher, bot, med(MediaAction.DONE))
+    await rig.strikes.suspend(USER_ID, reason=SuspensionReason.STRIKES, now=FIXED_MOMENT)
+
+    await press(rig.dispatcher, bot, med(MediaAction.ASPECT, arg=AspectPick.SQUARE))
+
+    assert await rig.jobs() == []
+    assert not rig.queue.pending
+
+
+async def test_a_prompt_over_the_word_cap_is_not_taken(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    # Under 800 characters but over PROMPT_MAX_WORDS: the worker's L0 would refuse it, so
+    # the tray does not accept it in the first place (M3.R).
+    rig = Rig(media_on(settings), sessions)
+    await open_image_compose(rig, bot)
+    many_words = " ".join(["a b"] * (PROMPT_MAX_WORDS // 2 + 1))
+    assert len(many_words) <= 800
+
+    await send(rig.dispatcher, bot, many_words)
+
+    assert sent_texts(session)[-1].startswith(
+        translate("media.prompt.invalid", Language.EN, min=3, max=800)[:20]
+    )
+    draft = load_media_draft(await rig.fsm())
+    assert draft is not None and draft.prompt is None
 
 
 async def test_an_album_to_the_stray_message_fallback_draws_one_reply(

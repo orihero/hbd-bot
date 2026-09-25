@@ -118,11 +118,16 @@ async def record_block(
     is_csam: bool,
     now: datetime,
 ) -> Suspension | None:
-    """Strike for one block, and suspend when the rule says so. The suspension, if any."""
-    count = await store.add_strikes(telegram_user_id, event_id=event_id, weight=weight, now=now)
+    """Strike for one block, and suspend when the rule says so. The suspension, if any.
+
+    A CSAM-class suspension is written FIRST: it does not depend on the count, and a Redis
+    error on the strike write must not be what skips it.
+    """
     if is_csam:
         await store.suspend(telegram_user_id, reason=SuspensionReason.CSAM, now=now)
+        await store.add_strikes(telegram_user_id, event_id=event_id, weight=weight, now=now)
         return Suspension(SuspensionReason.CSAM)
+    count = await store.add_strikes(telegram_user_id, event_id=event_id, weight=weight, now=now)
     if count >= STRIKE_LIMIT:
         await store.suspend(telegram_user_id, reason=SuspensionReason.STRIKES, now=now)
         return Suspension(SuspensionReason.STRIKES)
@@ -147,6 +152,19 @@ def _reason(raw: Any) -> Suspension | None:
         # An unknown value is somebody's hand edit; it still suspends, and never expires
         # by our doing — the safe reading of "suspended, reason unclear".
         return Suspension(SuspensionReason.CSAM)
+
+
+#: A ``strikes`` suspension, set only when the key holds nothing or another ``strikes`` —
+#: one server-side step, so a ``csam`` written between a GET and a SET can never be replaced
+#: by a seven-day TTL (any value but ``strikes`` reads as CSAM-class, :func:`_reason`).
+_SUSPEND_FOR_STRIKES_LUA: Final[str] = """
+local current = redis.call('GET', KEYS[1])
+if current and current ~= ARGV[1] then
+  return 0
+end
+redis.call('SET', KEYS[1], ARGV[1], 'EX', tonumber(ARGV[2]))
+return 1
+"""
 
 
 class RedisStrikeStore:
@@ -176,10 +194,13 @@ class RedisStrikeStore:
         if reason is SuspensionReason.CSAM:
             await self._redis.set(key, reason.value)
             return
-        current = _reason(await self._redis.get(key))
-        if current is not None and current.reason is SuspensionReason.CSAM:
-            return
-        await self._redis.set(key, reason.value, ex=int(STRIKE_SUSPENSION.total_seconds()))
+        await self._redis.eval(
+            _SUSPEND_FOR_STRIKES_LUA,
+            1,
+            key,
+            reason.value,
+            str(int(STRIKE_SUSPENSION.total_seconds())),
+        )
 
     async def suspension(self, telegram_user_id: int, *, now: datetime) -> Suspension | None:
         del now  # the key's TTL is the clock

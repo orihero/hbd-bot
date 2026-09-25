@@ -3,9 +3,11 @@
 On a CSAM-class block the job's inputs and outputs are put under ``legal_hold`` **in the same
 transaction as the block verdict** (``db.media.place_legal_hold``, called by the stage chain),
 so ``media_cleanup``, ``/forget`` and both ordinary purge predicates skip them; the legal-hold
-purge arm deletes them at ``legal_hold_expires_at`` (≤ 72 h) unless the escalation owner
-decided otherwise. This module does the other half: **the held bytes are encrypted at rest
-with a key only the escalation owner holds.**
+purge arm deletes the OBJECTS at ``legal_hold_expires_at`` (≤ 72 h) and keeps the rows (hash
+and metadata), unless the escalation owner recorded a ``handover`` decision
+(``python -m bayram.tools.media legal-hold``), which keeps the bytes too. This module does
+the other half: **the held bytes are encrypted at rest with a key only the escalation owner
+holds.**
 
 The scheme is a sealed box built from standard primitives: an ephemeral X25519 key agreement
 with the owner's public key (``media_legal_hold_recipient``), HKDF-SHA256 to a 256-bit key,
@@ -165,6 +167,8 @@ async def seal_held_objects(
                     model.job_id == job_id,
                     model.retention_class == RetentionClass.LEGAL_HOLD,
                     model.storage_key.is_not(None),
+                    # Past its clock the object is gone and the row is the record (§6.7).
+                    model.deleted_at.is_(None),
                 )
             )
             keys.extend(key for (key,) in rows.all() if key)

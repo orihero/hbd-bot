@@ -43,7 +43,7 @@ from bayram.media.offering import (
     offered_skus,
     sku_price_minor,
 )
-from bayram.moderation.factory import moderator_base_url
+from bayram.moderation.factory import is_gateway_host, moderator_base_url
 from bayram.moderation.legal_hold import parse_public_key
 from bayram.providers.media.local_gateway import (
     LOCAL_MODEL_ALLOWLIST,
@@ -91,7 +91,22 @@ def refuse_unsafe_media_config(settings: Settings) -> None:
 
 def _refuse_unreachable_guards(settings: Settings) -> None:
     base_url = moderator_base_url(settings)
-    if not base_url or not settings.genai_api_key.strip():
+    if not is_gateway_host(settings):
+        # A hosted guard endpoint (the D24 fallback) never gets the gateway's key, so it
+        # needs its own — and its own Access pair is whole or absent (§6.2).
+        if not settings.media_moderator_api_key.strip():
+            raise _refuse(
+                "a media SKU is offered and BAYRAM_MEDIA_MODERATOR_BASE_URL is on another "
+                "host than the gateway, but BAYRAM_MEDIA_MODERATOR_API_KEY is unset: the "
+                "gateway's own key is never sent there (IMAGE_VIDEO_SPEC §6.2).",
+            )
+        has_id = bool(settings.media_moderator_access_client_id.strip())
+        if has_id != bool(settings.media_moderator_access_client_secret.strip()):
+            raise _refuse(
+                "BAYRAM_MEDIA_MODERATOR_ACCESS_CLIENT_ID and _SECRET are both set or both "
+                "unset (IMAGE_VIDEO_SPEC §9.1).",
+            )
+    elif not base_url or not settings.genai_api_key.strip():
         raise _refuse(
             "a media SKU is offered but the guards have no address or key: set "
             "BAYRAM_MEDIA_MODERATOR_BASE_URL (or BAYRAM_GENAI_BASE_URL) and "

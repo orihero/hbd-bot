@@ -59,6 +59,7 @@ from bayram.errors import BayramError, ConfigError
 from bayram.logging import configure_logging, get_logger
 from bayram.media.boot import refuse_unsafe_media_config
 from bayram.media.desk import SqlMediaDesk
+from bayram.moderation.strikes import RedisStrikeStore
 from bayram.payme.pause import is_paused
 from bayram.pipeline.content import LlmContentWriter
 from bayram.runtime.container import AppContainer, build_container
@@ -548,6 +549,8 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         ),
         # The operator switches and ``menu:v:{tg}`` (§2.2, §4.5), on that same pool.
         media_kv=pool,
+        # The suspension the compose screens read before a freeze (§6.4 L0), same pool.
+        media_strikes=RedisStrikeStore(pool) if pool is not None else None,
     )
     # The lock that makes a state filter a real gate. Built from the same Redis as the
     # storage, so it holds across every process that could handle this chat.

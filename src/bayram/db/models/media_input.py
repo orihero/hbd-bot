@@ -16,8 +16,11 @@ intermediates (``video_raw``, ``narration``) 24 hours. ``tg_file_id`` goes with 
 **LEGAL HOLD** (§6.7, Q16). A CSAM-class block moves the offending rows to
 ``retention_class = 'legal_hold'`` with a ``legal_hold_expires_at`` at most 72 hours out. Every
 ordinary sweep and ``media_cleanup`` skip them; a separate purge arm deletes them when their
-own clock runs out. A CHECK makes a hold without an expiry impossible — a hold nobody set a
-clock on would be kept for ever, which is the one outcome the owner's decision rules out.
+own clock runs out — the OBJECT, that is: the row stays with ``deleted_at`` set, keeping the
+``sha256`` and metadata a report quotes, and the escalation owner's ``handover`` decision
+(``media_jobs.legal_hold_decision``) keeps even the bytes. A CHECK makes a hold without an
+expiry impossible — a hold nobody set a clock on would be kept for ever, which is the one
+outcome the owner's decision rules out.
 
 **PRIVACY** — both in ``tables_with_personal_data``: a photo of a person and a person's voice
 are the most sensitive bytes this product touches, and ``expires_at`` is the clock that
@@ -141,4 +144,7 @@ class MediaOutputRow(Base):
     )
     legal_hold_expires_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     expires_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, index=True)
+    #: When the object was deleted and the row kept (revision 0033). Only the legal-hold
+    #: purge sets it: at the hold's expiry the bytes go and the hash + metadata stay (§6.7).
+    deleted_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, default=utc_now)

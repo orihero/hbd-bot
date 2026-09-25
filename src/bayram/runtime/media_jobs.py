@@ -116,6 +116,7 @@ from bayram.db.media import (
     cleanup_job_media,
     find_attempt,
     grant_refund,
+    has_standing_csam_block,
     insert_attempt,
     latest_attempts,
     list_inputs,
@@ -132,7 +133,7 @@ from bayram.db.media import (
 from bayram.db.media_reviews import load_review, mark_applied, open_review
 from bayram.db.models.media_attempt import MediaAttemptRow
 from bayram.db.models.media_input import MediaInputRow
-from bayram.db.models.media_job import MediaJobRow
+from bayram.db.models.media_job import CSAM_BLOCKED_ERROR_CODE, MediaJobRow
 from bayram.db.retention import RetentionPolicy, resolve_retention_policy
 from bayram.errors import BayramError, PipelineError, StorageError, ValidationError
 from bayram.logging import get_logger
@@ -189,10 +190,11 @@ from bayram.moderation.contracts import (
     MediaModerator,
     MediaVerdict,
     TextItem,
+    lang_hint_for,
     strictest,
 )
 from bayram.moderation.factory import build_media_moderator
-from bayram.moderation.legal_hold import seal_held_objects
+from bayram.moderation.legal_hold import SealReport, seal_held_objects
 from bayram.moderation.lexicon import (
     NARRATION_MAX_CHARS,
     denylist_hits,
@@ -206,6 +208,8 @@ from bayram.moderation.strikes import (
     PREPAY_BLOCK_STRIKES,
     RedisStrikeStore,
     StrikeStore,
+    Suspension,
+    SuspensionReason,
     record_block,
 )
 from bayram.providers.media.factory import build_media_provider
@@ -371,11 +375,18 @@ class MediaErrorCode(StrEnum):
     #: §6.4: refused before screening — the account is suspended, or spent today's budget.
     SCREEN_SUSPENDED = "screen_suspended"
     SCREEN_BUDGET = "screen_budget"
-    #: §6.4 hard rule / §6.7: a CSAM-class block. The bytes are under legal hold.
-    CSAM_BLOCKED = "csam_blocked"
+    #: §6.4 hard rule / §6.7: a CSAM-class block. The bytes are under legal hold, and the
+    #: row, until an operator clears it, is the account's durable suspension.
+    CSAM_BLOCKED = CSAM_BLOCKED_ERROR_CODE
+    #: §1.3 / §6.4 L0: over the length or word cap. A refusal, never a strike — the length
+    #: of a description is not a judgement on its content.
+    SCREEN_CAPS = "screen_caps"
     #: §6.6: an operator confirmed a held output's block, or nobody decided within 24 h.
     REVIEW_BLOCKED = "review_blocked"
     REVIEW_EXPIRED = "review_expired"
+    #: A ``held`` job with no review to end it (a paid-backend ``ambiguous_submit`` hold, or
+    #: one from before revision 0032), failed by ``media_sweep`` after two hours (§4.3).
+    HELD_UNRESOLVED = "held_unresolved"
 
 
 class MediaKV(Protocol):
@@ -838,14 +849,27 @@ async def _escalate_csam(
     """§6.7: the bytes are held (already, in the verdict's transaction); seal them to the
     escalation owner and raise the alarm. The log line carries the job id, the layer and the
     closed codes — never content, never a user-visible string. The escalation owner records
-    a reporting decision within ``legal_hold_expires_at`` (72 h)."""
-    report = await seal_held_objects(
-        rt.sessions,
-        rt.storage,
-        job.id,
-        public_key=rt.settings.media_legal_hold_recipient,
-    )
+    a reporting decision within ``legal_hold_expires_at`` (72 h).
+
+    The suspension comes FIRST: the row has already moved to a terminal state, so nothing
+    retries this, and a sealing failure must not be what skips it. (Should Redis lose it
+    anyway, the ``csam_blocked`` row itself refuses the account at the screen gate.) A seal
+    that raises is logged; ``media_cleanup`` seals again.
+    """
     await _strike(rt, job, layer=layer, weight=CSAM_STRIKES, is_csam=True)
+    try:
+        report = await seal_held_objects(
+            rt.sessions,
+            rt.storage,
+            job.id,
+            public_key=rt.settings.media_legal_hold_recipient,
+        )
+    except Exception as exc:  # cleanup re-seals; the escalation line below must still go out
+        _LOG.error(
+            "legal-hold bytes could not be sealed; media_cleanup will try again",
+            extra={"media_job_id": str(job.id), "failure": type(exc).__name__},
+        )
+        report = SealReport(sealed=0, already=0, failed=1)
     _LOG.error(
         "CSAM-class media block: bytes held for the escalation owner",
         extra={
@@ -972,15 +996,15 @@ async def _screen(
 ) -> tuple[MediaScreenDecision, tuple[CategoryCode, ...]]:
     """L0, then L1/L2 through the moderator, then the hard rule (§6.4). Fail closed.
 
-    L0 is caps and the denylist over the words, and a hit is a block with **no guard call**.
-    Any ``Err`` from a guard is ``unavailable``. The youth signal comes from the words and is
+    L0 here is the denylist over the words, and a hit is a block with **no guard call**; the
+    length caps ran earlier (:func:`_over_caps`), since a length is not a verdict. Any ``Err``
+    from a guard is ``unavailable``. The youth signal comes from the words and is
     applied to the union of every guard's codes, so "schoolgirl" in the prompt and ``sexual``
     on a photo meet here even though no single guard saw both (§6.4 hard rule).
     """
     prompt = job.prompt or ""
     narration = job.narration_text or ""
-    if not is_within_caps(prompt) or len(narration) > NARRATION_MAX_CHARS:
-        return MediaScreenDecision.BLOCK, ()
+    lang_hint = lang_hint_for(job.language)
     texts = [TextItem(id="prompt", subject="prompt", content=prompt)]
     if narration:
         texts.append(TextItem(id="narration", subject="narration", content=narration))
@@ -989,7 +1013,7 @@ async def _screen(
     if hits:
         return apply_hard_rule(MediaScreenDecision.BLOCK, hits, youth_signal=youth)
     verdicts: list[Result[MediaVerdict]] = [
-        await rt.moderator.screen_text(texts, policy=MEDIA_POLICY_VERSION)
+        await rt.moderator.screen_text(texts, policy=MEDIA_POLICY_VERSION, lang_hint=lang_hint)
     ]
     images = [
         ImageItem(
@@ -1000,7 +1024,11 @@ async def _screen(
         for item in inputs
     ]
     if images:
-        verdicts.append(await rt.moderator.screen_images(images, policy=MEDIA_POLICY_VERSION))
+        verdicts.append(
+            await rt.moderator.screen_images(
+                images, policy=MEDIA_POLICY_VERSION, lang_hint=lang_hint
+            )
+        )
     decisions: list[MediaScreenDecision] = []
     categories: list[CategoryCode] = []
     for verdict in verdicts:
@@ -1010,6 +1038,15 @@ async def _screen(
         decisions.append(verdict.value.decision)
         categories.extend(code for code in verdict.value.categories if code not in categories)
     return apply_hard_rule(strictest(decisions), categories, youth_signal=youth)
+
+
+def _over_caps(job: MediaJobRow) -> bool:
+    """§1.3 / §6.4 L0: the prompt outside 3–800 characters or over the word cap, or a
+    narration longer than its column. The bot enforces the same caps at compose, so this is
+    a backstop for a row written some other way."""
+    return not is_within_caps(job.prompt or "") or len(job.narration_text or "") > (
+        NARRATION_MAX_CHARS
+    )
 
 
 async def _quote_eta_minutes(
@@ -1107,6 +1144,10 @@ async def media_screen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
     gated = await _screen_gate(rt, job)
     if gated is not None:
         return gated
+    if _over_caps(job):
+        # Refused, not struck, and before a byte is downloaded (§6.4 L0).
+        await _refuse(rt, job, key=_REFUSED_KEY, error_code=MediaErrorCode.SCREEN_CAPS, values={})
+        return _result("refused_caps", jid)
     workdir = media_workspace(rt, jid) / "in"
 
     # 1. The uploads, once each, as screened bytes.
@@ -1224,14 +1265,22 @@ async def _screen_gate(rt: MediaRuntime, job: MediaJobRow) -> dict[str, Any] | N
 
     The budget counts this JOB once, so a 🔁 on a busy tray does not spend twice. A Redis
     that cannot answer is ``busy``: the suspension could not be read, so nothing is screened.
+
+    **A CSAM-class suspension is read from the database too** (``csam_blocked`` rows no
+    operator cleared): Redis is a cache on this deployment, and a restart without persistence
+    must not lift a suspension only an operator may lift (§6.4).
     """
     now = rt.clock()
     try:
         suspended = await rt.strikes.suspension(job.telegram_user_id, now=now)
         screens = await rt.strikes.count_screen(job.telegram_user_id, job_id=str(job.id), now=now)
+        if suspended is None:
+            async with rt.sessions() as session:
+                if await has_standing_csam_block(session, job.telegram_user_id):
+                    suspended = Suspension(SuspensionReason.CSAM)
     except Exception as exc:  # the store raises on Redis failure; fail closed
         _LOG.warning(
-            "the media strike store could not be read",
+            "the media suspension could not be read",
             extra={"media_job_id": str(job.id), "failure": type(exc).__name__},
         )
         await _busy(rt, job, {})
@@ -2371,13 +2420,17 @@ async def media_output_screen(ctx: Mapping[str, Any], job_id: str, seq: int = 0)
     paths = await _output_paths(rt, job)
     decision = MediaScreenDecision.UNAVAILABLE
     categories: tuple[CategoryCode, ...] = ()
-    if not is_err(paths):
+    # No outputs to look at is ``unavailable``, never an ``allow`` of nothing (§6.3): a job
+    # that reached ``post`` without image rows (a video in M4, a future path) retries and
+    # is finally held, and is never delivered unscreened.
+    if not is_err(paths) and paths.value:
         verdict = await rt.moderator.screen_images(
             [
                 ImageItem(id=f"output-{index}", subject="output_image", path=path)
                 for index, (_, path) in enumerate(paths.value)
             ],
             policy=MEDIA_POLICY_VERSION,
+            lang_hint=lang_hint_for(job.language),
         )
         if not is_err(verdict):
             decision, categories = verdict.value.decision, verdict.value.categories
@@ -2620,7 +2673,10 @@ async def media_review_apply(
 
     * ``released`` → the output is marked allowed and delivered by ``media_deliver`` under a
       review-scoped id (the plain deliver id may already have been spent by a delivery that
-      stood down when the job was held);
+      stood down when the job was held) — **except a ``guard_unavailable`` hold**, whose
+      output no guard ever screened and no reviewer can see (output reveal is M5): there a
+      release moves the job back to ``post`` and asks the output screen again, so only a
+      real guard ``allow`` delivers it (a guard still down holds it again, a new review);
     * ``blocked`` → failed with one SKU-scoped credit (none for beta, §7.5), attributed to the
       operator, the customer told non-specifically, two strikes as for an L4 block (§6.4);
     * ``expired`` → the same failure and credit, and no strike: nobody judged it unsafe.
@@ -2643,7 +2699,33 @@ async def media_review_apply(
             await mark_applied(session, rid, now=now)
         return _result("noop_job_gone", review.job_id, review_id=review_id)
     outcome: str
-    if review.decision is MediaReviewDecision.RELEASED:
+    if (
+        review.decision is MediaReviewDecision.RELEASED
+        and review.source is MediaReviewSource.GUARD_UNAVAILABLE
+    ):
+        seq: int | None = None
+        async with rt.sessions.begin() as session:
+            back = await transition(
+                session,
+                job.id,
+                expected=(MediaJobState.HELD,),
+                to=MediaJobState.POST,
+                now=now,
+                values={"output_decision": None, "output_categories": None},
+            )
+            if back:
+                seq = await bump_seq(session, job.id, column="oscreen_seq", now=now)
+            await mark_applied(session, rid, now=now)
+        outcome = "rescreen" if back else "noop_not_held"
+        if seq is not None:
+            await enqueue_stage(
+                rt,
+                MEDIA_OUTPUT_SCREEN_JOB,
+                str(job.id),
+                seq,
+                job_id=output_screen_job_id(job.id, seq),
+            )
+    elif review.decision is MediaReviewDecision.RELEASED:
         async with rt.sessions.begin() as session:
             released = await session.execute(
                 sa.update(MediaJobRow)
@@ -2707,9 +2789,16 @@ async def media_cleanup(ctx: Mapping[str, Any], job_id: str) -> dict[str, Any]:
     keys: tuple[str, ...] = ()
     if job is not None:
         # Held bytes stay — sealed, if the stage that held them died before sealing (§6.7).
-        await seal_held_objects(
-            rt.sessions, rt.storage, jid, public_key=rt.settings.media_legal_hold_recipient
-        )
+        # A seal that raises must not keep the ordinary uploads from being deleted (O16).
+        try:
+            await seal_held_objects(
+                rt.sessions, rt.storage, jid, public_key=rt.settings.media_legal_hold_recipient
+            )
+        except Exception as exc:
+            _LOG.error(
+                "legal-hold bytes could not be sealed at cleanup",
+                extra={"media_job_id": str(jid), "failure": type(exc).__name__},
+            )
         async with rt.sessions.begin() as session:
             keys = await cleanup_job_media(session, jid)
         await _gpu_call("leave", rt.gpu.leave(*_members(job)), None)

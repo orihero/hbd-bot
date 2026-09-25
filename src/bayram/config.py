@@ -154,6 +154,10 @@ VENDOR_SECRET_FIELDS: Final[tuple[str, ...]] = (
     # The Cloudflare Access service token in front of that gateway (IMAGE_VIDEO_SPEC §9.1
     # item 2). The client id is not secret-shaped; the secret is.
     "genai_access_client_secret",
+    # A hosted guard endpoint's own credentials (IMAGE_VIDEO_SPEC §6.2, the D24 fallback):
+    # the gateway's key and Access token are never sent to a host that is not the gateway.
+    "media_moderator_api_key",
+    "media_moderator_access_client_secret",
 )
 
 #: The subset the bot and the worker cannot run without — the ones
@@ -820,9 +824,17 @@ class Settings(BaseSettings):
     #: for tests — boot refuses it with any SKU offered unless ``use_fake_providers`` (§4.5).
     media_moderator: MediaModeratorName = Field(default="gateway")
     #: Where the guards (G1–G3, G8) answer. Empty means ``genai_base_url``: they run on the
-    #: same 5090. A hosted endpoint serving the same contract is the D24 fallback, reached
-    #: by changing this and nothing else (§6.2). Same key and Access token as the gateway.
+    #: same 5090. A hosted endpoint serving the same contract is the D24 fallback (§6.2).
+    #: On the gateway's own host the gateway's key and Access token are used; on any OTHER
+    #: host only the three ``media_moderator_*`` credentials below are, so the 5090's key is
+    #: never handed to a third party (``moderation.factory.guard_credentials``).
     media_moderator_base_url: str = Field(default="", max_length=255)
+    #: The hosted guard endpoint's key, sent as the same header. Required (boot) when
+    #: ``media_moderator_base_url`` is on another host than ``genai_base_url``. Secret.
+    media_moderator_api_key: str = Field(default="")
+    #: An optional Cloudflare Access service token in front of that endpoint; both or neither.
+    media_moderator_access_client_id: str = Field(default="", max_length=128)
+    media_moderator_access_client_secret: str = Field(default="")
     #: How G1 is reached (§6.5): ``moderate`` is the dedicated ``POST /v1/moderate/text``;
     #: ``chat`` is the interim — Qwen3Guard exposed on ``/v1/chat/completions`` and its
     #: ``Safety: … / Categories: …`` text parsed strictly by us.

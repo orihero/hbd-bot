@@ -40,6 +40,7 @@ class FakeScreenCall:
     kind: str
     subjects: tuple[VerdictSubject, ...]
     item_ids: tuple[str, ...]
+    lang_hint: str | None = None
 
 
 @dataclass(slots=True)
@@ -115,11 +116,16 @@ class FakeModerator:
             return self.failures_once.pop(0)
         return self.failure
 
-    async def screen_text(self, items: Sequence[TextItem], *, policy: str) -> Result[MediaVerdict]:
+    async def screen_text(
+        self, items: Sequence[TextItem], *, policy: str, lang_hint: str | None = None
+    ) -> Result[MediaVerdict]:
         subjects = tuple(item.subject for item in items)
         self.calls.append(
             FakeScreenCall(
-                kind="text", subjects=subjects, item_ids=tuple(item.id for item in items)
+                kind="text",
+                subjects=subjects,
+                item_ids=tuple(item.id for item in items),
+                lang_hint=lang_hint,
             )
         )
         failure = self._failure()
@@ -128,17 +134,32 @@ class FakeModerator:
         return ok(self._verdict(subjects, policy=policy, item_ids=[item.id for item in items]))
 
     async def screen_images(
-        self, items: Sequence[ImageItem], *, policy: str
+        self, items: Sequence[ImageItem], *, policy: str, lang_hint: str | None = None
     ) -> Result[MediaVerdict]:
         subjects = tuple(item.subject for item in items)
         self.calls.append(
             FakeScreenCall(
-                kind="image", subjects=subjects, item_ids=tuple(item.id for item in items)
+                kind="image",
+                subjects=subjects,
+                item_ids=tuple(item.id for item in items),
+                lang_hint=lang_hint,
             )
         )
         failure = self._failure()
         if failure is not None:
             return err(failure)
+        if not items:
+            # As the gateway: nothing looked at is not an ``allow`` (§6.3).
+            return ok(
+                MediaVerdict(
+                    decision=MediaScreenDecision.UNAVAILABLE,
+                    categories=(),
+                    scores={},
+                    subject="upload",
+                    model_id=self.name,
+                    policy_version=policy,
+                )
+            )
         return ok(self._verdict(subjects, policy=policy, item_ids=[item.id for item in items]))
 
     async def transcribe(self, audio: Path, *, language_hint: str) -> Result[VoiceTranscript]:

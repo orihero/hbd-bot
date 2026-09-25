@@ -36,10 +36,21 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import StaticPool
 
 from bayram.config import Settings
-from bayram.contracts import is_ok
+from bayram.contracts import is_ok, ok
 from bayram.db.engine import create_session_factory
-from bayram.db.enums import MediaJobState, MediaPaidVia, MediaScreenDecision
-from bayram.db.media import load_job, mark_paid, media_balance
+from bayram.db.enums import (
+    MediaJobState,
+    MediaLegalHoldDecision,
+    MediaPaidVia,
+    MediaScreenDecision,
+)
+from bayram.db.media import (
+    clear_csam_blocks,
+    load_job,
+    mark_paid,
+    media_balance,
+    record_legal_hold_decision,
+)
 from bayram.db.models import Base
 from bayram.db.models.media_input import MediaInputRow, MediaOutputRow
 from bayram.db.models.media_job import MediaJobRow
@@ -348,3 +359,140 @@ async def test_a_csam_class_output_holds_the_outputs(harness: Harness) -> None:
     assert all(row.retention_class is RetentionClass.LEGAL_HOLD for row in outputs)
     assert all(is_sealed((harness.storage.root / row.storage_key).read_bytes()) for row in outputs)
     assert await _strikes(harness) == 3
+
+
+# ---------------------------------------------------------------------------
+# M3.R review fixes
+# ---------------------------------------------------------------------------
+async def _csam_rejected(harness: Harness) -> UUID:
+    harness.moderator.decisions["upload"] = MediaScreenDecision.BLOCK
+    harness.moderator.categories["upload"] = (CategoryCode.SEXUAL,)
+    job_id = await freeze_job(harness, photos=[_PHOTO], prompt="a schoolgirl at the beach")
+    await _screen(harness, job_id)
+    assert (await _job(harness, job_id)).error_code == "csam_blocked"
+    harness.moderator.decisions.clear()
+    harness.moderator.categories.clear()
+    return job_id
+
+
+async def test_past_the_hold_the_bytes_go_and_the_row_keeps_the_hash(harness: Harness) -> None:
+    # §6.7: "at expiry the bytes are deleted (hash + metadata kept)".
+    job_id = await _csam_rejected(harness)
+    (held,) = await _inputs(harness, job_id)
+    assert held.sha256 is not None and held.storage_key is not None
+
+    report = await purge_expired(harness.sessions, now=FIXED_NOW + timedelta(days=4))
+    assert is_ok(report)
+
+    # The purge hands the object back for deletion; the row stays, with its hash.
+    assert held.storage_key in report.value.storage_keys
+    assert report.value.media_input_holds_deleted == 1
+    (after,) = await _inputs(harness, job_id)
+    assert after.id == held.id and after.sha256 == held.sha256
+    assert after.size_bytes == held.size_bytes and after.deleted_at is not None
+    # The request row above it is the record too: the unpaid-request arm leaves it, even
+    # past its own 30-day text clock.
+    later = await purge_expired(harness.sessions, now=FIXED_NOW + timedelta(days=40))
+    assert is_ok(later) and later.value.media_input_holds_deleted == 0
+    assert (await _job(harness, job_id)).error_code == "csam_blocked"
+    assert [row.id for row in await _inputs(harness, job_id)] == [held.id]
+
+
+async def test_a_handover_decision_keeps_the_bytes_past_the_clock(harness: Harness) -> None:
+    job_id = await _csam_rejected(harness)
+    (held,) = await _inputs(harness, job_id)
+    async with harness.sessions.begin() as session:
+        assert await record_legal_hold_decision(
+            session, job_id, MediaLegalHoldDecision.HANDOVER, now=FIXED_NOW
+        )
+
+    report = await purge_expired(harness.sessions, now=FIXED_NOW + timedelta(days=4))
+    assert is_ok(report)
+
+    assert held.storage_key not in report.value.storage_keys
+    (after,) = await _inputs(harness, job_id)
+    assert after.deleted_at is None
+    assert (harness.storage.root / str(held.storage_key)).exists()
+
+    # The handover done, a delete decision lets the next purge take the bytes.
+    async with harness.sessions.begin() as session:
+        await record_legal_hold_decision(
+            session, job_id, MediaLegalHoldDecision.DELETE, now=FIXED_NOW + timedelta(days=5)
+        )
+    later = await purge_expired(harness.sessions, now=FIXED_NOW + timedelta(days=5))
+    assert is_ok(later) and held.storage_key in later.value.storage_keys
+    (gone,) = await _inputs(harness, job_id)
+    assert gone.deleted_at is not None and gone.sha256 == held.sha256
+
+
+async def test_a_csam_suspension_outlives_a_redis_restart_until_an_operator_clears_it(
+    harness: Harness,
+) -> None:
+    await _csam_rejected(harness)
+    # Redis restarted without persistence: the counters and the suspension key are gone.
+    harness.strikes.suspended.clear()
+    harness.strikes.strikes.clear()
+
+    job_id = await freeze_job(harness)
+    await _screen(harness, job_id)
+    assert (await _job(harness, job_id)).error_code == "screen_suspended"
+
+    async with harness.sessions.begin() as session:
+        assert await clear_csam_blocks(session, USER, now=harness.clock()) == 1
+    job_id = await freeze_job(harness)
+    await _screen(harness, job_id)
+    assert (await _job(harness, job_id)).state is MediaJobState.QUOTED
+
+
+async def test_a_seal_that_raises_does_not_skip_the_suspension(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def broken(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("storage exploded")
+
+    monkeypatch.setattr("bayram.runtime.media_jobs.seal_held_objects", broken)
+
+    await _csam_rejected(harness)
+
+    suspended = await harness.strikes.suspension(USER, now=harness.clock())
+    assert suspended is not None and suspended.reason is SuspensionReason.CSAM
+
+
+async def test_a_prompt_over_the_word_cap_is_refused_unstruck_and_unscreened(
+    harness: Harness,
+) -> None:
+    # A length is not a verdict (§6.4 L0): refused, no strike, no guard call.
+    job_id = await freeze_job(harness, prompt=" ".join(["a b"] * 81))
+
+    await _screen(harness, job_id)
+
+    job = await _job(harness, job_id)
+    assert job.state is MediaJobState.REJECTED and job.error_code == "screen_caps"
+    assert harness.moderator.calls == []
+    assert await _strikes(harness) == 0
+
+
+async def test_the_requests_language_reaches_every_guard_call(harness: Harness) -> None:
+    job_id = await freeze_job(harness, photos=[_PHOTO])
+
+    await _quote_and_pay(harness, job_id)
+
+    assert harness.moderator.calls
+    assert {call.lang_hint for call in harness.moderator.calls} == {"en"}
+
+
+async def test_an_output_screen_with_no_outputs_delivers_nothing(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # §6.3 fail closed: nothing looked at is never an allow.
+    async def none(*args: object, **kwargs: object) -> object:
+        return ok([])
+
+    monkeypatch.setattr("bayram.runtime.media_jobs._output_paths", none)
+    job_id = await freeze_job(harness)
+
+    await _quote_and_pay(harness, job_id)
+
+    job = await _job(harness, job_id)
+    assert job.output_decision is not MediaScreenDecision.ALLOW
+    assert harness.messenger.albums == []

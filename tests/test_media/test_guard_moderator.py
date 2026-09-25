@@ -440,8 +440,8 @@ async def test_g3_reads_text_language_and_the_quality_numbers(tmp_path: Path) ->
                 "text": " Tug'ilgan kuning bilan ",
                 "language": "UZ",
                 "segments": [
-                    {"avg_logprob": -0.2, "no_speech_prob": 0.01},
-                    {"avg_logprob": -0.4, "no_speech_prob": 0.05},
+                    {"avg_logprob": -0.2, "no_speech_prob": 0.01, "compression_ratio": 1.3},
+                    {"avg_logprob": -0.4, "no_speech_prob": 0.05, "compression_ratio": 2.7},
                 ],
             },
         )
@@ -458,6 +458,8 @@ async def test_g3_reads_text_language_and_the_quality_numbers(tmp_path: Path) ->
     assert result.value.text == "Tug'ilgan kuning bilan" and result.value.language == "uz"
     assert result.value.avg_logprob == pytest.approx(-0.3)
     assert result.value.no_speech_prob == pytest.approx(0.05)
+    # §5.4 refuses on ANY segment above 2.4, so the worst one is kept.
+    assert result.value.max_compression_ratio == pytest.approx(2.7)
 
 
 async def test_g3_without_a_language_is_an_err(tmp_path: Path) -> None:
@@ -472,3 +474,39 @@ async def test_g3_without_a_language_is_an_err(tmp_path: Path) -> None:
     )
 
     assert is_err(await moderator.transcribe(note, language_hint="en"))
+
+
+# ---------------------------------------------------------------------------
+# M3.R
+# ---------------------------------------------------------------------------
+async def test_g1_carries_the_requests_language_as_lang_hint(gateway: Gateway) -> None:
+    # §6.5 G1: req {items, lang_hint} — Uzbek is where guard quality is the D24 risk.
+    result = await _moderator(gateway).screen_text(
+        [TextItem(id="prompt", subject="prompt", content="bogʻda tort")],
+        policy=MEDIA_POLICY_VERSION,
+        lang_hint="uz",
+    )
+
+    assert is_ok(result)
+    assert gateway.body(G1_TEXT_PATH)["lang_hint"] == "uz"
+
+
+async def test_g8_strings_reach_g1_with_the_same_lang_hint(
+    gateway: Gateway, tmp_path: Path
+) -> None:
+    gateway.g8["upload-0"] = {"ocr_text": "tabriklaymiz", "caption": "a cake"}
+
+    await _moderator(gateway).screen_images(
+        [_image(tmp_path, "upload-0")], policy=MEDIA_POLICY_VERSION, lang_hint="ru"
+    )
+
+    assert gateway.body(G1_TEXT_PATH)["lang_hint"] == "ru"
+
+
+async def test_no_images_is_unavailable_never_allow(gateway: Gateway) -> None:
+    # An output screen handed nothing must not deliver on it (§6.3 fail closed).
+    result = await _moderator(gateway).screen_images([], policy=MEDIA_POLICY_VERSION)
+
+    assert is_ok(result)
+    assert result.value.decision is MediaScreenDecision.UNAVAILABLE
+    assert gateway.requests == []

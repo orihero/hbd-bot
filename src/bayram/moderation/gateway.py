@@ -152,30 +152,37 @@ class GatewayGuardModerator:
             await self._client.aclose()
 
     # -- MediaModerator -----------------------------------------------------
-    async def screen_text(self, items: Sequence[TextItem], *, policy: str) -> Result[MediaVerdict]:
-        """L0 then G1 over ``items``; the hard rule over the whole call (§6.4)."""
+    async def screen_text(
+        self, items: Sequence[TextItem], *, policy: str, lang_hint: str | None = None
+    ) -> Result[MediaVerdict]:
+        """L0 then G1 over ``items``; the hard rule over the whole call (§6.4).
+
+        ``lang_hint`` is the request's language (``uz``/``ru``/``en``), sent as G1's
+        ``lang_hint`` (§6.5) — Uzbek is where the guard's quality is the D24 risk."""
         if not items:
             return ok(self._allow("prompt", policy))
         youth = has_youth_signal([item.content for item in items])
         l0 = self._denylist_parts(items, policy)
         if l0:
             return ok(self._combine(l0, items[0].subject, policy, youth=youth))
-        readings = await self._g1(items)
+        readings = await self._g1(items, lang_hint=lang_hint)
         if is_err(readings):
             return readings
         parts = [self._g1_part(item, readings.value.get(item.id), policy) for item in items]
         return ok(self._combine(parts, items[0].subject, policy, youth=youth))
 
     async def screen_images(
-        self, items: Sequence[ImageItem], *, policy: str
+        self, items: Sequence[ImageItem], *, policy: str, lang_hint: str | None = None
     ) -> Result[MediaVerdict]:
         """G2 on every image and G8 on every image, G8's strings through L0 and G1 (§6.4 L2/L4).
 
         One verdict for the call: **a block on any image blocks the request** (L4 fails the
-        whole request when either variant is blocked).
+        whole request when either variant is blocked). **No images is ``unavailable``**, never
+        ``allow``: nothing was looked at, and an output screen handed an empty list must not
+        deliver on it (§6.3 fail closed).
         """
         if not items:
-            return ok(self._allow("upload", policy))
+            return ok(unavailable_verdict("upload", model_id=self.name, policy=policy))
         encoded: list[tuple[ImageItem, str]] = []
         for item in items:
             data = await asyncio.to_thread(_read, item.path)
@@ -199,7 +206,7 @@ class GatewayGuardModerator:
         )
         youth = has_youth_signal([text.content for text in texts])
         if texts:
-            screened = await self.screen_text(texts, policy=policy)
+            screened = await self.screen_text(texts, policy=policy, lang_hint=lang_hint)
             parts.append(
                 screened.value
                 if not is_err(screened)
@@ -234,34 +241,41 @@ class GatewayGuardModerator:
             return err(_unavailable("g3", "text or language missing"))
         logprobs: list[float] = []
         no_speech: list[float] = []
+        compression: list[float] = []
         segments = body.get("segments")
         for segment in segments if isinstance(segments, list) else []:
             if not isinstance(segment, Mapping):
                 continue
-            avg = segment.get("avg_logprob")
-            silent = segment.get("no_speech_prob")
-            if isinstance(avg, int | float) and not isinstance(avg, bool):
-                logprobs.append(float(avg))
-            if isinstance(silent, int | float) and not isinstance(silent, bool):
-                no_speech.append(float(silent))
+            for field, readings in (
+                ("avg_logprob", logprobs),
+                ("no_speech_prob", no_speech),
+                ("compression_ratio", compression),
+            ):
+                value = segment.get(field)
+                if isinstance(value, int | float) and not isinstance(value, bool):
+                    readings.append(float(value))
         return ok(
             VoiceTranscript(
                 text=text.strip(),
                 language=language.strip().lower(),
                 avg_logprob=sum(logprobs) / len(logprobs) if logprobs else None,
                 no_speech_prob=max(no_speech) if no_speech else None,
+                max_compression_ratio=max(compression) if compression else None,
             )
         )
 
     # -- G1 ---------------------------------------------------------------------
-    async def _g1(self, items: Sequence[TextItem]) -> Result[dict[str, G1Reading]]:
+    async def _g1(
+        self, items: Sequence[TextItem], *, lang_hint: str | None
+    ) -> Result[dict[str, G1Reading]]:
         if self._text_route == "chat":
             return await self._g1_chat(items)
-        body = await self._post(
-            "g1",
-            G1_TEXT_PATH,
-            {"items": [{"id": item.id, "content": item.content} for item in items]},
-        )
+        payload: dict[str, object] = {
+            "items": [{"id": item.id, "content": item.content} for item in items]
+        }
+        if lang_hint:
+            payload["lang_hint"] = lang_hint
+        body = await self._post("g1", G1_TEXT_PATH, payload)
         if is_err(body):
             return body
         readings: dict[str, G1Reading] = {}

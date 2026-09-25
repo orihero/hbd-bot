@@ -524,7 +524,9 @@ The existing worker process hosts everything; no fifth systemd unit.
 Three revisions: **`0030` terms** (ships with M1), **`0031` media** (M2) and **`0032`
 moderation_reviews** (M3). **`0029` is already taken** by `add_acquisition_source` on
 `feat/capture-start-payload` (`down_revision="0028"`), which lands with M0.4; `0030` therefore
-has `down_revision="0029"`. All run as the owner role and are copied to the host by hand (§0.1).
+has `down_revision="0029"`. *As built:* a fourth, **`0033` media hold records** (M3.R), adds
+`media_outputs.deleted_at` and `media_jobs.legal_hold_decision`/`legal_hold_decided_at`/
+`csam_cleared_at` (§6.4, §6.7). All run as the owner role and are copied to the host by hand (§0.1).
 Every migration PR's acceptance includes **`alembic heads` returns exactly one head**.
 
 #### 3.2.1 `0030` — `terms_acceptances`
@@ -1162,6 +1164,21 @@ and `sexual` on a photo meet even though no single guard saw both. G2's non-sexu
 (`moderation/policy.py`: `dangerous` and `violence` review 0.35 / block 0.6; the custom minor
 policy blocks at 0.1) are placeholders until M3.3's calibration.
 
+*As built (M3.R):* a length/word-cap failure is refused (`screen_caps`) and **not** struck —
+the bot's tray enforces the same 3–800 characters and ≤160 words, so it is only a backstop. The
+bot also reads the suspension at ✅ and at the shape pick, so a suspended account freezes no row;
+the denylist stays the worker's, where a hit spends the screening budget and strikes (answering
+it in the bot, free and unmetered, would be an oracle). Denylist stems that open ordinary words
+are written as closed forms (`trump`/`трамп(а|у|ом|е)` not *trumpet*/*трамплин*; `qatl` not
+*qatlama*; `marvel's`/`marvel studios`, not *marvelous*). A CSAM-class suspension is written
+before the strikes and before sealing, and is also **durable**: a `csam_blocked` job with
+`csam_cleared_at` NULL refuses the account at the screen gate even after Redis lost the key;
+`tools.media unsuspend` clears both. G1 receives the request's `lang_hint` (`uz`/`ru`/`en`),
+G3 keeps the worst segment's `compression_ratio` for M4's §5.4 check, and an output screen with
+no outputs is `unavailable`, never `allow`. A hosted guard endpoint gets its own
+`BAYRAM_MEDIA_MODERATOR_*` credentials; the gateway's key and Access token go only to the
+gateway's host.
+
 ### 6.5 Gateway-side work the owner does on the 5090
 
 | # | Endpoint / change | Contract |
@@ -1207,6 +1224,13 @@ the moderation-group card, and output reveal for reviewers (M5's `media_outputs`
 until then a reviewer decides from the category codes. A paid-backend `ambiguous_submit` hold
 (§4.3) opens no review; it is M6's reconcile path.
 
+*As built (M3.R):* releasing a `guard_unavailable` hold does **not** mark the output allowed —
+no guard and no human saw it — it moves the job back to `post` and runs the output screen again;
+only a guard's `allow` delivers, and a guard still down holds it again under a fresh review.
+Until M6, `media_sweep` fails a `held` job that no pending or unapplied review covers (an
+`ambiguous_submit` hold, or one from before `0032`) two hours after its last move, with one
+credit (§4.3's 2 h rule), so it cannot occupy the one-open-request index for ever.
+
 ### 6.7 CSAM and escalation
 
 Named escalation owner: the owner (SCOPE §6.9) until someone else is named (Q8). **Q8 is a blocker
@@ -1229,7 +1253,12 @@ On a CSAM-class block (hard rule, §6.4):
   the `sha256` of the original bytes. Boot refuses an offered SKU without a valid key.
 - **Deadline:** the escalation owner records a reporting decision within **72 h**
   (`legal_hold_expires_at`); at expiry the bytes are deleted (hash + metadata kept) unless the
-  decision was to hand them to the authorities, which is logged.
+  decision was to hand them to the authorities, which is logged. *As built (M3.R, `0033`):*
+  the decision is `python -m bayram.tools.media legal-hold <job_id> --handover|--delete`
+  (`media_jobs.legal_hold_decision`, logged at WARNING); `handover` makes the purge skip the
+  job's held objects, `delete` brings their clock forward. At expiry the purge deletes the
+  **object** and keeps the row (`deleted_at` set, `sha256`, size, times), logging the hash; the
+  job row stays with it.
 - The owner confirmed this exception to O16 on 2026-09-24 (Q16). Counsel may still advise
   delete-only (hash + metadata); that is the R12 switch. Risk: §11 R12.
 
@@ -1459,6 +1488,9 @@ BAYRAM_GENAI_VIDEO_MODEL=wan
 BAYRAM_GENAI_SCRIPT_MODEL=qwen3.8:27b-q4_K_M
 BAYRAM_MEDIA_MODERATOR=gateway          # gateway|fake (fake refuses to boot with media offered)
 BAYRAM_MEDIA_MODERATOR_BASE_URL=        # defaults to GENAI_BASE_URL; a hosted guard endpoint (D24 fallback)
+BAYRAM_MEDIA_MODERATOR_API_KEY=         # secret; that endpoint's own key — the gateway's never leaves its host
+BAYRAM_MEDIA_MODERATOR_ACCESS_CLIENT_ID=     # optional Access pair for that endpoint, both or neither
+BAYRAM_MEDIA_MODERATOR_ACCESS_CLIENT_SECRET= # secret
 BAYRAM_MEDIA_GUARD_TEXT_ROUTE=moderate  # moderate (G1 endpoint) | chat (interim Qwen3Guard on /v1/chat/completions)
 BAYRAM_MEDIA_GUARD_TIMEOUT_S=15
 BAYRAM_MEDIA_SEXUAL_IMAGE_BLOCK_P=0.2

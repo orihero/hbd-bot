@@ -709,6 +709,15 @@ table per run (`DEFAULT_PURGE_BATCH_SIZE`, db/purge.py:204) — 12 000 a day per
 > and ledger rows only once `/forget` has anonymised them). Media object keys join
 > `storage_keys`, so `storage_keys_returned`/`storage_keys_deleted` now cover media bytes too.
 > All nine stay at zero until media is offered. The host line below predates them.
+>
+> **2026-09-25 (revision 0033, IMAGE_VIDEO_SPEC §6.7):** the two hold counters now count held
+> OBJECTS deleted — the rows stay, with `deleted_at` set and their `sha256`, and the WARNING
+> reads `legal hold expired; held bytes deleted, hash and metadata kept` with the hash in its
+> context. A job the escalation owner marked with
+> `python -m bayram.tools.media legal-hold <job_id> --handover` is skipped until a later
+> `--delete`. `python -m bayram.tools.media unsuspend <tg>` now needs the database as well as
+> Redis: it also stamps `csam_cleared_at` on the account's `csam_blocked` jobs, which are the
+> durable half of a CSAM-class suspension.
 
 `[HOST 2026-09-11]` All nineteen appear in the live line, which is the cheapest proof that the
 installed wheel matches this list:

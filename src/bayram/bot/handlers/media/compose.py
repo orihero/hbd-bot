@@ -68,6 +68,7 @@ from bayram.logging import get_logger
 from bayram.media.desk import FreezeRequest, InputRef, JobView
 from bayram.media.offering import effective_backend, sku_price_minor
 from bayram.media.overrides import read_overrides
+from bayram.moderation.lexicon import PROMPT_MAX_WORDS
 
 __all__ = [
     "IMAGE_OUTPUTS",
@@ -121,6 +122,7 @@ _BUSY_KEY: Final[str] = "media.busy"
 _EXPIRED_KEY: Final[str] = "wizard.expired"
 _OPEN_REQUEST_KEY: Final[str] = "media.open_request"
 _OPEN_REQUEST_PAID_KEY: Final[str] = "media.open_request.paid"
+_SUSPENDED_KEY: Final[str] = "media.refused.suspended"
 _KIND_LABEL_KEYS: Final[dict[MediaKind, str]] = {
     MediaKind.IMAGE: "media.kind.image",
     MediaKind.VIDEO: "media.kind.video",
@@ -150,11 +152,17 @@ def _preview(prompt: str) -> str:
 
 
 def _valid_prompt(text: str | None) -> str | None:
-    """The prompt, trimmed, when it is one (§1.3: 3–800 characters, and not a command)."""
+    """The prompt, trimmed, when it is one (§1.3: 3–800 characters, at most
+    :data:`PROMPT_MAX_WORDS` words, and not a command) — the worker's L0 caps exactly, so a
+    prompt the tray accepts is never refused later for its length (§6.4)."""
     if text is None:
         return None
     trimmed = text.strip()
-    if trimmed.startswith("/") or not MIN_PROMPT_CHARS <= len(trimmed) <= MAX_PROMPT_CHARS:
+    if (
+        trimmed.startswith("/")
+        or not MIN_PROMPT_CHARS <= len(trimmed) <= MAX_PROMPT_CHARS
+        or len(trimmed.split()) > PROMPT_MAX_WORDS
+    ):
         return None
     return trimmed
 
@@ -484,11 +492,38 @@ async def _is_gpu_reserved(deps: BotDeps, sku: MediaSku) -> bool:
     return backend is MediaBackend.LOCAL and overrides.is_gpu_reserved(deps.clock())
 
 
+async def _is_suspended(deps: BotDeps, telegram_user_id: int) -> bool:
+    """§6.4 L0 "strike check", in the handler: a suspended account freezes no row.
+
+    One Redis read. Unreadable (or no store) reads "not suspended": the worker's screen gate
+    reads it again — with the database's durable CSAM half — before a byte is downloaded,
+    and refuses there. The denylist stays the worker's, where a hit is counted against the
+    screening budget and struck; answering it here, free and unmetered, would be an oracle.
+    """
+    if deps.media_strikes is None:
+        return False
+    try:
+        return await deps.media_strikes.suspension(telegram_user_id, now=deps.clock()) is not None
+    except Exception as exc:  # the store raises on Redis failure; the worker decides
+        _LOG.warning("the media suspension could not be read", extra={"failure": repr(exc)})
+        return False
+
+
+async def _refuse_suspended(callback: CallbackQuery, state: FSMContext, language: Language) -> None:
+    await callback.answer()
+    await clear_keeping_identity(state)
+    await present(callback, Screen(translate(_SUSPENDED_KEY, language), None))
+
+
 async def handle_done(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:
     """✅ Done: the aspect screen, over the tray. No prompt yet, or the GPU reserved by the
-    operator → an alert, and nothing moves (the tray stays for a later ✅)."""
+    operator → an alert, and nothing moves (the tray stays for a later ✅). A suspended
+    account is told so and the draft goes (§6.4)."""
     draft = await _tray_draft(callback, state)
     if draft is None:
+        return
+    if await _is_suspended(deps, callback.from_user.id):
+        await _refuse_suspended(callback, state, draft.ui_language)
         return
     if draft.prompt is None:
         await callback.answer(translate(_NEED_PROMPT_KEY, draft.ui_language), show_alert=True)
@@ -562,6 +597,10 @@ async def handle_aspect(
     if await _is_gpu_reserved(deps, MediaSku.IMAGE):
         # The window opened while the shape screen was up: nothing is frozen (§4.5).
         await callback.answer(translate(_BUSY_KEY, language), show_alert=True)
+        return
+    if await _is_suspended(deps, callback.from_user.id):
+        # Suspended since ✅ (another request's block): nothing is frozen (§6.4).
+        await _refuse_suspended(callback, state, language)
         return
     await callback.answer()
     # BEFORE the freeze: the worker edits this same message into the quote once the enqueue

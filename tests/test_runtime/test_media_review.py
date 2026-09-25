@@ -351,3 +351,79 @@ async def test_a_guard_that_never_answers_holds_the_job_for_review(harness: Harn
     [review] = await _reviews(harness, job_id)
     assert review.source is MediaReviewSource.GUARD_UNAVAILABLE
     assert (await _job(harness, job_id)).state is MediaJobState.HELD
+
+
+# ---------------------------------------------------------------------------
+# M3.R: a release never delivers what no guard screened
+# ---------------------------------------------------------------------------
+async def test_releasing_a_guard_unavailable_hold_screens_again_before_any_delivery(
+    harness: Harness,
+) -> None:
+    # Arrange — the guard never answered, so no guard and no human saw these outputs.
+    harness.moderator.decisions["output_image"] = MediaScreenDecision.UNAVAILABLE
+    job_id = await _paid_job(harness)
+    await harness.drain()
+    [first] = await _reviews(harness, job_id)
+    assert first.source is MediaReviewSource.GUARD_UNAVAILABLE
+
+    # Act — released while the guard is still down.
+    await _decide(harness, first.id, MediaReviewDecision.RELEASED)
+    await _apply(harness, first.id)
+
+    # Assert — nothing sent; the job is held again, under a fresh review.
+    assert harness.messenger.albums == []
+    job = await _job(harness, job_id)
+    assert job.state is MediaJobState.HELD and job.output_decision is not MediaScreenDecision.ALLOW
+    reviews = await _reviews(harness, job_id)
+    assert len(reviews) == 2 and reviews[-1].decision is None
+
+    # Act — the guard is back; the next release is a real screen, and it allows.
+    harness.moderator.decisions.clear()
+    await _decide(harness, reviews[-1].id, MediaReviewDecision.RELEASED)
+    await _apply(harness, reviews[-1].id)
+
+    # Assert — delivered only now, on a guard's allow.
+    job = await _job(harness, job_id)
+    assert job.state is MediaJobState.DELIVERED
+    assert job.output_decision is MediaScreenDecision.ALLOW
+    assert len(harness.messenger.albums) == 1
+
+
+async def test_a_hold_no_review_covers_is_refunded_after_two_hours(harness: Harness) -> None:
+    # A paid-backend ambiguous_submit hold (§4.3) opens no review: before M3.R nothing ever
+    # ended it, and it blocked the customer's next request of the kind for good.
+    job_id = await _paid_job(harness)
+    async with harness.sessions.begin() as session:
+        await session.execute(
+            sa.update(MediaJobRow)
+            .where(MediaJobRow.id == job_id)
+            .values(
+                state=MediaJobState.HELD,
+                error_code="ambiguous_submit",
+                updated_at=harness.clock(),
+            )
+        )
+
+    harness.clock.advance(hours=1)
+    assert (await sweep_media(harness.rt))["orphaned_holds_failed"] == 0
+
+    harness.clock.advance(hours=1, minutes=1)
+    summary = await sweep_media(harness.rt)
+    await harness.drain()
+
+    assert summary["orphaned_holds_failed"] == 1
+    job = await _job(harness, job_id)
+    assert (job.state, job.error_code) == (MediaJobState.FAILED, "held_unresolved")
+    assert [(row.delta, row.reason) for row in await _ledger(harness)] == [
+        (1, MediaCreditReason.GENERATION_FAILED)
+    ]
+
+
+async def test_a_held_job_with_a_pending_review_is_not_an_orphan(harness: Harness) -> None:
+    job_id = await _held_job(harness)
+
+    harness.clock.advance(hours=3)
+    summary = await sweep_media(harness.rt)
+
+    assert summary["orphaned_holds_failed"] == 0
+    assert (await _job(harness, job_id)).state is MediaJobState.HELD

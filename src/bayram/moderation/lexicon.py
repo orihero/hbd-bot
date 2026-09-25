@@ -119,6 +119,14 @@ def _word(*words: str) -> str:
     return r"(?<![\w'])(?:" + "|".join(re.escape(w) for w in words) + r")(?![\w'])"
 
 
+def _forms(*patterns: str) -> str:
+    """A whole word matching one of ``patterns`` — raw regexes spelling a stem and its closed
+    set of endings, for a stem that also opens ordinary words (``trump`` → *trumpet*,
+    ``трамп`` → *трамплин*, ``qatl`` → *qatlama*, the layered bread). Written by hand, so
+    they are never escaped."""
+    return r"(?<![\w'])(?:" + "|".join(patterns) + r")(?![\w'])"
+
+
 def _compile(parts: Iterable[str]) -> re.Pattern[str]:
     return re.compile("|".join(parts))
 
@@ -152,8 +160,11 @@ _DENYLIST: Final[tuple[tuple[CategoryCode, re.Pattern[str]], ...]] = (
         _compile(
             (
                 _word("kill", "killing", "murder", "rape", "bomb", "behead", "massacre"),
-                _stem("o'ldir", "ўлдир", "убий", "убить", "изнасил", "расстрел", "zo'rla"),
-                _stem("qatl", "қатл", "обезглав"),
+                _stem("o'ldir", "ўлдир", "убий", "убить", "изнасил", "расстрел", "обезглав"),
+                # Not stems: ``zo'rlar`` is "the best ones", ``qatlama`` a layered bread and
+                # ``qatlamli tort`` a layer cake.
+                _forms(r"zo'rla(?:sh|b|gan|moq|ngan|nish|di|ydi)[\w']*"),
+                _forms(r"qatl(?:i|ga|ni|da|dan|ning)?", r"қатл(?:и|га|ни|да|дан|нинг)?"),
             )
         ),
     ),
@@ -172,7 +183,9 @@ _DENYLIST: Final[tuple[tuple[CategoryCode, re.Pattern[str]], ...]] = (
         _compile(
             (
                 _stem("mirziyoyev", "mirziyoev", "мирзиёев", "путин", "putin", "zelensk"),
-                _stem("зеленск", "trump", "трамп", "erdog'an", "erdogan", "эрдоган"),
+                _stem("зеленск", "erdog'an", "erdogan", "эрдоган"),
+                # Not stems: *trumpet*, *трамплин*.
+                _forms(r"trump(?:'s)?", r"трамп(?:а|у|ом|е)?", r"donald trump(?:'s)?"),
                 _word("biden", "байден", "xi jinping", "си цзиньпин"),
                 _word("islom karimov", "islam karimov", "ислом каримов", "ислам каримов"),
             )
@@ -182,7 +195,15 @@ _DENYLIST: Final[tuple[tuple[CategoryCode, re.Pattern[str]], ...]] = (
         CategoryCode.COPYRIGHT_CHARACTER,
         _compile(
             (
-                _stem("disney", "дисней", "pixar", "пиксар", "marvel", "марвел", "pokemon"),
+                _stem("disney", "дисней", "pixar", "пиксар", "марвел", "pokemon"),
+                # Not a stem, and not the bare word: *marvelous*, and "guests marvel at the
+                # cake". The brand is caught with its possessive or its nouns; G1's copyright
+                # class is the net for the rest.
+                _forms(
+                    r"marvel's",
+                    r"marvel (?:comics|studios|universe|heroes|hero|superheroes"
+                    r"|superhero|characters|character|movie|movies|style)",
+                ),
                 _stem("покемон", "pikachu", "пикачу", "spider-man", "spiderman", "человек-паук"),
                 _word("mickey mouse", "микки маус", "minnie mouse", "batman", "бэтмен"),
                 _word("superman", "супермен", "harry potter", "гарри поттер", "barbie", "барби"),
