@@ -85,6 +85,7 @@ __all__ = [
     # Provider value objects
     "RenderedAudio",
     "SpeechRequest",
+    "NarrationRequest",
     "VoiceDescriptor",
     "LlmRequest",
     "Transcript",
@@ -99,6 +100,7 @@ __all__ = [
     # Protocols
     "MusicProvider",
     "TtsProvider",
+    "NarrationProvider",
     "LlmProvider",
     "SttProvider",
     "PaymentProvider",
@@ -1081,6 +1083,29 @@ class SpeechRequest(_Frozen):
     mood: str | None = None
 
 
+class NarrationRequest(_Frozen):
+    """One spoken line for a video (IMAGE_VIDEO_SPEC §5.1).
+
+    Not a :class:`SpeechRequest`: a narration has no persona and no recipient name, only a
+    house voice picked by ``gender``. ``style`` is a delivery direction ("warm", "brisk")
+    that an adapter sends out of band — **never in the text**, where it would be spoken.
+    ``text`` is already inside the per-language budget (§5.3), so the cap is the column's.
+    """
+
+    text: str = Field(min_length=1, max_length=160)
+    language: Language
+    gender: VoiceGender
+    style: str | None = Field(default=None, max_length=80)
+
+    @field_validator("gender")
+    @classmethod
+    def _house_voice_gender(cls, value: VoiceGender) -> VoiceGender:
+        # There are two house voices (§5.1); a duet or "any" has no voice to resolve to.
+        if value not in (VoiceGender.FEMALE, VoiceGender.MALE):
+            raise ValueError("a narration is spoken by the female or the male house voice")
+        return value
+
+
 class LlmRequest(_Frozen):
     """Every LLM call in this system returns JSON. There is no free-text path."""
 
@@ -1233,6 +1258,23 @@ class TtsProvider(Protocol):
     async def voices(self) -> Result[tuple[VoiceDescriptor, ...]]:
         """Our persona ids for this provider, with their same-language substitutes."""
         ...
+
+    async def health(self) -> Result[ProviderHealth]: ...
+
+
+@runtime_checkable
+class NarrationProvider(Protocol):
+    """A video's voice line (IMAGE_VIDEO_SPEC §5.1). Synchronous by contract; never raises.
+
+    A vendor content refusal is ``Err(ProviderRejectedContentError)`` and is final: the job
+    fails with a refund and the line is not offered to another vendor (§5.2).
+    """
+
+    name: str
+
+    async def narrate(
+        self, request: NarrationRequest, *, idempotency_key: str, timeout_s: float
+    ) -> Result[RenderedAudio]: ...
 
     async def health(self) -> Result[ProviderHealth]: ...
 

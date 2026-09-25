@@ -158,6 +158,9 @@ VENDOR_SECRET_FIELDS: Final[tuple[str, ...]] = (
     # the gateway's key and Access token are never sent to a host that is not the gateway.
     "media_moderator_api_key",
     "media_moderator_access_client_secret",
+    # The Gemini TTS key pool (IMAGE_VIDEO_SPEC §5.2, §9.5; D23). Optional: an empty pool
+    # narrates through ElevenLabs.
+    "gemini_tts_api_keys",
 )
 
 #: The subset the bot and the worker cannot run without — the ones
@@ -896,6 +899,27 @@ class Settings(BaseSettings):
     #: 🔄 regenerations of an LLM-written line per draft (§2.4.2); each costs a screening.
     media_script_max_regens: int = Field(default=2, ge=0, le=5)
 
+    # -- media: narration voice (IMAGE_VIDEO_SPEC §5.1, §5.2; O8, D23) ------------------
+    #: Off sends every line to the fallback (ElevenLabs) without touching the pool.
+    gemini_tts_enabled: bool = Field(default=True)
+    #: The owner's key pool, comma-separated. Secret — see VENDOR_SECRET_FIELDS. Keys are
+    #: named everywhere by ``sha256(key)[:8]`` and never logged. No paid-tier gate (Q17):
+    #: free-tier keys serve every job. Empty narrates through the fallback. A plain string
+    #: rather than a tuple so it reads like every other secret (``""`` is unset); split it
+    #: with :attr:`gemini_tts_key_list`.
+    gemini_tts_api_keys: str = Field(default="")
+    gemini_tts_model: str = Field(default="gemini-3.8-flash-tts", min_length=1, max_length=64)
+    #: Two of the 30 prebuilt voices, chosen in the M4 listening test (Q14). A gender with
+    #: no voice here is spoken by the fallback.
+    gemini_tts_voice_female: str = Field(default="", max_length=32)
+    gemini_tts_voice_male: str = Field(default="", max_length=32)
+    #: The narration route table in ``parse_routes`` form; empty is every language to
+    #: ``gemini_tts``. Separate from ``tts_routes``: songs keep theirs.
+    narration_routes: str = Field(default="")
+    #: What speaks when the routed provider cannot (pool exhausted, no voice, outage). A
+    #: content refusal is never offered to it (§5.2).
+    narration_fallback: str = Field(default="elevenlabs_tts", max_length=32)
+
     # -- the local generation gateway (IMAGE_VIDEO_SPEC §4.2, §9.1) ----------
     #: HTTPS through the tunnel (§9.1). Empty with a SKU offered on ``local`` refuses to boot.
     genai_base_url: str = Field(default="", max_length=255)
@@ -1217,6 +1241,11 @@ class Settings(BaseSettings):
                 f"greeting_max_duration_s ({value}) must exceed greeting_min_duration_s ({minimum})"
             )
         return value
+
+    @property
+    def gemini_tts_key_list(self) -> tuple[str, ...]:
+        """The pool, split and de-duplicated (IMAGE_VIDEO_SPEC §5.2). Never log the result."""
+        return tuple(dict.fromkeys(item for item in _split_csv(self.gemini_tts_api_keys) if item))
 
     @property
     def is_production(self) -> bool:

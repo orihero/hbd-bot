@@ -1006,6 +1006,24 @@ tests cover both.
   2026-09-24; D23). The Privacy notice (Appendix A) discloses it.
 - Health: admin card lists key_ref, state, last OK, 24 h success/429 counts.
 
+*As built (M4.2):* narration is its own protocol, `NarrationProvider.narrate(NarrationRequest)`,
+not a route inside the song `LanguageRoutingTts`: `TtsProvider.synthesize` takes a
+`SpeechRequest`, which needs a persona and a name. `NarrationRouter` (in `providers/tts/router.py`
+beside the song router, same `parse_routes` table format) sends each language to its provider
+and hands **any** failure except a content refusal to the fallback. A content refusal is never
+passed to the fallback. `ElevenLabsTts.narrate` is the fallback, with two house voice ids by
+gender. The wire shape was checked against the speech-generation docs page on 2026-09-25:
+`input[0].content[0]` is the text part, and the style is a `speech_metadata` *annotation* on it.
+`response_format` asks for `audio/wav` at 24 kHz, `speech_config` is a list naming the voice,
+and the audio arrives base64 in `steps[].content[].data`. Google answers a bad key with
+**400 `API_KEY_INVALID`**, not 401, so that response also disables the key. A 400 or 200 that
+carries `SAFETY`/`PROHIBITED_CONTENT` is the refusal. `gemini_tts_api_keys` is a plain CSV string
+(`Settings.gemini_tts_key_list` splits it), so every secret field keeps `""` as its unset
+value. The secret-shape test now also matches `_keys`. When Redis is unreadable, the pool
+rotates with an in-process counter and treats every key as usable, which costs at most one
+extra 429. An unset house voice (Q14) sends that gender to ElevenLabs.
+`runtime.providers.build_narration_provider` assembles all of it. M4.3 consumes it.
+
 ### 5.3 Length cap
 
 `narration_max_seconds = 5` (clip length) and the per-language word/char budget (§2.4.2, ceiling

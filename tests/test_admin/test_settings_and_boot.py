@@ -52,7 +52,7 @@ from tests.test_admin.conftest import HMAC_KEY, create_account, make_settings, s
 #: secret-SHAPED by the very test whose job is to notice a credential nobody listed. A
 #: future ``sort_key`` would now be swept in, and that is the safe direction to be wrong in.
 _SECRET_SHAPED: Final[re.Pattern[str]] = re.compile(
-    r"(?:^|_)(?:key|api_key|apikey|token|secret|password|credential)$"
+    r"(?:^|_)(?:key|keys|api_key|apikey|token|secret|password|credential)$"
 )
 
 _HOST_PREFIX: Final[str] = "__Host-"

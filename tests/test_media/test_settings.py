@@ -111,9 +111,17 @@ def test_env_example_documents_every_media_setting_with_an_empty_secret() -> Non
         "genai_api_key",
         "genai_image_model",
         "genai_video_model",
+        "gemini_tts_enabled",
+        "gemini_tts_api_keys",
+        "gemini_tts_model",
+        "gemini_tts_voice_female",
+        "gemini_tts_voice_male",
+        "narration_routes",
+        "narration_fallback",
     ):
         assert f"\nBAYRAM_{field.upper()}=" in text, field
     assert "\nBAYRAM_GENAI_API_KEY=\n" in text
+    assert "\nBAYRAM_GEMINI_TTS_API_KEYS=\n" in text
 
 
 def test_the_reference_cap_stops_where_the_collage_layouts_stop() -> None:

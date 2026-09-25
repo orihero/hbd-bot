@@ -40,8 +40,10 @@ from bayram.contracts import (
     Language,
     LlmProvider,
     MusicProvider,
+    NarrationProvider,
     SttProvider,
     TtsProvider,
+    VoiceGender,
 )
 from bayram.errors import ConfigError
 from bayram.logging import get_logger
@@ -50,15 +52,29 @@ from bayram.providers.llm.fake import FakeLlmProvider
 from bayram.providers.music.factory import build_music_provider
 from bayram.providers.music.fake import FakeMusicProvider
 from bayram.providers.tts.elevenlabs import ElevenLabsTts
-from bayram.providers.tts.fakes import FakeTtsProvider
+from bayram.providers.tts.fakes import FakeNarrationProvider, FakeTtsProvider
+from bayram.providers.tts.gemini import PROVIDER_NAME as GEMINI_TTS_PROVIDER_NAME
+from bayram.providers.tts.gemini import GeminiTtsProvider
+from bayram.providers.tts.key_pool import GeminiKeyPool, KeyPoolStore
 from bayram.providers.tts.metering import CharacterPricing
 from bayram.providers.tts.registry import VoiceRegistry, default_registry, parse_voice_registry
-from bayram.providers.tts.router import DEFAULT_TTS_ROUTES, build_router, parse_routes
+from bayram.providers.tts.router import (
+    DEFAULT_NARRATION_ROUTES,
+    DEFAULT_TTS_ROUTES,
+    build_narration_router,
+    build_router,
+    parse_routes,
+)
 from bayram.providers.tts.scribe import ElevenLabsScribe
 from bayram.runtime.fakes import KeytermSttProvider
 from bayram.usage import LOGGING_USAGE_SINK, UsageSink
 
-__all__ = ["ProviderSet", "build_provider_set", "DEMO_MISHEARD_ATTEMPTS"]
+__all__ = [
+    "ProviderSet",
+    "build_provider_set",
+    "build_narration_provider",
+    "DEMO_MISHEARD_ATTEMPTS",
+]
 
 _LOG = get_logger(__name__)
 
@@ -209,6 +225,89 @@ def _routes(settings: Settings) -> dict[Language, str]:
     if isinstance(parsed, Err):
         raise ConfigError(
             "BAYRAM_TTS_ROUTES is not a usable route table",
+            context={"detail": parsed.error.operator_message},
+            cause=parsed.error,
+        )
+    return dict(parsed.value)
+
+
+# ---------------------------------------------------------------------------
+# Narration (IMAGE_VIDEO_SPEC §5.1, §5.2; D23)
+# ---------------------------------------------------------------------------
+def build_narration_provider(
+    settings: Settings,
+    *,
+    store: KeyPoolStore,
+    client: httpx.AsyncClient,
+    usage: UsageSink = LOGGING_USAGE_SINK,
+) -> NarrationProvider:
+    """The video voice: the narration table over the Gemini pool, ElevenLabs behind it.
+
+    ``store`` holds the pool's shared state (``RedisKeyPoolStore`` over the worker's ARQ
+    pool). ``gemini_tts_enabled=false`` or an empty pool leaves Gemini out entirely, and every
+    route that named it resolves to the fallback — the same answer as a pool whose keys are
+    all cooling, reached without a request. Raises ``ConfigError`` for a table that cannot be
+    bound, at startup rather than one paid video at a time.
+    """
+    if settings.use_fake_providers:
+        return FakeNarrationProvider(usage=usage)
+    fallback_name = settings.narration_fallback.strip() or None
+    providers: list[NarrationProvider] = [
+        ElevenLabsTts(
+            api_key=settings.elevenlabs_api_key,
+            base_url=settings.elevenlabs_base_url,
+            model_id=settings.tts_model_id,
+            pricing=CharacterPricing(rate_per_character=settings.elevenlabs_usd_per_character),
+            client=client,
+            usage=usage,
+        )
+    ]
+    pool = GeminiKeyPool(settings.gemini_tts_key_list, store=store)
+    is_gemini_on = settings.gemini_tts_enabled and len(pool) > 0
+    if is_gemini_on:
+        providers.append(
+            GeminiTtsProvider(
+                pool=pool,
+                voices={
+                    VoiceGender.FEMALE: settings.gemini_tts_voice_female,
+                    VoiceGender.MALE: settings.gemini_tts_voice_male,
+                },
+                model_id=settings.gemini_tts_model,
+                client=client,
+                usage=usage,
+            )
+        )
+    routes = _narration_routes(settings)
+    if not is_gemini_on and fallback_name is not None:
+        routes = {
+            language: fallback_name if name == GEMINI_TTS_PROVIDER_NAME else name
+            for language, name in routes.items()
+        }
+    built = build_narration_router(providers, routes=routes, fallback=fallback_name)
+    if isinstance(built, Err):
+        raise ConfigError(
+            "the narration route table could not be bound to the configured adapters",
+            context={"detail": built.error.operator_message},
+            cause=built.error,
+        )
+    _LOG.info(
+        "narration wired",
+        extra={
+            "gemini": is_gemini_on,
+            "pool_key_refs": list(pool.refs),
+            "fallback": fallback_name,
+        },
+    )
+    return built.value
+
+
+def _narration_routes(settings: Settings) -> dict[Language, str]:
+    if not settings.narration_routes.strip():
+        return dict(DEFAULT_NARRATION_ROUTES)
+    parsed = parse_routes(settings.narration_routes)
+    if isinstance(parsed, Err):
+        raise ConfigError(
+            "BAYRAM_NARRATION_ROUTES is not a usable route table",
             context={"detail": parsed.error.operator_message},
             cause=parsed.error,
         )
