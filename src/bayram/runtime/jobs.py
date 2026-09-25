@@ -126,6 +126,7 @@ from bayram.media.stages import (
     MEDIA_FETCH_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
+    MEDIA_PRESCREEN_JOB,
     MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
     MEDIA_START_JOB,
@@ -167,6 +168,7 @@ from bayram.runtime.media_jobs import (
     media_fetch,
     media_output_screen,
     media_poll,
+    media_prescreen,
     media_review_apply,
     media_screen,
     media_start,
@@ -963,14 +965,15 @@ def build_kit_worker_settings(
                 max_tries=SUPPORT_VERIFY_MAX_TRIES,
                 timeout=settings.queue_job_timeout_s,
             ),
-            # THE MEDIA STAGE CHAIN (IMAGE_VIDEO_SPEC §3.3). Nine short jobs, each of which
-            # reads the ``media_jobs`` row, moves it with a conditional UPDATE and enqueues the
-            # next — so an image waiting an hour for the GPU holds no slot while it waits. The
-            # bot enqueues the first two (screen at the aspect pick, start after 🎁/🎟) and the
+            # THE MEDIA STAGE CHAIN (IMAGE_VIDEO_SPEC §3.3). Short jobs, each of which reads
+            # the ``media_jobs`` row, moves it with a conditional UPDATE and enqueues the next
+            # — so an image waiting an hour for the GPU holds no slot while it waits. The bot
+            # enqueues the first ones (the video prescreen at ✅ Done, the screen at the aspect
+            # pick or the last voice step, start after 🎁/🎟) and the
             # Payme settlement will enqueue ``media_start`` (M5), so every name is stated
             # explicitly from ``bayram.media.stages``, the one spelling both sides import.
             #
-            # ``max_tries`` is ``MEDIA_STAGE_MAX_TRIES`` for all nine: only a fetch or a
+            # ``max_tries`` is ``MEDIA_STAGE_MAX_TRIES`` for every one: only a fetch or a
             # delivery raises ``Retry`` (a transient download or Telegram failure), and each
             # reads the same number back before it does, so its last permitted try takes the
             # terminal path instead of vanishing. A waiting submit or a running poll does NOT
@@ -988,6 +991,7 @@ def build_kit_worker_settings(
                     timeout=settings.queue_job_timeout_s,
                 )
                 for stage, name in (
+                    (media_prescreen, MEDIA_PRESCREEN_JOB),
                     (media_screen, MEDIA_SCREEN_JOB),
                     (media_start, MEDIA_START_JOB),
                     (media_submit, MEDIA_SUBMIT_JOB),

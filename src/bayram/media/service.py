@@ -27,14 +27,26 @@ from bayram.db.media import load_job, mark_paid, record_purchase
 from bayram.logging import get_logger
 from bayram.media.offering import is_beta_member, is_live_paid, media_offered
 from bayram.media.stages import (
+    MEDIA_PRESCREEN_JOB,
     MEDIA_SCREEN_JOB,
+    MEDIA_SCRIPT_JOB,
     MEDIA_START_JOB,
+    prescreen_job_id,
     screen_job_id,
+    script_job_id,
     sku_deadline,
     start_job_id,
 )
 
-__all__ = ["MediaQueue", "BetaStart", "start_free_beta", "enqueue_screen", "enqueue_start"]
+__all__ = [
+    "MediaQueue",
+    "BetaStart",
+    "start_free_beta",
+    "enqueue_prescreen",
+    "enqueue_screen",
+    "enqueue_script",
+    "enqueue_start",
+]
 
 _LOG = get_logger(__name__)
 
@@ -73,6 +85,18 @@ async def _enqueue(queue: MediaQueue, name: str, *args: Any, job_id: str) -> boo
 async def enqueue_screen(queue: MediaQueue, job_id: UUID, *, n: int = 0) -> bool:
     """``media_screen`` for a row just frozen (``n=0``) or a busy tray's 🔁 (``n>0``)."""
     return await _enqueue(queue, MEDIA_SCREEN_JOB, str(job_id), n, job_id=screen_job_id(job_id, n))
+
+
+async def enqueue_prescreen(queue: MediaQueue, job_id: UUID, *, n: int = 0) -> bool:
+    """``media_prescreen`` for a video ``drafting`` row (§2.4.1), or a busy tray's 🔁."""
+    return await _enqueue(
+        queue, MEDIA_PRESCREEN_JOB, str(job_id), n, job_id=prescreen_job_id(job_id, n)
+    )
+
+
+async def enqueue_script(queue: MediaQueue, job_id: UUID, *, n: int) -> bool:
+    """``media_script`` for the ``n``-th line of a ``drafting`` row (§2.4.2)."""
+    return await _enqueue(queue, MEDIA_SCRIPT_JOB, str(job_id), n, job_id=script_job_id(job_id, n))
 
 
 async def enqueue_start(queue: MediaQueue, job_id: UUID, *, n: int = 0) -> bool:

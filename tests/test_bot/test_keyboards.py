@@ -54,7 +54,14 @@ from bayram.bot.keyboards import (
     media_open_request_keyboard,
     media_quote_keyboard,
     media_refused_keyboard,
+    media_script_review_keyboard,
+    media_tier_keyboard,
     media_tray_keyboard,
+    media_video_aspect_keyboard,
+    media_voice_gender_keyboard,
+    media_voice_pick_keyboard,
+    media_voice_step_keyboard,
+    media_voice_too_long_keyboard,
     name_confirm_keyboard,
     name_prompt_keyboard,
     note_keyboard,
@@ -225,6 +232,13 @@ def every_keyboard(language: Language) -> Iterator[tuple[str, InlineKeyboardMark
     yield "media_tray_with_no_photos", media_tray_keyboard(language, has_photos=False)
     yield "media_aspect", media_aspect_keyboard(language)
     yield "media_open_request", media_open_request_keyboard(language, SAMPLE_MEDIA_JOB)
+    yield "media_video_aspect", media_video_aspect_keyboard(language)
+    yield "media_tier", media_tier_keyboard(language)
+    yield "media_voice_pick", media_voice_pick_keyboard(language)
+    yield "media_voice_gender", media_voice_gender_keyboard(language)
+    yield "media_voice_step", media_voice_step_keyboard(language)
+    yield "media_script_review", media_script_review_keyboard(language, can_regenerate=True)
+    yield "media_voice_too_long", media_voice_too_long_keyboard(language, SAMPLE_MEDIA_JOB)
 
 
 def every_reply_keyboard(language: Language) -> Iterator[tuple[str, ReplyKeyboardMarkup]]:

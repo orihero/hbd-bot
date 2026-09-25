@@ -47,6 +47,7 @@ from bayram.media.stages import (
     MEDIA_FETCH_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
+    MEDIA_PRESCREEN_JOB,
     MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
     MEDIA_START_JOB,
@@ -64,6 +65,7 @@ from bayram.runtime.media_jobs import (
     media_fetch,
     media_output_screen,
     media_poll,
+    media_prescreen,
     media_review_apply,
     media_screen,
     media_start,
@@ -79,6 +81,7 @@ PROMPT: Final[str] = "a lantern-lit courtyard in Samarkand at dusk"
 StageFn = Callable[..., Awaitable[dict[str, Any]]]
 
 STAGES: Final[dict[str, StageFn]] = {
+    MEDIA_PRESCREEN_JOB: media_prescreen,
     MEDIA_SCREEN_JOB: media_screen,
     MEDIA_START_JOB: media_start,
     MEDIA_SUBMIT_JOB: media_submit,

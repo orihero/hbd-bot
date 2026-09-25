@@ -75,6 +75,8 @@ __all__ = [
     "create_job",
     "load_job",
     "transition",
+    "update_draft",
+    "delete_inputs",
     "mark_paid",
     "cancel_prepay_jobs",
     "add_input",
@@ -229,6 +231,44 @@ async def transition(
         .values(state=to, updated_at=now, **extra)
     )
     return rowcount_of(result) == 1
+
+
+async def update_draft(
+    session: AsyncSession, job_id: UUID, *, now: datetime, values: Mapping[str, Any]
+) -> bool:
+    """Write a video draft's choices onto its row — only while it is ``drafting`` (§2.4.1).
+
+    The voice steps write ``voice_mode``, ``voice_gender`` and ``narration_text`` here and
+    nowhere else: once the row has moved on (screening, cancelled), it is never edited in
+    place (§2.3.1). True when the row was a draft and took the values.
+    """
+    result = await session.execute(
+        sa.update(MediaJobRow)
+        .where(MediaJobRow.id == job_id, MediaJobRow.state == MediaJobState.DRAFTING)
+        .values(updated_at=now, **dict(values))
+    )
+    return rowcount_of(result) == 1
+
+
+async def delete_inputs(
+    session: AsyncSession, job_id: UUID, *, role: MediaInputRole
+) -> tuple[str, ...]:
+    """Delete one role's input rows of a job (not under legal hold). The object keys, for
+    the caller to delete after its commit — an own voice note refused for its length (§5.4)."""
+    rows = (
+        await session.execute(
+            sa.select(MediaInputRow.id, MediaInputRow.storage_key).where(
+                MediaInputRow.job_id == job_id,
+                MediaInputRow.role == role,
+                MediaInputRow.retention_class != RetentionClass.LEGAL_HOLD,
+            )
+        )
+    ).all()
+    if rows:
+        await session.execute(
+            sa.delete(MediaInputRow).where(MediaInputRow.id.in_([row_id for row_id, _ in rows]))
+        )
+    return tuple(key for _, key in rows if key is not None)
 
 
 async def mark_paid(

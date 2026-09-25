@@ -602,7 +602,9 @@ class MediaJobState(StrEnum):
     Forward-only. Every move after ``PAID`` is a conditional ``UPDATE … WHERE state IN
     (expected)``, and no path moves a terminal row back into :data:`MEDIA_OPEN_STATES` — the
     partial unique index over those states could otherwise fire inside the Payme money
-    commit (§3.2.2, §7.2).
+    commit (§3.2.2, §7.2). The one backward move is pre-pay and between open states: a video
+    whose own voice note ffprobe finds over the clip goes ``screening → drafting`` for 🎙
+    record again (§5.4, M4.1).
     """
 
     DRAFTING = "drafting"

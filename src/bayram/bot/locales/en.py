@@ -921,4 +921,53 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.media.aspect.portrait": "📱 Portrait 9:16",
     "button.media.aspect.square": "⏹️ Square 1:1",
     "button.media.aspect.landscape": "🖥️ Landscape 16:9",
+    # -- media: a video after ✅ Done (IMAGE_VIDEO_SPEC §2.4) --------------------------
+    # The tier, voice and voice-step screens the bot draws, the worker's video quote,
+    # and its answer to a voice note ffprobe found over the clip (§5.4).
+    "media.video.compose": (
+        "🎬 Describe the video — what happens and in what style — as a message. You can also "
+        "attach up to {max} photos; they are combined into the opening frame (optional)."
+    ),
+    "media.video.tier": (
+        "Choose the speed:\n🐢 Standard — about {eta_std}, {price_std}\n⚡ Fast — about "
+        "{eta_fast}, {price_fast}"
+    ),
+    "media.voice.pick": (
+        "🔊 Add a voice? The clip is {seconds} seconds long, so about {words} words fit."
+    ),
+    "media.voice.gender": "Which voice?",
+    "media.voice.enter_text": "✍️ Type what the voice should say (up to {words} words).",
+    "media.voice.too_long": (
+        "That's too long to say in {seconds} seconds — please keep it to about {words} words."
+    ),
+    "media.voice.script_wait": "✍️ Writing a line for you…",
+    "media.voice.script_review": "Suggested line: «{script}»",
+    "media.voice.send_note": (
+        "🎙️ Record a voice message of up to {seconds} seconds and send it here."
+    ),
+    "media.voice_note.too_long": "That voice message is {dur} s — please record up to {seconds} s.",
+    "media.voice_note.wrong_type": "Please send a voice message (hold the 🎤 button).",
+    "media.video.quote": (
+        "🎬 Video · {seconds} s · {aspect} · {tier} · voice: {voice}\n{price} · ready in about "
+        "{eta}."
+    ),
+    "media.tier_name.standard": "Standard",
+    "media.tier_name.fast": "Fast",
+    "media.voice_mode.none": "none",
+    "media.voice_mode.ai_user": "AI, your words",
+    "media.voice_mode.ai_llm": "AI, words written for you",
+    "media.voice_mode.own": "your own",
+    "button.media.back": "⬅️ Back",
+    "button.media.tier.standard": "🐢 Standard",
+    "button.media.tier.fast": "⚡ Fast",
+    "button.media.voice.none": "🔇 No voice",
+    "button.media.voice.ai_mine": "🗣️ AI voice, my words",
+    "button.media.voice.ai_llm": "🤖 AI writes the words",
+    "button.media.voice.own": "🎙️ My own voice",
+    "button.media.voice.female": "👩 Female voice",
+    "button.media.voice.male": "👨 Male voice",
+    "button.media.voice.use": "✅ Use this line",
+    "button.media.voice.edit": "✏️ Change the words",
+    "button.media.voice.another": "🔄 Another line",
+    "button.media.voice.record_again": "🎙️ Record again",
 }

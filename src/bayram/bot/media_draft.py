@@ -1,4 +1,4 @@
-"""An image (or, from M4, video) request while it is being composed (IMAGE_VIDEO_SPEC §2.3.1).
+"""An image or video request while it is being composed (IMAGE_VIDEO_SPEC §2.3.1, §2.4.1).
 
 The FSM holds one :class:`MediaDraft` under :data:`MEDIA_DRAFT_KEY`: the prompt, the photos'
 Telegram ids, the tray message the compose screen is drawn on and the aspect. **Never bytes**
@@ -18,7 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 
 from bayram.contracts import Language
-from bayram.db.enums import MediaAspect, MediaKind, MediaTier, MediaVoiceMode
+from bayram.db.enums import MediaAspect, MediaKind, MediaTier, MediaVoiceGender, MediaVoiceMode
+from bayram.moderation.lexicon import NARRATION_MAX_CHARS
 
 __all__ = [
     "MEDIA_DRAFT_KEY",
@@ -27,6 +28,7 @@ __all__ = [
     "MAX_UPLOAD_BYTES",
     "UPLOAD_DOCUMENT_MIMES",
     "MediaRef",
+    "MediaVoiceNoteRef",
     "MediaDraft",
     "load_media_draft",
 ]
@@ -58,6 +60,16 @@ class MediaRef(BaseModel):
     size: int | None = Field(default=None, ge=0)
 
 
+class MediaVoiceNoteRef(BaseModel):
+    """An own voice note (§2.4.2): Telegram's ids and its whole-second duration."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    file_id: str = Field(min_length=1, max_length=256)
+    file_unique_id: str = Field(min_length=1, max_length=64)
+    duration: int = Field(ge=0)
+
+
 class MediaDraft(BaseModel):
     """The compose state. Frozen; every change is a new draft via :meth:`updated`."""
 
@@ -75,9 +87,18 @@ class MediaDraft(BaseModel):
     #: The one tray message this compose edits in place (§2.3.2).
     tray_message_id: int | None = None
     aspect: MediaAspect | None = None
-    #: Video only (M4); kept so the key's shape is the one §2.3.1 names.
+    #: Video only (§2.4): the choices made after ✅ Done, written onto the ``drafting`` row
+    #: by the last voice step.
     tier: MediaTier | None = None
     voice: MediaVoiceMode | None = None
+    voice_gender: MediaVoiceGender | None = None
+    #: The words an AI voice will say — typed, or an AI-written line the customer took.
+    narration_text: str | None = Field(default=None, max_length=NARRATION_MAX_CHARS)
+    #: An own voice note, by reference (``F.voice`` only), never its bytes.
+    voice_note: MediaVoiceNoteRef | None = None
+    #: How many AI-written lines were asked for: the next ``media_script`` is line ``n``, and
+    #: 🔄 is offered while ``n`` ≤ ``media_script_max_regens`` (§2.4.2).
+    script_requests: int = Field(default=0, ge=0)
     #: The ``media_jobs.id`` this draft was frozen into, as hex; ``None`` while composing.
     #: ✏️ Edit reopens compose from this draft when it names the job being edited.
     frozen_job: str | None = None

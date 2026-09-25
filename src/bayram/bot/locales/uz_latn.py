@@ -923,4 +923,56 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.media.aspect.portrait": "📱 Tik 9:16",
     "button.media.aspect.square": "⏹️ Kvadrat 1:1",
     "button.media.aspect.landscape": "🖥️ Yotiq 16:9",
+    # -- media: a video after ✅ Done (IMAGE_VIDEO_SPEC §2.4) --------------------------
+    # The tier, voice and voice-step screens the bot draws, the worker's video quote,
+    # and its answer to a voice note ffprobe found over the clip (§5.4).
+    "media.video.compose": (
+        "🎬 Videoni xabar qilib tasvirlab yozing — nima sodir boʻladi va qaysi uslubda. "
+        "Xohlasangiz, {max} tagacha rasm ham biriktiring — ulardan birinchi kadr yigʻiladi "
+        "(ixtiyoriy)."
+    ),
+    "media.video.tier": (
+        "Tezlikni tanlang:\n🐢 Standart — taxminan {eta_std}, {price_std}\n⚡ Tez — taxminan "
+        "{eta_fast}, {price_fast}"
+    ),
+    "media.voice.pick": (
+        "🔊 Ovoz qoʻshilsinmi? Video {seconds} soniya, shuning uchun taxminan {words} ta soʻz "
+        "sigʻadi."
+    ),
+    "media.voice.gender": "Qaysi ovoz?",
+    "media.voice.enter_text": "✍️ Ovoz nima deyishini yozing ({words} ta soʻzgacha).",
+    "media.voice.too_long": (
+        "Bu {seconds} soniyada aytish uchun juda uzun — iltimos, taxminan {words} ta soʻzga "
+        "sigʻdiring."
+    ),
+    "media.voice.script_wait": "✍️ Siz uchun jumla yozilmoqda…",
+    "media.voice.script_review": "Taklif qilingan jumla: «{script}»",
+    "media.voice.send_note": "🎙️ {seconds} soniyagacha ovozli xabar yozib, shu yerga yuboring.",
+    "media.voice_note.too_long": (
+        "Bu ovozli xabar {dur} soniya — iltimos, {seconds} soniyagacha yozing."
+    ),
+    "media.voice_note.wrong_type": "Iltimos, ovozli xabar yuboring (🎤 tugmasini bosib turing).",
+    "media.video.quote": (
+        "🎬 Video · {seconds} soniya · {aspect} · {tier} · ovoz: {voice}\n{price} · taxminan "
+        "{eta} da tayyor boʻladi."
+    ),
+    "media.tier_name.standard": "Standart",
+    "media.tier_name.fast": "Tez",
+    "media.voice_mode.none": "ovozsiz",
+    "media.voice_mode.ai_user": "SI, sizning soʻzlaringiz",
+    "media.voice_mode.ai_llm": "SI, biz yozgan matn",
+    "media.voice_mode.own": "oʻz ovozingiz",
+    "button.media.back": "⬅️ Orqaga",
+    "button.media.tier.standard": "🐢 Standart",
+    "button.media.tier.fast": "⚡ Tez",
+    "button.media.voice.none": "🔇 Ovozsiz",
+    "button.media.voice.ai_mine": "🗣️ SI ovozi, soʻzlar meniki",
+    "button.media.voice.ai_llm": "🤖 Soʻzlarni SI yozsin",
+    "button.media.voice.own": "🎙️ Oʻz ovozim",
+    "button.media.voice.female": "👩 Ayol ovozi",
+    "button.media.voice.male": "👨 Erkak ovozi",
+    "button.media.voice.use": "✅ Shu jumlani olish",
+    "button.media.voice.edit": "✏️ Soʻzlarni oʻzgartirish",
+    "button.media.voice.another": "🔄 Boshqa jumla",
+    "button.media.voice.record_again": "🎙️ Qayta yozish",
 }

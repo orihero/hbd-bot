@@ -25,6 +25,7 @@ from bayram.media.stages import (
     MEDIA_FETCH_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
+    MEDIA_PRESCREEN_JOB,
     MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
     MEDIA_START_JOB,
@@ -254,6 +255,7 @@ async def test_the_worker_registers_the_job_the_submitter_enqueues(settings: Set
         # The media stage chain (IMAGE_VIDEO_SPEC §3.3). The BOT enqueues the first two and
         # the Payme settlement will enqueue ``media_start`` (M5), each by the name
         # ``bayram.media.stages`` spells — so a rename here strands a paid request.
+        MEDIA_PRESCREEN_JOB,
         MEDIA_SCREEN_JOB,
         MEDIA_START_JOB,
         MEDIA_SUBMIT_JOB,

@@ -6,6 +6,7 @@ of the worker's fifteen slots (or its 900 s job timeout) while it waits. Each st
 ``media_jobs`` row, does one thing, moves the row with a conditional ``UPDATE`` and enqueues the
 next stage::
 
+    media_prescreen ─► (tray: shape | refusal | busy)       ← video ✅ Done, before payment
     media_screen ─► (tray: quote | refusal | busy)          ← before payment
     media_start ─► media_submit ×N ─► media_poll … ─► media_fetch ─► fan-in
         ─► media_output_screen ─► media_deliver ─► media_cleanup
@@ -86,6 +87,8 @@ from bayram.bot.keyboards import (
     media_busy_keyboard,
     media_quote_keyboard,
     media_refused_keyboard,
+    media_video_aspect_keyboard,
+    media_voice_too_long_keyboard,
 )
 from bayram.bot.pricing import format_amount
 from bayram.config import Settings
@@ -106,6 +109,7 @@ from bayram.db.enums import (
     MediaReviewDecision,
     MediaReviewSource,
     MediaScreenDecision,
+    MediaTier,
     MediaVoiceMode,
 )
 from bayram.db.media import (
@@ -114,6 +118,7 @@ from bayram.db.media import (
     average_run_ms,
     bump_seq,
     cleanup_job_media,
+    delete_inputs,
     find_attempt,
     grant_refund,
     has_standing_csam_block,
@@ -129,6 +134,7 @@ from bayram.db.media import (
     set_attempt_status,
     touch_job,
     transition,
+    update_draft,
 )
 from bayram.db.media_reviews import load_review, mark_applied, open_review
 from bayram.db.models.media_attempt import MediaAttemptRow
@@ -155,6 +161,7 @@ from bayram.media.contracts import (
     is_ambiguous,
 )
 from bayram.media.gate import QuoteBlock, quote_block
+from bayram.media.narration import fits_budget, is_voice_note_too_long, narration_budget
 from bayram.media.offering import (
     effective_backend,
     is_beta_member,
@@ -170,6 +177,7 @@ from bayram.media.stages import (
     MEDIA_MUX_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
+    MEDIA_PRESCREEN_JOB,
     MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
     MEDIA_START_JOB,
@@ -183,6 +191,7 @@ from bayram.media.stages import (
     sku_deadline,
     submit_job_id,
 )
+from bayram.media.voice_probe import FfmpegVoiceProbe, VoiceProbe
 from bayram.moderation.contracts import (
     MEDIA_POLICY_VERSION,
     CategoryCode,
@@ -212,6 +221,7 @@ from bayram.moderation.strikes import (
     SuspensionReason,
     record_block,
 )
+from bayram.moderation.voice import untrusted_transcript
 from bayram.providers.media.factory import build_media_provider
 from bayram.providers.media.local_gateway import CLIENT_TAG, MODEL_KINDS
 from bayram.runtime.gpu_lock import (
@@ -233,6 +243,7 @@ __all__ = [
     "MediaRuntime",
     "ProviderCache",
     "media_runtime",
+    "media_prescreen",
     "media_screen",
     "media_start",
     "media_submit",
@@ -351,6 +362,33 @@ _FAILED_REFUNDED_KEY: Final[str] = "media.failed.refunded"
 _FAILED_BETA_KEY: Final[str] = "media.failed.beta"
 _FAILED_KEY: Final[str] = "media.failed"
 _ETA_MINUTES_KEY: Final[str] = "media.eta.minutes"
+_VIDEO_QUOTE_KEY: Final[str] = "media.video.quote"
+_ASPECT_KEY: Final[str] = "media.aspect"
+_VOICE_TOO_LONG_KEY: Final[str] = "media.voice_note.too_long"
+_TIER_STANDARD_KEY: Final[str] = "media.tier_name.standard"
+_TIER_FAST_KEY: Final[str] = "media.tier_name.fast"
+_TIER_NAME_KEYS: Final[Mapping[MediaTier, str]] = {
+    MediaTier.STANDARD: _TIER_STANDARD_KEY,
+    MediaTier.FAST: _TIER_FAST_KEY,
+}
+_VOICE_NONE_KEY: Final[str] = "media.voice_mode.none"
+_VOICE_AI_USER_KEY: Final[str] = "media.voice_mode.ai_user"
+_VOICE_AI_LLM_KEY: Final[str] = "media.voice_mode.ai_llm"
+_VOICE_OWN_KEY: Final[str] = "media.voice_mode.own"
+_VOICE_MODE_NAME_KEYS: Final[Mapping[MediaVoiceMode, str]] = {
+    MediaVoiceMode.NONE: _VOICE_NONE_KEY,
+    MediaVoiceMode.AI_USER: _VOICE_AI_USER_KEY,
+    MediaVoiceMode.AI_LLM: _VOICE_AI_LLM_KEY,
+    MediaVoiceMode.OWN: _VOICE_OWN_KEY,
+}
+#: An own voice note (§5.4): stored as Telegram sent it (OGG/Opus), muxed as-is — never
+#: re-encoded between screening and use (§3.3 "Screened bytes only").
+_VOICE_NOTE_FILENAME: Final[str] = "voice-0.ogg"
+_VOICE_NOTE_MIME: Final[str] = "audio/ogg"
+#: Five seconds of Opus is kilobytes; this refuses something that is not a voice note at all.
+_VOICE_NOTE_MAX_BYTES: Final[int] = 2 * 1024 * 1024
+#: ``media_jobs.voice_transcript`` is varchar(400) (§3.2.2).
+_TRANSCRIPT_MAX_CHARS: Final[int] = 400
 
 
 class MediaErrorCode(StrEnum):
@@ -387,6 +425,9 @@ class MediaErrorCode(StrEnum):
     #: A ``held`` job with no review to end it (a paid-backend ``ambiguous_submit`` hold, or
     #: one from before revision 0032), failed by ``media_sweep`` after two hours (§4.3).
     HELD_UNRESOLVED = "held_unresolved"
+    #: §5.4: whisper's transcript of an own voice note did not read as real speech, so the
+    #: note could not be screened. A ``review`` refusal, never a strike.
+    VOICE_UNTRUSTED = "voice_untrusted"
 
 
 class MediaKV(Protocol):
@@ -429,6 +470,8 @@ class MediaRuntime:
     queue: MediaQueue
     strikes: StrikeStore
     clock: Callable[[], datetime] = field(default=utc_now)
+    #: ffprobe + silencedetect on an own voice note (§5.4); a fake in tests.
+    voice_probe: VoiceProbe = field(default_factory=FfmpegVoiceProbe)
 
 
 def media_runtime(ctx: Mapping[str, Any]) -> MediaRuntime:
@@ -466,6 +509,9 @@ def media_runtime(ctx: Mapping[str, Any]) -> MediaRuntime:
         memo=redis,
         queue=redis,
         strikes=RedisStrikeStore(redis),
+        voice_probe=FfmpegVoiceProbe(
+            ffprobe_binary=settings.ffprobe_binary, ffmpeg_binary=settings.ffmpeg_binary
+        ),
     )
     if isinstance(ctx, dict):
         ctx[MEDIA_CTX_KEY] = runtime
@@ -1008,6 +1054,9 @@ async def _screen(
     texts = [TextItem(id="prompt", subject="prompt", content=prompt)]
     if narration:
         texts.append(TextItem(id="narration", subject="narration", content=narration))
+    if job.voice_transcript:
+        # An own voice note is screened through what whisper heard (§5.4, L1).
+        texts.append(TextItem(id="transcript", subject="transcript", content=job.voice_transcript))
     youth = has_youth_signal([text.content for text in texts])
     hits = [hit.category for text in texts for hit in denylist_hits(text.content)]
     if hits:
@@ -1040,12 +1089,19 @@ async def _screen(
     return apply_hard_rule(strictest(decisions), categories, youth_signal=youth)
 
 
-def _over_caps(job: MediaJobRow) -> bool:
+def _over_caps(rt: MediaRuntime, job: MediaJobRow) -> bool:
     """§1.3 / §6.4 L0: the prompt outside 3–800 characters or over the word cap, or a
-    narration longer than its column. The bot enforces the same caps at compose, so this is
-    a backstop for a row written some other way."""
-    return not is_within_caps(job.prompt or "") or len(job.narration_text or "") > (
-        NARRATION_MAX_CHARS
+    narration longer than its column or over its language's budget (§2.4.2, §5.3). The bot
+    enforces the same caps at compose and at ``voice_text``, so this is a backstop for a row
+    written some other way."""
+    narration = job.narration_text
+    return (
+        not is_within_caps(job.prompt or "")
+        or len(narration or "") > NARRATION_MAX_CHARS
+        or (
+            narration is not None
+            and not fits_budget(narration, narration_budget(rt.settings, job.language))
+        )
     )
 
 
@@ -1081,6 +1137,14 @@ async def _is_backend_healthy(rt: MediaRuntime, backend: MediaBackend) -> bool:
     return health.value.state in (HealthState.HEALTHY, HealthState.DEGRADED)
 
 
+def _prepay_state(job: MediaJobRow) -> MediaJobState:
+    """The pre-quote state a screening stage found the row in: ``drafting`` for the video
+    prescreen, ``screening`` otherwise. Every move it makes is conditional on that."""
+    return (
+        MediaJobState.DRAFTING if job.state is MediaJobState.DRAFTING else MediaJobState.SCREENING
+    )
+
+
 async def _refuse(
     rt: MediaRuntime,
     job: MediaJobRow,
@@ -1091,14 +1155,16 @@ async def _refuse(
     legal_hold: bool = False,
     with_buttons: bool = True,
 ) -> bool:
-    """``screening → rejected`` and the refusal on the tray. ``legal_hold`` holds the inputs
-    in the SAME transaction as the verdict (§6.7), before the cleanup this enqueues runs."""
+    """``screening → rejected`` (or a video draft's ``drafting → rejected`` at the prescreen,
+    §2.4.1) and the refusal on the tray — conditional on the state the stage loaded.
+    ``legal_hold`` holds the inputs in the SAME transaction as the verdict (§6.7), before the
+    cleanup this enqueues runs."""
     now = rt.clock()
     async with rt.sessions.begin() as session:
         moved = await transition(
             session,
             job.id,
-            expected=(MediaJobState.SCREENING,),
+            expected=(_prepay_state(job),),
             to=MediaJobState.REJECTED,
             now=now,
             values={"error_code": error_code.value, **dict(values)},
@@ -1114,12 +1180,13 @@ async def _refuse(
 
 
 async def _busy(rt: MediaRuntime, job: MediaJobRow, values: Mapping[str, Any]) -> None:
-    """``media.busy``: the row stays ``screening`` and 🔁 re-runs this job on it (§2.3.3)."""
+    """``media.busy``: the row stays where it is (``screening``, or a video draft's
+    ``drafting``) and 🔁 re-runs this job on it (§2.3.3)."""
     if values:
         async with rt.sessions.begin() as session:
             await session.execute(
                 sa.update(MediaJobRow)
-                .where(MediaJobRow.id == job.id, MediaJobRow.state == MediaJobState.SCREENING)
+                .where(MediaJobRow.id == job.id, MediaJobRow.state == _prepay_state(job))
                 .values(updated_at=rt.clock(), **dict(values))
             )
     await _show_tray(rt, job, _translate(job, _BUSY_KEY), media_busy_keyboard(job.language, job.id))
@@ -1144,7 +1211,7 @@ async def media_screen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
     gated = await _screen_gate(rt, job)
     if gated is not None:
         return gated
-    if _over_caps(job):
+    if _over_caps(rt, job):
         # Refused, not struck, and before a byte is downloaded (§6.4 L0).
         await _refuse(rt, job, key=_REFUSED_KEY, error_code=MediaErrorCode.SCREEN_CAPS, values={})
         return _result("refused_caps", jid)
@@ -1160,6 +1227,15 @@ async def media_screen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
             return await _screen_input_failure(rt, job, stored)
         photos.append(stored.value)
 
+    # 1b. An own voice note (§5.4): its real length before anything else, then whisper.
+    voice: _Screened | None = None
+    voice_row = next((row for row in rows if row.role is MediaInputRole.VOICE_NOTE), None)
+    if voice_row is not None:
+        heard = await _hear_voice_note(rt, job, voice_row, workdir)
+        if not isinstance(heard, _Heard):
+            return heard
+        voice, job = heard.screened, heard.job
+
     # 2. The collage, when the backend takes fewer references than there are photos (§4.4).
     overrides = await read_overrides(rt.switches, job.sku)
     backend = effective_backend(rt.settings, job.sku, overrides.backend)
@@ -1173,8 +1249,13 @@ async def media_screen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
 
     # 3. The verdict — skipped when this row was already allowed under this policy for these
     #    exact bytes (a 🔁 on a tray that was busy for capacity, not for the guards).
+    # In ``list_inputs`` order — photos, the voice note, the collage — as ``media_start``
+    # re-computes it (§2.3.1).
+    digest_inputs = [*photos, *([voice] if voice is not None else []), *inputs[len(photos) :]]
     digest = content_sha256(
-        prompt=job.prompt, narration=job.narration_text, input_sha256s=[i.sha256 for i in inputs]
+        prompt=job.prompt,
+        narration=job.narration_text,
+        input_sha256s=[i.sha256 for i in digest_inputs],
     )
     already_allowed = (
         job.screen_decision is MediaScreenDecision.ALLOW
@@ -1194,22 +1275,7 @@ async def media_screen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
         "content_sha256": digest,
     }
     if decision in (MediaScreenDecision.BLOCK, MediaScreenDecision.REVIEW):
-        # Pre-pay review is a refusal for the customer (§6.4), non-specific (SEC-3) — the
-        # CSAM-class refusal reads exactly like any other. A block strikes; a review does not.
-        is_csam = is_csam_class(decision, categories)
-        refused = await _refuse(
-            rt,
-            job,
-            key=_REFUSED_KEY,
-            error_code=MediaErrorCode.CSAM_BLOCKED if is_csam else MediaErrorCode.SCREEN_REFUSED,
-            values=screen_values,
-            legal_hold=is_csam,
-        )
-        if refused and is_csam:
-            await _escalate_csam(rt, job, layer="prepay", categories=categories)
-        elif refused and decision is MediaScreenDecision.BLOCK:
-            await _strike(rt, job, layer="prepay", weight=PREPAY_BLOCK_STRIKES, is_csam=False)
-        return _result("refused", jid, decision=decision.value, csam=is_csam)
+        return await _refuse_verdict(rt, job, decision, categories, screen_values)
     if decision is MediaScreenDecision.UNAVAILABLE:
         await _busy(rt, job, screen_values)
         return _result("busy_unscreened", jid)
@@ -1241,13 +1307,7 @@ async def media_screen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
     if not quoted:
         return _result("noop_lost_race", jid)
     live_paid = is_live_paid(rt.settings)
-    text = _translate(
-        job,
-        _QUOTE_KEY,
-        aspect=job.aspect.value,
-        price=format_amount(job.price_minor),
-        eta=_eta_text(job, eta_minutes),
-    )
+    text = _quote_text(rt, job, eta_minutes)
     markup = media_quote_keyboard(
         job.language,
         jid,
@@ -1257,6 +1317,266 @@ async def media_screen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[
     )
     await _show_tray(rt, job, text, markup)
     return _result("quoted", jid, eta=eta_minutes)
+
+
+async def _refuse_verdict(
+    rt: MediaRuntime,
+    job: MediaJobRow,
+    decision: MediaScreenDecision,
+    categories: tuple[CategoryCode, ...],
+    screen_values: Mapping[str, Any],
+) -> dict[str, Any]:
+    """A pre-pay ``block``/``review`` (§6.4), at the screen or the video prescreen.
+
+    Pre-pay review is a refusal for the customer, non-specific (SEC-3) — the CSAM-class
+    refusal reads exactly like any other. A block strikes; a review does not.
+    """
+    is_csam = is_csam_class(decision, categories)
+    refused = await _refuse(
+        rt,
+        job,
+        key=_REFUSED_KEY,
+        error_code=MediaErrorCode.CSAM_BLOCKED if is_csam else MediaErrorCode.SCREEN_REFUSED,
+        values=screen_values,
+        legal_hold=is_csam,
+    )
+    if refused and is_csam:
+        await _escalate_csam(rt, job, layer="prepay", categories=categories)
+    elif refused and decision is MediaScreenDecision.BLOCK:
+        await _strike(rt, job, layer="prepay", weight=PREPAY_BLOCK_STRIKES, is_csam=False)
+    return _result("refused", job.id, decision=decision.value, csam=is_csam)
+
+
+def _quote_text(rt: MediaRuntime, job: MediaJobRow, eta_minutes: int) -> str:
+    """``media.image.quote`` or ``media.video.quote`` (§2.3.3, §2.4.2): the video's names
+    its length, tier and voice, so the tier is on the quote even with no tier screen."""
+    price = format_amount(job.price_minor)
+    eta = _eta_text(job, eta_minutes)
+    if job.kind is MediaKind.IMAGE:
+        return _translate(job, _QUOTE_KEY, aspect=job.aspect.value, price=price, eta=eta)
+    return _translate(
+        job,
+        _VIDEO_QUOTE_KEY,
+        seconds=rt.settings.narration_max_seconds,
+        aspect=job.aspect.value,
+        tier=_translate(job, _TIER_NAME_KEYS[job.tier or MediaTier.STANDARD]),
+        voice=_translate(job, _VOICE_MODE_NAME_KEYS[job.voice_mode]),
+        price=price,
+        eta=eta,
+    )
+
+
+# ---------------------------------------------------------------------------
+# An own voice note (§5.4): ffprobe before payment, whisper, and the transcript's trust
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True, slots=True)
+class _Heard:
+    """A voice note that fits, is stored, and was transcribed into a trusted transcript."""
+
+    screened: _Screened
+    #: The row re-read with ``voice_transcript`` on it, for L1.
+    job: MediaJobRow
+
+
+async def _hear_voice_note(
+    rt: MediaRuntime, job: MediaJobRow, row: MediaInputRow, workdir: Path
+) -> _Heard | dict[str, Any]:
+    """Download (or re-read) the note, measure it, store it, transcribe it (§5.4).
+
+    Telegram's duration is whole seconds and client-reported, so ffprobe decides: above the
+    clip length + 0.25 s the draft goes BACK to ``drafting`` for a shorter note — before
+    payment, and before anything is stored or transcribed. A transcript §5.4 does not trust
+    (empty, low ``avg_logprob``, high compression, a language other than uz/ru/en, too few
+    words for the speech silencedetect found) refuses the request as ``review``: no strike,
+    nothing was judged unsafe — the note simply cannot be screened.
+    """
+    local = workdir / _VOICE_NOTE_FILENAME
+    stored_sha = row.sha256 if row.storage_key is not None else None
+    if row.storage_key is not None and row.sha256 is not None:
+        found = await _materialise(rt, key=row.storage_key, sha256=row.sha256, dest=local)
+        if is_err(found):
+            return await _screen_input_failure(rt, job, found)
+    elif row.tg_file_id is None:
+        return await _screen_input_failure(
+            rt, job, err(ValidationError("a voice note row carries no Telegram file id"))
+        )
+    else:
+        downloaded = await rt.messenger.download(
+            row.tg_file_id, local, max_bytes=_VOICE_NOTE_MAX_BYTES
+        )
+        if is_err(downloaded):
+            return await _screen_input_failure(rt, job, downloaded)
+    measured = await rt.voice_probe.measure(local)
+    if is_err(measured):
+        # ffprobe/ffmpeg not answering is ours, not the customer's: busy, 🔁 retries.
+        _LOG.warning("a voice note could not be measured", extra=measured.error.to_log_dict())
+        await _busy(rt, job, {})
+        return _result("busy_voice_probe", job.id)
+    measure = measured.value
+    if is_voice_note_too_long(measure.duration_s, rt.settings):
+        return await _bounce_voice_note(rt, job, measure.duration_s)
+    if stored_sha is None:
+        stored = await rt.storage.put_file(
+            media_key(job.id, is_output=False, filename=_VOICE_NOTE_FILENAME),
+            local,
+            content_type=_VOICE_NOTE_MIME,
+        )
+        if is_err(stored):
+            return await _screen_input_failure(rt, job, stored)
+        async with rt.sessions.begin() as session:
+            await record_input_stored(
+                session,
+                row.id,
+                storage_key=stored.value.key,
+                mime=_VOICE_NOTE_MIME,
+                size_bytes=stored.value.size_bytes,
+                sha256=stored.value.sha256,
+                duration_ms=round(measure.duration_s * 1000),
+            )
+        stored_sha = stored.value.sha256
+    # No language hint: whisper detects it, which is what the language rule reads.
+    heard = await rt.moderator.transcribe(local, language_hint="")
+    if is_err(heard):
+        await _busy(rt, job, {})
+        return _result("busy_unheard", job.id)
+    untrusted = untrusted_transcript(heard.value, voiced_s=measure.voiced_s)
+    if untrusted is not None:
+        _LOG.info(
+            "an own voice note was refused: its transcript is not trusted",
+            extra={"media_job_id": str(job.id), "reason": untrusted.value},
+        )
+        await _refuse(
+            rt,
+            job,
+            key=_REFUSED_KEY,
+            error_code=MediaErrorCode.VOICE_UNTRUSTED,
+            values={
+                "screen_decision": MediaScreenDecision.REVIEW,
+                "screen_categories": [],
+                "screen_policy_version": MEDIA_POLICY_VERSION,
+            },
+        )
+        return _result("refused_voice", job.id, reason=untrusted.value)
+    async with rt.sessions.begin() as session:
+        await session.execute(
+            sa.update(MediaJobRow)
+            .where(MediaJobRow.id == job.id, MediaJobRow.state == MediaJobState.SCREENING)
+            .values(
+                voice_transcript=heard.value.text[:_TRANSCRIPT_MAX_CHARS], updated_at=rt.clock()
+            )
+        )
+        reread = await load_job(session, job.id)
+    if reread is None or reread.state is not MediaJobState.SCREENING:
+        return _result("noop_lost_race", job.id)
+    return _Heard(
+        screened=_Screened(MediaInputRole.VOICE_NOTE, row.ordinal, local, stored_sha), job=reread
+    )
+
+
+async def _bounce_voice_note(
+    rt: MediaRuntime, job: MediaJobRow, duration_s: float
+) -> dict[str, Any]:
+    """§5.4: a note over the clip (+0.25 s) is refused before payment — and only the NOTE.
+
+    The row goes back to ``drafting`` (a pre-pay move; nothing terminal is re-opened) with
+    its prescreen verdict restored, the note's row and any stored copy are deleted, and the
+    tray offers 🎙 record again — so the customer re-records without re-writing the prompt
+    or re-picking the shape. The next note re-finalises the same draft.
+    """
+    now = rt.clock()
+    async with rt.sessions.begin() as session:
+        moved = await transition(
+            session,
+            job.id,
+            expected=(MediaJobState.SCREENING,),
+            to=MediaJobState.DRAFTING,
+            now=now,
+            values={
+                "screen_decision": MediaScreenDecision.ALLOW,
+                "screen_categories": [],
+                "screen_policy_version": MEDIA_POLICY_VERSION,
+                "content_sha256": None,
+                "voice_transcript": None,
+            },
+        )
+        keys = await delete_inputs(session, job.id, role=MediaInputRole.VOICE_NOTE) if moved else ()
+    if not moved:
+        return _result("noop_lost_race", job.id)
+    for key in keys:
+        deleted = await rt.storage.delete(key)
+        if is_err(deleted):
+            _LOG.warning("a refused voice note could not be deleted", extra={"key": key})
+    (media_workspace(rt, job.id) / "in" / _VOICE_NOTE_FILENAME).unlink(missing_ok=True)
+    text = _translate(
+        job,
+        _VOICE_TOO_LONG_KEY,
+        dur=f"{duration_s:.1f}",
+        seconds=rt.settings.narration_max_seconds,
+    )
+    await _show_tray(rt, job, text, media_voice_too_long_keyboard(job.language, job.id))
+    return _result("voice_too_long", job.id, duration_s=round(duration_s, 2))
+
+
+# ---------------------------------------------------------------------------
+# media_prescreen (§2.4.1): a video draft's prompt and photos, before the voice screens
+# ---------------------------------------------------------------------------
+async def media_prescreen(ctx: Mapping[str, Any], job_id: str, n: int = 0) -> dict[str, Any]:
+    """L0 + L1 on the prompt, L2 (+G8) on the photos of a ``drafting`` video row.
+
+    The row stays ``drafting``: an allow records the verdict on it and turns the tray into
+    the shape screen; a block or review refuses it (``rejected``, struck as at the screen);
+    ``unavailable`` is ``media.busy`` with 🔁. The script writer and ``finalize_video`` act
+    only on a draft this allowed, so neither ever sees an unscreened prompt. ``n`` only tells
+    a 🔁 or a sweep re-drive from the first run.
+    """
+    del n
+    rt = media_runtime(ctx)
+    jid = _uuid(job_id)
+    async with rt.sessions() as session:
+        job = await load_job(session, jid)
+        rows = await list_inputs(session, jid) if job is not None else []
+    if job is None or job.state is not MediaJobState.DRAFTING or job.kind is not MediaKind.VIDEO:
+        return _result("noop_not_drafting", jid)
+    if (
+        job.screen_decision is MediaScreenDecision.ALLOW
+        and job.screen_policy_version == MEDIA_POLICY_VERSION
+    ):
+        return _result("noop_prescreened", jid)
+    gated = await _screen_gate(rt, job)
+    if gated is not None:
+        return gated
+    if _over_caps(rt, job):
+        await _refuse(rt, job, key=_REFUSED_KEY, error_code=MediaErrorCode.SCREEN_CAPS, values={})
+        return _result("refused_caps", jid)
+    workdir = media_workspace(rt, jid) / "in"
+    photos: list[_Screened] = []
+    for row in rows:
+        if row.role is not MediaInputRole.PHOTO:
+            continue
+        stored = await _store_upload(rt, job, row, workdir)
+        if is_err(stored):
+            return await _screen_input_failure(rt, job, stored)
+        photos.append(stored.value)
+    decision, categories = await _screen(rt, job, photos)
+    screen_values: dict[str, Any] = {
+        "screen_decision": decision,
+        "screen_categories": [code.value for code in categories],
+        "screen_policy_version": MEDIA_POLICY_VERSION,
+    }
+    if decision in (MediaScreenDecision.BLOCK, MediaScreenDecision.REVIEW):
+        return await _refuse_verdict(rt, job, decision, categories, screen_values)
+    if decision is MediaScreenDecision.UNAVAILABLE:
+        # Recorded, as at the screen, so the sweep leaves a busy draft to the customer's 🔁.
+        await _busy(rt, job, screen_values)
+        return _result("busy_unscreened", jid)
+    async with rt.sessions.begin() as session:
+        recorded = await update_draft(session, jid, now=rt.clock(), values=screen_values)
+    if not recorded:
+        return _result("noop_lost_race", jid)
+    await _show_tray(
+        rt, job, _translate(job, _ASPECT_KEY), media_video_aspect_keyboard(job.language)
+    )
+    return _result("prescreened", jid)
 
 
 async def _screen_gate(rt: MediaRuntime, job: MediaJobRow) -> dict[str, Any] | None:
@@ -2812,6 +3132,7 @@ async def media_cleanup(ctx: Mapping[str, Any], job_id: str) -> dict[str, Any]:
     return _result("cleaned", jid, objects=len(keys), failed=failed)
 
 
+assert media_prescreen.__name__ == MEDIA_PRESCREEN_JOB
 assert media_screen.__name__ == MEDIA_SCREEN_JOB
 assert media_start.__name__ == MEDIA_START_JOB
 assert media_submit.__name__ == MEDIA_SUBMIT_JOB

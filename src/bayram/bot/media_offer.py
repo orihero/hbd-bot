@@ -12,15 +12,28 @@ from __future__ import annotations
 from typing import Final
 
 from bayram.bot.deps import BotDeps
-from bayram.db.enums import MediaKind, MediaSku
-from bayram.media.offering import media_offered
+from bayram.db.enums import MediaKind, MediaSku, MediaTier
+from bayram.media.offering import media_offered, sku_price_minor
 from bayram.media.overrides import read_paused
 
-__all__ = ["BUILT_COMPOSE_KINDS", "SKU_FOR_KIND", "is_sku_paused", "offered_kinds"]
+__all__ = [
+    "BUILT_COMPOSE_KINDS",
+    "SKU_FOR_KIND",
+    "SKU_FOR_TIER",
+    "is_sku_paused",
+    "offered_kinds",
+    "offered_tiers",
+]
 
-#: The compose flows this build has. Video's (``VideoOrder``, §2.4) is M4.1: until it lands a
-#: 🎬 button would lead nowhere, so video is offered to nobody whatever its flag says.
-BUILT_COMPOSE_KINDS: Final[frozenset[MediaKind]] = frozenset({MediaKind.IMAGE})
+#: The compose flows this build has: ``ImageOrder`` (§2.3) and, since M4.1, ``VideoOrder``
+#: (§2.4). A kind missing here is offered to nobody whatever its flag says.
+BUILT_COMPOSE_KINDS: Final[frozenset[MediaKind]] = frozenset({MediaKind.IMAGE, MediaKind.VIDEO})
+
+#: The SKU each video tier sells (O2, D22).
+SKU_FOR_TIER: Final[dict[MediaTier, MediaSku]] = {
+    MediaTier.STANDARD: MediaSku.VIDEO_STANDARD,
+    MediaTier.FAST: MediaSku.VIDEO_FAST,
+}
 
 #: The SKU the picker's row for a kind sells. Video's tier is chosen after compose (§2.4.1),
 #: so the picker asks about Standard, the tier that exists (O2).
@@ -51,3 +64,20 @@ async def offered_kinds(deps: BotDeps, telegram_user_id: int | None) -> frozense
         if not await is_sku_paused(deps, sku):
             offered.add(kind)
     return frozenset(offered)
+
+
+async def offered_tiers(deps: BotDeps, telegram_user_id: int) -> frozenset[MediaTier]:
+    """The video tiers this account may buy now (§2.4.1): offered, priced and not paused.
+
+    The tier screen is drawn only when this holds two; with Fast flagged off (until M6) it is
+    Standard alone, the screen is skipped and the quote names the tier.
+    """
+    tiers: set[MediaTier] = set()
+    for tier, sku in SKU_FOR_TIER.items():
+        if sku_price_minor(deps.settings, sku) is None:
+            continue
+        if not media_offered(deps.settings, sku, telegram_user_id, is_paused=False):
+            continue
+        if not await is_sku_paused(deps, sku):
+            tiers.add(tier)
+    return frozenset(tiers)

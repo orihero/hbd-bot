@@ -51,6 +51,7 @@ from bayram.bot.callbacks import (
     NavAction,
     NavCB,
     OccasionCB,
+    ScriptPick,
     SupportAction,
     SupportCB,
     TermsAction,
@@ -69,6 +70,7 @@ from bayram.bot.i18n import (
 )
 from bayram.bot.pricing import CheckoutOffer
 from bayram.contracts import Genre, Language, Occasion, VoiceGender
+from bayram.db.enums import MediaTier, MediaVoiceGender, MediaVoiceMode
 
 __all__ = [
     "language_keyboard",
@@ -100,6 +102,13 @@ __all__ = [
     "media_tray_keyboard",
     "media_aspect_keyboard",
     "media_open_request_keyboard",
+    "media_video_aspect_keyboard",
+    "media_tier_keyboard",
+    "media_voice_pick_keyboard",
+    "media_voice_gender_keyboard",
+    "media_voice_step_keyboard",
+    "media_script_review_keyboard",
+    "media_voice_too_long_keyboard",
     "LANGUAGE_COLUMNS",
     "GENRE_COLUMNS",
     "OCCASION_COLUMNS",
@@ -1085,6 +1094,119 @@ def media_open_request_keyboard(language: Language, job_id: UUID) -> InlineKeybo
     return InlineKeyboardMarkup(
         inline_keyboard=[
             _media_button(language, "button.media.pay", MediaAction.PAY, job_id),
+            _media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id),
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# Video, after ✅ Done (IMAGE_VIDEO_SPEC §2.4). Every screen carries ⬅️ (the §2.4.1 back map)
+# and ✖️, both pre-freeze and state-filtered: the ✖️ here also cancels the ``drafting`` row.
+# ---------------------------------------------------------------------------
+def _back_and_cancel(language: Language) -> list[list[InlineKeyboardButton]]:
+    return [
+        _pre_freeze_button(language, "button.media.back", MediaAction.BACK),
+        _pre_freeze_button(language, "button.media.cancel", MediaAction.DROP),
+    ]
+
+
+def media_video_aspect_keyboard(language: Language) -> InlineKeyboardMarkup:
+    """``media.aspect`` for a video, drawn by ``media_prescreen``: the shapes, ⬅️ to compose."""
+    rows = [
+        _pre_freeze_button(language, key, MediaAction.ASPECT, pick)
+        for pick, key in _ASPECT_LABEL_KEYS
+    ]
+    rows.extend(_back_and_cancel(language))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+#: The tiers in the order drawn: Standard (the one that exists now, O2) first.
+_TIER_LABEL_KEYS: Final[tuple[tuple[MediaTier, str], ...]] = (
+    (MediaTier.STANDARD, "button.media.tier.standard"),
+    (MediaTier.FAST, "button.media.tier.fast"),
+)
+
+
+def media_tier_keyboard(
+    language: Language, tiers: frozenset[MediaTier] = frozenset(MediaTier)
+) -> InlineKeyboardMarkup:
+    """``media.video.tier`` (§2.4.2): 🐢 Standard · ⚡ Fast — drawn only with two offered."""
+    rows = [
+        _pre_freeze_button(language, key, MediaAction.TIER, tier)
+        for tier, key in _TIER_LABEL_KEYS
+        if tier in tiers
+    ]
+    rows.extend(_back_and_cancel(language))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+_VOICE_LABEL_KEYS: Final[tuple[tuple[MediaVoiceMode, str], ...]] = (
+    (MediaVoiceMode.NONE, "button.media.voice.none"),
+    (MediaVoiceMode.AI_USER, "button.media.voice.ai_mine"),
+    (MediaVoiceMode.AI_LLM, "button.media.voice.ai_llm"),
+    (MediaVoiceMode.OWN, "button.media.voice.own"),
+)
+
+
+def media_voice_pick_keyboard(
+    language: Language, modes: frozenset[MediaVoiceMode] = frozenset(MediaVoiceMode)
+) -> InlineKeyboardMarkup:
+    """``media.voice.pick`` (§2.4.2): 🔇 · 🗣 · 🤖 · 🎙, each only when ``modes`` has it."""
+    rows = [
+        _pre_freeze_button(language, key, MediaAction.VOICE, mode)
+        for mode, key in _VOICE_LABEL_KEYS
+        if mode in modes
+    ]
+    rows.extend(_back_and_cancel(language))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def media_voice_gender_keyboard(language: Language) -> InlineKeyboardMarkup:
+    """``media.voice.gender`` (§2.4.2): 👩 · 👨 — the two house voices."""
+    rows = [
+        _pre_freeze_button(
+            language, "button.media.voice.female", MediaAction.GENDER, MediaVoiceGender.FEMALE
+        ),
+        _pre_freeze_button(
+            language, "button.media.voice.male", MediaAction.GENDER, MediaVoiceGender.MALE
+        ),
+    ]
+    rows.extend(_back_and_cancel(language))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def media_voice_step_keyboard(language: Language) -> InlineKeyboardMarkup:
+    """Under ``media.voice.enter_text`` and ``media.voice.send_note``: ⬅️ · ✖️ (§2.4.2)."""
+    return InlineKeyboardMarkup(inline_keyboard=_back_and_cancel(language))
+
+
+def media_script_review_keyboard(
+    language: Language, *, can_regenerate: bool
+) -> InlineKeyboardMarkup:
+    """``media.voice.script_review`` (§2.4.2): ✅ use · ✏️ edit · 🔄 another (while any of the
+    ``media_script_max_regens`` are left) · ⬅️ · ✖️. Drawn by the script writer (M4.3)."""
+    rows = [
+        _pre_freeze_button(language, "button.media.voice.use", MediaAction.SCRIPT, ScriptPick.USE),
+        _pre_freeze_button(
+            language, "button.media.voice.edit", MediaAction.SCRIPT, ScriptPick.EDIT
+        ),
+    ]
+    if can_regenerate:
+        rows.append(
+            _pre_freeze_button(
+                language, "button.media.voice.another", MediaAction.SCRIPT, ScriptPick.ANOTHER
+            )
+        )
+    rows.extend(_back_and_cancel(language))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def media_voice_too_long_keyboard(language: Language, job_id: UUID) -> InlineKeyboardMarkup:
+    """``media.voice_note.too_long`` from ``media_screen`` (§5.4): 🎙 record again · ✖️, on
+    THAT row — the worker draws it, so both carry the job id."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            _media_button(language, "button.media.voice.record_again", MediaAction.RECORD, job_id),
             _media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id),
         ]
     )

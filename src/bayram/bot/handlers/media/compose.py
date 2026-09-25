@@ -30,6 +30,7 @@ from uuid import UUID, uuid4
 
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, PhotoSize
 
 from bayram.bot.callbacks import AspectPick, CreatePick, MediaCB
@@ -61,7 +62,7 @@ from bayram.bot.media_draft import (
 from bayram.bot.media_offer import offered_kinds
 from bayram.bot.middleware import resolve_language
 from bayram.bot.screens import Screen
-from bayram.bot.states import ImageOrder
+from bayram.bot.states import ImageOrder, VideoOrder
 from bayram.contracts import Err, Language
 from bayram.db.enums import MediaAspect, MediaBackend, MediaJobState, MediaKind, MediaSku
 from bayram.logging import get_logger
@@ -72,9 +73,17 @@ from bayram.moderation.lexicon import PROMPT_MAX_WORDS
 
 __all__ = [
     "IMAGE_OUTPUTS",
+    "COMPOSE_STATES",
     "ASPECT_FOR_PICK",
     "open_create",
     "start_image",
+    "start_compose",
+    "tray_markup",
+    "is_gpu_reserved",
+    "is_suspended",
+    "refuse_suspended",
+    "tray_draft",
+    "write_draft",
     "show_open_request",
     "tray_text",
     "read_media_draft",
@@ -92,6 +101,12 @@ __all__ = [
 
 _LOG = get_logger(__name__)
 
+#: Where each kind's compose parks the chat (§2.3.1, §2.4.1).
+COMPOSE_STATES: Final[dict[MediaKind, State]] = {
+    MediaKind.IMAGE: ImageOrder.compose,
+    MediaKind.VIDEO: VideoOrder.compose,
+}
+
 #: One request yields two images (O5, D25, §1.3).
 IMAGE_OUTPUTS: Final[int] = 2
 
@@ -106,6 +121,11 @@ _PROMPT_PREVIEW_CHARS: Final[int] = 120
 
 _PICK_KEY: Final[str] = "create.pick"
 _COMPOSE_KEY: Final[str] = "media.image.compose"
+_VIDEO_COMPOSE_KEY: Final[str] = "media.video.compose"
+_COMPOSE_KEYS: Final[dict[MediaKind, str]] = {
+    MediaKind.IMAGE: _COMPOSE_KEY,
+    MediaKind.VIDEO: _VIDEO_COMPOSE_KEY,
+}
 _TRAY_KEY: Final[str] = "media.tray"
 _NO_PROMPT_KEY: Final[str] = "media.tray.no_prompt"
 _CAP_KEY: Final[str] = "media.tray.cap_reached"
@@ -140,7 +160,7 @@ async def read_media_draft(state: FSMContext) -> MediaDraft | None:
     return load_media_draft(await state.get_data())
 
 
-async def _write(state: FSMContext, draft: MediaDraft) -> None:
+async def write_draft(state: FSMContext, draft: MediaDraft) -> None:
     await state.update_data(draft.to_state_data())
 
 
@@ -170,7 +190,7 @@ def _valid_prompt(text: str | None) -> str | None:
 def tray_text(draft: MediaDraft, max_refs: int) -> str:
     """The compose tray: what to do, then the prompt and the photo count (§2.3.3)."""
     language = draft.ui_language
-    head = translate(_COMPOSE_KEY, language, max=max_refs)
+    head = translate(_COMPOSE_KEYS[draft.kind], language, max=max_refs)
     prompt_state = _preview(draft.prompt) if draft.prompt else translate(_NO_PROMPT_KEY, language)
     line = translate(
         _TRAY_KEY, language, prompt_state=prompt_state, n=len(draft.refs), max=max_refs
@@ -178,7 +198,7 @@ def tray_text(draft: MediaDraft, max_refs: int) -> str:
     return f"{head}\n\n{line}"
 
 
-def _tray_markup(draft: MediaDraft) -> InlineKeyboardMarkup:
+def tray_markup(draft: MediaDraft) -> InlineKeyboardMarkup:
     return media_tray_keyboard(draft.ui_language, has_photos=bool(draft.refs))
 
 
@@ -192,7 +212,7 @@ async def _edit_tray(message: Message, draft: MediaDraft, deps: BotDeps) -> Medi
                 text=text,
                 chat_id=message.chat.id,
                 message_id=draft.tray_message_id,
-                reply_markup=_tray_markup(draft),
+                reply_markup=tray_markup(draft),
             )
         except TelegramAPIError as exc:
             if (
@@ -205,7 +225,7 @@ async def _edit_tray(message: Message, draft: MediaDraft, deps: BotDeps) -> Medi
             )
         else:
             return draft
-    sent = await message.answer(text, reply_markup=_tray_markup(draft))
+    sent = await message.answer(text, reply_markup=tray_markup(draft))
     return draft.updated(tray_message_id=sent.message_id)
 
 
@@ -284,7 +304,7 @@ async def handle_pick(
         await _stale(callback, language)
         return
     await callback.answer()
-    await start_image(callback, state, deps)
+    await start_compose(callback, state, deps, kind=kind)
 
 
 async def start_image(
@@ -298,7 +318,34 @@ async def start_image(
     note_key: str | None = None,
     is_new_message: bool = False,
 ) -> None:
-    """A fresh image compose: clear the session, draw the tray, park in ``ImageOrder.compose``.
+    """A fresh image compose (§2.3.1). See :func:`start_compose`."""
+    await start_compose(
+        event,
+        state,
+        deps,
+        kind=MediaKind.IMAGE,
+        prompt=prompt,
+        aspect=aspect,
+        refs=refs,
+        note_key=note_key,
+        is_new_message=is_new_message,
+    )
+
+
+async def start_compose(
+    event: Event,
+    state: FSMContext,
+    deps: BotDeps,
+    *,
+    kind: MediaKind,
+    prompt: str | None = None,
+    aspect: MediaAspect | None = None,
+    refs: tuple[MediaRef, ...] = (),
+    note_key: str | None = None,
+    is_new_message: bool = False,
+) -> None:
+    """A fresh compose of ``kind``: clear the session, draw the tray, park in the kind's
+    ``compose`` state (``ImageOrder`` or ``VideoOrder``, §2.2).
 
     ``prompt``/``aspect``/``refs`` pre-fill it (🔁 again, ✏️ Edit). From a button the tray is
     drawn over that message unless ``is_new_message``; from a message it is sent.
@@ -309,13 +356,13 @@ async def start_image(
     if desk is not None and telegram_user_id is not None:
         # §2.3.1: "✨ → 🖼 again" with a request that is paid for or has a pay link out shows
         # that request rather than a compose that could never be frozen.
-        opened = await desk.open_request(telegram_user_id, MediaKind.IMAGE)
+        opened = await desk.open_request(telegram_user_id, kind)
         if not isinstance(opened, Err) and opened.value is not None:
             await show_open_request(event, opened.value, language)
             return
     await clear_keeping_identity(state)
     draft = MediaDraft(
-        kind=MediaKind.IMAGE,
+        kind=kind,
         session_id=uuid4().hex,
         ui_language=language,
         prompt=prompt,
@@ -325,7 +372,7 @@ async def start_image(
     text = tray_text(draft, deps.settings.media_max_reference_images)
     if note_key is not None:
         text = f"{translate(note_key, language)}\n\n{text}"
-    markup = _tray_markup(draft)
+    markup = tray_markup(draft)
     tray_id: int | None = None
     if isinstance(event, CallbackQuery) and isinstance(event.message, Message):
         if is_new_message:
@@ -336,9 +383,9 @@ async def start_image(
     elif isinstance(event, Message):
         tray_id = (await event.answer(text, reply_markup=markup)).message_id
     draft = draft.updated(tray_message_id=tray_id)
-    await state.set_state(ImageOrder.compose)
-    await _write(state, draft)
-    _LOG.info("an image compose opened", extra={"prefilled": prompt is not None})
+    await state.set_state(COMPOSE_STATES[kind])
+    await write_draft(state, draft)
+    _LOG.info("a media compose opened", extra={"kind": kind.value, "prefilled": prompt is not None})
 
 
 # ---------------------------------------------------------------------------
@@ -379,7 +426,7 @@ async def handle_compose_text(message: Message, state: FSMContext, deps: BotDeps
         )
         return
     draft = await _edit_tray(message, draft.updated(prompt=prompt), deps)
-    await _write(state, draft)
+    await write_draft(state, draft)
 
 
 async def _take_photo(message: Message, state: FSMContext, deps: BotDeps, ref: MediaRef) -> None:
@@ -404,7 +451,7 @@ async def _take_photo(message: Message, state: FSMContext, deps: BotDeps, ref: M
         changed = True
     if changed:
         draft = await _edit_tray(message, draft, deps)
-    await _write(state, draft)
+    await write_draft(state, draft)
 
 
 def _largest(photo: list[PhotoSize]) -> PhotoSize:
@@ -457,13 +504,13 @@ async def handle_compose_other(message: Message, state: FSMContext, deps: BotDep
         return
     await say(message, translate(_UNSUPPORTED_KEY, draft.ui_language))
     if message.media_group_id is not None:
-        await _write(state, draft.updated(last_media_group_id=message.media_group_id))
+        await write_draft(state, draft.updated(last_media_group_id=message.media_group_id))
 
 
 # ---------------------------------------------------------------------------
 # The tray's buttons and the aspect screen
 # ---------------------------------------------------------------------------
-async def _tray_draft(callback: CallbackQuery, state: FSMContext) -> MediaDraft | None:
+async def tray_draft(callback: CallbackQuery, state: FSMContext) -> MediaDraft | None:
     """The draft, when the button pressed is on THIS compose's tray. A tray left over from an
     earlier compose shares the state but not the message, and is answered as stale."""
     draft = await read_media_draft(state)
@@ -478,7 +525,7 @@ async def _tray_draft(callback: CallbackQuery, state: FSMContext) -> MediaDraft 
     return draft
 
 
-async def _is_gpu_reserved(deps: BotDeps, sku: MediaSku) -> bool:
+async def is_gpu_reserved(deps: BotDeps, sku: MediaSku) -> bool:
     """O11, §4.5: the operator's GPU window is open and ``sku`` renders on the local GPU.
 
     Read at Done and at the shape pick, so a customer learns the studio is busy before a row
@@ -492,7 +539,7 @@ async def _is_gpu_reserved(deps: BotDeps, sku: MediaSku) -> bool:
     return backend is MediaBackend.LOCAL and overrides.is_gpu_reserved(deps.clock())
 
 
-async def _is_suspended(deps: BotDeps, telegram_user_id: int) -> bool:
+async def is_suspended(deps: BotDeps, telegram_user_id: int) -> bool:
     """§6.4 L0 "strike check", in the handler: a suspended account freezes no row.
 
     One Redis read. Unreadable (or no store) reads "not suspended": the worker's screen gate
@@ -509,7 +556,7 @@ async def _is_suspended(deps: BotDeps, telegram_user_id: int) -> bool:
         return False
 
 
-async def _refuse_suspended(callback: CallbackQuery, state: FSMContext, language: Language) -> None:
+async def refuse_suspended(callback: CallbackQuery, state: FSMContext, language: Language) -> None:
     await callback.answer()
     await clear_keeping_identity(state)
     await present(callback, Screen(translate(_SUSPENDED_KEY, language), None))
@@ -519,16 +566,16 @@ async def handle_done(callback: CallbackQuery, state: FSMContext, deps: BotDeps)
     """✅ Done: the aspect screen, over the tray. No prompt yet, or the GPU reserved by the
     operator → an alert, and nothing moves (the tray stays for a later ✅). A suspended
     account is told so and the draft goes (§6.4)."""
-    draft = await _tray_draft(callback, state)
+    draft = await tray_draft(callback, state)
     if draft is None:
         return
-    if await _is_suspended(deps, callback.from_user.id):
-        await _refuse_suspended(callback, state, draft.ui_language)
+    if await is_suspended(deps, callback.from_user.id):
+        await refuse_suspended(callback, state, draft.ui_language)
         return
     if draft.prompt is None:
         await callback.answer(translate(_NEED_PROMPT_KEY, draft.ui_language), show_alert=True)
         return
-    if await _is_gpu_reserved(deps, MediaSku.IMAGE):
+    if await is_gpu_reserved(deps, MediaSku.IMAGE):
         await callback.answer(translate(_BUSY_KEY, draft.ui_language), show_alert=True)
         return
     await callback.answer()
@@ -541,24 +588,30 @@ async def handle_done(callback: CallbackQuery, state: FSMContext, deps: BotDeps)
 
 async def handle_clear(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:
     """🗑 Clear photos: the prompt stays."""
-    draft = await _tray_draft(callback, state)
+    draft = await tray_draft(callback, state)
     if draft is None:
         return
     await callback.answer()
     draft = draft.updated(refs=(), last_media_group_id=None)
     await present(
         callback,
-        Screen(tray_text(draft, deps.settings.media_max_reference_images), _tray_markup(draft)),
+        Screen(tray_text(draft, deps.settings.media_max_reference_images), tray_markup(draft)),
     )
-    await _write(state, draft)
+    await write_draft(state, draft)
 
 
 async def handle_drop(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:
-    """✖️ before anything was frozen: the draft goes, and there is no row to cancel."""
-    draft = await _tray_draft(callback, state)
+    """✖️ on a screen with no job on its button: the draft goes. An image has no row yet; a
+    video frozen at ✅ Done has its ``drafting`` row, which is cancelled with it (§2.4.1)."""
+    draft = await tray_draft(callback, state)
     if draft is None:
         return
     await callback.answer()
+    frozen = draft.frozen_job
+    if deps.media is not None and frozen is not None and draft.kind is MediaKind.VIDEO:
+        cancelled = await deps.media.cancel(UUID(frozen), telegram_user_id=callback.from_user.id)
+        if isinstance(cancelled, Err):
+            _LOG.warning("a video draft could not be cancelled", extra={"media_job_id": frozen})
     await clear_keeping_identity(state)
     await present(callback, Screen(translate(_CANCELLED_KEY, draft.ui_language), None))
 
@@ -571,7 +624,7 @@ async def handle_aspect(
     Entitlement is asked again first (§2.5): the compose may be a day old and the account
     off the beta list since. The price is the setting's now, snapshotted on the row.
     """
-    draft = await _tray_draft(callback, state)
+    draft = await tray_draft(callback, state)
     if draft is None:
         return
     language = draft.ui_language
@@ -594,13 +647,13 @@ async def handle_aspect(
         await clear_keeping_identity(state)
         await present(callback, Screen(translate(_STALE_KEY, language), None))
         return
-    if await _is_gpu_reserved(deps, MediaSku.IMAGE):
+    if await is_gpu_reserved(deps, MediaSku.IMAGE):
         # The window opened while the shape screen was up: nothing is frozen (§4.5).
         await callback.answer(translate(_BUSY_KEY, language), show_alert=True)
         return
-    if await _is_suspended(deps, callback.from_user.id):
+    if await is_suspended(deps, callback.from_user.id):
         # Suspended since ✅ (another request's block): nothing is frozen (§6.4).
-        await _refuse_suspended(callback, state, language)
+        await refuse_suspended(callback, state, language)
         return
     await callback.answer()
     # BEFORE the freeze: the worker edits this same message into the quote once the enqueue
@@ -633,7 +686,7 @@ async def handle_aspect(
         await show_open_request(callback, frozen.value.open_request, language)
         return
     job_id: UUID | None = frozen.value.job_id
-    await _write(
+    await write_draft(
         state, draft.updated(aspect=aspect, frozen_job=job_id.hex if job_id is not None else None)
     )
     await state.set_state(ImageOrder.quote)

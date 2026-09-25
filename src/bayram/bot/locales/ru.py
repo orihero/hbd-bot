@@ -868,4 +868,57 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.media.aspect.portrait": "📱 Вертикально 9:16",
     "button.media.aspect.square": "⏹️ Квадрат 1:1",
     "button.media.aspect.landscape": "🖥️ Горизонтально 16:9",
+    # -- media: a video after ✅ Done (IMAGE_VIDEO_SPEC §2.4) --------------------------
+    # The tier, voice and voice-step screens the bot draws, the worker's video quote,
+    # and its answer to a voice note ffprobe found over the clip (§5.4).
+    "media.video.compose": (
+        "🎬 Опишите видео — что происходит и в каком стиле — сообщением. Можно также "
+        "прикрепить до {max} фото: из них соберём первый кадр (необязательно)."
+    ),
+    "media.video.tier": (
+        "Выберите скорость:\n🐢 Стандарт — примерно {eta_std}, {price_std}\n⚡ Быстро — примерно "
+        "{eta_fast}, {price_fast}"
+    ),
+    "media.voice.pick": (
+        "🔊 Добавить голос? Ролик длится {seconds} секунд — это примерно {words} слов."
+    ),
+    "media.voice.gender": "Какой голос?",
+    "media.voice.enter_text": "✍️ Напишите, что должен сказать голос (до {words} слов).",
+    "media.voice.too_long": (
+        "Это слишком длинно для {seconds} секунд — уложитесь, пожалуйста, примерно в {words} слов."
+    ),
+    "media.voice.script_wait": "✍️ Пишем для вас фразу…",
+    "media.voice.script_review": "Предлагаем фразу: «{script}»",
+    "media.voice.send_note": (
+        "🎙️ Запишите голосовое сообщение до {seconds} секунд и отправьте его сюда."
+    ),
+    "media.voice_note.too_long": (
+        "Это голосовое длится {dur} с — запишите, пожалуйста, не дольше {seconds} с."
+    ),
+    "media.voice_note.wrong_type": (
+        "Пожалуйста, отправьте голосовое сообщение (удерживайте кнопку 🎤)."
+    ),
+    "media.video.quote": (
+        "🎬 Видео · {seconds} с · {aspect} · {tier} · голос: {voice}\n{price} · будет готово "
+        "примерно через {eta}."
+    ),
+    "media.tier_name.standard": "Стандарт",
+    "media.tier_name.fast": "Быстро",
+    "media.voice_mode.none": "без голоса",
+    "media.voice_mode.ai_user": "ИИ, ваши слова",
+    "media.voice_mode.ai_llm": "ИИ, текст от нас",
+    "media.voice_mode.own": "ваш собственный",
+    "button.media.back": "⬅️ Назад",
+    "button.media.tier.standard": "🐢 Стандарт",
+    "button.media.tier.fast": "⚡ Быстро",
+    "button.media.voice.none": "🔇 Без голоса",
+    "button.media.voice.ai_mine": "🗣️ ИИ-голос, мои слова",
+    "button.media.voice.ai_llm": "🤖 ИИ напишет слова",
+    "button.media.voice.own": "🎙️ Мой голос",
+    "button.media.voice.female": "👩 Женский голос",
+    "button.media.voice.male": "👨 Мужской голос",
+    "button.media.voice.use": "✅ Взять эту фразу",
+    "button.media.voice.edit": "✏️ Изменить слова",
+    "button.media.voice.another": "🔄 Другая фраза",
+    "button.media.voice.record_again": "🎙️ Записать заново",
 }

@@ -456,6 +456,25 @@ enabled (now) it is skipped and the quote names the tier.
   regenerations per draft (`media_script_max_regens`); each counts against the screening budget
   (§6.4 L0).
 
+*As built (M4.1):* ✅ Done freezes the `drafting` row (a placeholder 9:16 aspect, Standard SKU and
+price) and enqueues `media_prescreen`, which records `screen_decision='allow'` on the draft and draws
+the shape screen on the tray — or refuses it (`rejected`, struck as at the screen), or answers
+`media.busy` with 🔁 (the decision `unavailable`, so the sweep leaves it to the customer; a prescreen
+whose enqueue was lost has no decision and the sweep re-drives it). Every later choice stays in the FSM
+draft until the last voice step, which writes aspect, tier, SKU, price, `voice_mode`, `voice_gender`,
+`narration_text` and the voice note's Telegram ids onto the row **in the statement that moves it
+`drafting → screening`** (`MediaDesk.finalize_video`), and only for a draft the prescreen allowed; that
+statement clears the prescreen's verdict, so `media_screen` judges the whole request again. After a
+typed line or a voice note the "checking" message is a new one under it and becomes the row's tray.
+🤖 "AI writes" is built on the bot side (enqueue `media_script(job_id, n)`, `script_review` with ✅ / ✏️
+/ 🔄 ≤ `media_script_max_regens`, the keyboard the writer will draw) but **not drawn** until M4.3
+registers the writer (`BUILT_VOICE_MODES`). The tier screen shows each tier that is offered, priced and
+not paused; with Fast flagged off it is skipped. A voice note ffprobe measures above the clip + 0.25 s
+sends the row **back to `drafting`** (a pre-pay move; its prescreen verdict restored, the note's row and
+object deleted) with 🎙 record again, rather than refusing the whole request — the customer re-records
+without retyping the prompt. Budgets and the clip length are `BAYRAM_NARRATION_*`; the worker re-checks
+the budget as a backstop (`screen_caps`).
+
 ### 2.5 Who sees what (beta and flags)
 
 `media_offered(kind, tier, user)` =
@@ -1012,6 +1031,13 @@ trim is counted per language so the M4.4 budgets can be tightened (Q11 note).
   - fewer than ~1 word per 1.5 s of voiced audio (by `silencedetect`) — music, moaning or other
     non-speech that whisper fills with filler text.
   M4.1 tests cover each case. Residual (§11 R11): tone and non-verbal sound are unscreened.
+- *As built (M4.1):* whisper is called with **no** language (a forced language is echoed back and
+  would make the language rule vacuous); `no_speech_prob` counts as high at ≥ 0.6 (whisper's own
+  threshold) when silencedetect (−35 dB, 0.3 s) finds ≥ 0.5 s of speech; the word-rate rule is
+  words < ⌊voiced s / 1.5⌋. An untrusted transcript refuses the request as `review` with
+  `error_code='voice_untrusted'` and no strike; a trusted one is stored in `voice_transcript` and
+  screened by G1 as `transcript`. The note is stored as sent (OGG/Opus, `audio/ogg`) with its
+  ffprobe `duration_ms`.
 - At render time `media_voice_prepare` reads the screened storage copy (sha256-verified): ffmpeg
   decode → `loudnorm` I=−16 LUFS → mono 48 kHz → pad (or trim within tolerance) to clip length →
   AAC. The note is muxed as-is otherwise: **no cloning, no voice conversion**.

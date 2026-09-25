@@ -908,4 +908,54 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.media.aspect.portrait": "📱 Тик 9:16",
     "button.media.aspect.square": "⏹️ Квадрат 1:1",
     "button.media.aspect.landscape": "🖥️ Ётиқ 16:9",
+    # -- media: a video after ✅ Done (IMAGE_VIDEO_SPEC §2.4) --------------------------
+    # The tier, voice and voice-step screens the bot draws, the worker's video quote,
+    # and its answer to a voice note ffprobe found over the clip (§5.4).
+    "media.video.compose": (
+        "🎬 Видеони хабар қилиб тасвирлаб ёзинг — нима содир бўлади ва қайси услубда. "
+        "Хоҳласангиз, {max} тагача расм ҳам бириктиринг — улардан биринчи кадр йиғилади "
+        "(ихтиёрий)."
+    ),
+    "media.video.tier": (
+        "Тезликни танланг:\n🐢 Стандарт — тахминан {eta_std}, {price_std}\n⚡ Тез — тахминан "
+        "{eta_fast}, {price_fast}"
+    ),
+    "media.voice.pick": (
+        "🔊 Овоз қўшилсинми? Видео {seconds} сония, шунинг учун тахминан {words} та сўз сиғади."
+    ),
+    "media.voice.gender": "Қайси овоз?",
+    "media.voice.enter_text": "✍️ Овоз нима дейишини ёзинг ({words} та сўзгача).",
+    "media.voice.too_long": (
+        "Бу {seconds} сонияда айтиш учун жуда узун — илтимос, тахминан {words} та сўзга сиғдиринг."
+    ),
+    "media.voice.script_wait": "✍️ Сиз учун жумла ёзилмоқда…",
+    "media.voice.script_review": "Таклиф қилинган жумла: «{script}»",
+    "media.voice.send_note": "🎙️ {seconds} сониягача овозли хабар ёзиб, шу ерга юборинг.",
+    "media.voice_note.too_long": (
+        "Бу овозли хабар {dur} сония — илтимос, {seconds} сониягача ёзинг."
+    ),
+    "media.voice_note.wrong_type": "Илтимос, овозли хабар юборинг (🎤 тугмасини босиб туринг).",
+    "media.video.quote": (
+        "🎬 Видео · {seconds} сония · {aspect} · {tier} · овоз: {voice}\n{price} · тахминан "
+        "{eta} да тайёр бўлади."
+    ),
+    "media.tier_name.standard": "Стандарт",
+    "media.tier_name.fast": "Тез",
+    "media.voice_mode.none": "овозсиз",
+    "media.voice_mode.ai_user": "СИ, сизнинг сўзларингиз",
+    "media.voice_mode.ai_llm": "СИ, биз ёзган матн",
+    "media.voice_mode.own": "ўз овозингиз",
+    "button.media.back": "⬅️ Орқага",
+    "button.media.tier.standard": "🐢 Стандарт",
+    "button.media.tier.fast": "⚡ Тез",
+    "button.media.voice.none": "🔇 Овозсиз",
+    "button.media.voice.ai_mine": "🗣️ СИ овози, сўзлар меники",
+    "button.media.voice.ai_llm": "🤖 Сўзларни СИ ёзсин",
+    "button.media.voice.own": "🎙️ Ўз овозим",
+    "button.media.voice.female": "👩 Аёл овози",
+    "button.media.voice.male": "👨 Эркак овози",
+    "button.media.voice.use": "✅ Шу жумлани олиш",
+    "button.media.voice.edit": "✏️ Сўзларни ўзгартириш",
+    "button.media.voice.another": "🔄 Бошқа жумла",
+    "button.media.voice.record_again": "🎙️ Қайта ёзиш",
 }

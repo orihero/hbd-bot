@@ -47,6 +47,7 @@ __all__ = [
     "Wizard",
     "Onboarding",
     "ImageOrder",
+    "VideoOrder",
     "WIZARD_ORDER",
     "OWN_LYRICS_ORDER",
     "PARKED_ONLY_STEPS",
@@ -143,6 +144,28 @@ class ImageOrder(StatesGroup):
 
     compose = State()
     aspect = State()
+    quote = State()
+
+
+class VideoOrder(StatesGroup):
+    """The video request before it is paid for (IMAGE_VIDEO_SPEC §2.4.1). NOT wizard steps.
+
+    ``compose`` is the image's tray. At ✅ Done the draft is frozen into a ``drafting`` row and
+    the chat waits in ``aspect`` while ``media_prescreen`` screens the prompt and photos and
+    draws the shape screen. Then ``tier`` (only with two tiers offered), ``voice``, and per
+    voice: ``voice_gender`` → ``voice_text`` (typed words), ``voice_gender`` →
+    ``script_review`` (AI-written words), or ``voice_note`` (own voice). The last voice step
+    moves the row to ``screening`` and the chat parks in ``quote``, as an image does.
+    """
+
+    compose = State()
+    aspect = State()
+    tier = State()
+    voice = State()
+    voice_gender = State()
+    voice_text = State()
+    script_review = State()
+    voice_note = State()
     quote = State()
 
 

@@ -41,7 +41,11 @@ from bayram.db.enums import (
     MediaJobState,
     MediaKind,
     MediaPaidVia,
+    MediaScreenDecision,
     MediaSku,
+    MediaTier,
+    MediaVoiceGender,
+    MediaVoiceMode,
 )
 from bayram.db.guard import run_guarded
 from bayram.db.media import (
@@ -52,6 +56,7 @@ from bayram.db.media import (
     load_job,
     spend_credit,
     transition,
+    update_draft,
 )
 from bayram.db.models.media_input import MediaInputRow
 from bayram.db.models.media_job import MediaJobRow
@@ -62,7 +67,9 @@ from bayram.media.offering import media_offered
 from bayram.media.service import (
     BetaStart,
     MediaQueue,
+    enqueue_prescreen,
     enqueue_screen,
+    enqueue_script,
     enqueue_start,
     start_free_beta,
 )
@@ -76,6 +83,9 @@ __all__ = [
     "FreezeRequest",
     "Frozen",
     "Reopened",
+    "VoiceNoteRef",
+    "VideoChoices",
+    "FinalizeOutcome",
     "CancelOutcome",
     "CreditStart",
     "MediaDesk",
@@ -112,6 +122,13 @@ class JobView:
     aspect: MediaAspect
     language: Language
     paid_via: MediaPaidVia | None
+    #: Video (§2.4): the choices written onto a ``drafting`` row, and whether its prompt and
+    #: photos have passed ``media_prescreen`` (``ALLOW``) — the only screen a draft has had.
+    tier: MediaTier | None = None
+    voice_mode: MediaVoiceMode = MediaVoiceMode.NONE
+    voice_gender: MediaVoiceGender | None = None
+    narration_text: str | None = None
+    screen_decision: MediaScreenDecision | None = None
 
     @classmethod
     def of(cls, row: MediaJobRow) -> JobView:
@@ -127,6 +144,11 @@ class JobView:
             aspect=row.aspect,
             language=row.language,
             paid_via=row.paid_via,
+            tier=row.tier,
+            voice_mode=row.voice_mode,
+            voice_gender=row.voice_gender,
+            narration_text=row.narration_text,
+            screen_decision=row.screen_decision,
         )
 
 
@@ -140,7 +162,9 @@ class InputRef:
 
 @dataclass(frozen=True, slots=True)
 class FreezeRequest:
-    """A composed draft, ready to become a ``screening`` row (§2.3.1)."""
+    """A composed draft, ready to become a row (§2.3.1): ``screening`` for an image (its
+    shape is already picked), ``drafting`` for a video — frozen at ✅ Done and prescreened
+    while the customer picks the shape and the voice (§2.4.1)."""
 
     telegram_user_id: int
     chat_id: int
@@ -154,6 +178,40 @@ class FreezeRequest:
     outputs_requested: int
     price_minor: int
     currency: str
+    state: MediaJobState = MediaJobState.SCREENING
+    tier: MediaTier | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class VoiceNoteRef:
+    """An own voice note by its Telegram ids. The worker downloads and ffprobes it (§5.4)."""
+
+    file_id: str
+    file_unique_id: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class VideoChoices:
+    """What the video screens after ✅ Done chose (§2.4.1), written onto the ``drafting`` row
+    in the one statement that moves it to ``screening``. The price is the SKU's now."""
+
+    aspect: MediaAspect
+    tier: MediaTier
+    sku: MediaSku
+    price_minor: int
+    voice_mode: MediaVoiceMode
+    voice_gender: MediaVoiceGender | None = None
+    narration_text: str | None = None
+    voice_note: VoiceNoteRef | None = None
+    #: The message the worker turns into the quote — a new one when the last step was a
+    #: message (typed text, a voice note) rather than a button on the tray.
+    tray_message_id: int | None = None
+
+
+class FinalizeOutcome(StrEnum):
+    SCREENING = "screening"
+    #: Not this account's, not a draft any more, or its prompt never passed the prescreen.
+    STALE = "stale"
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,6 +273,31 @@ class MediaDesk(Protocol):
     ) -> Result[CreditStart]: ...
 
     async def retry_screen(self, job_id: UUID, *, telegram_user_id: int) -> Result[bool]: ...
+
+    async def finalize_video(
+        self, job_id: UUID, *, telegram_user_id: int, choices: VideoChoices
+    ) -> Result[FinalizeOutcome]: ...
+
+    async def request_script(
+        self,
+        job_id: UUID,
+        *,
+        telegram_user_id: int,
+        voice_gender: MediaVoiceGender,
+        n: int,
+    ) -> Result[bool]: ...
+
+
+def _is_prescreened_draft(row: MediaJobRow | None, telegram_user_id: int) -> bool:
+    """A video ``drafting`` row of this account whose prompt and photos passed
+    ``media_prescreen`` under the current policy's decision (§2.4.1)."""
+    return (
+        row is not None
+        and row.telegram_user_id == telegram_user_id
+        and row.kind is MediaKind.VIDEO
+        and row.state is MediaJobState.DRAFTING
+        and row.screen_decision is MediaScreenDecision.ALLOW
+    )
 
 
 async def _blocking_row(
@@ -324,7 +407,8 @@ class SqlMediaDesk:
                 telegram_user_id=request.telegram_user_id,
                 kind=request.kind,
                 sku=request.sku,
-                state=MediaJobState.SCREENING,
+                state=request.state,
+                tier=request.tier,
                 chat_id=request.chat_id,
                 outputs_requested=request.outputs_requested,
                 aspect=request.aspect,
@@ -348,7 +432,10 @@ class SqlMediaDesk:
                     tg_file_unique_id=ref.file_unique_id,
                 )
         await self._cleanup(cancelled)
-        await enqueue_screen(self._queue, job_id)
+        if request.state is MediaJobState.DRAFTING:
+            await enqueue_prescreen(self._queue, job_id)
+        else:
+            await enqueue_screen(self._queue, job_id)
         return Frozen(job_id=job_id, cancelled=tuple(cancelled))
 
     # -- cancelling ------------------------------------------------------------------------
@@ -487,12 +574,110 @@ class SqlMediaDesk:
             if (
                 row is None
                 or row.telegram_user_id != telegram_user_id
-                or row.state is not MediaJobState.SCREENING
+                or row.state not in (MediaJobState.SCREENING, MediaJobState.DRAFTING)
             ):
                 return False
             # Whole seconds since the epoch: new on every press, and far above the sweep's
             # minute ticks, so the two can never hand out the same id (§3.3 "ARQ job ids").
-            await enqueue_screen(self._queue, job_id, n=int(self._clock().timestamp()))
+            n = int(self._clock().timestamp())
+            if row.state is MediaJobState.DRAFTING:
+                # A video draft whose prescreen was busy (§2.4.1): the prescreen again.
+                await enqueue_prescreen(self._queue, job_id, n=n)
+            else:
+                await enqueue_screen(self._queue, job_id, n=n)
             return True
 
         return await run_guarded("media.retry_screen", run, media_job_id=str(job_id))
+
+    # -- video: the steps after ✅ Done (§2.4.1) -----------------------------------------
+    async def finalize_video(
+        self, job_id: UUID, *, telegram_user_id: int, choices: VideoChoices
+    ) -> Result[FinalizeOutcome]:
+        """The last voice step: ``drafting → screening`` with every choice, in one statement.
+
+        Only a draft whose prompt passed ``media_prescreen`` moves. The prescreen's verdict is
+        cleared in the same statement: ``media_screen`` then screens the WHOLE request — the
+        prompt, the photos, the collage, the final narration and an own note's transcript
+        (§2.4.1) — and a lost enqueue is re-driven by the sweep, which looks for a
+        ``screening`` row with no decision. The screen's ARQ id is new on every call, since a
+        draft sent back for a too-long voice note (§5.4) is finalized a second time.
+        """
+
+        async def run() -> FinalizeOutcome:
+            now = self._clock()
+            async with self._sessions.begin() as session:
+                row = await load_job(session, job_id)
+                if not _is_prescreened_draft(row, telegram_user_id):
+                    return FinalizeOutcome.STALE
+                values: dict[str, object] = {
+                    "aspect": choices.aspect,
+                    "tier": choices.tier,
+                    "sku": choices.sku,
+                    "price_minor": choices.price_minor,
+                    "voice_mode": choices.voice_mode,
+                    "voice_gender": choices.voice_gender,
+                    "narration_text": choices.narration_text,
+                    "screen_decision": None,
+                    "screen_categories": None,
+                    "screen_policy_version": None,
+                    "content_sha256": None,
+                }
+                if choices.tray_message_id is not None:
+                    values["tray_message_id"] = choices.tray_message_id
+                moved = await transition(
+                    session,
+                    job_id,
+                    expected=(MediaJobState.DRAFTING,),
+                    to=MediaJobState.SCREENING,
+                    now=now,
+                    values=values,
+                )
+                if not moved:
+                    return FinalizeOutcome.STALE
+                if choices.voice_note is not None:
+                    await add_input(
+                        session,
+                        job_id=job_id,
+                        ordinal=0,
+                        role=MediaInputRole.VOICE_NOTE,
+                        now=now,
+                        tg_file_id=choices.voice_note.file_id,
+                        tg_file_unique_id=choices.voice_note.file_unique_id,
+                    )
+            await enqueue_screen(self._queue, job_id, n=int(now.timestamp()))
+            return FinalizeOutcome.SCREENING
+
+        return await run_guarded("media.finalize_video", run, media_job_id=str(job_id))
+
+    async def request_script(
+        self,
+        job_id: UUID,
+        *,
+        telegram_user_id: int,
+        voice_gender: MediaVoiceGender,
+        n: int,
+    ) -> Result[bool]:
+        """🤖 "AI writes" (§2.4.2): mark the draft, forget any earlier line, and ask the
+        worker for line ``n`` against the prescreened prompt — never passing the prompt."""
+
+        async def run() -> bool:
+            now = self._clock()
+            async with self._sessions.begin() as session:
+                row = await load_job(session, job_id)
+                if not _is_prescreened_draft(row, telegram_user_id):
+                    return False
+                written = await update_draft(
+                    session,
+                    job_id,
+                    now=now,
+                    values={
+                        "voice_mode": MediaVoiceMode.AI_LLM,
+                        "voice_gender": voice_gender,
+                        "narration_text": None,
+                    },
+                )
+            if not written:
+                return False
+            return await enqueue_script(self._queue, job_id, n=n)
+
+        return await run_guarded("media.request_script", run, media_job_id=str(job_id))

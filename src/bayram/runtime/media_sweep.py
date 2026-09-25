@@ -83,6 +83,7 @@ from bayram.media.stages import (
     MEDIA_FETCH_JOB,
     MEDIA_OUTPUT_SCREEN_JOB,
     MEDIA_POLL_JOB,
+    MEDIA_PRESCREEN_JOB,
     MEDIA_REVIEW_JOB,
     MEDIA_SCREEN_JOB,
     MEDIA_START_JOB,
@@ -92,6 +93,7 @@ from bayram.media.stages import (
     fetch_job_id,
     output_screen_job_id,
     poll_job_id,
+    prescreen_job_id,
     review_job_id,
     screen_job_id,
     sku_deadline,
@@ -363,10 +365,27 @@ async def _redrive(rt: MediaRuntime, now: datetime) -> int:
                 .limit(SWEEP_BATCH)
             )
         ).all()
+        # The same for a video draft's prescreen (§2.4.1). A busy or allowed draft carries a
+        # decision and waits for the customer.
+        unprescreened = (
+            await session.scalars(
+                sa.select(MediaJobRow.id)
+                .where(
+                    MediaJobRow.state == MediaJobState.DRAFTING,
+                    MediaJobRow.screen_decision.is_(None),
+                    MediaJobRow.updated_at < now - _STALE_SCREEN,
+                )
+                .limit(SWEEP_BATCH)
+            )
+        ).all()
     tick = _tick(now)
     for job_id in unscreened:
         await enqueue_stage(
             rt, MEDIA_SCREEN_JOB, str(job_id), tick, job_id=screen_job_id(job_id, tick)
+        )
+    for job_id in unprescreened:
+        await enqueue_stage(
+            rt, MEDIA_PRESCREEN_JOB, str(job_id), tick, job_id=prescreen_job_id(job_id, tick)
         )
     for job in working:
         if job.kind is not MediaKind.IMAGE:

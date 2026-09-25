@@ -215,7 +215,9 @@ class GatewayGuardModerator:
         return ok(self._combine(parts, items[0].subject, policy, youth=youth))
 
     async def transcribe(self, audio: Path, *, language_hint: str) -> Result[VoiceTranscript]:
-        """G3: whisper on an own voice note. ``text`` and ``language`` are required (§6.5)."""
+        """G3: whisper on an own voice note. ``text`` and ``language`` are required (§6.5).
+
+        ``language_hint`` empty asks whisper to detect the language (M4.1's §5.4 check)."""
         data = await asyncio.to_thread(_read, audio)
         if data is None:
             return err(_unavailable("g3", "the voice note could not be read"))
@@ -224,10 +226,13 @@ class GatewayGuardModerator:
                 f"{self._base_url}{G3_TRANSCRIBE_PATH}",
                 headers=self._headers(json_body=False),
                 files={"file": (audio.name, data, "audio/ogg")},
+                # No ``language`` when the hint is empty: whisper then DETECTS the language,
+                # which is what §5.4's "detected language ∉ {uz, ru, en}" check reads. A
+                # forced language is echoed back and would make that check vacuous.
                 data={
                     "model": G3_MODEL,
-                    "language": language_hint,
                     "response_format": "verbose_json",
+                    **({"language": language_hint} if language_hint else {}),
                 },
                 timeout=httpx.Timeout(self._timeout_s),
             )

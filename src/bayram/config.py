@@ -880,6 +880,22 @@ class Settings(BaseSettings):
     #: sooner. Read through ``bayram.db.retention.resolve_retention_policy``.
     retention_media_output_days: int = Field(default=30, ge=1, le=3_650)
 
+    # -- media: video narration (IMAGE_VIDEO_SPEC §2.4.2, §5.3, §5.4; O14, D23) -------
+    #: The clip length, and so the longest narration: text we accept before payment must be
+    #: speakable in it, and an own voice note longer than it (+0.25 s, §5.4) is refused.
+    narration_max_seconds: int = Field(default=5, ge=1, le=10)
+    #: Per-language word and character budgets under the owner's ~12-word ceiling (O14).
+    #: Starting points, calibrated in the M4.4 listening test. Uzbek covers both scripts.
+    narration_max_words_uz: int = Field(default=8, ge=1, le=12)
+    narration_max_words_ru: int = Field(default=10, ge=1, le=12)
+    narration_max_words_en: int = Field(default=12, ge=1, le=12)
+    #: ``media_jobs.narration_text`` is varchar(160); a budget cannot exceed its column.
+    narration_max_chars_uz: int = Field(default=60, ge=10, le=160)
+    narration_max_chars_ru: int = Field(default=70, ge=10, le=160)
+    narration_max_chars_en: int = Field(default=80, ge=10, le=160)
+    #: 🔄 regenerations of an LLM-written line per draft (§2.4.2); each costs a screening.
+    media_script_max_regens: int = Field(default=2, ge=0, le=5)
+
     # -- the local generation gateway (IMAGE_VIDEO_SPEC §4.2, §9.1) ----------
     #: HTTPS through the tunnel (§9.1). Empty with a SKU offered on ``local`` refuses to boot.
     genai_base_url: str = Field(default="", max_length=255)

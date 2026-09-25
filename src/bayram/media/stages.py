@@ -32,7 +32,9 @@ from bayram.config import Settings
 from bayram.db.enums import MediaSku
 
 __all__ = [
+    "MEDIA_PRESCREEN_JOB",
     "MEDIA_SCREEN_JOB",
+    "MEDIA_SCRIPT_JOB",
     "MEDIA_START_JOB",
     "MEDIA_SUBMIT_JOB",
     "MEDIA_POLL_JOB",
@@ -45,7 +47,9 @@ __all__ = [
     "MEDIA_MUX_JOB",
     "MEDIA_TTS_JOB",
     "SKU_DEADLINE_FIELDS",
+    "prescreen_job_id",
     "screen_job_id",
+    "script_job_id",
     "start_job_id",
     "submit_job_id",
     "poll_job_id",
@@ -58,6 +62,10 @@ __all__ = [
     "content_sha256",
 ]
 
+#: Video only (§2.4.1): the ✅ Done of a video compose freezes a ``drafting`` row and this
+#: screens its prompt and photos before the aspect and voice screens, so the script writer and
+#: every later stage only ever see a prompt that passed L0/L1.
+MEDIA_PRESCREEN_JOB: Final[str] = "media_prescreen"
 MEDIA_SCREEN_JOB: Final[str] = "media_screen"
 MEDIA_START_JOB: Final[str] = "media_start"
 MEDIA_SUBMIT_JOB: Final[str] = "media_submit"
@@ -76,6 +84,10 @@ MEDIA_REVIEW_JOB: Final[str] = "media_review_apply"
 #: until then (``bayram.runtime.media_jobs``), so nothing enqueues them early.
 MEDIA_MUX_JOB: Final[str] = "media_mux"
 MEDIA_TTS_JOB: Final[str] = "media_tts"
+#: 🤖 "AI writes" (§2.4.2, §5.5): the bot enqueues it against the ``drafting`` row. The
+#: writer is M4.3; until it is registered the bot does not draw 🤖
+#: (``bayram.bot.handlers.media.video.BUILT_VOICE_MODES``).
+MEDIA_SCRIPT_JOB: Final[str] = "media_script"
 
 #: The ``Settings`` field holding each SKU's paid → delivered deadline (§3.5).
 SKU_DEADLINE_FIELDS: Final[Mapping[MediaSku, str]] = MappingProxyType(
@@ -94,6 +106,16 @@ def _prefix(job_id: UUID | str) -> str:
 def screen_job_id(job_id: UUID | str, n: int = 0) -> str:
     """``n`` is 0 for the aspect pick; 🔁 retry-later on a busy tray re-screens with ``n+1``."""
     return f"{_prefix(job_id)}:screen" if n == 0 else f"{_prefix(job_id)}:screen:{n}"
+
+
+def prescreen_job_id(job_id: UUID | str, n: int = 0) -> str:
+    """``n`` is 0 for ✅ Done; 🔁 on a busy tray (or the sweep) re-screens with a new ``n``."""
+    return f"{_prefix(job_id)}:prescreen" if n == 0 else f"{_prefix(job_id)}:prescreen:{n}"
+
+
+def script_job_id(job_id: UUID | str, n: int) -> str:
+    """``n`` counts the line asked for: 0 first, then one per 🔄 (≤ ``media_script_max_regens``)."""
+    return f"{_prefix(job_id)}:script:{n}"
 
 
 def start_job_id(job_id: UUID | str, n: int) -> str:

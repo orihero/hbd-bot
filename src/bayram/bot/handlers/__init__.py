@@ -236,8 +236,9 @@ def build_router() -> Router:
         only_in_private(support.build_router()),
         only_in_private(navigation.build_router()),
         # IMAGE_VIDEO_SPEC §3.1: after support/navigation, before the song's steps, submitting
-        # and fallback. Its compose handlers are filtered to ``ImageOrder.*`` and so cannot
-        # take a song step's text; its post-freeze buttons carry a job id and no state filter.
+        # and fallback. Its compose handlers are filtered to ``ImageOrder.*``/``VideoOrder.*``
+        # and cannot take a song step's text; its post-freeze buttons carry a job id and no
+        # state filter.
         only_in_private(media.build_router()),
         only_in_private(questions.build_router()),
         only_in_private(name.build_router()),

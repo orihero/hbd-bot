@@ -27,11 +27,12 @@ from bayram.bot.handlers.common import (
     ui_language,
 )
 from bayram.bot.handlers.media.compose import open_create, read_media_draft, start_image
+from bayram.bot.handlers.media.video import start_video
 from bayram.bot.i18n import translate
 from bayram.bot.media_draft import MediaRef
 from bayram.bot.media_offer import is_sku_paused, offered_kinds
 from bayram.bot.screens import Screen
-from bayram.bot.states import ImageOrder
+from bayram.bot.states import ImageOrder, VideoOrder
 from bayram.contracts import Err, Language, Result, err
 from bayram.db.enums import MEDIA_TERMINAL_STATES, MediaJobState, MediaKind
 from bayram.errors import CheckoutError
@@ -100,11 +101,17 @@ async def _retire_buttons(callback: CallbackQuery) -> None:
         _LOG.info("could not retire the quote's buttons", extra={"failure": repr(exc)})
 
 
+#: The media compose states a settled request's press may clear (§2.3.1, §2.4.1).
+_MEDIA_STATES: Final[frozenset[str | None]] = frozenset(
+    {s.state for s in ImageOrder.__all_states__} | {s.state for s in VideoOrder.__all_states__}
+)
+
+
 async def _leave_compose(state: FSMContext) -> None:
-    """Drop the image draft once its request is settled — and ONLY an image draft: the press
+    """Drop the media draft once its request is settled — and ONLY a media draft: the press
     is stateless, and a song wizard running in this chat is not this button's to clear."""
     current = await state.get_state()
-    if current is not None and current in {s.state for s in ImageOrder.__all_states__}:
+    if current is not None and current in _MEDIA_STATES:
         await clear_keeping_identity(state)
 
 
@@ -234,7 +241,8 @@ async def handle_edit(
             MediaRef(file_id=ref.file_id, file_unique_id=ref.file_unique_id or ref.file_id)
             for ref in reopened.value.refs
         )
-    await start_image(callback, state, deps, prompt=prompt, aspect=job.aspect, refs=refs)
+    start = start_video if job.kind is MediaKind.VIDEO else start_image
+    await start(callback, state, deps, prompt=prompt, aspect=job.aspect, refs=refs)
 
 
 async def handle_cancel(
@@ -270,12 +278,13 @@ async def handle_cancel(
 async def handle_retry(
     callback: CallbackQuery, callback_data: MediaCB, state: FSMContext, deps: BotDeps
 ) -> None:
-    """🔁 on ``media.busy``: the SAME frozen row goes back through screening (§2.3.3)."""
+    """🔁 on ``media.busy``: the SAME frozen row goes back through screening (§2.3.3) — or,
+    for a video draft whose prescreen was busy, through the prescreen (§2.4.1)."""
     language = await ui_language(state, deps)
     job = await _owned_job(callback, callback_data, deps, language)
     if job is None or deps.media is None:
         return
-    if job.state is not MediaJobState.SCREENING:
+    if job.state not in (MediaJobState.SCREENING, MediaJobState.DRAFTING):
         await _stale(callback, language)
         return
     # The tray reads "checking" BEFORE the enqueue, for ``compose.handle_aspect``'s reason.
@@ -296,14 +305,15 @@ async def handle_again(
     job = await _owned_job(callback, callback_data, deps, language)
     if job is None:
         return
-    if job.state not in MEDIA_TERMINAL_STATES or job.kind is not MediaKind.IMAGE:
+    if job.state not in MEDIA_TERMINAL_STATES:
         await _stale(callback, language)
         return
-    if MediaKind.IMAGE not in await offered_kinds(deps, callback.from_user.id):
+    if job.kind not in await offered_kinds(deps, callback.from_user.id):
         await _stale(callback, language)
         return
     await callback.answer()
-    await start_image(
+    start = start_video if job.kind is MediaKind.VIDEO else start_image
+    await start(
         callback,
         state,
         deps,

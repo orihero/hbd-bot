@@ -33,6 +33,7 @@ __all__ = [
     "MediaCB",
     "CreatePick",
     "AspectPick",
+    "ScriptPick",
     "pack_job_ref",
     "read_job_ref",
     "NO_REFERENCE",
@@ -241,9 +242,10 @@ class MediaAction(StrEnum):
     may be cleared or days old, so the handler reads the row — owner and state — and answers
     ``media.stale`` when the press no longer fits it.
 
-    **Pre-freeze** (``PICK`` … ``ASPECT``) belong to the compose screens, carry no job and are
-    registered WITH a state filter (``PICK`` excepted: the picker is drawn from the menu,
-    which has no state).
+    **Pre-freeze** (``PICK`` … ``SCRIPT``) belong to the compose screens and, for a video, the
+    screens after ✅ Done; they carry no job and are registered WITH a state filter (``PICK``
+    excepted: the picker is drawn from the menu, which has no state). ``RECORD`` is
+    post-freeze: the worker draws it under a refused voice note.
     """
 
     #: 💳 Pay — only on a live-paid rail (§2.5).
@@ -273,6 +275,19 @@ class MediaAction(StrEnum):
     DROP = "drop"
     #: An aspect on the aspect screen; :attr:`MediaCB.arg` is a :class:`AspectPick` value.
     ASPECT = "asp"
+    #: ⬅️ on a video screen after ✅ Done: one step back along the §2.4.1 back map.
+    BACK = "back"
+    #: A video tier; :attr:`MediaCB.arg` is a ``MediaTier`` value (§2.4.1).
+    TIER = "tier"
+    #: A voice mode on ``media.voice.pick``; :attr:`MediaCB.arg` is a ``MediaVoiceMode``.
+    VOICE = "voice"
+    #: A house voice; :attr:`MediaCB.arg` is a ``MediaVoiceGender`` value.
+    GENDER = "gnd"
+    #: A button on an AI-written line; :attr:`MediaCB.arg` is a :class:`ScriptPick` value.
+    SCRIPT = "scr"
+    #: 🎙 Record again, under a voice note ffprobe found too long (§5.4). Post-freeze: it
+    #: carries the job id and is registered without a state filter.
+    RECORD = "rec"
 
 
 class CreatePick(StrEnum):
@@ -290,6 +305,14 @@ class AspectPick(StrEnum):
     PORTRAIT = "portrait"
     SQUARE = "square"
     LANDSCAPE = "landscape"
+
+
+class ScriptPick(StrEnum):
+    """The buttons under an AI-written line (§2.4.2)."""
+
+    USE = "use"
+    EDIT = "edit"
+    ANOTHER = "another"
 
 
 class MediaCB(CallbackData, prefix="med"):
