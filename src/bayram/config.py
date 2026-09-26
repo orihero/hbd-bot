@@ -837,6 +837,11 @@ class Settings(BaseSettings):
     #: ``gateway`` screens on the owner's 5090 (D24, M3); ``fake`` allows everything and is
     #: for tests — boot refuses it with any SKU offered unless ``use_fake_providers`` (§4.5).
     media_moderator: MediaModeratorName = Field(default="gateway")
+    #: DEVELOPMENT ONLY. Lets a developer render on the REAL gateway before the guards are
+    #: installed: permits ``media_moderator=fake`` beside a real backend, and a plain-HTTP
+    #: gateway address. Boot refuses it unless ``environment`` is exactly ``dev``, and logs a
+    #: warning every start (``media.boot``). Added 2026-09-26 for the owner's live review.
+    media_dev_unscreened: bool = Field(default=False)
     #: Where the guards (G1–G3, G8) answer. Empty means ``genai_base_url``: they run on the
     #: same 5090. A hosted endpoint serving the same contract is the D24 fallback (§6.2).
     #: On the gateway's own host the gateway's key and Access token are used; on any OTHER

@@ -90,6 +90,7 @@ def refuse_unsafe_media_config(settings: Settings) -> None:
     _refuse_models_off_the_allowlist(settings)
     _refuse_half_an_access_token(settings)
     _refuse_fakes_in_production(settings)
+    _refuse_dev_unscreened_outside_dev(settings)
     offered = offered_skus(settings)
     if not offered:
         return
@@ -102,7 +103,11 @@ def refuse_unsafe_media_config(settings: Settings) -> None:
             "approved pair (IMAGE_VIDEO_SPEC §2.1, M1.3), or keep media on the beta.",
             offered=[sku.value for sku in offered],
         )
-    if settings.media_moderator == "fake" and not settings.use_fake_providers:
+    if (
+        settings.media_moderator == "fake"
+        and not settings.use_fake_providers
+        and not settings.media_dev_unscreened
+    ):
         raise _refuse(
             "a media SKU is offered and BAYRAM_MEDIA_MODERATOR is 'fake': nothing would be "
             "screened (D24 fails closed). Set it to 'gateway', or switch the SKUs off.",
@@ -110,7 +115,7 @@ def refuse_unsafe_media_config(settings: Settings) -> None:
         )
     for sku in offered:
         _refuse_an_unsellable_sku(settings, sku)
-    if not settings.use_fake_providers:
+    if not settings.use_fake_providers and settings.media_moderator != "fake":
         _refuse_unreachable_guards(settings)
 
 
@@ -186,6 +191,24 @@ def _refuse_half_an_access_token(settings: Settings) -> None:
             "service token is both variables or neither (IMAGE_VIDEO_SPEC §9.1).",
             missing=_var(missing),
         )
+
+
+def _refuse_dev_unscreened_outside_dev(settings: Settings) -> None:
+    """``media_dev_unscreened`` exists for a developer's machine and nowhere else."""
+    if not settings.media_dev_unscreened:
+        return
+    if settings.environment != "dev":
+        raise _refuse(
+            "BAYRAM_MEDIA_DEV_UNSCREENED is true but BAYRAM_ENVIRONMENT is "
+            f"'{settings.environment}': unscreened renders and a plain-HTTP gateway are for "
+            "a development machine only.",
+            environment=settings.environment,
+        )
+    _LOG.warning(
+        "BAYRAM_MEDIA_DEV_UNSCREENED is on: media may render on the real gateway with the "
+        "fake moderator and over plain HTTP. Development only.",
+        extra={"media_moderator": settings.media_moderator},
+    )
 
 
 def _refuse_fakes_in_production(settings: Settings) -> None:
@@ -295,7 +318,11 @@ def _refuse_an_unusable_backend(
             sku=sku.value,
             backend=backend.value,
         )
-    refusal = base_url_refusal(settings.genai_base_url) if backend is MediaBackend.LOCAL else None
+    refusal = (
+        base_url_refusal(settings.genai_base_url, allow_plain_http=settings.media_dev_unscreened)
+        if backend is MediaBackend.LOCAL
+        else None
+    )
     if refusal is not None:
         # §9.1 items 2–3: the doctor's ``base url`` / ``key in url`` rows, made a boot refusal,
         # because nothing else stops the key and customers' photos going out unencrypted.

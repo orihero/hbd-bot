@@ -471,3 +471,43 @@ def test_an_empty_fallback_variable_is_no_fallback(base: Settings) -> None:
     parsed = Settings.model_validate({**base.model_dump(), "image_fallback_backend": ""})
 
     assert parsed.image_fallback_backend is None
+
+
+def test_dev_unscreened_lets_the_fake_moderator_render_on_the_real_gateway(
+    base: Settings,
+) -> None:
+    refuse_unsafe_media_config(
+        _beta(
+            base,
+            environment="dev",
+            media_dev_unscreened=True,
+            media_moderator="fake",
+            genai_base_url="http://203.0.113.7:5174",
+        )
+    )
+
+
+def test_dev_unscreened_refuses_outside_dev(base: Settings) -> None:
+    for environment in ("staging", "prod"):
+        with pytest.raises(ConfigError, match="BAYRAM_MEDIA_DEV_UNSCREENED"):
+            refuse_unsafe_media_config(
+                _with(base, environment=environment, media_dev_unscreened=True)
+            )
+
+
+def test_dev_unscreened_still_refuses_a_key_in_the_url(base: Settings) -> None:
+    with pytest.raises(ConfigError, match=r"\?api_key="):
+        refuse_unsafe_media_config(
+            _beta(
+                base,
+                environment="dev",
+                media_dev_unscreened=True,
+                media_moderator="fake",
+                genai_base_url="http://203.0.113.7:5174/?api_key=x",
+            )
+        )
+
+
+def test_plain_http_gateway_still_refuses_without_the_dev_switch(base: Settings) -> None:
+    with pytest.raises(ConfigError, match="https"):
+        refuse_unsafe_media_config(_beta(base, genai_base_url="http://203.0.113.7:5174"))

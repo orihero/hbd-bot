@@ -230,16 +230,18 @@ def access_headers(client_id: str, client_secret: str) -> dict[str, str]:
 _LOOPBACK_HOSTS: Final[frozenset[str]] = frozenset({"localhost", "127.0.0.1", "::1"})
 
 
-def base_url_refusal(base_url: str) -> str | None:
+def base_url_refusal(base_url: str, *, allow_plain_http: bool = False) -> str | None:
     """Why the gateway must not be called at ``base_url``, or ``None`` (§9.1 items 2–3).
 
     Plain HTTP would carry the key and the customers' base64 photos unencrypted across the
     internet; the tunnel is HTTPS. Loopback is the one exception. A ``?api_key=`` in the base
     URL would ride every call and land in the tunnel's logs — the key is a header, only.
+    ``allow_plain_http`` is ``media_dev_unscreened`` (dev only): it waives the scheme, never
+    the ``?api_key=`` rule.
     """
     parts = urlsplit(base_url.strip())
     is_loopback_http = parts.scheme == "http" and parts.hostname in _LOOPBACK_HOSTS
-    if not (parts.scheme == "https" or is_loopback_http):
+    if not (parts.scheme == "https" or is_loopback_http or allow_plain_http):
         return "is not an https:// URL; the gateway is reached through the tunnel, not plain HTTP"
     if "api_key" in parse_qs(parts.query):
         return "carries ?api_key=; the key is sent as a header only"
