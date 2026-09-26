@@ -1,0 +1,16 @@
+BRIEF
+
+Recipient name, exactly as it must be displayed and sung: {{recipient_display}}
+Occasion: {{occasion}}
+Musical genre: {{genre}}
+Lead vocal: {{vocal_gender}}
+Output language: {{output_language}}
+Name-hook line length: about {{name_line_seconds}} seconds when sung
+
+What the buyer told us about the recipient:
+{{note}}
+
+PERSONAS for the spoken greetings, in this order:
+{{personas}}
+
+Write the JSON object now.

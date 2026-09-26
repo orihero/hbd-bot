@@ -1,0 +1,120 @@
+{
+  "common.yes": "Да",
+  "common.no": "Нет",
+  "common.cancel": "Отмена",
+  "common.back": "Назад",
+  "common.skip": "Пропустить",
+  "common.retry": "Попробовать снова",
+  "common.done": "Готово",
+
+  "start.welcome": "Привет, {user}! Я соберу праздничный набор: одна песня, три голосовых поздравления и текст песни — и имя прозвучит правильно.",
+  "start.choose_ui_language": "Выберите язык интерфейса.",
+  "start.language_set": "Язык интерфейса: {language}.",
+
+  "language.uz_latn": "Oʻzbekcha (lotin)",
+  "language.uz_cyrl": "Ўзбекча (кирилл)",
+  "language.ru": "Русский",
+  "language.en": "English",
+
+  "name.prompt": "Для кого набор? Пришлите полное имя того, кого поздравляем.",
+  "name.empty": "Я не увидел имени. Напишите его, пожалуйста.",
+  "name.too_long": "Имя длиннее {max} символов. Пришлите форму покороче.",
+  "name.invalid_chars": "Это не похоже на имя. Только буквы, пробелы и дефисы.",
+  "name.confirm": "Спою так: {name}. Всё верно?",
+  "name.button_confirm": "Всё верно",
+  "name.button_edit": "Изменить имя",
+
+  "occasion.prompt": "Что празднуем?",
+  "occasion.birthday": "День рождения",
+  "occasion.anniversary": "Юбилей",
+  "occasion.love": "Признание",
+  "occasion.support": "Поддержка",
+  "occasion.prank": "Розыгрыш",
+  "occasion.holiday": "Праздник",
+  "occasion.wedding": "Свадьба",
+  "occasion.kids": "Для детей",
+  "occasion.no_occasion": "Без повода",
+  "occasion.custom": "Другой повод",
+  "occasion.custom_prompt": "Опишите повод парой слов.",
+
+  "genre.prompt": "Выберите звучание.",
+  "genre.pop": "Поп",
+  "genre.retro_estrada": "Ретро-эстрада",
+  "genre.hip_hop": "Хип-хоп",
+  "genre.rock": "Рок",
+  "genre.acoustic_ballad": "Акустическая баллада",
+  "genre.dance_electronic": "Танцевальная электроника",
+  "genre.uzbek_pop": "Узбекская эстрада",
+  "genre.uzbek_folk": "Узбекская народная",
+  "genre.shashmaqom": "Шашмаком",
+  "genre.jazz_lounge": "Джаз-лаунж",
+
+  "voice.prompt": "Чьим голосом спеть?",
+  "voice.female": "Женский",
+  "voice.male": "Мужской",
+  "voice.duet": "Дуэт",
+  "voice.any": "На ваш выбор",
+
+  "note.prompt": "Ну а теперь самое главное! Жанр и повод есть — сделаем песню по-настоящему личной. Напишите всё, что может вдохновить: чем он или она запомнились, смешные истории, любимые фразы, что хочется передать этим треком. Или нажмите «Пропустить».",
+  "note.too_long": "Пожалуйста, уложитесь в {max} символов.",
+  "note.skipped": "Хорошо — напишу тепло и без лишних деталей.",
+
+  "output_language.prompt": "На каком языке спеть песню и записать поздравления?",
+
+  "brief.summary": "Для {name} · {occasion} · {genre} · {voice} · {language}",
+  "brief.button_confirm": "Сделать набор",
+  "brief.button_restart": "Начать заново",
+
+  "lyrics.generating": "Пишу текст песни…",
+  "lyrics.preview": "Вот текст — «{title}».",
+  "lyrics.button_approve": "Отлично, записывайте",
+  "lyrics.button_regenerate": "Переписать",
+  "lyrics.rounds_left": {
+    "one": "Осталась {count} переделка.",
+    "few": "Осталось {count} переделки.",
+    "many": "Осталось {count} переделок."
+  },
+  "lyrics.no_rounds_left": "Переделки закончились — запишем эту версию.",
+
+  "progress.queued": "Вы в очереди. Это займёт несколько минут.",
+  "progress.writing_song": "Записываю песню…",
+  "progress.recording_greetings": "Записываю голосовые поздравления…",
+  "progress.mastering": "Свожу звук…",
+  "progress.almost_done": "Почти готово…",
+
+  "delivery.kit_ready": "Набор для {name} готов. С праздником!",
+  "delivery.song_caption": "«{title}» — песня",
+  "delivery.greeting_caption": "Поздравление от {persona}",
+  "delivery.lyric_sheet_caption": "Текст песни",
+  "delivery.greetings_count": {
+    "one": "{count} голосовое поздравление",
+    "few": "{count} голосовых поздравления",
+    "many": "{count} голосовых поздравлений"
+  },
+
+  "status.no_orders": "Вы ещё не делали набор. Пришлите имя, чтобы начать.",
+  "status.orders_found": {
+    "one": "{count} набор.",
+    "few": "{count} набора.",
+    "many": "{count} наборов."
+  },
+
+  "payment.free_for_now": "Сейчас это бесплатно — платить не нужно.",
+
+  "error.generic": "Что-то пошло не так на нашей стороне. Попробуйте ещё раз.",
+  "error.service_unavailable": "Сервис сейчас недоступен. Попробуйте чуть позже.",
+  "error.invalid_input": "Так не получилось. Проверьте и пришлите ещё раз.",
+  "error.content_not_allowed": "С таким содержанием набор сделать не могу. Попробуйте другую формулировку.",
+  "error.provider_generic": "В студии сбой. Попробуйте ещё раз.",
+  "error.provider_slow": "Это занимает больше времени, чем обычно. Попробуйте через минуту.",
+  "error.provider_busy": "Студия сейчас занята. Попробуйте через минуту.",
+  "error.name_pronunciation_best_effort": "Идеального произношения в этот раз не вышло — отправил самый близкий вариант.",
+  "error.delivery_failed": "Набор готов, но отправить не получилось. Попробуйте ещё раз.",
+  "error.payment_failed": "Платёж не прошёл. Попробуйте ещё раз.",
+  "error.unknown_command": "Не знаю такую команду. Отправьте /start.",
+  "error.too_many_orders_today": {
+    "one": "В день можно сделать {count} набор. Попробуйте завтра.",
+    "few": "В день можно сделать {count} набора. Попробуйте завтра.",
+    "many": "В день можно сделать {count} наборов. Попробуйте завтра."
+  }
+}

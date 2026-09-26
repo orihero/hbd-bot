@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-label="Bayram — Doira">
+  <circle cx="32" cy="32" r="24" fill="none" stroke="#1C1620" stroke-width="5.5" stroke-linecap="butt" stroke-dasharray="10.053 2.513"/>
+  <rect x="18.5" y="35" width="7" height="12" rx="3.5" fill="#1C1620"/>
+  <path d="M22 22.911C24.128 27.116 24.8 29.824 24.8 31a2.8 2.8 0 0 1 -5.6 0C19.2 29.824 19.872 27.116 22 22.911Z" fill="#BD32AF"/>
+  <rect x="28.5" y="27" width="7" height="20" rx="3.5" fill="#1C1620"/>
+  <path d="M32 14.911C34.128 19.116 34.8 21.824 34.8 23a2.8 2.8 0 0 1 -5.6 0C29.2 21.824 29.872 19.116 32 14.911Z" fill="#BD32AF"/>
+  <rect x="38.5" y="31" width="7" height="16" rx="3.5" fill="#1C1620"/>
+  <path d="M42 18.911C44.128 23.116 44.8 25.824 44.8 27a2.8 2.8 0 0 1 -5.6 0C39.2 25.824 39.872 23.116 42 18.911Z" fill="#BD32AF"/>
+</svg>

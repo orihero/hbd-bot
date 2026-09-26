@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" fill="none" role="img" aria-label="Bayram — Message bubble">
+  <rect width="512" height="512" rx="256" fill="#BD32AF"/>
+  <g transform="translate(96 96) scale(5)">
+    <path d="M20 40L12 56L32 46Z" fill="#FFFFFF" stroke="#FFFFFF" stroke-width="4" stroke-linejoin="round"/>
+    <rect x="5" y="5" width="54" height="44" rx="14" fill="#FFFFFF"/>
+    <rect x="18.5" y="31" width="7" height="9" rx="3.5" fill="#BD32AF"/>
+    <path d="M22 18.911C24.128 23.116 24.8 25.824 24.8 27a2.8 2.8 0 0 1 -5.6 0C19.2 25.824 19.872 23.116 22 18.911Z" fill="#BD32AF"/>
+    <rect x="28.5" y="25" width="7" height="15" rx="3.5" fill="#BD32AF"/>
+    <path d="M32 12.911C34.128 17.116 34.8 19.824 34.8 21a2.8 2.8 0 0 1 -5.6 0C29.2 19.824 29.872 17.116 32 12.911Z" fill="#BD32AF"/>
+    <rect x="38.5" y="28" width="7" height="12" rx="3.5" fill="#BD32AF"/>
+    <path d="M42 15.911C44.128 20.116 44.8 22.824 44.8 24a2.8 2.8 0 0 1 -5.6 0C39.2 22.824 39.872 20.116 42 15.911Z" fill="#BD32AF"/>
+  </g>
+</svg>

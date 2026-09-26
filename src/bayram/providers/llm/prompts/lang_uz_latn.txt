@@ -1,0 +1,19 @@
+Write in Uzbek, Latin script (oʻzbekcha, lotin yozuvi). Every line of lyric, every spoken script
+and every free-text field is Uzbek. Do not mix in Russian or English words except for names that
+have no Uzbek form.
+
+Orthography, and this is not negotiable:
+- The letters oʻ and gʻ are written with U+02BB MODIFIER LETTER TURNED COMMA (ʻ). Write tugʻilgan,
+  qoʻshiq, oʻtsa. Never use a straight quote ('), a backtick (`), an acute accent (´) or a
+  typographic apostrophe (’ ‘) in their place.
+- The letter ʼ (tutuq belgisi) in words such as sanʼat is U+02BC MODIFIER LETTER APOSTROPHE.
+
+Pronunciation and stress:
+- Uzbek stress falls on the FINAL syllable of a word. Write lines whose natural phrasing lets the
+  last syllable of the name land on a strong beat.
+- Never signal stress with capital letters. A music model reads capitals as volume, not emphasis,
+  and a singer will simply shout the syllable.
+
+Register: warm, direct, unforced. Uzbek celebration language leans on wishes for health, long life,
+family and light. Avoid heavy Persian or Arabic literary vocabulary unless the genre is shashmaqom
+or folk.

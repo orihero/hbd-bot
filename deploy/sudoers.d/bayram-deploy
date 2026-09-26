@@ -1,0 +1,94 @@
+# /etc/sudoers.d/bayram-deploy — the deploy account's unattended verbs, during and after the
+# hbd -> bayram cutover. Install mode 0440, owner root:root.
+#
+# WHY THIS FILE EXISTS (10-rename-cutover.md §4.7, §8.3). Every verb in the existing
+# /etc/sudoers.d/hbd-deploy names an `hbd-*` unit or an `/etc/hbd` path. The moment the cutover
+# succeeds, `developer` has no unattended verb for the four units actually running the product —
+# and, worse, the rollback's `systemctl enable --now hbd-*` is not granted either. A rollback
+# that needs a password it may not have is not a rollback.
+#
+# SO THIS NAMES BOTH SETS, ON PURPOSE, AND TEMPORARILY. Keep `hbd-deploy` in place alongside it
+# through the window. Once §7's verification has passed and the rollback window is closed,
+# delete the old file and the HBD_* halves below in one edit. Two names are a transitional
+# state, not a destination.
+#
+# INSTALL SAFELY — a malformed sudoers file can lock every account out of root:
+#   scp deploy/sudoers.d/bayram-deploy aizu:/tmp/bayram-deploy
+#   ssh -t aizu 'sudo visudo -cf /tmp/bayram-deploy'      # must print "parsed OK"
+#   ssh -t aizu 'sudo install -m 0440 -o root -g root /tmp/bayram-deploy /etc/sudoers.d/bayram-deploy'
+#   ssh -t aizu 'sudo -n -l'                              # confirm the new verbs are listed
+# Keep a second root shell open until `sudo -n -l` answers. Explicit verbs are written out one
+# per line rather than as `{enable|disable|...}` brace alternation: sudo matches command
+# arguments with fnmatch, which does not expand braces, so the compact form is not portable
+# even where a particular build appears to accept it.
+#
+# NOT CARRIED FORWARD FROM hbd-deploy, deliberately:
+#   (root) NOPASSWD: /usr/bin/bash /opt/hbd/deploy-payme.sh
+# That is §8.4's hazard — a `developer`-writable file invokable as root without a password,
+# whose contents already meant two different things within 26 minutes on 2026-09-10. Replacing
+# it needs a root-owned script path, which is its own change and must NOT be made during a
+# cutover window. Until then the old `hbd-deploy` file still grants it; that is a known,
+# recorded exposure, not an oversight of this file.
+
+Cmnd_Alias BAYRAM_UNITS = \
+  /usr/bin/systemctl enable bayram-bot.service, \
+  /usr/bin/systemctl enable bayram-worker.service, \
+  /usr/bin/systemctl enable bayram-admin.service, \
+  /usr/bin/systemctl enable bayram-payme.service, \
+  /usr/bin/systemctl disable bayram-bot.service, \
+  /usr/bin/systemctl disable bayram-worker.service, \
+  /usr/bin/systemctl disable bayram-admin.service, \
+  /usr/bin/systemctl disable bayram-payme.service, \
+  /usr/bin/systemctl start bayram-bot.service, \
+  /usr/bin/systemctl start bayram-worker.service, \
+  /usr/bin/systemctl start bayram-admin.service, \
+  /usr/bin/systemctl start bayram-payme.service, \
+  /usr/bin/systemctl stop bayram-payme.service, \
+  /usr/bin/systemctl restart bayram-bot.service, \
+  /usr/bin/systemctl restart bayram-worker.service, \
+  /usr/bin/systemctl restart bayram-admin.service, \
+  /usr/bin/systemctl restart bayram-payme.service, \
+  /usr/bin/systemctl status bayram-bot.service, \
+  /usr/bin/systemctl status bayram-worker.service, \
+  /usr/bin/systemctl status bayram-admin.service, \
+  /usr/bin/systemctl status bayram-payme.service, \
+  /usr/bin/systemctl is-active bayram-bot.service, \
+  /usr/bin/systemctl is-active bayram-worker.service, \
+  /usr/bin/systemctl is-active bayram-admin.service, \
+  /usr/bin/systemctl is-active bayram-payme.service
+
+# The rollback path. `enable --now hbd-*` is what returns the fleet to the old units, and it is
+# NOT in hbd-deploy — which grants only `restart` for bot/worker/admin. Without these four lines
+# the documented rollback cannot run unattended.
+Cmnd_Alias HBD_ROLLBACK = \
+  /usr/bin/systemctl enable hbd-bot.service, \
+  /usr/bin/systemctl enable hbd-worker.service, \
+  /usr/bin/systemctl enable hbd-admin.service, \
+  /usr/bin/systemctl enable hbd-payme.service, \
+  /usr/bin/systemctl disable hbd-bot.service, \
+  /usr/bin/systemctl disable hbd-worker.service, \
+  /usr/bin/systemctl disable hbd-admin.service, \
+  /usr/bin/systemctl stop hbd-bot.service, \
+  /usr/bin/systemctl stop hbd-worker.service, \
+  /usr/bin/systemctl stop hbd-admin.service
+
+# `--now` is a flag on enable/disable, so it forms distinct argument vectors and must be matched
+# separately. Written out rather than globbed: a trailing `*` on a systemctl rule would match any
+# unit on the box, which is the whole thing this drop-in is trying not to do.
+Cmnd_Alias UNITS_NOW = \
+  /usr/bin/systemctl enable --now bayram-bot.service bayram-worker.service bayram-admin.service bayram-payme.service, \
+  /usr/bin/systemctl disable --now bayram-bot.service bayram-worker.service bayram-admin.service bayram-payme.service, \
+  /usr/bin/systemctl enable --now hbd-bot.service hbd-worker.service hbd-admin.service hbd-payme.service, \
+  /usr/bin/systemctl disable --now hbd-bot.service hbd-worker.service hbd-admin.service hbd-payme.service
+
+Cmnd_Alias BAYRAM_LOGS = /usr/bin/journalctl -u bayram-payme *, \
+  /usr/bin/journalctl -u bayram-bot *, \
+  /usr/bin/journalctl -u bayram-worker *, \
+  /usr/bin/journalctl -u bayram-admin *
+
+# The gateway's env file moves to /etc/bayram/payme.env. `tee` rather than an editor for the same
+# reason hbd-deploy used it: one non-interactive write to a known target, no shell escape.
+Cmnd_Alias BAYRAM_CONF = /usr/bin/tee /etc/bayram/payme.env
+
+developer ALL=(root) NOPASSWD: BAYRAM_UNITS, HBD_ROLLBACK, UNITS_NOW, BAYRAM_LOGS, BAYRAM_CONF
+developer ALL=(root) NOPASSWD: /usr/bin/systemctl daemon-reload

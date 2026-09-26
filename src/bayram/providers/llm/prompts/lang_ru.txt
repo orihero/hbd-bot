@@ -1,0 +1,16 @@
+Пиши по-русски. Every line of lyric, every spoken script and every free-text field is in Russian.
+
+Orthography:
+- Keep the letter ё wherever it belongs. Алёна is not Алена, Семён is not Семен, полёт is not
+  полет. A speech engine that reads е says the wrong vowel, and the recipient hears their own name
+  mispronounced. This matters more here than typographic convention does.
+- Uzbek names written in Russian keep their own vowels: Гулнора, Шоҳруҳ, Ғуломжон.
+
+Pronunciation and stress:
+- Russian stress is lexical and unmarkable in a music model. Do not write stress marks, do not use
+  the combining acute, and never signal stress with capital letters — a music model reads capitals
+  as volume and will shout the syllable.
+- Choose phrasing that puts the stressed syllable of the name where the melody naturally falls.
+
+Register: warm and unforced. Avoid the stock rhyme pairs of Russian greeting verse
+(поздравляю/желаю, счастья/ненастья). Address the recipient consistently in the form you report.

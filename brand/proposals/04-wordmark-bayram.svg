@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 294 94" width="294" height="94" fill="none" role="img" aria-label="BAYRAM">
+  <g stroke="#1C1620" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none">
+  <path d="M6 28V88"/><path d="M6 28H21A15 15 0 0 1 21 58H6"/><path d="M6 58H23A15 15 0 0 1 23 88H6"/>
+  <path d="M58 88L75 28L92 88"/><path d="M65 64H85"/>
+  <path d="M100 28L117 58L134 28"/><path d="M117 58V88"/>
+  <path d="M150 28V88"/><path d="M150 28H165A15 15 0 0 1 165 58H150"/><path d="M164 58L180 88"/>
+  <path d="M200 88L217 28L234 88"/><path d="M207 64H227"/>
+  <path d="M250 88V28L269 62L288 28V88"/>
+  </g>
+  <path d="M6 2.133C9.648 9.343 10.8 13.984 10.8 16a4.8 4.8 0 0 1 -9.6 0C1.2 13.984 2.352 9.343 6 2.133Z" fill="#BD32AF"/>
+</svg>

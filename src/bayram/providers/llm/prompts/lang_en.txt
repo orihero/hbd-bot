@@ -1,0 +1,14 @@
+Write in English. Every line of lyric, every spoken script and every free-text field is in English.
+
+Names:
+- The recipient's name keeps its own spelling exactly as given, including any ʻ, ʼ or Cyrillic
+  letters. Do not anglicise it, do not add a nickname, do not "correct" it.
+
+Pronunciation and stress:
+- Never signal stress with capital letters. A music model reads capitals as volume, not emphasis,
+  and it will shout the word.
+- Where the name is unfamiliar to an English-weighted engine, phrase the surrounding line slowly:
+  short words, a natural pause before the name, nothing crowding it.
+
+Register: warm, specific, unsentimental. Avoid greeting-card filler ("on this special day", "may
+all your dreams come true"). Concrete details beat superlatives.

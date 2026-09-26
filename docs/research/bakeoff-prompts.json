@@ -1,0 +1,160 @@
+{
+  "style": "uzbek pop birthday song, upbeat and celebratory, warm major key, 100 BPM, live doira hand percussion and dutar layered with modern pop production, clear female lead vocal high in the mix, joyful crowd energy",
+  "negative": "muddy vocals, heavy reverb on lead vocal, melisma, whispered vocals, distortion, lo-fi",
+  "arms": [
+    {
+      "arm": "A1",
+      "language": "uz-Latn",
+      "label": "canonical U+02BB",
+      "hypothesis": "The orthographically correct form. Tokenizer literature predicts it FRAGMENTS the name.",
+      "verse": "Bugun quyosh boshqacha porlaydi,\nYuraklarda quvonch jaranglaydi.\nDoʻstlaring yigʻildi shu dasturxonga,\nBu kun faqat senga atalgan.",
+      "name_line": "Tugʻilgan kuning bilan, Gʻulomjon!",
+      "chorus": "Omad yoʻldosh boʻlsin har zamon,\nOrzularing ushalsin, Gʻulomjon,\nBaxting boʻlsin cheksiz osmon!"
+    },
+    {
+      "arm": "A2",
+      "language": "uz-Latn",
+      "label": "U+2018 mis-encoding",
+      "hypothesis": "What real user input mostly looks like. Must be tested because it is the true input distribution.",
+      "verse": "Bugun quyosh boshqacha porlaydi,\nYuraklarda quvonch jaranglaydi.\nDo‘stlaring yig‘ildi shu dasturxonga,\nBu kun faqat senga atalgan.",
+      "name_line": "Tug‘ilgan kuning bilan, G‘ulomjon!",
+      "chorus": "Omad yo‘ldosh bo‘lsin har zamon,\nOrzularing ushalsin, G‘ulomjon,\nBaxting bo‘lsin cheksiz osmon!"
+    },
+    {
+      "arm": "A3",
+      "language": "uz-Latn",
+      "label": "ASCII apostrophe",
+      "hypothesis": "Keyboard fallback. Apostrophe may be read as a quote/elision marker.",
+      "verse": "Bugun quyosh boshqacha porlaydi,\nYuraklarda quvonch jaranglaydi.\nDo'stlaring yig'ildi shu dasturxonga,\nBu kun faqat senga atalgan.",
+      "name_line": "Tug'ilgan kuning bilan, G'ulomjon!",
+      "chorus": "Omad yo'ldosh bo'lsin har zamon,\nOrzularing ushalsin, G'ulomjon,\nBaxting bo'lsin cheksiz osmon!"
+    },
+    {
+      "arm": "A4",
+      "language": "uz-Latn",
+      "label": "stripped, no modifier",
+      "hypothesis": "THE KEY ARM. If this wins, decouple display orthography from submitted orthography.",
+      "verse": "Bugun quyosh boshqacha porlaydi,\nYuraklarda quvonch jaranglaydi.\nDostlaring yigildi shu dasturxonga,\nBu kun faqat senga atalgan.",
+      "name_line": "Tugilgan kuning bilan, Gulomjon!",
+      "chorus": "Omad yoldosh bolsin har zamon,\nOrzularing ushalsin, Gulomjon,\nBaxting bolsin cheksiz osmon!"
+    },
+    {
+      "arm": "A5",
+      "language": "uz-Latn",
+      "label": "phonetic respell (EN-weighted)",
+      "hypothesis": "Forces the target pronunciation through English grapheme rules.",
+      "verse": "Bugun quyosh boshqacha porlaydi,\nYuraklarda quvonch jaranglaydi.\nDostlaring yigildi shu dasturxonga,\nBu kun faqat senga atalgan.",
+      "name_line": "Tugilgan kuning bilan, Ghoo-lom-JON!",
+      "chorus": "Omad yoldosh bolsin har zamon,\nOrzularing ushalsin, Ghoo-lom-JON,\nBaxting bolsin cheksiz osmon!"
+    },
+    {
+      "arm": "A6",
+      "language": "uz-Cyrl",
+      "label": "Cyrillic",
+      "hypothesis": "Tests whether the model reads it as Russian and applies Russian phonology.",
+      "verse": "Бугун қуёш бошқача порлайди,\nЮракларда қувонч жаранглайди.\nДўстларинг йиғилди шу дастурхонга,\nБу кун фақат сенга аталган.",
+      "name_line": "Туғилган кунинг билан, Ғуломжон!",
+      "chorus": "Омад йўлдош бўлсин ҳар замон,\nОрзуларинг ушалсин, Ғуломжон,\nБахтинг бўлсин чексиз осмон!"
+    },
+    {
+      "arm": "R1",
+      "language": "ru",
+      "label": "Алёна with ё",
+      "hypothesis": "Correct. Target /ɐˈlʲɤnə/.",
+      "verse": "Сегодня солнце светит по-другому,\nИ сердце бьётся радостью до дна,\nДрузья собрались в этом тёплом доме,\nСегодня этот день — он для тебя.",
+      "name_line": "С днём рожденья, Алёна!",
+      "chorus": "Пусть удача не уйдёт,\nЗагадай желанье, Алёна,\nПусть мечта твоя придёт!"
+    },
+    {
+      "arm": "R2",
+      "language": "ru",
+      "label": "Алена without ё",
+      "hypothesis": "How Russians usually type it. Predicts wrong vowel /ɐˈlʲe nə/.",
+      "verse": "Сегодня солнце светит по-другому,\nИ сердце бьётся радостью до дна,\nДрузья собрались в этом тёплом доме,\nСегодня этот день — он для тебя.",
+      "name_line": "С днём рожденья, Алена!",
+      "chorus": "Пусть удача не уйдёт,\nЗагадай желанье, Алена,\nПусть мечта твоя придёт!"
+    },
+    {
+      "arm": "R3",
+      "language": "ru",
+      "label": "АлЁна caps-stress",
+      "hypothesis": "Tests the competitor's caps-for-stress workaround. Predicted to fail: caps = LOUDER, not stressed.",
+      "verse": "Сегодня солнце светит по-другому,\nИ сердце бьётся радостью до дна,\nДрузья собрались в этом тёплом доме,\nСегодня этот день — он для тебя.",
+      "name_line": "С днём рожденья, АлЁна!",
+      "chorus": "Пусть удача не уйдёт,\nЗагадай желанье, АлЁна,\nПусть мечта твоя придёт!"
+    },
+    {
+      "arm": "E1",
+      "language": "en",
+      "label": "English control",
+      "hypothesis": "Establishes each vendor's ceiling. If English fails, the render was just bad.",
+      "verse": "Today the sun is shining like it knows,\nThere's something in the air that everybody feels,\nYour friends have gathered round, the table's full,\nAnd every single moment here is yours.",
+      "name_line": "Happy birthday to you, Gulomjon!",
+      "chorus": "May the luck be at your side,\nMay your dreams come true, Gulomjon,\nMay your sky be open wide!"
+    }
+  ],
+  "elevenlabs_example": {
+    "composition_plan": {
+      "chunks": [
+        {
+          "text": "",
+          "duration_ms": 8000,
+          "positive_styles": [
+            "instrumental intro",
+            "doira percussion",
+            "dutar"
+          ],
+          "negative_styles": [
+            "vocals"
+          ]
+        },
+        {
+          "text": "Bugun quyosh boshqacha porlaydi,\nYuraklarda quvonch jaranglaydi.\nDoʻstlaring yigʻildi shu dasturxonga,\nBu kun faqat senga atalgan.",
+          "duration_ms": 24000,
+          "positive_styles": [
+            "uzbek pop",
+            "warm female lead vocal",
+            "clear diction"
+          ],
+          "negative_styles": [
+            "melisma",
+            "heavy reverb"
+          ],
+          "context_adherence": "high"
+        },
+        {
+          "text": "Tugʻilgan kuning bilan, Gʻulomjon!",
+          "duration_ms": 8000,
+          "positive_styles": [
+            "anthemic",
+            "clear diction",
+            "one voice forward in the mix",
+            "syllables evenly spaced"
+          ],
+          "negative_styles": [
+            "melisma",
+            "vocal runs",
+            "harmony stack",
+            "reverb"
+          ],
+          "context_adherence": "high"
+        },
+        {
+          "text": "Omad yoʻldosh boʻlsin har zamon,\nOrzularing ushalsin, Gʻulomjon,\nBaxting boʻlsin cheksiz osmon!",
+          "duration_ms": 20000,
+          "positive_styles": [
+            "big celebratory chorus",
+            "crowd energy"
+          ],
+          "negative_styles": [
+            "melisma"
+          ],
+          "context_adherence": "high"
+        }
+      ]
+    },
+    "model_id": "music_v2",
+    "seed": 424242,
+    "store_for_inpainting": true
+  }
+}

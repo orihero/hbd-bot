@@ -1,0 +1,38 @@
+/*
+ * Every @import is hoisted above the @tailwind directives on purpose, and it is not a style
+ * preference: CSS requires @import to precede all other statements, and postcss-import
+ * DROPS a later one with only a build warning. With `@import "./tokens.css"` written under
+ * the directives, the bundle ships with no :root block at all — every var() falls back to
+ * nothing and the whole palette is silently unpainted. Verified against the built CSS.
+ *
+ * Order between them does not matter: tokens.css declares custom properties on :root only,
+ * so it collides with nothing in Tailwind's base layer.
+ */
+
+/* Self-hosted. No CDN link, so the panel renders identically on a machine with no egress. */
+@import "@fontsource-variable/manrope";
+@import "@fontsource/outfit/400.css";
+@import "@fontsource/outfit/500.css";
+@import "@fontsource/outfit/600.css";
+@import "./tokens.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body {
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink-900);
+  font-family: var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Charts are inline SVG; the inline default leaves a baseline gap under every one of them. */
+svg {
+  display: block;
+}

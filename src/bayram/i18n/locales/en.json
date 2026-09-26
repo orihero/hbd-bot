@@ -1,0 +1,116 @@
+{
+  "common.yes": "Yes",
+  "common.no": "No",
+  "common.cancel": "Cancel",
+  "common.back": "Back",
+  "common.skip": "Skip",
+  "common.retry": "Try again",
+  "common.done": "Done",
+
+  "start.welcome": "Hi {user}! I put together a celebration kit: one song, three spoken greetings and a lyric sheet — with the name pronounced properly.",
+  "start.choose_ui_language": "Choose your interface language.",
+  "start.language_set": "Interface language: {language}.",
+
+  "language.uz_latn": "Oʻzbekcha (lotin)",
+  "language.uz_cyrl": "Ўзбекча (кирилл)",
+  "language.ru": "Русский",
+  "language.en": "English",
+
+  "name.prompt": "Who is the kit for? Send the full name of the person you are celebrating.",
+  "name.empty": "I did not catch a name. Please type it out.",
+  "name.too_long": "That name is longer than {max} characters. Send a shorter form.",
+  "name.invalid_chars": "That does not look like a name. Letters, spaces and hyphens only, please.",
+  "name.confirm": "I will sing it as {name}. Is that right?",
+  "name.button_confirm": "That is right",
+  "name.button_edit": "Change the name",
+
+  "occasion.prompt": "What are we celebrating?",
+  "occasion.birthday": "Birthday",
+  "occasion.anniversary": "Anniversary",
+  "occasion.love": "Confession",
+  "occasion.support": "Encouragement",
+  "occasion.prank": "Prank",
+  "occasion.holiday": "Holiday",
+  "occasion.wedding": "Wedding",
+  "occasion.kids": "For kids",
+  "occasion.no_occasion": "No occasion",
+  "occasion.custom": "Something else",
+  "occasion.custom_prompt": "Tell me the occasion in a few words.",
+
+  "genre.prompt": "Pick the sound.",
+  "genre.pop": "Pop",
+  "genre.retro_estrada": "Retro estrada",
+  "genre.hip_hop": "Hip-hop",
+  "genre.rock": "Rock",
+  "genre.acoustic_ballad": "Acoustic ballad",
+  "genre.dance_electronic": "Dance / electronic",
+  "genre.uzbek_pop": "Uzbek pop",
+  "genre.uzbek_folk": "Uzbek folk",
+  "genre.shashmaqom": "Shashmaqom",
+  "genre.jazz_lounge": "Jazz lounge",
+
+  "voice.prompt": "Whose voice should sing it?",
+  "voice.female": "Female",
+  "voice.male": "Male",
+  "voice.duet": "Duet",
+  "voice.any": "Surprise me",
+
+  "note.prompt": "Now for the part that matters most! We have the genre and the occasion — let us make the song truly personal. Write anything that could inspire it: what they are like, funny stories, favourite catchphrases, what this track should say. Or tap Skip.",
+  "note.too_long": "Please keep it under {max} characters.",
+  "note.skipped": "No problem — I will keep it warm and general.",
+
+  "output_language.prompt": "Which language should the song and the greetings be in?",
+
+  "brief.summary": "For {name} · {occasion} · {genre} · {voice} · {language}",
+  "brief.button_confirm": "Make the kit",
+  "brief.button_restart": "Start over",
+
+  "lyrics.generating": "Writing the lyrics…",
+  "lyrics.preview": "Here are the lyrics — “{title}”.",
+  "lyrics.button_approve": "Love it, record it",
+  "lyrics.button_regenerate": "Rewrite",
+  "lyrics.rounds_left": {
+    "one": "You have {count} rewrite left.",
+    "other": "You have {count} rewrites left."
+  },
+  "lyrics.no_rounds_left": "No rewrites left on this order — let us record this version.",
+
+  "progress.queued": "You are in the queue. This takes a few minutes.",
+  "progress.writing_song": "Recording the song…",
+  "progress.recording_greetings": "Recording the spoken greetings…",
+  "progress.mastering": "Mastering the audio…",
+  "progress.almost_done": "Almost there…",
+
+  "delivery.kit_ready": "The kit for {name} is ready. Happy celebrating!",
+  "delivery.song_caption": "“{title}” — the song",
+  "delivery.greeting_caption": "A greeting from {persona}",
+  "delivery.lyric_sheet_caption": "The lyric sheet",
+  "delivery.greetings_count": {
+    "one": "{count} spoken greeting",
+    "other": "{count} spoken greetings"
+  },
+
+  "status.no_orders": "You have not made a kit yet. Send a name to start.",
+  "status.orders_found": {
+    "one": "{count} kit so far.",
+    "other": "{count} kits so far."
+  },
+
+  "payment.free_for_now": "This one is on us — no payment needed right now.",
+
+  "error.generic": "Something went wrong on our side. Please try again.",
+  "error.service_unavailable": "The service is unavailable right now. Please try again a little later.",
+  "error.invalid_input": "That did not work. Please check it and send it again.",
+  "error.content_not_allowed": "I cannot make a kit with that content. Try different wording.",
+  "error.provider_generic": "Our studio hiccuped. Please try again.",
+  "error.provider_slow": "This is taking longer than usual. Please try again in a moment.",
+  "error.provider_busy": "The studio is busy right now. Please try again in a minute.",
+  "error.name_pronunciation_best_effort": "I could not get the pronunciation perfect this time, so I sent my closest take.",
+  "error.delivery_failed": "The kit is ready but I could not send it. Please try again.",
+  "error.payment_failed": "The payment did not go through. Please try again.",
+  "error.unknown_command": "I do not know that command. Send /start to begin.",
+  "error.too_many_orders_today": {
+    "one": "You can make {count} kit a day. Try again tomorrow.",
+    "other": "You can make {count} kits a day. Try again tomorrow."
+  }
+}

@@ -1,0 +1,65 @@
+# DELETE /v1/speech-to-text/{task_id}
+# Delete transcription
+
+method: DELETE
+path: /v1/speech-to-text/{task_id}
+group: Speech to text
+title: Delete transcription
+description: |
+  Delete a transcription and the audio stored with it. Permanent.
+
+  Only finished transcriptions can be deleted. A job that is still `pending` or
+  `processing` returns 409 — wait for it to finish first. Deleting does not
+  refund credits; a completed transcription has already been delivered.
+order: 4
+
+auth:
+  type: xi-api-key
+  required: true
+
+path_parameters:
+  - name: task_id
+    type: string
+    required: true
+    description: The transcription to delete.
+
+query_parameters: []
+request_body: null
+
+examples:
+  curl: |
+    curl -X DELETE "https://api.vibi.pro/v1/speech-to-text/{task_id}" \
+      -H "xi-api-key: YOUR_API_KEY"
+
+  javascript: |
+    await fetch(`https://api.vibi.pro/v1/speech-to-text/${taskId}`, {
+      method: 'DELETE',
+      headers: { 'xi-api-key': 'YOUR_API_KEY' }
+    });
+
+  python: |
+    import requests
+
+    requests.delete(
+        f'https://api.vibi.pro/v1/speech-to-text/{task_id}',
+        headers={'xi-api-key': 'YOUR_API_KEY'},
+    )
+
+responses:
+  - status: 200
+    description: Deleted.
+    example: |
+      { "deleted": true }
+
+  - status: 409
+    description: The transcription is still running and cannot be deleted yet.
+    example: |
+      {
+        "error": "task_still_running",
+        "message": "This transcription is still running. Wait for it to finish before deleting it."
+      }
+
+  - status: 404
+    description: No transcription with that id belongs to your account.
+    example: |
+      { "error": "task not found" }

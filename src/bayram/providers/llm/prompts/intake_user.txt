@@ -1,0 +1,12 @@
+RAW INTAKE
+
+Name as typed by the buyer:
+{{raw_name}}
+
+Note as typed by the buyer:
+{{raw_note}}
+
+Interface language: {{ui_language}}
+Output language: {{output_language}}
+
+Write the JSON object now.
