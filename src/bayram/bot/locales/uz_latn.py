@@ -901,6 +901,16 @@ CATALOGUE: Final[dict[str, str]] = {
     "media.tray": "Tavsif: {prompt_state}\nRasmlar: {n}/{max}",
     "media.tray.no_prompt": "— hali yoʻq",
     "media.tray.cap_reached": "Faqat birinchi {max} ta rasm ishlatiladi.",
+    "media.tray.got_photo": "✅ Rasm qabul qilindi ({n}/{max}).",
+    "media.tray.got_prompt": "✅ Tavsif saqlandi.",
+    "media.tray.ask_prompt.image": "Endi qanday rasm kerakligini yozib yuboring — tavsif majburiy.",
+    "media.tray.ask_prompt.video": (
+        "Endi qanday video kerakligini yozib yuboring — tavsif majburiy."
+    ),
+    "media.tray.more_or_done": (
+        "Yana rasm qoʻshishingiz yoki ✅ Tayyor tugmasini bosishingiz mumkin."
+    ),
+    "media.tray.press_done": "Davom etish uchun ✅ Tayyor tugmasini bosing.",
     "media.need_prompt": "Avval tavsif yozing.",
     "media.prompt.invalid": "Iltimos, {min}–{max} belgi oraligʻida tasvirlab bering.",
     "media.compose.closed": (

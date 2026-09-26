@@ -21,6 +21,7 @@ chain has its own suite. The M2.5 acceptance list, each a test below:
 
 from __future__ import annotations
 
+import itertools
 from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime, timedelta
 from typing import Any, Final
@@ -29,10 +30,11 @@ from uuid import UUID
 import pytest
 import sqlalchemy as sa
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.methods import EditMessageText, SendMessage
-from aiogram.types import Chat, Message, PhotoSize, Update, User
+from aiogram.methods import DeleteMessage, EditMessageText, SendMessage
+from aiogram.types import Chat, InlineKeyboardMarkup, Message, PhotoSize, Update, User
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
 
@@ -81,10 +83,11 @@ from tests.test_bot.conftest import (
     callback_update,
     data_with_prefix,
     last_reply_keyboard,
+    make_callback,
     reply_buttons,
 )
 from tests.test_bot.test_terms_gate import FakeTermsLedger
-from tests.test_bot.test_wizard_flow import complete_onboarding, press, send, tap
+from tests.test_bot.test_wizard_flow import complete_onboarding, send, tap
 from tests.test_runtime.media_fakes import ArqLikeQueue, MemoryKV
 
 PROMPT: Final[str] = "a lantern-lit courtyard in Samarkand at dusk"
@@ -222,11 +225,51 @@ def photo_update(unique: str, *, group: str | None = None, caption: str | None =
     )
 
 
-def tray_edits(session: RecordingSession) -> list[str]:
+async def live_tray(dispatcher: Dispatcher) -> int:
+    """The message the compose's tray is on now. A photo or a prompt MOVES the tray under
+    itself (§2.3.2), so after one the tray is a message the bot sent, not :data:`TRAY`."""
+    data = await dispatcher.storage.get_data(
+        StorageKey(bot_id=BOT_ID, chat_id=CHAT_ID, user_id=USER_ID)
+    )
+    draft = load_media_draft(data)
+    if draft is None or draft.tray_message_id is None:
+        return TRAY
+    return draft.tray_message_id
+
+
+async def press(dispatcher: Dispatcher, bot: Bot, data: str) -> None:
+    """A press on the LIVE tray — where a customer's finger is — or on :data:`TRAY` when no
+    compose is open. The wizard's ``press`` always presses message 20."""
+    message_id = await live_tray(dispatcher)
+    await dispatcher.feed_update(
+        bot,
+        Update(
+            update_id=next(_press_ids),
+            callback_query=make_callback(data, message_id=message_id),
+        ),
+    )
+
+
+_press_ids = itertools.count(900_000)
+
+
+def tray_edits(session: RecordingSession, message_id: int | None = None) -> list[str]:
+    """Every screen drawn OVER a message — the tray's, since a photo moves it (§2.3.2) — or
+    over ``message_id`` only."""
     return [
         call.text
         for call in session.named("EditMessageText")
-        if isinstance(call, EditMessageText) and call.message_id == TRAY and call.text is not None
+        if isinstance(call, EditMessageText)
+        and call.text is not None
+        and (message_id is None or call.message_id == message_id)
+    ]
+
+
+def deleted_ids(session: RecordingSession) -> list[int]:
+    return [
+        call.message_id
+        for call in session.named("DeleteMessage")
+        if isinstance(call, DeleteMessage)
     ]
 
 
@@ -351,11 +394,18 @@ async def test_an_album_of_ten_ends_as_one_tray_with_the_final_count_deduped_and
     assert [ref.file_unique_id for ref in draft.refs] == ["a", "b", "c", "d"]
     # The largest size of each was taken.
     assert draft.refs[0].file_id == "f-a"
-    edits = tray_edits(session)
-    assert len(edits) == 4, "one edit per accepted photo, none per duplicate or refusal"
+    # The album's first photo moved the tray under the album: one new tray, the old deleted.
+    sent = sent_texts(session)
+    assert len(sent) == 2, "one tray for the album and one cap notice, nothing else"
+    assert sent[0].startswith(translate("media.tray.got_photo", Language.EN, n=1, max=4))
+    assert sent[1] == translate("media.tray.cap_reached", Language.EN, max=4)
+    assert deleted_ids(session) == [TRAY]
+    # Its later accepted photos edited THAT tray; none per duplicate or refusal.
+    edits = tray_edits(session, draft.tray_message_id)
+    assert len(edits) == 3
     assert "Photos: 4/4" in edits[-1]
-    # One cap notice for the whole album, and nothing else sent.
-    assert sent_texts(session) == [translate("media.tray.cap_reached", Language.EN, max=4)]
+    assert translate("media.tray.got_photo", Language.EN, n=4, max=4) in edits[-1]
+    assert tray_edits(session) == edits
 
 
 async def test_a_caption_sets_the_prompt_and_text_replaces_it(
@@ -374,7 +424,185 @@ async def test_a_caption_sets_the_prompt_and_text_replaces_it(
 
     assert first is not None and first.prompt == "a cat in a garden"
     assert second is not None and second.prompt == PROMPT
-    assert "«a lantern-lit courtyard" in tray_edits(session)[-1]
+    assert "«a lantern-lit courtyard" in sent_texts(session)[-1]
+
+
+# ---------------------------------------------------------------------------
+# The tray answers under what was sent (§2.3.2, changed 2026-09-26)
+# ---------------------------------------------------------------------------
+async def test_a_photo_is_answered_by_a_new_tray_under_it_that_asks_for_the_prompt(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    rig = Rig(media_on(settings), sessions)
+    await open_image_compose(rig, bot)
+    session.clear()
+
+    await rig.dispatcher.feed_update(bot, photo_update("a"))
+
+    (answer,) = session.named("SendMessage")
+    assert isinstance(answer, SendMessage)
+    text = answer.text
+    assert text.startswith(translate("media.tray.got_photo", Language.EN, n=1, max=4))
+    assert "Photos: 1/4" in text
+    assert text.endswith(translate("media.tray.ask_prompt.image", Language.EN))
+    # The same keyboard as the tray, now with 🗑 since there is a photo.
+    assert isinstance(answer.reply_markup, InlineKeyboardMarkup)
+    labels = [label for label, _ in buttons(answer.reply_markup)]
+    assert translate("button.media.done", Language.EN) in labels
+    assert translate("button.media.clear_photos", Language.EN) in labels
+    # Exactly one live tray: the old one is deleted, nothing is edited.
+    assert deleted_ids(session) == [TRAY]
+    assert tray_edits(session) == []
+    assert await live_tray(rig.dispatcher) != TRAY
+
+
+async def test_a_photo_with_the_prompt_in_offers_more_photos_or_done(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    rig = Rig(media_on(settings, media_max_reference_images=2), sessions)
+    await open_image_compose(rig, bot)
+    await send(rig.dispatcher, bot, PROMPT)
+
+    await rig.dispatcher.feed_update(bot, photo_update("a"))
+    under_cap = sent_texts(session)[-1]
+    await rig.dispatcher.feed_update(bot, photo_update("b"))
+    at_cap = sent_texts(session)[-1]
+
+    assert under_cap.endswith(translate("media.tray.more_or_done", Language.EN))
+    assert translate("media.tray.ask_prompt.image", Language.EN) not in under_cap
+    # At the cap there is no room left: only ✅ Done is offered.
+    assert at_cap.startswith(translate("media.tray.got_photo", Language.EN, n=2, max=2))
+    assert at_cap.endswith(translate("media.tray.press_done", Language.EN))
+
+
+async def test_an_album_of_three_draws_one_new_tray_and_edits_it(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    rig = Rig(media_on(settings), sessions)
+    await open_image_compose(rig, bot)
+    session.clear()
+
+    for unique in ("a", "b", "c"):
+        await rig.dispatcher.feed_update(bot, photo_update(unique, group="album-3"))
+
+    sends = session.named("SendMessage")
+    assert len(sends) == 1, "one reply per album"
+    tray = await live_tray(rig.dispatcher)
+    edits = tray_edits(session)
+    assert len(edits) == 2
+    assert tray_edits(session, tray) == edits, "the later items edit the tray the album drew"
+    assert translate("media.tray.got_photo", Language.EN, n=3, max=4) in edits[-1]
+    assert "Photos: 3/4" in edits[-1]
+    assert deleted_ids(session) == [TRAY]
+    draft = load_media_draft(await rig.fsm())
+    assert draft is not None and draft.tray_media_group_id == "album-3"
+
+    # A second album is a new answer: it moves the tray again, under itself.
+    session.clear()
+    await rig.dispatcher.feed_update(bot, photo_update("d", group="album-4"))
+    assert len(session.named("SendMessage")) == 1
+    assert deleted_ids(session) == [tray]
+
+
+async def test_a_duplicate_photo_draws_nothing(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    rig = Rig(media_on(settings), sessions)
+    await open_image_compose(rig, bot)
+    await rig.dispatcher.feed_update(bot, photo_update("a"))
+    session.clear()
+
+    await rig.dispatcher.feed_update(bot, photo_update("a"))
+
+    assert not session.named("SendMessage")
+    assert not session.named("EditMessageText")
+    assert not session.named("DeleteMessage")
+
+
+async def test_the_prompt_is_confirmed_by_a_new_tray_under_it(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    rig = Rig(media_on(settings), sessions)
+    await open_image_compose(rig, bot)
+    await rig.dispatcher.feed_update(bot, photo_update("a"))
+    photo_tray = await live_tray(rig.dispatcher)
+    session.clear()
+
+    await send(rig.dispatcher, bot, PROMPT)
+
+    (text,) = sent_texts(session)
+    assert text.startswith(translate("media.tray.got_prompt", Language.EN))
+    assert "«a lantern-lit courtyard" in text
+    assert text.endswith(translate("media.tray.more_or_done", Language.EN))
+    assert deleted_ids(session) == [photo_tray]
+    assert await live_tray(rig.dispatcher) not in (TRAY, photo_tray)
+
+
+async def test_an_old_tray_that_cannot_be_deleted_is_left_and_the_answer_stands(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    rig = Rig(media_on(settings), sessions)
+    await open_image_compose(rig, bot)
+    session.failures_once["DeleteMessage"] = TelegramBadRequest(
+        method=DeleteMessage(chat_id=CHAT_ID, message_id=TRAY),
+        message="Bad Request: message to delete not found",
+    )
+
+    await rig.dispatcher.feed_update(bot, photo_update("a"))
+
+    draft = load_media_draft(await rig.fsm())
+    assert draft is not None and len(draft.refs) == 1
+    assert draft.tray_message_id is not None and draft.tray_message_id != TRAY
+    assert sent_texts(session)[-1].startswith(
+        translate("media.tray.got_photo", Language.EN, n=1, max=4)
+    )
+    # The left-over tray's buttons are stale; the new one's work.
+    await rig.dispatcher.feed_update(
+        bot,
+        Update(
+            update_id=next(_press_ids),
+            callback_query=make_callback(med(MediaAction.CLEAR), message_id=TRAY),
+        ),
+    )
+    assert session.last_named("AnswerCallbackQuery").text == translate("media.stale", Language.EN)
+
+
+async def test_a_button_on_the_moved_tray_still_edits_it_in_place(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    rig = Rig(media_on(settings), sessions)
+    await open_image_compose(rig, bot)
+    await rig.dispatcher.feed_update(bot, photo_update("a"))
+    tray = await live_tray(rig.dispatcher)
+    session.clear()
+
+    await press(rig.dispatcher, bot, med(MediaAction.CLEAR))
+
+    assert not session.named("SendMessage")
+    assert not session.named("DeleteMessage")
+    assert "Photos: 0/4" in tray_edits(session, tray)[-1]
+    assert await live_tray(rig.dispatcher) == tray
 
 
 async def test_done_without_a_prompt_is_an_alert_and_moves_nothing(
@@ -536,7 +764,8 @@ async def test_the_aspect_pick_freezes_a_screening_row_and_enqueues_its_screen(
     assert job.aspect.value == "1:1"
     assert job.outputs_requested == 2
     assert job.price_minor == settings.image_price_minor
-    assert job.tray_message_id == TRAY
+    # The live tray — the one the prompt moved under itself — is the one the quote lands on.
+    assert job.tray_message_id == await live_tray(rig.dispatcher) != TRAY
     assert job.chat_id == CHAT_ID
     async with rig.sessions() as db:
         inputs = list((await db.scalars(sa.select(MediaInputRow))).all())
@@ -1039,7 +1268,8 @@ async def test_a_song_is_still_one_tap_away_through_the_picker(
 
 
 def test_callback_update_is_the_harness_press() -> None:
-    """``press`` sends from message ``TRAY`` — the id every tray assertion here reads."""
+    """The wizard's press sends from message ``TRAY`` — the tray a compose opens on, over the
+    picker, until a photo or a prompt moves it."""
     update = callback_update("x")
     assert update.callback_query is not None
     assert update.callback_query.message is not None

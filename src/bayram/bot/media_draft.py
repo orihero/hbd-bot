@@ -84,8 +84,13 @@ class MediaDraft(BaseModel):
     #: The album the last one-per-album notice (cap reached, unsupported) was given for, so
     #: a ten-photo album draws one notice and not ten (§2.3.2).
     last_media_group_id: str | None = None
-    #: The one tray message this compose edits in place (§2.3.2).
+    #: The one live tray message of this compose (§2.3.2). A photo or a prompt moves it
+    #: under the customer's message; a button press edits it in place.
     tray_message_id: int | None = None
+    #: The album the current tray was sent for: the album's first item moves the tray, its
+    #: later items edit that tray in place, so an album draws one reply (§2.3.2). Separate
+    #: from :attr:`last_media_group_id`, which tracks the one-per-album NOTICES.
+    tray_media_group_id: str | None = None
     aspect: MediaAspect | None = None
     #: Video only (§2.4): the choices made after ✅ Done, written onto the ``drafting`` row
     #: by the last voice step.

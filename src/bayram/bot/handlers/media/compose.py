@@ -6,11 +6,13 @@
                                   │ text → prompt; photo/document → tray            (screening)
                                   └─[🗑] clear photos · [✖️] drop the draft
 
-**One tray message per compose, edited in place** (§2.3.2). Telegram delivers an album as one
-message per photo; each accepted photo that changes the count edits the tray, so a four-photo
-album ends showing "Photos: 4/4" and draws no reply of its own. No ``sleep``, no debounce task:
-the per-chat lock (``bot.app``) already serialises the album's items, and each edit is the
-state after that item.
+**One live tray per compose, answered under what was sent** (§2.3.2, changed 2026-09-26). A
+photo or a prompt is answered with the tray sent anew below it — what was received, the tray,
+and what is still needed — and the old tray deleted. Telegram delivers an album as one message
+per photo; the album's first accepted item moves the tray and each later one edits that new
+tray, so a four-photo album draws one reply that ends showing "Photos: 4/4". No ``sleep``, no
+debounce task: the per-chat lock (``bot.app``) already serialises the album's items, and each
+edit is the state after that item. The tray's buttons still edit it in place.
 
 **At the aspect pick the tray becomes ``media.screening`` BEFORE the row is frozen**, because
 the freeze enqueues ``media_screen`` and the worker edits that same message into the quote; an
@@ -129,6 +131,14 @@ _COMPOSE_KEYS: Final[dict[MediaKind, str]] = {
 _TRAY_KEY: Final[str] = "media.tray"
 _NO_PROMPT_KEY: Final[str] = "media.tray.no_prompt"
 _CAP_KEY: Final[str] = "media.tray.cap_reached"
+_GOT_PHOTO_KEY: Final[str] = "media.tray.got_photo"
+_GOT_PROMPT_KEY: Final[str] = "media.tray.got_prompt"
+_ASK_PROMPT_KEYS: Final[dict[MediaKind, str]] = {
+    MediaKind.IMAGE: "media.tray.ask_prompt.image",
+    MediaKind.VIDEO: "media.tray.ask_prompt.video",
+}
+_MORE_OR_DONE_KEY: Final[str] = "media.tray.more_or_done"
+_PRESS_DONE_KEY: Final[str] = "media.tray.press_done"
 _NEED_PROMPT_KEY: Final[str] = "media.need_prompt"
 _PROMPT_INVALID_KEY: Final[str] = "media.prompt.invalid"
 _UNSUPPORTED_KEY: Final[str] = "media.compose.unsupported"
@@ -202,9 +212,12 @@ def tray_markup(draft: MediaDraft) -> InlineKeyboardMarkup:
     return media_tray_keyboard(draft.ui_language, has_photos=bool(draft.refs))
 
 
-async def _edit_tray(message: Message, draft: MediaDraft, deps: BotDeps) -> MediaDraft:
+async def _edit_tray(
+    message: Message, draft: MediaDraft, deps: BotDeps, *, text: str | None = None
+) -> MediaDraft:
     """Redraw the tray in place; with no tray on record (or one that is gone) send a new one."""
-    text = tray_text(draft, deps.settings.media_max_reference_images)
+    if text is None:
+        text = tray_text(draft, deps.settings.media_max_reference_images)
     bot = message.bot
     if draft.tray_message_id is not None and bot is not None:
         try:
@@ -227,6 +240,50 @@ async def _edit_tray(message: Message, draft: MediaDraft, deps: BotDeps) -> Medi
             return draft
     sent = await message.answer(text, reply_markup=tray_markup(draft))
     return draft.updated(tray_message_id=sent.message_id)
+
+
+def _next_step(draft: MediaDraft, max_refs: int) -> str:
+    """What the tray still needs (§2.3.2): the prompt, which is required; else more photos
+    while there is room, and ✅ Done."""
+    language = draft.ui_language
+    if draft.prompt is None:
+        return translate(_ASK_PROMPT_KEYS[draft.kind], language)
+    if len(draft.refs) < max_refs:
+        return translate(_MORE_OR_DONE_KEY, language)
+    return translate(_PRESS_DONE_KEY, language)
+
+
+def _answer_text(draft: MediaDraft, max_refs: int, *, confirmation: str) -> str:
+    """The tray as an answer: what was received, the tray, and what is still needed."""
+    body = tray_text(draft, max_refs)
+    return f"{confirmation}\n\n{body}\n\n{_next_step(draft, max_refs)}"
+
+
+async def _answer_tray(
+    message: Message, draft: MediaDraft, deps: BotDeps, *, confirmation: str
+) -> MediaDraft:
+    """Answer a photo or a prompt with the tray UNDER it (§2.3.2, changed 2026-09-26).
+
+    The tray is sent anew below the customer's message and the old one deleted, so there is
+    still one live tray and the answer is where the customer is looking; an edit of a tray
+    scrolled above the photo read as no answer at all. An album moves the tray once, on its
+    first item that changes it; its later items edit that new tray in place (the per-chat
+    lock serialises them), so an album still draws one reply.
+    """
+    text = _answer_text(draft, deps.settings.media_max_reference_images, confirmation=confirmation)
+    group = message.media_group_id
+    if group is not None and draft.tray_media_group_id == group:
+        return await _edit_tray(message, draft, deps, text=text)
+    old_tray = draft.tray_message_id
+    sent = await message.answer(text, reply_markup=tray_markup(draft))
+    bot = message.bot
+    if old_tray is not None and old_tray != sent.message_id and bot is not None:
+        try:
+            await bot.delete_message(chat_id=message.chat.id, message_id=old_tray)
+        except TelegramAPIError as exc:
+            # Gone already, or older than 48 h: its buttons answer as stale (``tray_draft``).
+            _LOG.info("the old tray could not be deleted", extra={"failure": repr(exc)})
+    return draft.updated(tray_message_id=sent.message_id, tray_media_group_id=group)
 
 
 async def _stale(callback: CallbackQuery, language: Language) -> None:
@@ -425,7 +482,12 @@ async def handle_compose_text(message: Message, state: FSMContext, deps: BotDeps
             ),
         )
         return
-    draft = await _edit_tray(message, draft.updated(prompt=prompt), deps)
+    draft = await _answer_tray(
+        message,
+        draft.updated(prompt=prompt),
+        deps,
+        confirmation=translate(_GOT_PROMPT_KEY, draft.ui_language),
+    )
     await write_draft(state, draft)
 
 
@@ -433,24 +495,25 @@ async def _take_photo(message: Message, state: FSMContext, deps: BotDeps, ref: M
     draft = await _draft_or_expire(message, state)
     if draft is None:
         return
-    changed = False
+    language = draft.ui_language
+    confirmation: str | None = None
     # §2.3.2: a caption on any item sets or replaces the prompt.
     caption = _valid_prompt(message.caption)
     if caption is not None and caption != draft.prompt:
         draft = draft.updated(prompt=caption)
-        changed = True
+        confirmation = translate(_GOT_PROMPT_KEY, language)
     max_refs = deps.settings.media_max_reference_images
     if ref.file_unique_id in draft.unique_ids:
         pass  # The same photo twice — sent again, or forwarded back. Deduped, silently.
     elif len(draft.refs) >= max_refs:
         if _is_first_notice(draft, message):
-            await say(message, translate(_CAP_KEY, draft.ui_language, max=max_refs))
+            await say(message, translate(_CAP_KEY, language, max=max_refs))
             draft = draft.updated(last_media_group_id=message.media_group_id)
     else:
         draft = draft.updated(refs=(*draft.refs, ref))
-        changed = True
-    if changed:
-        draft = await _edit_tray(message, draft, deps)
+        confirmation = translate(_GOT_PHOTO_KEY, language, n=len(draft.refs), max=max_refs)
+    if confirmation is not None:
+        draft = await _answer_tray(message, draft, deps, confirmation=confirmation)
     await write_draft(state, draft)
 
 

@@ -60,8 +60,15 @@ from tests.test_bot.conftest import (
     RecordingSession,
     buttons,
 )
-from tests.test_bot.test_media_compose import PROMPT, Rig, med, sent_texts
-from tests.test_bot.test_wizard_flow import complete_onboarding, press, send, tap
+from tests.test_bot.test_media_compose import (
+    PROMPT,
+    Rig,
+    med,
+    photo_update,
+    press,
+    sent_texts,
+)
+from tests.test_bot.test_wizard_flow import complete_onboarding, send, tap
 
 #: 13 words: over English's twelve.
 _THIRTEEN_WORDS: Final[str] = "one two three four five six seven eight nine ten eleven twelve 13"
@@ -113,6 +120,25 @@ async def open_video_compose(rig: Rig, bot: Bot) -> None:
     await complete_onboarding(rig.dispatcher, bot)
     await tap(rig.dispatcher, bot, "menu.generate", Language.EN)
     await press(rig.dispatcher, bot, med(MediaAction.PICK, arg=CreatePick.VIDEO))
+
+
+async def test_a_photo_in_a_video_compose_asks_for_the_video_description(
+    settings: Settings,
+    sessions: async_sessionmaker[AsyncSession],
+    bot: Bot,
+    session: RecordingSession,
+) -> None:
+    # The video compose is the image's tray (§2.4.1): it answers under the photo too.
+    rig = Rig(video_on(settings), sessions)
+    await open_video_compose(rig, bot)
+    session.clear()
+
+    await rig.dispatcher.feed_update(bot, photo_update("a"))
+
+    (text,) = sent_texts(session)
+    assert text.startswith(translate("media.tray.got_photo", Language.EN, n=1, max=4))
+    assert text.endswith(translate("media.tray.ask_prompt.video", Language.EN))
+    assert len(session.named("DeleteMessage")) == 1
 
 
 async def the_job(rig: Rig) -> MediaJobRow:

@@ -886,6 +886,12 @@ CATALOGUE: Final[dict[str, str]] = {
     "media.tray": "Тавсиф: {prompt_state}\nРасмлар: {n}/{max}",
     "media.tray.no_prompt": "— ҳали йўқ",
     "media.tray.cap_reached": "Фақат биринчи {max} та расм ишлатилади.",
+    "media.tray.got_photo": "✅ Расм қабул қилинди ({n}/{max}).",
+    "media.tray.got_prompt": "✅ Тавсиф сақланди.",
+    "media.tray.ask_prompt.image": "Энди қандай расм кераклигини ёзиб юборинг — тавсиф мажбурий.",
+    "media.tray.ask_prompt.video": "Энди қандай видео кераклигини ёзиб юборинг — тавсиф мажбурий.",
+    "media.tray.more_or_done": "Яна расм қўшишингиз ёки ✅ Тайёр тугмасини босишингиз мумкин.",
+    "media.tray.press_done": "Давом этиш учун ✅ Тайёр тугмасини босинг.",
     "media.need_prompt": "Аввал тавсиф ёзинг.",
     "media.prompt.invalid": "Илтимос, {min}–{max} белги оралиғида тасвирлаб беринг.",
     "media.compose.closed": (

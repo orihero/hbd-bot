@@ -846,6 +846,16 @@ CATALOGUE: Final[dict[str, str]] = {
     "media.tray": "Описание: {prompt_state}\nФото: {n}/{max}",
     "media.tray.no_prompt": "— пока нет",
     "media.tray.cap_reached": "Используются только первые {max} фото.",
+    "media.tray.got_photo": "✅ Фото получено ({n}/{max}).",
+    "media.tray.got_prompt": "✅ Описание сохранено.",
+    "media.tray.ask_prompt.image": (
+        "Теперь напишите, какую картинку вы хотите, — описание обязательно."
+    ),
+    "media.tray.ask_prompt.video": (
+        "Теперь напишите, какое видео вы хотите, — описание обязательно."
+    ),
+    "media.tray.more_or_done": "Можно добавить ещё фото или нажать ✅ Готово.",
+    "media.tray.press_done": "Нажмите ✅ Готово, чтобы продолжить.",
     "media.need_prompt": "Сначала напишите описание.",
     "media.prompt.invalid": "Опишите, пожалуйста, в пределах {min}–{max} символов.",
     "media.compose.closed": "Фото можно добавить до ✅ Готово — нажмите ✏️ Изменить.",

@@ -349,10 +349,21 @@ is current, and `content_sha256` (hash of prompt + narration + every input `sha2
   (≤20 MB, the Bot API getFile ceiling); anything else → `media.compose.unsupported`.
 - Dedupe on `file_unique_id`; cap at `media_max_reference_images`; over the cap → one
   `media.tray.cap_reached` per `media_group_id`.
-- **One tray message per compose**, edited in place — never a reply per photo. **Every accepted
-  item that changes the count edits the tray** (at most `media_max_reference_images` edits per
-  compose), so a 4-photo album ends showing "Photos: 4/4". No `sleep` and no debounce task in the
-  handler (per-chat lock).
+- **One live tray per compose, answered under what was sent** — never a reply per photo. A
+  lone photo, a prompt, or a caption that changes the prompt is answered by sending the tray
+  anew **below** the customer's message and deleting the old tray (best effort: a tray already
+  gone or older than 48 h is left, and its buttons answer `media.stale`). The answer reads: what
+  was received (`media.tray.got_photo` "✅ Photo received (n/max)." or `media.tray.got_prompt`),
+  the tray, then the next step — `media.tray.ask_prompt.image|video` while there is no prompt
+  (the prompt is required), else `media.tray.more_or_done` while under the cap, else
+  `media.tray.press_done`. **An album moves the tray once**: its first item that changes the
+  tray sends the new tray (recorded as the draft's `tray_media_group_id`), and every later item
+  of that `media_group_id` edits that new tray in place, so a 4-photo album draws exactly one
+  reply that ends showing "Photos: 4/4". A duplicate (`file_unique_id`) draws nothing. The
+  tray's buttons (✅ 🗑 ✖️) still edit it in place. No `sleep` and no debounce task in the
+  handler (per-chat lock). *Changed 2026-09-26 after owner review: the tray used to be edited
+  in place for every photo, and an edit of a message scrolled above the photo read as no
+  answer at all.*
 - Photos or albums sent **after ✅ Done** (in `aspect`, `quote`, `VideoOrder.voice*`) get one reply
   per `media_group_id`: `media.compose.closed` ("Photos can be added before ✅ Done — tap ✏️ Edit").
 - A caption on any item sets/replaces the prompt.
