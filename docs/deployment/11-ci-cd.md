@@ -20,7 +20,7 @@ Five jobs, of which three are the gate:
 | Job | Runs | Required |
 | --- | --- | --- |
 | `python` | ffmpeg, `uv sync --locked`, `make lint`, `make typecheck`, `make cov`, then the admin re-report at 85% | yes |
-| `node` | `npm ci`, then `typecheck` / `lint` / `test:unit` / `test:e2e:strict` as four separate steps | yes |
+| `node` | `npm ci`, then `typecheck` / `lint` / `test:unit` / `test:e2e:strict` / `build` / `check:built-shell` as six separate steps | yes |
 | `migration-safety` | refuses destructive DDL in revisions new to the PR | yes (PR only) |
 | `integration` | Postgres 16 + Redis 7, `hbd_test` bootstrapped, `-m integration` | **no — opt-in by label** |
 | `gate` | one check to mark required in branch protection | — |
@@ -62,6 +62,30 @@ than left to be discovered on a Monday.
 deliberately UTC-day-based (`src/bayram/db/admin/sql.py`, and the Asia/Tashkent traps
 `tests/test_db/test_activity_snapshots.py` is written around), so a runner in another zone
 tests a different program.
+
+### A third, added 2026-09-19: the production build is a CI step
+
+**The production build is in CI, and it is there for one specific reason.** `npm run build`
+and `npm run check:built-shell` were added to the `node` job on 2026-09-19. The build is the
+only step anywhere that produces `src/bayram/admin/static/index.html` — `.gitignore:63` excludes
+that directory, so **no Python test can ever see the shell that actually ships**. Everything
+Vite does to the document head between source and output is invisible to `pytest` by
+construction: a plugin that injects an inline `<script>`, or a head rewrite that drops the
+`__BAYRAM_CSP_NONCE__` placeholder, would be caught by nothing. `check:built-shell`
+(`admin-dashboard/tests/built-shell-csp.ts`, jsdom) parses the emitted file and applies the same
+rules `tests/test_admin/test_csp_shape.py` applies to the source shell, plus the one only it can
+check — that the nonce placeholder survived the build. It **fails, never skips**, when the build
+output is absent. A second effect worth naming rather than discovering: CI had never built the
+SPA at all, so a broken production build was previously caught by nothing either.
+
+> **Adding a build to a green job is a behaviour change independent of CSP.** It passes locally
+> (vite 6, 2.02 s, one chunk-size warning that is not an error), but it will surface any latent
+> build failure on the next push. Land it as its own commit so a build break is not read as a
+> CSP-test failure.
+>
+> **And `Makefile`'s `ui-check` (line 126) now runs a strictly smaller set than CI** — four
+> scripts where CI runs six. Until it is updated, a green `make ui-check` does not predict a
+> green `node` job. That edit is owed; it is listed in this page's open items.
 
 ### The integration job is opt-in, and the reason is not timidity
 
@@ -109,14 +133,15 @@ where a `datetime | None` was declared).
 **Measured after the fixes, 2026-09-16, on a developer machine:** `make lint` clean;
 `make typecheck` clean over 647 files; `make cov` **8 034 passed, 56 deselected, 94.46%,
 9m31s**; the console's four scripts green (318 vitest tests, 55 locale assertions, zero
-pending).
+pending). **Read "four" as "six" from 2026-09-19** — `build` and `check:built-shell` joined
+them; the four numbers quoted here are the 2026-09-16 measurement and are left as measured.
 
 **Measured on a hosted runner, same day, run 35080297500 — all five jobs green:**
 
 | Job | Duration |
 | --- | --- |
 | `Python — ruff, mypy, unit suite` | **32m 06s** |
-| `Console — typecheck, lint, vitest, locales` | 1m 20s |
+| `Console — typecheck, lint, vitest, locales` | 1m 20s — **expect this to rise.** The two steps added 2026-09-19 are a Vite production build (2.0 s locally; budget 20–40 s on a hosted runner) plus a jsdom parse of its output. Not re-measured on a runner yet. |
 | `Migrations — additive-only` | 5s |
 | `gate` | 2s |
 
@@ -138,6 +163,36 @@ and `drop_index` are out of the pattern entirely.
 
 Land the workflow with **no branch protection**, let it run on a branch and on `main`, and
 confirm the hosted-runner numbers match the local ones above. Only then make it required.
+
+> **The `gate` job was audited on 2026-09-19 and its verdict did not change.** The suspected
+> defect — a skipped dependency passing green — **is not present**: `if: always()` plus explicit
+> per-result tests, plus `success|skipped` for `migration-safety` alone (which is legitimately
+> `pull_request`-only), already gives the right answer. Verified against a nine-case truth table.
+> Two hardening edits landed, neither changing any verdict:
+>
+> - **`timeout-minutes: 5`.** Every other job bounds itself. A *required* check with no clock
+>   blocks the merge button until somebody cancels it by hand.
+> - **Accumulate, then exit.** `bash -e` aborted on the first failing `test`, so an operator only
+>   ever saw one broken dependency. `python=failure node=failure` now reports both.
+>
+> `integration` is still deliberately **not** in `needs:`.
+
+**Turning protection on** (once, from a workstation with `gh` authenticated):
+
+```bash
+echo '{"required_status_checks":{"strict":true,"contexts":["gate"]},"enforce_admins":false,"required_pull_request_reviews":null,"restrictions":null}' \
+  | gh api -X PUT repos/orihero/hbd-bot/branches/main/protection --input -
+```
+
+Three things to know before running it. **`main` has no protection and no rulesets today**
+(confirmed `404` / `[]`), is a single `Init` commit, and does not contain
+`.github/workflows/ci.yml` at all — everything is in open draft PR #1. **The first thing
+protection does is block that draft** until `gate` is green on it; `gate` *is* green on PR #1
+(run 35190944330), so this is survivable, but confirm before clicking. If the required-checks
+picker does not offer `gate`, the call above writes the literal name and it stays pending until
+a run produces it. And **`enforce_admins` is `false` deliberately**: with one maintainer, `true`
+means the maintainer cannot merge their own emergency fix without a green gate. Revisit once a
+second person has push rights.
 
 ---
 
@@ -224,6 +279,26 @@ Nothing below is CI work, and everything below makes automation either safe or t
    work today: `sudo` prompts for a password.)
 2. **Schedule a database backup.** A systemd timer, `pg_dump`, and a copy off-box. Today the
    only backups that exist are the ones a deploy script happens to take.
+
+   **STANDING, 2026-09-19 — three separate facts, and only the first is done.**
+   *(a)* **The installer exists**, at `deploy/install-bayram-backup.sh`. It writes the timer, the
+   unit and `/opt/bayram/sbin/bayram-backup`.
+   *(b)* **It has still never been run on the host.** Verified read-only 2026-09-19: no
+   `bayram-backup` unit in `/etc/systemd/system`, nothing for it in `systemctl list-timers`, and
+   `/opt/bayram/sbin` holds only `bayram-release`. **So there is still no scheduled backup on
+   `abdu-test`.** Running it is two commands and they are in [`05-operations.md`](05-operations.md).
+   *(c)* **It now ships an off-box copy that is inert until a destination is set.** Three
+   transports behind one switch; the mechanism needs no further decision, the destination does.
+   See item 4 under *Before this is run for the first time*.
+
+   > **The install line this page used to imply does not exist.** Anything of the form
+   > `scp deploy/systemd/bayram-backup.timer aizu:…` names a path that was never in this
+   > repository — the installer *generates* the unit and the timer, it does not ship them as
+   > files. That wrong path is the likeliest reason the installer was copied to the host on
+   > 2026-09-17 and then never run. The correct pair is `scp deploy/install-bayram-backup.sh
+   > aizu:/tmp/…` then `ssh -t aizu 'sudo bash /tmp/install-bayram-backup.sh'` — and re-stage it
+   > in the same breath rather than trusting the developer-owned copy sitting in a
+   > world-writable `/tmp` since Sep 17.
 3. **Give `/healthz` something to say.** Until a health check can distinguish a good release
    from a bad one, "automatic rollback" is a phrase, not a mechanism.
 4. **Then** write `bayram-release` as one versioned script, invoked by a human, consuming a
@@ -246,12 +321,40 @@ waits for a human, and not with a timer.
 Four files landed. **None has executed against the host, and the host layout they assume does
 not exist yet.** Treat them as a reviewed draft, not a tested tool.
 
+> **PARTIALLY SUPERSEDED — the heading's "NEVER RUN" is true of three of the four, not all four.**
+> `deploy/bayram-release` has been installed and used: the host carries it at
+> `/opt/bayram/sbin/bayram-release` and the first real deploy through it was 2026-09-17. The
+> layout it assumes **does** exist. `release.yml`, `install-bayram-backup.sh` and the three
+> scripts added on 2026-09-19 have still never run against `abdu-test`.
+>
+> **And the host copy is installed BY HAND — the wheel bundle does not carry it.** The file on
+> the host is a standalone 67 180-byte copy dated 2026-09-17, so **editing `deploy/bayram-release`
+> in this repository changes nothing on the host until somebody copies it up.** A release will
+> not do it for you. See [`04-release.md`](04-release.md) §7 for the two commands.
+
 | File | What it is |
 | --- | --- |
 | `.github/workflows/release.yml` | The producer. Builds console → wheel → bundle, publishes a GitHub Release asset. |
 | `deploy/bayram-release` | The consumer. One script replacing the three per-feature ones. |
 | `deploy/sudoers.d/bayram-release` | The grant. `visudo -cf` clean. |
-| `deploy/install-bayram-backup.sh` | Installs the daily backup timer — prerequisite 2. |
+| `deploy/install-bayram-backup.sh` | Installs the daily backup timer — prerequisite 2. **Exists; STILL never run on the host** (verified read-only 2026-09-19). Since 2026-09-19 it also installs an env-configured off-box copy that is **inert until a destination is set** in `/etc/bayram/backup-offbox.env`. |
+
+Three more landed on 2026-09-19, all of them **operator-run scripts rather than installed
+artefacts** — copy to `/tmp`, run with `sudo`, delete:
+
+| File | What it is |
+| --- | --- |
+| `deploy/set-probe-tokens.sh` | Generates and installs the two `/readyz` probe tokens, preserving each env file's existing owner and mode, then restarts `bayram-admin` and `bayram-payme` and **proves** the tokens took by reading the gated body. `--rotate` / `--admin-only` / `--yes`. |
+| `deploy/prune-stale-sudo-grants.sh` | Removes the stale sudo grants. `plan` is the default and is a **dry run that writes nothing**; `apply` is the only verb that writes. Two extra flags, both off by default: `--drop-blanket` (also removes `/etc/sudoers.d/90-developer-nopasswd`) and `--drop-pg-dump` (also removes `(postgres) NOPASSWD: /usr/bin/pg_dump hbd`). Both are owner decisions — see [`07-security.md`](07-security.md). |
+| `deploy/sudoers.d/bayram-deploy` | Rewritten as the **post-cutover** grant file, and it is now the whole of the operational grant: the Caddy reload/restart/validate verbs moved here out of `hbd-deploy` so that file can be pruned without taking the Payme front end's operational verbs with it. |
+
+> **A load-order dependency that is easy to break by accident.** `sudo` reads `/etc/sudoers.d`
+> in **lexical order and the last match wins**. `/etc/sudoers.d/bayram-release`'s `PASSWD:`
+> lines — the ones that keep `deploy`, `rollback` and `backup` prompting — are only effective
+> because `bayram-release` sorts *after* `90-developer-nopasswd`. **Renaming that file to
+> anything sorting before `90-` silently makes those three verbs passwordless.** The same
+> ordering is why every narrower grant in `deploy/sudoers.d/` is decorative while the blanket
+> rule stands.
 
 ### The bundle contract, frozen
 
@@ -356,6 +459,52 @@ about **this repository** that nothing else had surfaced:
 4. **Decide the off-box backup.** The timer fixes "no backup exists". A dump on the same disk
    as the database is not protection against losing that disk, and this host has one disk.
 
+   **This item split in two on 2026-09-19. The mechanism has landed; the destination has not.**
+
+   **The mechanism — done.** `deploy/install-bayram-backup.sh` now carries a destination-agnostic
+   dispatcher driven by one switch, `BAYRAM_BACKUP_OFFBOX_MODE`, with three transports plus
+   empty: `s3` (an endpoint URL and a bucket path through `rclone` or `awscli`, so R2, B2,
+   Wasabi, MinIO and AWS are the same three lines with a different URL), `rsync`
+   (rsync-over-ssh, `StrictHostKeyChecking` left **on** and the host key required to be pinned
+   first), and `command` (the old `/etc/bayram/backup-offsite.hook` contract, preserved — an
+   existing hook is picked up automatically as `MODE=command`). Every upload is **read back
+   before the run is called a success**: `HeadObject ContentLength` for s3, an end-to-end
+   `rsync -n -c` checksum pass for rsync. Credentials are passed in the environment and never in
+   `argv`, because `/proc/<pid>/cmdline` is world-readable. Every off-box command is wrapped in
+   `timeout` (default 900 s), because the push holds the flock inside a unit with
+   `TimeoutStartSec=3600` and an unbounded hang would eat the next night's run too.
+
+   **Unset is a true no-op, on purpose.** With no `MODE`, the off-box block is one honest log
+   line, `"offbox": "not-configured"` in the sentinel, and `return 0` — no stat, no network call,
+   no non-zero exit, no `OnFailure`, and `bayram-backup check` **stays green**. An unconfigured
+   copy is the current deliberate state, not a fault. `bayram-backup check-offbox` is the opt-in
+   assertion: it exits 4 only when a destination **is** configured and the last copy did not
+   report `ok`.
+
+   **The destination — still an owner decision, and it is the same three options as before.**
+   **A** pull from the workstation (which also needs a call on a narrow sudoers verb versus a
+   group-readable dump mode); **B** push to object storage (which puts a long-lived write
+   credential on the host that terminates payment callbacks — scope it to one write-only
+   prefix); **C** provider snapshots, which nobody can evaluate because **no one has recorded
+   who the provider is**. When the call is made, `/etc/bayram/backup-offbox.env` is where it gets
+   written down — `root:root` `0600`, deliberately **not** one of the three `/etc/bayram` env
+   files, which are `0640 root:hbd` and therefore readable by the account that serves customers
+   and terminates payment callbacks. The script refuses to read it at any other owner or mode.
+
+   Two practical notes for whoever picks B. **No off-box client is installed on the host** —
+   `rclone`, `aws`, `restic` and `b2` are all absent (verified 2026-09-19); only
+   `/usr/bin/rsync` 3.2.7 and `/usr/bin/scp` exist, so `apt-get install rclone` is a second,
+   separate human command. The installer refuses at preflight if `MODE=s3` is configured with
+   neither client present, rather than failing at 02:30. And **`MemoryDenyWriteExecute=yes` is
+   left on the unit** — fine for a Go binary such as `rclone`, but an interpreted or JIT-ish
+   client may need it relaxed and the failure looks like nothing else.
+
+   **After configuring a destination, re-run the installer.** That is what writes the socket
+   drop-in `10-offbox.conf`: the unit ships with `RestrictAddressFamilies=AF_UNIX`, and the
+   drop-in is what widens it. The main unit stays byte-identical so `cmp -s` idempotency still
+   reports "unchanged", the drop-in is removed again if the destination is blanked, and the
+   installer then asserts via `systemctl show` that the merged unit really can open a socket.
+
 ## 4. The health signal — smaller than it looked
 
 This page previously said `/healthz` "returns a constant `ok` to any unauthenticated caller",
@@ -393,11 +542,70 @@ So the work was not to build a health check. It was to **use** the one that exis
   detailed readiness today — the capability exists and is switched off. Until it is set, the
   probe proves reachability only, which is still more than `is-active` can tell you.
 
+  > **STILL EMPTY ON THE HOST, 2026-09-19 — but the reason it could not be fixed has changed,
+  > and that half IS fixed.** `bayram-release` read the token out of `$ENVFILE` =
+  > `/etc/bayram/bayram.env`. **That file does not declare `BAYRAM_ADMIN_PROBE_TOKEN` and never
+  > did** — the variable lives in `/etc/bayram/bayram-admin.env`, which is what systemd actually
+  > hands the unit (`systemctl show bayram-admin -p EnvironmentFiles`). So the token was a knob
+  > nobody could turn on from outside the script: an operator could write it into the admin env
+  > file correctly and `verify` would still print "no token set" forever. A second bug compounded
+  > it — the one token it did find was sent to **both** endpoints, including payme on 8091, which
+  > compares against `payme_probe_token` in a different file entirely, so the payme probe could
+  > never unlock detail at all.
+  >
+  > Both are fixed. `READY_PROBES` now carries four fields per entry — unit, URL, **env file**,
+  > **token variable** — so each process is probed with its own token read from its own file,
+  > inside a per-entry subshell (which is what stops the bot token and four vendor credentials
+  > leaking into the rest of the script). `deploy/set-probe-tokens.sh` is the operator step that
+  > closes the item.
+  >
+  > **It is only half-closable, and the honest framing matters.** Setting the tokens buys almost
+  > nothing on its own, because **nothing polls `/readyz`**: `systemctl list-timers --all` has no
+  > `bayram` timer and `/etc/cron.d` holds only `e2scrub_all` and `sysstat`. After this work the
+  > sole consumer is `bayram-release verify`, **once per release**. Decide whether the deliverable
+  > is "token set" or "something watches it"; the latter is separate work. And exposing `/readyz`
+  > to an off-box monitor is its own decision, not a side effect of setting a token — both
+  > endpoints bind `127.0.0.1` and all public traffic goes through the Cloudflare Tunnel, so
+  > routing `/readyz` through it needs its own exposure argument. The payme body leaks
+  > `isSandbox`, i.e. whether the rail is pointed at real money.
+  >
+  > **`/opt/bayram/sbin/bayram-release` is installed BY HAND and is not shipped by the wheel
+  > bundle** — the host copy is a standalone 67 180-byte file dated Sep 17. Editing it in this
+  > repository changes nothing on `abdu-test` until it is copied up. A release alone will not
+  > carry it.
+
 One bug worth recording, found by running the probe against a dead port rather than by reading
 it: **curl reports `000` when it never received an HTTP response at all** — connection refused,
 or the timeout hit. The first version treated only an empty string as "no answer", so a refused
 connection fell through to the generic branch and told the operator the process "answered with
 HTTP 000", which is exactly backwards.
+
+## 4.1 The CD open items, as they actually stand on 2026-09-19
+
+Five items were open when this page was written. **None of them is closed on the host**, but four
+of the five have moved from "nothing exists" to "a repo script exists and a human has to run it",
+which is a different kind of open. Nothing below is done by pushing a commit.
+
+| Item | Repo side | Host side |
+| --- | --- | --- |
+| **No scheduled backup** | `deploy/install-bayram-backup.sh` exists and now installs the off-box copy too | **STILL OPEN.** Never run. No `bayram-backup` unit, nothing in `list-timers`, `/opt/bayram/sbin` holds only `bayram-release`. Verified read-only 2026-09-19 |
+| **No off-box copy** | **Mechanism DONE** — three transports, verified after upload, inert and non-failing when unset | **STILL OPEN, and it is an owner decision, not a coding task.** The destination is unchosen; `/etc/bayram/backup-offbox.env` is where it gets written down |
+| **Probe token unset** | **Two real bugs fixed** in `bayram-release` (wrong env file; one token sent to both endpoints); `deploy/set-probe-tokens.sh` generates, installs, restarts and proves | **STILL OPEN.** Both tokens empty. And half-closable at best: nothing polls `/readyz`, so setting them changes `bayram-release verify` output and nothing else |
+| **`gate` not required** | **No defect found** — the suspected skipped-dependency bug is not present; two non-verdict-changing hardening edits landed | **STILL OPEN.** `main` has no protection and no rulesets. One `gh api` call, above |
+| **Old deploy scripts not retired** | `deploy/sudoers.d/bayram-deploy` rewritten post-cutover; `deploy/prune-stale-sudo-grants.sh` written | **STILL OPEN, and blocked on an owner decision.** `/etc/sudoers.d/90-developer-nopasswd` grants `developer` passwordless root; until whoever created it on 2026-09-17 says what it was for, every per-grant removal is cosmetic. The script has **never been executed end to end** — run `plan` and read the diff |
+
+Two things that are **not** on that list because they were never on it, and both are live:
+
+* **`git remote -v` shows `origin` as `https://orihero:ghp_…@github.com/orihero/hbd-bot.git`** —
+  a plaintext classic PAT in `.git/config`, on a public repository. `ci.yml:9-12` already names
+  this hazard and sets `persist-credentials: false` because of it. The token should be rotated
+  and the remote rewritten credential-free; **anything that prints `git remote -v` into a log or
+  a shared transcript leaks it.**
+* **`sshd` has `PasswordAuthentication yes`** alongside a password-bearing `developer` account
+  and `NOPASSWD: ALL`. One guessed password is unattended root on the host that terminates
+  payment callbacks. The fix is `PasswordAuthentication no` in `/etc/ssh/sshd_config.d/` — keys
+  are already in `/home/developer/.ssh/authorized_keys` — but it belongs to whoever owns ssh
+  policy and must not ride along in a sudoers change.
 
 ## 5. What this page does not cover
 

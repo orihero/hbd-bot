@@ -1,34 +1,120 @@
-# /etc/sudoers.d/bayram-deploy — the deploy account's unattended verbs, during and after the
-# hbd -> bayram cutover. Install mode 0440, owner root:root.
+# /etc/sudoers.d/bayram-deploy — the deploy account's unattended verbs on abdu-test.
+# Install mode 0440, owner root:root.
 #
-# WHY THIS FILE EXISTS (10-rename-cutover.md §4.7, §8.3). Every verb in the existing
-# /etc/sudoers.d/hbd-deploy names an `hbd-*` unit or an `/etc/hbd` path. The moment the cutover
-# succeeds, `developer` has no unattended verb for the four units actually running the product —
-# and, worse, the rollback's `systemctl enable --now hbd-*` is not granted either. A rollback
-# that needs a password it may not have is not a rollback.
+# ============================================================================
+# POST-CUTOVER. THIS FILE IS NOW THE WHOLE OF THE OPERATIONAL GRANT.
+# ============================================================================
+# Written 2026-09-11 as a TRANSITIONAL file naming both unit sets, with a standing instruction
+# in its own header: "once §7's verification has passed and the rollback window is closed,
+# delete the old file and the HBD_* halves below in one edit" (10-rename-cutover.md §4.7, §8.3).
+# Verification passed 2026-09-14. This is that edit, made 2026-09-19, together with the
+# removals the sudo survey of the same day measured.
 #
-# SO THIS NAMES BOTH SETS, ON PURPOSE, AND TEMPORARILY. Keep `hbd-deploy` in place alongside it
-# through the window. Once §7's verification has passed and the rollback window is closed,
-# delete the old file and the HBD_* halves below in one edit. Two names are a transitional
-# state, not a destination.
+# `/etc/sudoers.d/hbd-deploy` goes with it. The four verbs in that file that are still
+# load-bearing are CADDY verbs, and they are re-homed below — which is why
+# deploy/prune-stale-sudo-grants.sh installs THIS file before it touches that one, and refuses
+# to delete it at all unless it can see the caddy verbs here first. That ordering is
+# load-bearing, not stylistic: caddy.service is the local hop for pay.bayrambot.uz -> :8091
+# and admin.bayrambot.uz -> :8080 behind the Cloudflare tunnel.
 #
-# INSTALL SAFELY — a malformed sudoers file can lock every account out of root:
+# THE hbd-* GRANTS WERE NOT DANGLING, AND A FUTURE READER MUST NOT "FIX" THAT.
+# Measured on the host 2026-09-19: hbd-bot/worker/admin/payme.service all still have unit files
+# in /etc/systemd/system (dated Sep 5 / Sep 9) and all four are `disabled`; the four bayram-*
+# units are `enabled` and `active running`. `systemctl enable hbd-bot.service` would therefore
+# still have RESOLVED. These grants are gone by POLICY — the rollback window they existed for
+# closed on 2026-09-14 — and not because they pointed at nothing. Re-adding them because "the
+# unit files are still there" would reopen a passwordless path to swapping the running fleet
+# for a five-day-old one.
+#
+# ============================================================================
+# INSTALL SAFELY — a malformed sudoers file can lock every account out of root
+# ============================================================================
 #   scp deploy/sudoers.d/bayram-deploy aizu:/tmp/bayram-deploy
 #   ssh -t aizu 'sudo visudo -cf /tmp/bayram-deploy'      # must print "parsed OK"
 #   ssh -t aizu 'sudo install -m 0440 -o root -g root /tmp/bayram-deploy /etc/sudoers.d/bayram-deploy'
 #   ssh -t aizu 'sudo -n -l'                              # confirm the new verbs are listed
-# Keep a second root shell open until `sudo -n -l` answers. Explicit verbs are written out one
-# per line rather than as `{enable|disable|...}` brace alternation: sudo matches command
-# arguments with fnmatch, which does not expand braces, so the compact form is not portable
-# even where a particular build appears to accept it.
 #
-# NOT CARRIED FORWARD FROM hbd-deploy, deliberately:
+# Keep a second root shell open until `sudo -n -l` answers. On this host a broken sudoers file
+# is not recoverable over ssh: /root/.ssh/authorized_keys is zero bytes and sshd reports
+# `permitrootlogin without-password`, so recovery means the VPS provider's console.
+#
+# Or, to make this edit and the hbd-deploy removal in one validated, backed-up, reversible
+# step: deploy/prune-stale-sudo-grants.sh. It does the visudo check before anything lands and
+# rolls itself back if a representative verb stops resolving.
+#
+# ============================================================================
+# FNMATCH, AND WHY THE TRAILING `*` HAD TO GO (changed 2026-09-19)
+# ============================================================================
+# THIS FILE USED TO CONTAIN:
+#
+#     Cmnd_Alias BAYRAM_LOGS = /usr/bin/journalctl -u bayram-payme *, ...
+#
+# That is not "journalctl with one more argument". sudo (1.9.15p5 here) joins the user's argv
+# into ONE string and fnmatches the whole sudoers argument string against it, so a trailing `*`
+# matches ALL remaining arguments. `journalctl -u bayram-payme <anything>` was granted as root:
+# a second `-u` for any other unit on the box, `--rotate`, `--vacuum-size=`, and — because sudo
+# pages its output and `env_reset` leaves the default pager in place — `less`, which has a `!sh`
+# shell escape. A diagnostic-looking grant was a root shell.
+#
+# That is precisely the hazard deploy/sudoers.d/bayram-release:57-60 refuses to grant. The two
+# files contradicted each other; this one yielded.
+#
+# Explicit verbs are still written out one per line rather than as `{enable|disable|...}` brace
+# alternation: fnmatch does not expand braces, so the compact form is not portable even where a
+# particular build appears to accept it.
+#
+# ============================================================================
+# WHAT WAS REMOVED ON 2026-09-19, AND THE EXACT LINE TO PUT EACH ONE BACK
+# ============================================================================
+# Each of these was measured, not assumed. None is re-added without a reason written down.
+#
+# 1. Cmnd_Alias HBD_ROLLBACK (10 verbs) and the two `hbd-*` vectors in UNITS_NOW.
+#    Reason: the rollback window closed 2026-09-14 (above). Policy, not breakage.
+#
+# 2. `/usr/bin/systemctl status bayram-{bot,worker,admin,payme}.service`.
+#    Reason: the pager-shell-escape above, and it is NOT LOAD-BEARING — verified on the host
+#    2026-09-19 that `systemctl status bayram-payme` works UNPRIVILEGED for `developer` and
+#    prints the same output. `is-active` is kept, and is what the scripts actually call.
+#
+# 3. Cmnd_Alias BAYRAM_LOGS (`journalctl -u bayram-* *`), removed outright rather than
+#    tightened. Reason: also NOT LOAD-BEARING. `developer` is in group `adm`
+#    (uid=1000 ... groups=1000(developer),4(adm),24(cdrom),27(sudo),...), and an unprivileged
+#    `journalctl -n 1 -u bayram-payme` was run on the host 2026-09-19 and returned a log line.
+#    The grant bought nothing but the wildcard.
+#
+# 4. Cmnd_Alias BAYRAM_CONF = /usr/bin/tee /etc/bayram/payme.env.
+#    Reason: NOT an escalation — four checks say so, and they are recorded here so nobody
+#    re-adds it believing the survey only found clutter. /etc/bayram is root:root 0755, so it
+#    cannot be symlink- or directory-swapped by the operator; the argument is exact, so the
+#    write target cannot be redirected; /usr/bin/tee is root:root; and the consumer,
+#    bayram-payme.service, runs `User=hbd Group=hbd` with `NoNewPrivileges=true` and reads the
+#    path via `Environment=BAYRAM_PAYME_ENV_FILE=`, not systemd `EnvironmentFile=`. Writing it
+#    yields config for a non-root service, not root.
+#    It goes anyway, for two INTEGRITY reasons. (a) The file is root:hbd 0640 and holds the
+#    Payme merchant verification key; this was a standing, passwordless ability to REPLACE that
+#    key, and whoever sets it can forge inbound Payme callbacks against our own ledger. (b) If
+#    the file is ever absent, `tee` creates it fresh at 0666 & umask — typically 0644 — so the
+#    grant could silently publish the cashbox key world-readable. The file exists today, so (b)
+#    is latent, not current.
+#    Put back with:  Cmnd_Alias BAYRAM_CONF = /usr/bin/tee /etc/bayram/payme.env
+#                    (and add BAYRAM_CONF to the developer line at the bottom)
+#
+# 5. `/usr/bin/tee /etc/caddy/Caddyfile`, which came from hbd-deploy and is deliberately NOT
+#    re-homed below with the other three caddy verbs. Reason: it is the same class of grant as
+#    (4) and a wider one — an unattended root write of arbitrary content into the public front
+#    end of the Payme callback path. Caddy runs `User=caddy`, so it is not root, but it can be
+#    made to proxy or file_server anything the caddy user can read. No script in this repo
+#    calls it; it is a human verb, and a human still has `(ALL:ALL) ALL` WITH A PASSWORD.
+#    Put back with:  developer ALL=(root) NOPASSWD: /usr/bin/tee /etc/caddy/Caddyfile
+#    If it is put back, pair it with the `caddy validate` verb below in the runbook — a
+#    passwordless write with no check in front of it is how the front end goes down at 03:00.
+#
+# NOT CARRIED FORWARD, AND STILL NOT — the 2026-09-10 hazard:
 #   (root) NOPASSWD: /usr/bin/bash /opt/hbd/deploy-payme.sh
-# That is §8.4's hazard — a `developer`-writable file invokable as root without a password,
-# whose contents already meant two different things within 26 minutes on 2026-09-10. Replacing
-# it needs a root-owned script path, which is its own change and must NOT be made during a
-# cutover window. Until then the old `hbd-deploy` file still grants it; that is a known,
-# recorded exposure, not an oversight of this file.
+# That grant WAS deleted from hbd-deploy (confirmed absent 2026-09-19). Its target is still
+# `developer:developer 0755` inside a `developer`-owned /opt/hbd, so the shape is intact should
+# anyone re-add it. THE TARGET MUST NOT BE WRITABLE BY THE ACCOUNT BEING GRANTED —
+# deploy/sudoers.d/bayram-release states the rule and why /opt/bayram is root:root.
 
 Cmnd_Alias BAYRAM_UNITS = \
   /usr/bin/systemctl enable bayram-bot.service, \
@@ -48,47 +134,33 @@ Cmnd_Alias BAYRAM_UNITS = \
   /usr/bin/systemctl restart bayram-worker.service, \
   /usr/bin/systemctl restart bayram-admin.service, \
   /usr/bin/systemctl restart bayram-payme.service, \
-  /usr/bin/systemctl status bayram-bot.service, \
-  /usr/bin/systemctl status bayram-worker.service, \
-  /usr/bin/systemctl status bayram-admin.service, \
-  /usr/bin/systemctl status bayram-payme.service, \
   /usr/bin/systemctl is-active bayram-bot.service, \
   /usr/bin/systemctl is-active bayram-worker.service, \
   /usr/bin/systemctl is-active bayram-admin.service, \
   /usr/bin/systemctl is-active bayram-payme.service
-
-# The rollback path. `enable --now hbd-*` is what returns the fleet to the old units, and it is
-# NOT in hbd-deploy — which grants only `restart` for bot/worker/admin. Without these four lines
-# the documented rollback cannot run unattended.
-Cmnd_Alias HBD_ROLLBACK = \
-  /usr/bin/systemctl enable hbd-bot.service, \
-  /usr/bin/systemctl enable hbd-worker.service, \
-  /usr/bin/systemctl enable hbd-admin.service, \
-  /usr/bin/systemctl enable hbd-payme.service, \
-  /usr/bin/systemctl disable hbd-bot.service, \
-  /usr/bin/systemctl disable hbd-worker.service, \
-  /usr/bin/systemctl disable hbd-admin.service, \
-  /usr/bin/systemctl stop hbd-bot.service, \
-  /usr/bin/systemctl stop hbd-worker.service, \
-  /usr/bin/systemctl stop hbd-admin.service
 
 # `--now` is a flag on enable/disable, so it forms distinct argument vectors and must be matched
 # separately. Written out rather than globbed: a trailing `*` on a systemctl rule would match any
 # unit on the box, which is the whole thing this drop-in is trying not to do.
 Cmnd_Alias UNITS_NOW = \
   /usr/bin/systemctl enable --now bayram-bot.service bayram-worker.service bayram-admin.service bayram-payme.service, \
-  /usr/bin/systemctl disable --now bayram-bot.service bayram-worker.service bayram-admin.service bayram-payme.service, \
-  /usr/bin/systemctl enable --now hbd-bot.service hbd-worker.service hbd-admin.service hbd-payme.service, \
-  /usr/bin/systemctl disable --now hbd-bot.service hbd-worker.service hbd-admin.service hbd-payme.service
+  /usr/bin/systemctl disable --now bayram-bot.service bayram-worker.service bayram-admin.service bayram-payme.service
 
-Cmnd_Alias BAYRAM_LOGS = /usr/bin/journalctl -u bayram-payme *, \
-  /usr/bin/journalctl -u bayram-bot *, \
-  /usr/bin/journalctl -u bayram-worker *, \
-  /usr/bin/journalctl -u bayram-admin *
+# RE-HOMED FROM hbd-deploy, 2026-09-19 — the only grants in that file that are still live.
+# caddy.service is `active running`; /etc/caddy/Caddyfile was last edited 2026-09-18 15:16; it
+# terminates pay.bayrambot.uz -> 127.0.0.1:8091 (the Payme gateway) and admin.bayrambot.uz ->
+# 127.0.0.1:8080. The Cloudflare tunnel delivers to Caddy on 127.0.0.1:80, so "all public
+# traffic goes via the tunnel, not Caddy" describes the ENTRY POINT and not the local hop.
+# Deleting hbd-deploy without these three lines present here takes the front end's operational
+# verbs with it.
+#
+# All three argument vectors are exact and wildcard-free, so the fnmatch class of hole above
+# does not apply. `validate` is read-only and is the check that belongs in front of a reload;
+# neither reload nor restart can be handed content by the caller.
+Cmnd_Alias BAYRAM_CADDY = \
+  /usr/bin/systemctl reload caddy.service, \
+  /usr/bin/systemctl restart caddy.service, \
+  /usr/bin/caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 
-# The gateway's env file moves to /etc/bayram/payme.env. `tee` rather than an editor for the same
-# reason hbd-deploy used it: one non-interactive write to a known target, no shell escape.
-Cmnd_Alias BAYRAM_CONF = /usr/bin/tee /etc/bayram/payme.env
-
-developer ALL=(root) NOPASSWD: BAYRAM_UNITS, HBD_ROLLBACK, UNITS_NOW, BAYRAM_LOGS, BAYRAM_CONF
+developer ALL=(root) NOPASSWD: BAYRAM_UNITS, UNITS_NOW, BAYRAM_CADDY
 developer ALL=(root) NOPASSWD: /usr/bin/systemctl daemon-reload

@@ -4,6 +4,26 @@
 > the existing codebase in this document was checked against the working tree at
 > `feat/live-vendor-integration`; where the draft was wrong, the correction is stated inline
 > and summarised in §17. Section 14 is the section to act on.
+>
+> **Re-dated 2026-09-19.** The branch named above is the tree every codebase claim below was
+> checked against, and it is not the tree anybody reads this document against any more. That
+> matters more than a stale branch name usually does, because §17's value is precisely that
+> somebody once walked each claim to the source — and a reader who cannot tell which claims
+> have since gone under cannot use that. Two have gone under, and a third claim beside one of
+> them went with it; each is corrected in place below rather than left to be discovered. **The
+> SPA is `admin-dashboard/`, not `admin-ui/`** (`DECISIONS.md` **D15**, and its 2026-09-16
+> amendment: the legacy package, its 298 tracked files and its `e2e/` suite were deleted,
+> `Makefile` sets `UI := admin-dashboard`, and there is no `LEGACY_UI` left to flip back to) —
+> every forward-looking path in §11.1 and §14 is re-pointed below, and the handful of
+> citations that name files which went down with that package are marked as gone rather than
+> silently re-aimed at files that do not exist in the surviving console. **§5.11's "No DDL on
+> `users`" commitment has been broken once, knowingly**, by revision `0017`; the row now says
+> so. **And that row's own justification — that a customer who never confirms an order has no
+> `users` row at all — is false**, because onboarding gave the table three more writers; that
+> too is corrected under the table. Nothing else here has been re-verified against today's
+> tree in this pass, and the honest instruction is the unglamorous one: read the specific file
+> a claim names before you build on it, because this document is old enough that its silence
+> is not evidence.
 
 ---
 
@@ -49,7 +69,7 @@ These are settled. They are stated here as constraints on the work, not as optio
 
 | # | Decision |
 |---|---|
-| D1 | **Stack.** FastAPI JSON API as a new package in this repo (`src/bayram/admin/`) + a separate React/Vite SPA (Tailwind + shadcn/ui) in `admin-ui/`, built into `src/bayram/admin/static/` and served same-origin by the API. |
+| D1 | **Stack.** FastAPI JSON API as a new package in this repo (`src/bayram/admin/`) + a separate React/Vite SPA (Tailwind + shadcn/ui) in `admin-dashboard/`, built into `src/bayram/admin/static/` and served same-origin by the API. *(The directory was `admin-ui/` when D1 was written; `DECISIONS.md` **D15** settled the console as `admin-dashboard/` and its 2026-09-16 amendment deleted the other. The decision D1 records — a separate SPA, built into the API's static root, served same-origin — is unchanged; only the folder moved.)* |
 | D2 | **Visuals.** Modern, vibrant, attention-grabbing dark-first operator console. Saturated accents, dense data, live-feeling motion. Explicitly not a generic CRUD skin. |
 | D3 | **Power 1 — read everything.** Users, orders, briefs, generation attempts, assets with inline audio playback, cost, latency, failure codes, name-verification outcomes. |
 | D4 | **Power 2 — operational actions.** Retry a failed order, re-enqueue a job, block/unblock a user, purge a user's personal data, force-deliver a kit. Requires an audit-log table. |
@@ -130,7 +150,7 @@ Repo constraints that bind every line of this plan (each verified against the wo
 ```mermaid
 graph TB
     subgraph browser["Operator's browser"]
-        SPA["React/Vite SPA<br/>admin-ui/ → src/bayram/admin/static/<br/>same origin, cookie auth"]
+        SPA["React/Vite SPA<br/>admin-dashboard/ → src/bayram/admin/static/<br/>same origin, cookie auth"]
     end
 
     subgraph host["Application host"]
@@ -671,10 +691,41 @@ watcher additionally rejects any key not in `LIVE_EDITABLE_FIELDS`. See §8.6.
 | `orders` | `+ chat_id BigInteger NULL`, `+ progress_message_id Integer NULL` | Both live only in ARQ job args and FSM data today. An admin retry has nowhere to send progress. Nullable forever — historical orders have neither. **Requires a `contracts.Order` change or a new repository method** (§14 Phase 4) |
 | `orders` | Index `ix_orders_state_created_at`, `ix_orders_delivered_at` | Dashboard aggregates |
 | `generation_attempts` | Indexes `ix_gen_attempts_kind_created_at`, `ix_gen_attempts_error_code_created_at`, `ix_gen_attempts_provider_created_at` | Failure breakdown, cost-by-provider |
-| `users` | No DDL. **`last_seen_at` gets a real writer** (the inbound middleware upsert) and `is_blocked` gets a reader (`BlockGateMiddleware`) and a writer | Today `_ensure_user` is called only from `_create_order` (`repository.py:130`), so a user who browses the wizard and never confirms has no row at all — and those are exactly the users an operator wants to block. `UPDATE … WHERE telegram_user_id=:id` would match zero rows for them |
+| `users` | No DDL *(amended 2026-09-19 — see below the table; revision `0017` broke this once, for one column)*. **`last_seen_at` gets a real writer** (the inbound middleware upsert) and `is_blocked` gets a reader (`BlockGateMiddleware`) and a writer | Today `_ensure_user` is called only from `_create_order` (`repository.py:130`), so a user who browses the wizard and never confirms has no row at all — and those are exactly the users an operator wants to block. `UPDATE … WHERE telegram_user_id=:id` would match zero rows for them |
 | `assets` | No DDL. **`_replace_assets` starts writing `storage_key`** (`repository.py:314-333`) | `_purge_assets` filters `if key` (`purge.py:194`), so with NULL keys it returns an empty tuple forever. Combined with the cron actually deleting the returned keys (§9), this is what makes archived bytes go away |
 | `orders.failed_reason` | No DDL. **Starts being written** in `orchestrator._fail`, via a protocol change | The column is dead today; without it, orders that fail at validation or moderation contribute nothing to the failure breakdown |
 | `NameVerdict` (`contracts.py`) | `+ provider: str \| None`, `+ cost_usd: float`, `+ cost_source: str \| None`, `+ latency_ms: int` | §5.12 |
+
+**Amended 2026-09-19 — the "No DDL on `users`" commitment has been broken once, knowingly, and
+this document was the last place still stating it unqualified.** Revision `0017`
+(`migrations/versions/20260907_1200_0017_add_bot_membership_events.py`) adds
+`users.blocked_bot_at`: nullable, indexed, no server default and no backfill. Its docstring says
+in capitals that it breaks this row's commitment "and does so knowingly", and gives the reason —
+the Churn card cannot be built without somewhere to record that a customer blocked the bot, and
+a customer blocking the bot was recorded nowhere at all. Revision `0021` then adds
+`ix_users_last_seen_at`, which is DDL on the table by the letter of the rule and argues, in its
+own docstring, that an index is not what was frozen: it adds no column and changes no row's
+meaning. Take both together as the amendment: **one column and one index, each argued in the
+migration that carries it, and neither a licence for the next.** The freeze was always the
+weaker half of the case for keeping identity off `users`. The load-bearing half is the erasure
+asymmetry — the `users` row must SURVIVE `/forget` so a block can outlive an erasure, while a
+phone number, a username and a face are exactly what `/forget` exists to delete — and that half
+is untouched, so nothing about the freeze falling permits moving personal data onto `users`.
+`src/bayram/db/models/user.py` and `src/bayram/db/models/user_profile.py` have both carried this
+reconciliation since `0017` shipped; the spec they cite did not, which left shipped code arguing
+against a rule its own specification still stated without qualification.
+
+**And the "Why" cell above is stale in the same direction.** It says `_ensure_user` is called
+only from `_create_order`, so a customer who walks the wizard without confirming has no `users`
+row at all. `src/bayram/db/models/user.py` records that onboarding made both halves of that
+false: rows are born at first contact, not at first order, and there are now four writers —
+`users_sql.ensure_user` (from `repository._create_order`, and from
+`user_profiles.SqlUserProfiles.record_language` when a customer picks a language on the very
+first screen), `credits.touch` and `credits.set_blocked` from the inbound path, and
+`churn.mark_bot_blocked` / `mark_bot_unblocked` from `0017`. The *change* the row specifies —
+a real writer for `last_seen_at`, a reader and a writer for `is_blocked` — is what shipped and
+stands. Only its justification has been overtaken, and it was overtaken by the thing being built:
+the block gate depended on that gap being real, and onboarding closed it.
 
 ### 5.12 The `_replace_verdicts` collision, and how it is resolved
 
@@ -1614,8 +1665,8 @@ looking at" into Slack.
 
 ```
 bayram-bot/
-├── admin-ui/                  # Node lives here and nowhere else
-│   ├── src/{api,components,features,hooks,lib,styles}/
+├── admin-dashboard/           # Node lives here and nowhere else
+│   ├── src/{api,app,assets,components,features,i18n,lib,state,styles,test}/
 │   └── vite.config.ts         # build.outDir = ../src/bayram/admin/static
 └── src/bayram/admin/static/      # gitignored; force-included in the wheel via
                                # [tool.hatch.build.targets.wheel] artifacts
@@ -1623,7 +1674,17 @@ bayram-bot/
 
 Node stays outside `src/` because hatchling packages `src/bayram` wholesale, and a `node_modules` in
 there breaks mypy's `files = ["src","tests"]` walk and ruff's `src` setting. New `.gitignore`
-entries: `admin-ui/node_modules/`, `admin-ui/dist/`, `src/bayram/admin/static/`.
+entries: `node_modules/`, `dist/`, `src/bayram/admin/static/`.
+
+> **Amended 2026-09-19.** The tree above named `admin-ui/`; the console is `admin-dashboard/`
+> (`DECISIONS.md` **D15**; `Makefile` sets `UI := admin-dashboard`, and
+> `admin-dashboard/vite.config.ts:20` is where `outDir: "../src/bayram/admin/static"` actually
+> lives). The `.gitignore` entries are broader than this sentence originally proposed and
+> deliberately so: `node_modules/` and `dist/` are matched unanchored, at the root as well as
+> under the package, because a vitest cache file under the ROOT `node_modules/` once reached a
+> `git add -A` back when only one package's directory was listed. `src/bayram/admin/static/` is
+> ignored for the reason given there — committing the built bundle would let the served
+> console drift from its source with nothing positioned to notice.
 
 **Same origin, always.** Dev: Vite on 5173 proxies `/api` to `127.0.0.1:8080` with
 `changeOrigin: false`. Prod: FastAPI mounts `/assets` (immutable) and serves `index.html`
@@ -1648,10 +1709,14 @@ data-integrity bug.
 > **Amended 2026-09-09.** The rail gains **Broadcasts** and the table below gains its three
 > routes. This line has to exist before the nav item can: `navItems.ts` is transcribed from this
 > enumeration and refuses to be "extended by inference"
-> (`admin-ui/src/components/layout/navItems.ts:20-22`), so a rail entry with no §11.2 row is a
-> silent widening of the information architecture. It is **not** the notifications button
-> `TopBar.tsx:29-32` refuses by name — that is an inbound feed with nothing behind it, and that
-> refusal stands. This is an outbound action with a specification (`BROADCAST_SPEC`), three
+> (`admin-dashboard/src/app/navItems.ts`, whose module docstring states the rule: the rail is
+> "transcribed from that enumeration and is not extended by inference"; the file cited when
+> this amendment was written was `admin-ui`'s, which no longer exists), so a rail entry with
+> no §11.2 row is a silent widening of the information architecture. It is **not** the
+> notifications button `TopBar.tsx:29-32` refuses by name — that is an inbound feed with
+> nothing behind it, and that refusal stood in the console that carried it (see the
+> 2026-09-19 note under the 2026-09-15 amendment below: that file went with `admin-ui/`).
+> This is an outbound action with a specification (`BROADCAST_SPEC`), three
 > permissions, a step-up and two audit rows per send. `DECISIONS.md` **D12** records the reversal,
 > its fallback and the trigger that switches to it.
 
@@ -1725,13 +1790,16 @@ data-integrity bug.
 > about to run out without navigating away. They are now in the bar and nowhere else — the
 > dashboard's duplicate strip was removed in the same change.
 >
-> This is again **not** the notifications button `admin-ui/src/components/layout/TopBar.tsx`
-> refuses by name, and that refusal still stands: this is not an inbound feed with nothing
+> This is again **not** the notifications button the legacy console's
+> `src/components/layout/TopBar.tsx` refused by name — that file went with `admin-ui/` on
+> 2026-09-16, and `admin-dashboard/src/app/TopBar.tsx` states no such refusal, so as of
+> 2026-09-19 the refusal survives only here and in the 2026-09-09 amendment above. It still
+> stands on its own reasoning: this is not an inbound feed with nothing
 > behind it, it is a figure a cached `vendor_balances` row already holds and that the finance
 > read already carries. The ring's denominator is what **D13** bought with a fifth credential.
 >
 > **The two consoles' bars differ, and the difference is recorded rather than resolved.**
-> `admin-ui` (deprecated; `Makefile:26 LEGACY_UI`) has the six controls listed below.
+> `admin-ui` (deprecated; `Makefile` then set `LEGACY_UI`) had the six controls listed below.
 > `admin-dashboard` — what `make ui` runs — has balances and theme today, with the language
 > switcher landing separately into a marked slot between them (`app/TopBar.tsx`); it has none
 > of the other four: no env badge, no ⌘K palette, no LIVE pill and no account menu, because
@@ -1739,6 +1807,16 @@ data-integrity bug.
 > reader auditing "does the console show which database this is" must read that as **no, not
 > in the shipped console** — the env badge is a real gap in `admin-dashboard`, not a thing
 > this amendment quietly renamed.
+>
+> **Amended 2026-09-19.** There are no longer two consoles' bars to differ: `admin-ui/` was
+> deleted on 2026-09-16 (`DECISIONS.md` **D15**, amendment), and `LEGACY_UI` is gone from the
+> `Makefile` with it. The comparison above is kept rather than cut, because it is the only
+> written record of what the six controls were and of which four `admin-dashboard` never
+> built — read the `admin-ui` column as a list of gaps to be closed by building them here, not
+> as a description of anything a reader can open. The finding it exists to protect is
+> unchanged and is now the whole truth rather than half of it: the shipped console shows
+> balances, language and palette, and does not tell an operator which database they are
+> looking at.
 
 > **Amended 2026-09-15 (second amendment).** The `/users` row of the table below is corrected:
 > its dominant signal read "Total users + 30-day new-user sparkline", and what ships is neither
@@ -1820,11 +1898,17 @@ names.
 > family therefore has
 > a text-safe member (`--x`, ≥4.5:1) and a graphic member (`--x-fill`, ≥3:1) at or near Gogo's
 > own lightness, plus a `--x-tint` chip ground. The full per-token deviation log, with measured
-> before/after, is at the bottom of `admin-ui/src/styles/tokens.css`.
+> before/after, was at the bottom of `admin-ui/src/styles/tokens.css`.
 >
-> Every ratio below is measured and is re-measured on every run by
-> `admin-ui/src/styles/tokenContrast.test.ts`, which also cross-checks each token comment's
-> claimed ratio against the palette it annotates. **Do not write a ratio into this document
+> Every ratio below was measured and was re-measured on every run by
+> `admin-ui/src/styles/tokenContrast.test.ts`, which also cross-checked each token comment's
+> claimed ratio against the palette it annotated. **Both files went with `admin-ui/` on
+> 2026-09-16** (`DECISIONS.md` **D15**, amendment). `admin-dashboard/src/styles/tokens.css`
+> exists and is the palette the shipped console actually loads, but it carries no deviation
+> log at its foot and there is no contrast test anywhere in that package: as of 2026-09-19
+> **the ratios below are unguarded**, and the mechanism that made them trustworthy has to be
+> rebuilt in `admin-dashboard/` before any of them may be cited as current. The rule that
+> mechanism enforced is not suspended by its absence. **Do not write a ratio into this document
 > that has not been measured** — §11.3's original annotations carried four wrong numbers and
 > one of them ("`--fg-2` 4.6:1 — floor for real text", actually 4.34:1) is what licensed the
 > incident above.
@@ -1883,9 +1967,12 @@ names.
   /* Layout — the rail nests children, so it is wider, and the whole console is airier */
   --nav-w:264px; --nav-w-collapsed:76px; --topbar-h:68px; --row-h:44px; --row-h-compact:34px;
   --gutter:24px; --card-pad:24px;
-  /* --font-sans / --font-heading / --font-mono are NOT here. They live in
+  /* --font-sans / --font-heading / --font-mono are NOT here. They lived in
      admin-ui/src/styles/fonts.css beside the @font-face rules that self-host the faces they
-     name — the value and the binary have to change together. */
+     name — the value and the binary have to change together. That file went with admin-ui/ on
+     2026-09-16 and admin-dashboard/ declares no @font-face at all, so as of 2026-09-19 the
+     self-hosting this rule protects is UNBUILT in the shipped console; the rule stands for
+     whoever builds it. */
 }
 [data-theme="dark"] {   /* hand-built at Gogo's dark values, not a programmatic inversion */
   --surface:#202022; --surface-card:#26262A; --surface-sunken:#1A1A1C;
@@ -2038,7 +2125,7 @@ fire-and-forget and a subscriber disconnected during a publish never learns.
 | T4 | Path traversal on asset serving | The API accepts an **asset UUID only** — never a filename, key or path. The key is reconstructed server-side as `orders/{order_id}/{Path(row.path).name}` and resolved **only** through the `Storage` protocol's new `open_range` seam (§12.7), which delegates to `LocalFileStorage._resolve` (`storage.py:66-79`) — already rejecting absolute keys, `\`, NUL and `.`/`..` and re-checking containment. We do not re-implement confinement and we do not reach into a private method. `Path(row.path).name` is additionally regex-validated `^[A-Za-z0-9._-]{1,128}$`, because DB-sourced data is untrusted on read (rule 9). `Content-Type` from `assets.mime`, allowlisted to `{audio/mpeg, audio/ogg}` for `/stream` — **`text/plain` is no longer streamed at all** (§12.1 T7). Anything else is 415. Range/206 streams in 64 KiB chunks, never `LocalFileStorage.get` (which reads whole objects). Volume mounted `:ro` |
 | T5 | **SSRF via the config editor** | `*_base_url` fields are hostnames the worker attaches a live API key to. They are **absent from the allowlist**, so the API has no code path that can set them. Secondary surface closed by construction: the admin process holds no `httpx` client, no vendor key and no URL-fetching endpoint, webhook tester or avatar proxy anywhere |
 | T6 | Log injection | `JsonFormatter` serialises one object per record, so newlines in a value are escaped. **Rule: user-controlled text is passed only via `extra=`, never interpolated into the message string,** which is always a constant. `redact()` truncates at 2000 chars. The request line logs the route **template**, never the raw path or query string — the key-name redaction matches on the extra key, not on URL substrings, so a `?token=` would sail through |
-| T7 | XSS via names, notes, lyrics, chat bodies — **and via a sniffed asset stream** | React escapes by default; `dangerouslySetInnerHTML` is banned by `react/no-danger: error` in CI. No markdown renderer, no HTML sanitiser — each is a bypass. Outbound chat bodies are HTML (`parse_mode=HTML`, escaped params), stored verbatim with `parse_mode` recorded, rendered **as text**. **The draft's `text/plain` lyric stream was a stored-XSS primitive that bypasses React entirely**: a same-origin response whose body is customer-written free text (up to 3000 chars), served without `nosniff`, is a document the browser may sniff as HTML and render at the panel's origin under the operator's session cookie — and `script-src 'self'` does not stop inline event handlers in it. So: `X-Content-Type-Options: nosniff` on **every** admin response; lyric text is served as `application/json` from `/assets/{id}/text`; any non-audio stream that survives carries `Content-Disposition: attachment`. CSP: `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-<per-response>'; img-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; worker-src 'none'`. Plus `Referrer-Policy: no-referrer`. No CDN links for fonts or scripts — every face is self-hosted from this origin, so fonts load under `default-src 'self'` (there is no separate `font-src` directive). **The faces named in the original draft were Inter and JetBrains Mono, and the coverage claim attached to them was never verified against the binaries** — the reskin's font work reports that JetBrains Mono lacks U+02BB and the Uzbek Cyrillic letters Ғ/Қ/Ҳ entirely, so that sentence should not be cited to restore it to `--font-mono`. The reskin ships Mulish (body), Urbanist (headings) and Noto Sans Mono (ids, hashes, payloads), all SIL OFL, plus a vendored symbol face for §11.3's glyphs. Coverage is no longer asserted in prose: `admin-ui/src/assets/fonts/README.md` records it as read out of the binaries, and `admin-ui/e2e/font-coverage.spec.ts` re-measures it in a real browser on every `make ui-e2e` — including that Urbanist has NO Cyrillic, which is why `--font-heading` names Mulish behind it |
+| T7 | XSS via names, notes, lyrics, chat bodies — **and via a sniffed asset stream** | React escapes by default; `dangerouslySetInnerHTML` is banned by `react/no-danger: error` in CI. No markdown renderer, no HTML sanitiser — each is a bypass. Outbound chat bodies are HTML (`parse_mode=HTML`, escaped params), stored verbatim with `parse_mode` recorded, rendered **as text**. **The draft's `text/plain` lyric stream was a stored-XSS primitive that bypasses React entirely**: a same-origin response whose body is customer-written free text (up to 3000 chars), served without `nosniff`, is a document the browser may sniff as HTML and render at the panel's origin under the operator's session cookie — and `script-src 'self'` does not stop inline event handlers in it. So: `X-Content-Type-Options: nosniff` on **every** admin response; lyric text is served as `application/json` from `/assets/{id}/text`; any non-audio stream that survives carries `Content-Disposition: attachment`. CSP: `default-src 'self'; script-src 'self'; style-src 'self' 'nonce-<per-response>'; img-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'; worker-src 'none'`. Plus `Referrer-Policy: no-referrer`. No CDN links for fonts or scripts — every face is self-hosted from this origin, so fonts load under `default-src 'self'` (there is no separate `font-src` directive). **The faces named in the original draft were Inter and JetBrains Mono, and the coverage claim attached to them was never verified against the binaries** — the reskin's font work reports that JetBrains Mono lacks U+02BB and the Uzbek Cyrillic letters Ғ/Қ/Ҳ entirely, so that sentence should not be cited to restore it to `--font-mono`. The reskin ships Mulish (body), Urbanist (headings) and Noto Sans Mono (ids, hashes, payloads), all SIL OFL, plus a vendored symbol face for §11.3's glyphs. Coverage was no longer asserted in prose: `admin-ui/src/assets/fonts/README.md` recorded it as read out of the binaries, and `admin-ui/e2e/font-coverage.spec.ts` re-measured it in a real browser on every `make ui-e2e` — including that Urbanist has NO Cyrillic, which is why `--font-heading` names Mulish behind it. **Amended 2026-09-19:** both files went with `admin-ui/` on 2026-09-16 (`DECISIONS.md` **D15**, amendment), `make ui-e2e` went with them — the target is gone from the `Makefile`, and its own header records that it had been unrunnable for some time before that — and `admin-dashboard/` declares no `@font-face` at all, so it self-hosts nothing — so the coverage claim is once again asserted only in prose, here, and is unguarded. The facts it records were measured once and are not re-measured; treat the Uzbek-coverage requirement as a live obligation on whoever rebuilds the font pipeline, not as a property the tree currently has |
 | T8 | CSRF on operational actions | Three layers, because CSRF is the class where one control failing silently is normal: `SameSite=Lax` (blocks every cross-site POST/DELETE); **exact `Origin` match** against `admin_public_origin` on every non-GET, with a missing `Origin` on a non-GET rejected; and **`X-CSRF-Token` compared against the stored `admin_sessions.csrf_token`** with `hmac.compare_digest`. The draft specified plain cookie-vs-header double-submit, which never uses the column it defines and falls to cookie injection from a sibling subdomain or a MITM on any `http://` host under the same registrable domain. The cookie is only the transport that hands the SPA its token. All mutations are POST/DELETE — no state change on GET, ever, asserted by the same route-enumerating test, which is also what makes `Lax` safe. Destructive actions additionally need step-up, which no cross-site request can satisfy |
 | T9 | Privilege escalation | `Role`/`Permission` `StrEnum`s with a single `Final[Mapping[Role, frozenset[Permission]]]` — a pure data table, **no wildcard**, because a wildcard is how a new permission silently lands on a role nobody reviewed. `role`, `is_active` and `password_changed_at` are read from the DB row on **every** request, never from the session or the Redis mirror, so a demotion or a deactivation takes effect immediately. An admin can never change their own role or `is_active`; **at least one active OWNER must always remain** — enforced against self-demotion *and* against demotion or deactivation by another OWNER. No impersonation feature |
 | T10 | Data in browser caches | `Cache-Control: no-store` on every `/api/**` response and on asset streams. SPA bundles get normal immutable caching (they hold no data) |
@@ -2471,6 +2558,18 @@ required for phase *N* to be worth running. **Phase 1 is sliced into four mergea
 creates ~25 backend modules at once and `make check` must be green at every merge (§13.3). Sizes are
 revised from the draft where the review showed the work was larger than stated.
 
+> **Amended 2026-09-19 — every frontend path below now reads `admin-dashboard/`.** They were
+> written as `admin-ui/`, and that package was deleted on 2026-09-16 (`DECISIONS.md` **D15** and
+> its amendment); `Makefile` sets `UI := admin-dashboard`, and `admin-dashboard/vite.config.ts:20`
+> is what writes the bundle `app.py::_mount_spa` serves. This is a re-pointing and nothing more:
+> no phase's contents, size or ordering changed, and **no claim is being made here that any of
+> these files exists**. Some of Slice 1d plainly does — `admin-dashboard/src/app/` has `AppShell`,
+> `NavRail` and `TopBar`, and `src/features/` has eleven screens — but it was built to its own
+> shape rather than to this enumeration, so a reader planning work should diff the package
+> against the list rather than trust the list. The six screens `admin-dashboard` does not have —
+> orders, assets, vendors, config, retention, live — are named as gaps in D15's amendment, and
+> the phases below are still the plan for building them, now in the surviving console.
+
 **Two files appear in the Modified list of every phase that ships DDL, and forgetting either turns
 `make check` red for the whole team:**
 
@@ -2617,11 +2716,11 @@ first time, deleting archived files as well as rows.
 #### Slice 1d — the SPA
 
 **Created**
-- `admin-ui/**` — full toolchain, tokens, `AppShell`, `NavRail`, `TopBar`, `CommandPalette`,
+- `admin-dashboard/**` — full toolchain, tokens, `AppShell`, `NavRail`, `TopBar`, `CommandPalette`,
   `AsyncBoundary`, `DataTable`, `FilterBar`, `CursorPager`, `NameText`, `StatusPill`, `PurgedValue`,
   `PipelineTimeline`, `TimelineSourceLegend`, `StatTile`, `StateDistributionBar`, and the read-only
   screens for Live · Orders · Users · Generations · Assets · Audit · Retention · Config (read-only)
-- `admin-ui/tests/**` (Vitest) and one Playwright smoke flow
+- `admin-dashboard/tests/**` (Vitest) and one Playwright smoke flow
 
 **Modified**
 - `src/bayram/admin/app.py` — static mount + SPA fallback
@@ -2658,7 +2757,7 @@ reason code, and play the song inline. Every reveal is audited and charged again
 - `src/bayram/admin/routers/reveal.py`, `src/bayram/admin/services/{assets,reveal}.py`
 - `src/bayram/admin/schemas/reveal.py`
 - `src/bayram/admin/security/budget.py` (record-counted reveal budget in Redis)
-- `admin-ui/src/features/assets/**`, `RevealDialog`, `RevealBudgetMeter`, `AudioPlayer`, `PlayerBar`,
+- `admin-dashboard/src/features/assets/**`, `RevealDialog`, `RevealBudgetMeter`, `AudioPlayer`, `PlayerBar`,
   `usePlayerStore`, `SimilarityHistogram`, `StrategyBakeoffChart`
 - `tests/test_admin/{test_reveal,test_asset_stream,test_budget}.py`
 
@@ -2708,7 +2807,7 @@ reason code, and play the song inline. Every reveal is audited and charged again
 - `src/bayram/bot/{chatlog,chatlog_inbound,chatlog_outbound}.py`
 - `src/bayram/admin/routers/chat.py`
 - `migrations/versions/..._0009_add_chat_messages.py`
-- `admin-ui/src/features/chat/**`, `ChatTranscript`, `MessageBubble`, `PurgedRange`
+- `admin-dashboard/src/features/chat/**`, `ChatTranscript`, `MessageBubble`, `PurgedRange`
 - `tests/test_bot/{test_chatlog_inbound,test_chatlog_outbound,test_chatlog_queue,test_user_touch}.py`
 - `tests/test_db/{test_chat_retention,test_purge_user}.py`
 - `tests/test_bot/test_privacy_reflects_settings.py`
@@ -2786,7 +2885,7 @@ method**, which keeps `Order` a pure contract object and makes the write an expl
 - `src/bayram/admin/services/actions.py`, `src/bayram/admin/schemas/actions.py`
 - `src/bayram/bot/blockgate.py` — `BlockGateMiddleware`
 - `migrations/versions/..._0010_add_order_dispatch_columns.py`
-- `admin-ui/src/features/orders/{RetryOrderDialog,ForceDeliverDialog}.tsx`, `ConfirmDangerDialog`
+- `admin-dashboard/src/features/orders/{RetryOrderDialog,ForceDeliverDialog}.tsx`, `ConfirmDangerDialog`
 - `tests/test_admin/test_actions.py`, `tests/test_bot/test_blockgate.py`
 
 **Modified**
@@ -2840,7 +2939,7 @@ numbers. Payment history becomes real.
 - `src/bayram/db/models/payment.py`, `src/bayram/db/admin/payments.py`
 - `src/bayram/admin/routers/payments.py`
 - `migrations/versions/..._0011_add_payments_ledger.py`
-- `admin-ui/src/features/payments/**`
+- `admin-dashboard/src/features/payments/**`
 - `tests/test_db/test_verdict_telemetry_survives_save.py`
 
 **Modified**
@@ -2890,7 +2989,7 @@ numbers. Payment history becomes real.
 - `src/bayram/db/models/moderation_review.py`, `src/bayram/db/admin/reviews.py`
 - `src/bayram/admin/routers/moderation.py`, `src/bayram/admin/services/moderation_service.py`
 - `migrations/versions/..._0012_add_moderation_reviews.py`
-- `admin-ui/src/features/moderation/**`, `ModerationCard`
+- `admin-dashboard/src/features/moderation/**`, `ModerationCard`
 - `notify_order_failed` ARQ job in `src/bayram/runtime/jobs.py`
 
 **Modified**
@@ -2946,7 +3045,7 @@ than a rewrite — but it is still 25 sites.
 - `src/bayram/db/models/{settings_version,settings_override}.py`, `src/bayram/db/admin/overrides.py`
 - `src/bayram/admin/config/{policy,guards,service}.py`, `src/bayram/admin/routers/config.py`
 - `migrations/versions/..._0013_add_settings_versions_overrides.py`
-- `admin-ui/src/features/config/**`, `ConfigField`, `ConfigDiffDialog`
+- `admin-dashboard/src/features/config/**`, `ConfigField`, `ConfigDiffDialog`
 - `tests/test_runtime/{test_overlay,test_watcher}.py`,
   `tests/test_admin/{test_config_policy,test_config_guards}.py`
 

@@ -63,7 +63,7 @@ WATERMARK_INVITE_TAG: Final[str] = f"Generate yours at {WATERMARK_HANDLE}"
 SHEET_RULE: Final[str] = f"--- {WATERMARK_INVITE_TAG} ---"
 
 # The cover art used to be the fourth text carrier, as ``COVER_LINES`` — three lines drawn
-# by Pillow, ending on the handle. Since 2026-09-11 the cover is ``brand/Logo-Bot.png``
+# by Pillow, ending on the handle. Since 2026-09-11 the cover is ``marketing/brand/Logo-Bot.png``
 # shipped whole (:mod:`bayram.audio.cover`), which states the handle in its own typography,
 # so there is nothing here for the picture to be told. The constant was REMOVED rather than
 # left unused: a name that says "what the cover prints" is worse than absent once nothing

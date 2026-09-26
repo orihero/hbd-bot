@@ -1,7 +1,7 @@
 /**
  * `GET /api/generations` and `GET /api/generations/{attemptId}` — the render ledger.
  *
- * Transcribed from `.openpencil-export/users-generations-openapi.json` (produced by
+ * Transcribed from `reference/openpencil-export/users-generations-openapi.json` (produced by
  * `bayram/admin/routers/generations.py` over `bayram/admin/schemas/orders.py` — there is exactly
  * ONE projection of a `generation_attempts` row in that codebase, so the masking it applies
  * is applied everywhere the row is read).

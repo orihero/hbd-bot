@@ -29,14 +29,31 @@ variable X set on the host" can be answered by anyone short of root**, and this 
 one rather than guessing. That is a permission wall the deployment put there on purpose, not a
 gap in the looking — see §"What the host settles and what it does not".
 
-**The host is PRE-RENAME and that is correct.** Units are `hbd-bot`, `hbd-worker`, `hbd-admin`,
-`hbd-payme`; paths are `/etc/hbd/*.env`, `/opt/hbd/venv`, `/var/lib/hbd`; the environment prefix
-is **`HBD_`** and the database is `hbd`. This **repository** is post-rename (`src/bayram`,
-`BAYRAM_`). Both are right at once: every code claim below is spelled `BAYRAM_` because that is
-what the tree says, every host claim `HBD_` because that is what the machine says. **Do not sweep
-this page with a rename pass** — a blind rename has already turned verified host facts into
-fiction in this tree once (`00-host-inventory.md`, finding 7). The cutover script staged at
-`/opt/hbd/cutover-to-bayram.sh` **has not run** `[HOST 2026-09-11]`, so the divergence is live.
+**CORRECTED 2026-09-19 — the host was pre-rename when this paragraph was written and it is not
+any more.** Until today this block opened *"The host is PRE-RENAME and that is correct"*, listed
+`hbd-bot` / `hbd-worker` / `hbd-admin` / `hbd-payme` and `/etc/hbd/*.env`, `/opt/hbd/venv`,
+`/var/lib/hbd` as the live names, and closed by saying the staged cutover script **had not run**,
+so the divergence was live `[HOST 2026-09-11]`. The **`hbd` → `bayram` cutover completed on
+2026-09-14** ([`10-rename-cutover.md`](10-rename-cutover.md)): the four `bayram-*` units have been
+live and active since that date, the rollback window closed with it, and a release on this host is
+now an ordinary wheel upgrade rather than a cutover. By what route the 09-14 run finally went, this
+page does not record — the `GRANT` that blocked it is `00-host-inventory.md` row 50, and that row
+says in as many words that nobody wrote the fix down.
+
+**So the two columns this page kept deliberately apart have converged, and that changes what a
+stale spelling means here rather than removing the hazard.** Every code claim below is spelled
+`BAYRAM_` because that is what the tree says; every *host* claim still spelled `hbd-bot`,
+`/etc/hbd/*.env`, `/opt/hbd`, `/var/lib/hbd`, `HBD_` or database `hbd` is **a dated observation of
+the machine as it stood on 2026-09-10/09-11, not a description of it now** — the live spellings are
+`bayram-*`, `/etc/bayram/*.env` — `bayram.env`, `bayram-admin.env` and, not following the pattern,
+`payme.env` — `/opt/bayram`, and the prefix is `BAYRAM_` on both sides.
+**Still do not sweep this page with a rename pass**, for a reason that has inverted rather than
+lapsed: a blind rename has already turned verified host facts into fiction in this tree once
+(`00-host-inventory.md`, finding 7), and a `HBD_`-spelled row here is now a reading nobody has
+re-taken under its new name, not a reading that disagrees with the tree. **Re-spell each row as you
+check it, and do not assume an unchecked row transferred** — the same policy the `[UNPROVEN]` table
+at the foot of this page states for itself, where exactly one row, `BAYRAM_ADMIN_PROBE_TOKEN`, has
+so far been re-checked and re-spelled.
 
 [00-host-inventory.md](00-host-inventory.md) is the inventory of record and **wins** wherever it
 disagrees with this page; rows 18–25 cover the dotenv ground below and are cross-referenced
@@ -663,7 +680,7 @@ in a well-formed file is not, and reaches a customer as the key name.
 | --- | --- | --- | --- |
 | `BAYRAM_ADMIN_TRUSTED_PROXY_HOPS` | `AdminSettings` | `0` (`src/bayram/admin/settings.py:216`) | `X-Forwarded-For` is ignored entirely unless hops > 0 **and** the peer is inside a configured CIDR (`src/bayram/admin/security/clientip.py:142`). Behind a reverse proxy at the defaults, every request resolves to the proxy's own address — which collapses the strict per-`(username, ip)` login counter into one global bucket per username and writes a constant into `admin_audit_log.ip`. Set it to the exact number of proxies you control. **The right number on this host is 2, and whether the file says so is `[UNPROVEN]` — see the callout.** |
 | `BAYRAM_ADMIN_TRUSTED_PROXY_CIDRS` | `AdminSettings` | `()` (`:217`) | The addresses those proxies connect from. A typo fails the boot naming the variable (`:486-499`). |
-| `BAYRAM_ADMIN_PROBE_TOKEN` | `AdminSettings` | `""` (`:426-428`) | Empty authorises nobody, and there is deliberately no default token to forget to change — but until it is set, `/readyz` answers a constant `{"status":"ok"}` to every monitor **even with the database and Redis both down** (`src/bayram/admin/routers/health.py:126-138`). Note the field has no `min_length`, unlike the HMAC key. |
+| `BAYRAM_ADMIN_PROBE_TOKEN` | `AdminSettings` | `""` (`:426-428`) | Empty authorises nobody, and there is deliberately no default token to forget to change — but until it is set, `/readyz` answers a constant `{"status":"ok"}` to every monitor **even with the database and Redis both down** (`src/bayram/admin/routers/health.py:126-138`). Note the field has no `min_length`, unlike the HMAC key. **WHICH FILE IT LIVES IN ON THE HOST: `/etc/bayram/bayram-admin.env`** — the admin unit's `EnvironmentFile`, `0640 root:hbd` — and **NOT** `/etc/bayram/bayram.env`, which does not declare it and never did. That distinction was not academic: `bayram-release` read it from the wrong file until 2026-09-19, so a correctly-set token had no visible effect anywhere ([`11-ci-cd.md`](11-ci-cd.md) §4). `[HOST 2026-09-19]` the file declares it **exactly once and EMPTY**. Generate and install it with `deploy/set-probe-tokens.sh`; a change needs a **restart**, because the process reads its env file at exec time only. |
 | `BAYRAM_ADMIN_DATA_ROOT` | `AdminSettings` | `var` — **relative** (`:423`) | The panel reads `<root>/archive` through the `Storage` seam. The bot and worker have **no equivalent variable**: their root is `Path.cwd()/"var"` (`src/bayram/runtime/container.py:286`) and `bayram.main.run` never receives an override (`src/bayram/main.py:222`). The two agree only if the processes share a working directory. If they disagree, every media reveal in the panel returns "no such object" while the database row says the file exists — with no configuration error anywhere. **They do share one on this host**: `WorkingDirectory=/var/lib/hbd` on all four units, and the bot resolves `workspace: /var/lib/hbd/var/workspace`, so the relative default resolves to the same `/var/lib/hbd/var` `[HOST 2026-09-11]`. Whether the variable is **set** — which is the one thing that could break the agreement — is `[UNPROVEN]`: it appears in no boot line and the file is unreadable. `00-host-inventory.md` rows 2 and 30. |
 | `BAYRAM_ADMIN_AUDIT_DSN` | `AdminSettings` | `""` (`:235`) | Empty is a supported deployment and reports `hmac-only`. Note the docstring at `:231-234` names migration **0006**; the REVOKE is in **0007** (`migrations/versions/20260830_1000_0007_add_admin_audit_log.py:369`), which is what `.env.example:39`, README.md:162 and `migrations/env.py:8` correctly say. |
 | `BAYRAM_ADMIN_ARGON2_MEMORY_KIB` | `AdminSettings` | `65536` (`:212`) | Load-bearing rather than a tunable: the password floor is length-only, 8 characters (`src/bayram/admin/schemas/common.py:31-38`), so argon2 cost and the login throttle are the whole defence. Raise until a verify takes 250–500 ms on the host. |
@@ -736,7 +753,7 @@ against 20 assignments in `.env.payme.example` `[TREE 2026-09-11]`, selected by
 | `BAYRAM_PAYME_TRUSTED_PROXY_HOPS` | `0`, `ge=0 le=4` (`:261`) | The gateway's own copy of the hops problem, and it is **also** two proxies deep on this host. `[UNPROVEN]` on disk. |
 | `BAYRAM_PAYME_ALLOWED_CIDRS` | `()` (`:269`) | Caller allowlist. Empty on purpose here — see `00-host-inventory.md` row 38 for why a Payme IP allowlist is moot behind Cloudflare. |
 | `BAYRAM_PAYME_DUPLICATE_TRANSACTION_CODE` | `-31008` (`:226`) | Rail-protocol detail, printed at boot. |
-| `BAYRAM_PAYME_PROBE_TOKEN` | `""` (`:193`) | Same shape as the admin probe token: empty authorises nobody. |
+| `BAYRAM_PAYME_PROBE_TOKEN` | `""` (`:193`) | Same shape as the admin probe token: empty authorises nobody. **It must be a different value from the admin one** — they gate two different processes with two different bodies, and the gateway's gated body additionally reports `isSandbox`, i.e. whether the rail is pointed at real money. **`/etc/bayram/payme.env` does not declare this variable at all today** `[HOST 2026-09-19]`; `deploy/set-probe-tokens.sh` **appends** it (the admin half is a replace-in-place, because that declaration exists and is empty). A change needs a restart of `bayram-payme` — which under `DECISIONS.md D17` is a live settlement action, so do not do it mid-settlement or during a certification slot. `--admin-only` skips the payme half entirely. |
 | `BAYRAM_PAYME_ENVIRONMENT` | `dev`, closed `Literal["dev","staging","prod"]` (`:115`, `:162`) | **The one to read first.** `is_production` is `== "prod"` (`:348`), and two boot controls hang off it — see the refusal table at the top of this page. |
 | `BAYRAM_PAYME_DATABASE_URL` | **none**, `Field(min_length=1)` (`:171`) | The fourth field in the tree with no default. |
 
@@ -1113,7 +1130,7 @@ variable X set on the host" at once:
 | `[UNPROVEN]` | Blocker | What would answer it |
 | --- | --- | --- |
 | `HBD_ADMIN_TRUSTED_PROXY_HOPS` / `_CIDRS` | file unreadable; `admin.request` logs no client IP | `sudo grep -nE '^HBD_ADMIN_TRUSTED_PROXY' /etc/hbd/hbd-admin.env` |
-| `HBD_ADMIN_PROBE_TOKEN` — set or empty | same | `sudo grep -c '^HBD_ADMIN_PROBE_TOKEN=.\+' /etc/hbd/hbd-admin.env` |
+| ~~`HBD_ADMIN_PROBE_TOKEN`~~ **`BAYRAM_ADMIN_PROBE_TOKEN`** — set or empty | ~~same~~ **ANSWERED 2026-09-19** | ~~`sudo grep -c '^HBD_ADMIN_PROBE_TOKEN=.\+' /etc/hbd/hbd-admin.env`~~ — **both the prefix and the path are post-cutover stale.** The live spelling is `sudo grep -c '^BAYRAM_ADMIN_PROBE_TOKEN=.\+' /etc/bayram/bayram-admin.env`, and `[HOST 2026-09-19]` it returns **0**: the file declares the variable **exactly once and empty**. `/etc/bayram/payme.env` does not declare `BAYRAM_PAYME_PROBE_TOKEN` at all |
 | `HBD_ADMIN_DATA_ROOT` — set or defaulting | same; in no boot line | `sudo grep -n '^HBD_ADMIN_DATA_ROOT=' /etc/hbd/hbd-admin.env` |
 | `HBD_DB_MIGRATION_URL` — set at all | same | `sudo grep -n '^HBD_DB_MIGRATION_URL=' /etc/hbd/hbd.env` |
 | `HBD_ADMIN_AUDIT_DSN` — set at all | same | as above, in `hbd-admin.env`; or `chainProtection` on `GET /api/audit/verify` |
@@ -1122,9 +1139,19 @@ variable X set on the host" at once:
 | **whether an owner role exists, and whether `0007`'s `REVOKE` landed** | **`psql` refuses: `fe_sendauth: no password supplied`**, no peer path, not in the sudoers drop-in | `\dp admin_audit_log` as a role that can connect; or the panel's own badge |
 | whether the audit HMAC key exists anywhere but `/etc/hbd/hbd-admin.env` | the file is unreadable, and **`pg_dump` cannot answer it** — a dotenv file is not in the database | a human who knows where the secret was written down |
 
-**A database backup exists, and it is not scheduled.** `/var/backups/hbd` holds seven hand-taken
-`pg_dump` files and there is no timer, no cron and no off-box copy — and **the HMAC key is in none
-of them** (`00-host-inventory.md` rows 33–35). So the obligation this page states — keep the key
+> **The table above is written against the PRE-cutover host and its commands are spelled
+> accordingly.** The `hbd` → `bayram` cutover completed on 2026-09-14
+> ([`10-rename-cutover.md`](10-rename-cutover.md)), so every `HBD_` prefix in that column is now
+> `BAYRAM_` and every `/etc/hbd/hbd*.env` is `/etc/bayram/bayram*.env`. The rows are kept as the
+> record of what was and was not settled at the time; only the probe-token row has been
+> re-checked and re-spelled, because a workstream needed it. **Re-spell the rest as you check
+> them, and do not assume an unchecked row transferred.**
+
+**A database backup exists, and it is not scheduled.** `/var/backups/hbd` holds ~~seven~~ **nine**
+hand-taken `pg_dump` files — this page carried the older figure until 2026-09-19, and the count was
+corrected in `00-host-inventory.md` row 33 and in its closing note once the two `pre-cutover-*`
+dumps of 2026-09-10 were counted in. There is no timer, no cron and no off-box copy, and **the HMAC
+key is in none of them** (`00-host-inventory.md` rows 33–35). So the obligation this page states — keep the key
 separately from the dump — is currently satisfied by accident rather than by arrangement, and the
 other half of it (that a dump exists to keep it separate *from*) is satisfied only as often as
 somebody remembers.

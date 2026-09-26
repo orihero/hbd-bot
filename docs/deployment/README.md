@@ -1,20 +1,42 @@
 # Deployment documentation
 
-**Start here:** deploying a change today → [04-release.md](04-release.md); standing up a new
-host → [03-provisioning.md](03-provisioning.md); something is broken right now →
-[06-troubleshooting.md](06-troubleshooting.md); moving the host from `hbd` to `bayram` →
-[10-rename-cutover.md](10-rename-cutover.md); what the machine actually is →
-[00-host-inventory.md](00-host-inventory.md), which is no longer empty and **wins** wherever it
-disagrees with the rest.
+**Start here:** deploying a change today → **`bayram-release` on the host, one command**, whose
+shape is [11-ci-cd.md](11-ci-cd.md) §3 and whose beats are [08-payme.md](08-payme.md) §11 — and
+**not** [04-release.md](04-release.md), whose own STATUS concedes that its §2, §3 and §5 cannot be
+run on this machine at all; standing up a new host → [03-provisioning.md](03-provisioning.md);
+something is broken right now → [06-troubleshooting.md](06-troubleshooting.md); what the `hbd` →
+`bayram` cutover was and how it went → [10-rename-cutover.md](10-rename-cutover.md), which is
+**history rather than a pending operation — it completed and was verified on 2026-09-14**; what
+the machine actually is → [00-host-inventory.md](00-host-inventory.md), which is no longer empty
+and **wins** wherever it disagrees with the rest.
 
-> **Before you run a migration on this host, read 00 row 50.** `alembic upgrade head` cannot
-> succeed as of 2026-09-10: role `hbd` has no rights on schema `public`, the error reads like a
-> corrupt database rather than a missing `GRANT`, and it is invisible from the application side.
-> The fix is one statement. This is the only thing in this tree that will stop a release today.
+> **The blocking banner that stood here is gone — corrected 2026-09-19.** From 2026-09-11 until
+> today this file opened by telling an operator that `alembic upgrade head` could not succeed,
+> because role `hbd` had no rights on schema `public`, and that it was the one thing in this tree
+> that would stop a release. **It was resolved on 2026-09-14**, and 00 row 50 carries the
+> evidence: the same query from a live session returned `t|t|0025`, so both privileges are present
+> and the head has moved from `0024` to `0025`. **Two things are still owed there and neither
+> stops a release** — nobody wrote down which route issued the `GRANT`, and the table-level half
+> of finding 9 (who owns `alembic_version`) is a different question that `has_schema_privilege`
+> does not answer.
 
 ---
 
-## STATUS — read this before you trust a single line below, updated 2026-09-11
+## STATUS — read this before you trust a single line below, updated 2026-09-19
+
+> **Two facts changed underneath this entire section and almost nothing below was rewritten to
+> match, so read them before the rest — 2026-09-19.** (1) **The `hbd` → `bayram` cutover completed
+> and was verified on 2026-09-14**, and the four `bayram-*` units have been live and active since
+> ([`10-rename-cutover.md`](10-rename-cutover.md)). A release on this host is now an ordinary
+> wheel upgrade — `08-payme.md` §11.4 for the order, `bayram-release` for the script, whose first
+> real deploy was 2026-09-17. (2) **The schema `GRANT` was issued and revision `0025` applied,
+> both by 2026-09-14** (00 row 50). Everything below this line was written on 2026-09-10 and
+> 2026-09-11, before either; **where a paragraph below says the host is pre-rename, that the
+> cutover failed, or that migrations cannot run, it is describing the machine as it stood on
+> 2026-09-11 and not as it stands today.** The paragraphs that said so loudest have been corrected
+> in place and dated. **The mark counts, the per-page descriptions and the open questions have
+> not been re-checked against the renamed host**, so read every `hbd`-spelled host path below as a
+> quotation with a date on it rather than as a current address.
 
 **The two halves are gone. As of 2026-09-11 every page in this directory has been held against
 the machine**, and each marks every claim with its date and its method. That is a change of kind,
@@ -39,6 +61,17 @@ the machine or on the repository:
 | [08-payme](08-payme.md) | transcripts throughout | — | — |
 | [09-payme-go-live](09-payme-go-live.md) | the gate board's evidence column | — | named per gate |
 | [10-rename-cutover](10-rename-cutover.md) | 38 | 21 | 8 |
+| [11-ci-cd](11-ci-cd.md) | — | — | — |
+
+**The three dashes in 11's row mean "this page does not use the marks", not "nothing on it was
+checked" — added 2026-09-19, because the table ran 00 to 10 and stopped, and a missing row reads
+like an oversight.** [11-ci-cd.md](11-ci-cd.md) was written on 2026-09-16, five days after the
+pass that invented the convention, and its subject is a workflow file and a handful of scripts in
+this repository rather than the machine — so it cites `path:line` in running prose and never
+adopted the bracket marks. **What it does say about the host it says in two places and both are
+worth more than a count**: the heading of §3 (the CD artefacts have never run on `abdu-test`,
+`bayram-release` excepted — installed by hand on 2026-09-17) and §4.1 (five open items, five still
+open, re-verified read-only on 2026-09-19).
 
 **`[UNPROVEN]` is not a to-do list.** Most of those marks are one wall: `/etc/hbd` is `0750
 root:hbd`, the `hbd` group is empty, `sudo -n` refuses, and `psql` wants a password the deploy
@@ -55,10 +88,13 @@ rather than merely checked against it:
   2026-09-10 for the first settlement.
 - [09-payme-go-live.md](09-payme-go-live.md) — the go-live gate board. Updated 2026-09-10: Gate C
   closed, four of Gate B's six facts closed.
-- [10-rename-cutover.md](10-rename-cutover.md) — **new, written and host-checked 2026-09-11**,
-  1 187 lines, for the `hbd` → `bayram` cutover. Its subject is not hypothetical: the cutover was
-  **attempted on the host on 2026-09-10 at 14:05 and 14:06 and failed**, and the debris is still
-  on the disk (00 rows 49 and 50).
+- [10-rename-cutover.md](10-rename-cutover.md) — **written and host-checked 2026-09-11**, 1 187
+  lines, for the `hbd` → `bayram` cutover. Its subject was never hypothetical: the cutover was
+  attempted on the host on 2026-09-10 at 14:05 and 14:06 and failed both times, and the debris it
+  left sat on the disk for four days (00 rows 49 and 50). **Corrected 2026-09-19: it was re-run
+  and it completed — verified 2026-09-14, with the four `bayram-*` units live and active since —
+  so the page is now the record of an operation that happened, not the runbook for one that is
+  owed.**
 
 **Two things the 2026-09-11 pass changed in the checked half, and both change what somebody
 would do next:**
@@ -68,6 +104,10 @@ would do next:**
    rebuild re-granted the *application* role and never the *migration* role. Revision `0025` is
    on disk and unapplied, and the rename cutover dies at that step. It is invisible from the
    application side and the error text reads like a corrupt database. 00 finding 9 and row 50.
+   **That is what the pass found on 2026-09-11 and it is no longer the state of the host —
+   corrected 2026-09-19.** The `GRANT` was issued and `0025` applied by 2026-09-14, the cutover
+   was re-run the same day, and what is left of the finding is the table-level half of 9 (row 50),
+   which blocks nothing.
 2. **"Ten cells behind a permission wall" was wrong about six of them.** They were answered on
    2026-09-10/11 with no new privilege, out of a world-readable `postgresql.conf`, the
    `adm`-readable Postgres server log, the world-readable `pg_dump` files in `/var/backups/hbd`,
@@ -100,14 +140,28 @@ of which pages those were. What that history means in practice now:
   corrected against reality, and the rename has since carried even that one back out of sync
   (`/opt/bayram/venv`, `User=bayram`). The other three are left disagreeing on purpose — see
   00's "Which document wins" — but do not read any of them as a record.
-- **Two naming systems are live at once, and neither is wrong.** The repository has been
-  renamed `hbd` → `bayram`; the host has not. Host paths, unit names and `HBD_*` variables in
-  00, 08, 09 and 10 are quoted from the machine and **must not be swept by a rename pass**. That
-  cutover is its own operation, with its own hazards: [09-payme-go-live.md](09-payme-go-live.md)
-  §2 for why no release may straddle it, and [10-rename-cutover.md](10-rename-cutover.md) for the
-  operation itself. **As of 2026-09-10 the host is pre-rename because the cutover FAILED, not
-  because nobody has run it** — and it left `/etc/bayram` and `/opt/bayram` on the disk, so
-  "no `bayram` path exists on the host" is a sentence to stop repeating (00 rows 46 and 49).
+- **~~Two naming systems are live at once, and neither is wrong.~~ One is — corrected
+  2026-09-19.** This bullet said, from 2026-09-11 until today, that the repository had been renamed
+  `hbd` → `bayram` while the host had not; that the cutover was its own operation, with
+  [09-payme-go-live.md](09-payme-go-live.md) §2 for why no release might straddle it; and — the
+  sentence that did the damage — that **the host was pre-rename because the cutover had FAILED,
+  not because nobody had run it.** **It was re-run and it completed: verified 2026-09-14, with the
+  four `bayram-*` units live and active since** ([10-rename-cutover.md](10-rename-cutover.md)). So
+  the host is post-rename, Gate A is behind us rather than ahead, and a release is an ordinary
+  wheel upgrade that straddles nothing.
+
+  **What survives is narrower, and it is the part worth keeping.** An `hbd`-spelled host path
+  quoted anywhere in this tree under a `[HOST 2026-09-10]` or `[HOST 2026-09-11]` mark is still a
+  faithful record of what the machine said on that date, and a blind rename pass would turn it
+  into a fiction — 00 finding 7 is what happens when one is run. **The right treatment is to
+  re-check such a line against the renamed host and re-spell it with today's date, one line at a
+  time.** Not to sweep the tree; and not, which is the failure this bullet was itself enabling, to
+  leave the line standing as though it described the machine now. **Five of the numbered pages
+  below — 01, 02, 03, 04 and 10 — opened their own STATUS blocks with the sentence "The host is
+  PRE-RENAME and that is correct", and every one of them pointed back here for the reason. All
+  five were corrected on 2026-09-19**; 02 and 10 keep the sentence in quotation marks as the thing
+  they used to say. It stopped being correct on 2026-09-14, and this paragraph is no longer the
+  argument for it.
 
 Outside those four, treat this directory as *the shape we propose and the reasons for each
 line*, never as a description of a running system.
@@ -118,19 +172,18 @@ line*, never as a description of a running system.
 
 | # | Document | What it is for |
 | - | -------- | -------------- |
-| 00 | [The aizu host — inventory](00-host-inventory.md) | **Read off the machine, 2026-09-10, re-checked 2026-09-11.** Fifty-one host facts, each with the command that answers it and the date it was checked; **ten** findings that outrank the table (no public IP, a Cloudflare tunnel, the `http://` scheme trap, a wheel deploy, `EnvironmentFile=` not `*_ENV_FILE`, a `NOPASSWD` grant that is really root-on-demand, **the migration role's missing schema GRANT**, and the readable evidence routes nobody was using); the routing narrative that replaced the old "Caddy terminates TLS" row; and one read-only SSH block that re-answers most of it in a single paste. ~~Ten cells are still empty, all behind the same permission wall.~~ **Four are empty (rows 23, 24, 30, 35); the other six were answered on 2026-09-10/11 with no new privilege, mostly by reading world-readable or `adm`-readable files rather than by asking `psql`. Row 30 is the only cell with no route: `/var/lib/hbd` is `hbd:hbd` `0750` and `sudo -n du` answers "a password is required".** An empty cell still means nobody has looked. **This page wins.** |
+| 00 | [The aizu host — inventory](00-host-inventory.md) | **Read off the machine, 2026-09-10, re-checked 2026-09-11.** ~~Fifty-one~~ **Fifty-two** host facts, each with the command that answers it and the date it was checked; **ten** findings that outrank the table (no public IP, a Cloudflare tunnel, the `http://` scheme trap, a wheel deploy, `EnvironmentFile=` not `*_ENV_FILE`, a `NOPASSWD` grant that is really root-on-demand, **the migration role's missing schema GRANT**, and the readable evidence routes nobody was using); the routing narrative that replaced the old "Caddy terminates TLS" row; and one read-only SSH block that re-answers most of it in a single paste. ~~Ten cells are still empty, all behind the same permission wall.~~ **THREE are empty (rows 23, 30, 35) — row 24 was filled on 2026-09-19: the probe token is declared once and EMPTY in `/etc/bayram/bayram-admin.env`, and `/etc/bayram/payme.env` does not declare the payme one at all. A new row 52 records that the 2026-09-16 passwordless-root finding was SUPERSEDED rather than closed — `/etc/sudoers.d/90-developer-nopasswd` grants `developer ALL=(ALL) NOPASSWD:ALL`, verified live. The other six were answered on 2026-09-10/11 with no new privilege, mostly by reading world-readable or `adm`-readable files rather than by asking `psql`. Row 30 is the only cell with no route: `/var/lib/hbd` is `hbd:hbd` `0750` and `sudo -n du` answers "a password is required".** An empty cell still means nobody has looked. **This page wins.** |
 | 01 | [Deployed architecture](01-architecture.md) | **Host-checked 2026-09-11 (49 marks).** The **four** long-running processes and the by-hand commands, what talks to what, why only the worker runs the clocks, and why the admin API is a separate process that must not hold a vendor credential. |
 | 02 | [Configuration reference](02-configuration.md) | **Host-checked 2026-09-11 (41 marks).** Every variable production actually requires, which of the **three** settings classes owns it, which file each of the four commands reads, the **seven** refusals that key off `BAYRAM_ENVIRONMENT`, and the defects in `.env.admin.example` to fix before copying it. |
 | 03 | [Provisioning a host from bare metal](03-provisioning.md) | **Host-audited 2026-09-11 (68 marks).** Fourteen steps from a fresh OS to a booting fleet — packages, roles, dotenv modes, schema, console build, first OWNER, supervision, TLS — written as the audit checklist to compare `aizu` against, **not** a runbook to replay on it. |
-| 04 | [Releasing a change](04-release.md) | **Host-checked 2026-09-11 (54 marks), and it no longer describes the release this host actually gets — that is the wheel procedure in 08 §11.** The routine deploy to an already-provisioned host: three pre-flight gates, pull, dependency sync, migrations, the non-optional console rebuild, restart order, verification, and what can and cannot be rolled back. |
+| 04 | [Releasing a change](04-release.md) | **Host-checked 2026-09-11 (54 marks), and it no longer describes the release this host actually gets — that is the wheel procedure in 08 §11, performed since 2026-09-17 by `bayram-release` (11 §3). Its STATUS block opened with "the host is PRE-RENAME and that is correct" until 2026-09-19, when it was rewritten to "a release is one command" — the cutover completed and was verified 2026-09-14, so read the `hbd`-spelled commands still in its body as dated quotations, not as addresses.** The routine deploy to an already-provisioned host: three pre-flight gates, pull, dependency sync, migrations, the non-optional console rebuild, restart order, verification, and what can and cannot be rolled back. |
 | 05 | [Day-2 operations](05-operations.md) | **Host-checked 2026-09-11 (29 marks).** Operator accounts and the bootstrap CLI, the credits and identity tools, the **five** clocks, verifying the audit chain, the log events worth an alert rule, and backup/restore. |
 | 06 | [Troubleshooting](06-troubleshooting.md) | **Host-checked 2026-09-11 (46 marks), and §17a is a defect that is happening right now**: 487 `TelegramConflictError` lines, every day since the units were enabled, because something off this host holds the same bot token — it must be closed before the payment rail is switched on. Twenty-one symptoms, each with what an operator sees, the code that produces it, one command that settles the question, and the fix. Biased towards the failures that look healthy. |
 | 07 | [Security controls and their deployment dependencies](07-security.md) | **Host-checked 2026-09-11 (37 marks).** Seven controls — vendor-credential separation, CSP and the style nonce, `__Host-` cookies, the exact origin check, trusted proxies, the audit HMAC chain and its REVOKE, loopback binding — each as: what it protects, what the deployment must do, how to prove it is on, how it fails. Ends with the ones that degrade silently. |
 | 08 | [The Payme gateway](08-payme.md) | **Deployed and re-checked against the host, 2026-09-10.** The fourth process: its real systemd unit and env file as read off `aizu`, the connection arithmetic and the `hbd_app` role check, **the public path — Cloudflare's edge terminates TLS, a tunnel speaks plain HTTP to Caddy on loopback — and the `308` trap that scheme-less Caddy site block causes**, the cabinet settings a human types, and the certification, manual-refund, key-rotation and reconciliation runbooks, plus the wheel release runbook (§11). |
-| 09 | [Payme go-live](09-payme-go-live.md) | **Checked against the host, 2026-09-10.** The gate board for taking real money: six facts only Payme can supply — **four of them closed on 2026-09-10**, including the endpoint registered in the cabinet and the `order_id` requisite; **the settlement rehearsal, first run on this host on 2026-09-10 at 13:30 +05 — 4/4 scenarios, corroborated in the gateway and worker journals, and owed again at the Gate A rename** (the "nobody has ever run it" this row said until 2026-09-11 stopped being true at 13:30 that afternoon); the Cloudflare settings nobody has applied; the `hbd` → `bayram` rename cutover that no release may straddle; the owner's 2026-09-10 decision to leave the stub paywall as it is; the switch-on and rollback sequences; and (§11) **the admin console as an operator surface** — which two of the CLI's five commands it now covers, why `settle` and `reconcile` deliberately stay in the terminal, and the fact that the pause switch now has two writers against one key. |
-| 10 | [The `hbd` → `bayram` rename cutover](10-rename-cutover.md) | **Written and host-checked 2026-09-11 — 1 187 lines, ten sections, 38 `[HOST]` marks.** The operation Gate A names, as its own page because it is all-or-nothing and has its own rollback: the package, the four units, the three dotenv files, the venv path, the env-var prefix and the sudoers rule that all have to move together, and the two things that move silently and are both about money — the Redis pause key and the idempotency prefix (09 §2). **It starts from a failure, not a blank page: the cutover was attempted on the host on 2026-09-10 at 14:05 and 14:06, ran as root through the `NOPASSWD` deploy path, and failed both times — the second at its migration step** because the migration role has no rights on schema `public`, **the first somewhere before step 3 that nobody has characterised** (00 rows 49 and 50). Fixing the GRANT addresses the second failure only. The debris it left — `/etc/bayram`, `/opt/bayram`, a `bayram` wheel, a post-rename `migrations/` tree inside `/opt/hbd` — is still on the disk and is **not** a deployment. |
-
-| 11 | [CI, and why CD stops at the door](11-ci-cd.md) | **Written 2026-09-16, and the workflow landed with it.** The repository had no CI of any kind, while `TEST_INFRA.md` §7.3 and `TEST_READY.md` §2 both prescribed one. `.github/workflows/ci.yml` runs the Python and console gates on every push and PR, plus a migration tripwire that refuses destructive DDL — because every script in `deploy/` migrates BEFORE installing the wheel and each says that is safe only for additive revisions. Records the five things that would have made it red on day one (`cov-admin: cov` running the suite twice; `make install` ignoring `uv.lock`; a uv pin that must read `revision = 3`; ffmpeg needed by an *unmarked* test; and `npm test` fetching its own runner via `npx tsx`, now a pinned devDependency). **And it says why continuous *deployment* stopped at the door**: no inbound path to the host, a migration step that sources every production secret, ~831 MiB of free memory, no scheduled backup and a `/healthz` that returns a constant `ok` — so there is nothing to roll back to and nothing to notice. Three architectures were judged; operator-triggered won 8/8/8. The real fix for "why do I run these scripts every time" is one versioned `bayram-release` replacing three per-feature scripts that are already the same seven beats. |
+| 09 | [Payme go-live](09-payme-go-live.md) | **Checked against the host, 2026-09-10.** The gate board for taking real money: six facts only Payme can supply — **four of them closed on 2026-09-10**, including the endpoint registered in the cabinet and the `order_id` requisite; **the settlement rehearsal, first run on this host on 2026-09-10 at 13:30 +05 — 4/4 scenarios, corroborated in the gateway and worker journals, and owed again at the Gate A rename** (the "nobody has ever run it" this row said until 2026-09-11 stopped being true at 13:30 that afternoon); the Cloudflare settings nobody has applied; ~~the `hbd` → `bayram` rename cutover that no release may straddle~~ — **corrected 2026-09-19: that cutover completed and was verified on 2026-09-14, so Gate A is closed and nothing straddles it**; the owner's 2026-09-10 decision to leave the stub paywall as it is; the switch-on and rollback sequences; and (§11) **the admin console as an operator surface** — which two of the CLI's five commands it now covers, why `settle` and `reconcile` deliberately stay in the terminal, and the fact that the pause switch now has two writers against one key. |
+| 10 | [The `hbd` → `bayram` rename cutover](10-rename-cutover.md) | **Written and host-checked 2026-09-11 — 1 187 lines, ten sections, 38 `[HOST]` marks.** The operation Gate A names, as its own page because it is all-or-nothing and has its own rollback: the package, the four units, the three dotenv files, the venv path, the env-var prefix and the sudoers rule that all have to move together, and the two things that move silently and are both about money — the Redis pause key and the idempotency prefix (09 §2). **It starts from a failure, not a blank page: the cutover was attempted on the host on 2026-09-10 at 14:05 and 14:06, ran as root through the `NOPASSWD` deploy path, and failed both times — the second at its migration step** because the migration role had no rights on schema `public`, **the first somewhere before step 3 that nobody has characterised** (00 rows 49 and 50). **Corrected 2026-09-19 — the page has outlived its own operation: the `GRANT` was issued and revision `0025` applied by 2026-09-14 (00 row 50), and the cutover was then re-run and verified on 2026-09-14, with the four `bayram-*` units live and active since.** So this is now the record of a completed all-or-nothing operation rather than the runbook for a pending one, and its rollback half is history too — its own §4.7 dates the rollback window closing to 2026-09-14. **What it still does better than anything else here is explain what moves silently when a rename lands**, the Redis pause key and the idempotency prefix (09 §2), which is worth reading before the next thing that renames anything. Its own STATUS block was rewritten on 2026-09-19 and now opens **DONE**. |
+| 11 | [CI, and why CD stops at the door](11-ci-cd.md) | **Written 2026-09-16, and the workflow landed with it.** The repository had no CI of any kind, while `TEST_INFRA.md` §7.3 and `TEST_READY.md` §2 both prescribed one. `.github/workflows/ci.yml` runs the Python and console gates on every push and PR, plus a migration tripwire that refuses destructive DDL — because every script in `deploy/` migrates BEFORE installing the wheel and each says that is safe only for additive revisions. Records the five things that would have made it red on day one (`cov-admin: cov` running the suite twice; `make install` ignoring `uv.lock`; a uv pin that must read `revision = 3`; ffmpeg needed by an *unmarked* test; and `npm test` fetching its own runner via `npx tsx`, now a pinned devDependency). **And it says why continuous *deployment* stopped at the door**: no inbound path to the host, a migration step that sources every production secret, ~831 MiB of free memory, no scheduled backup and a `/healthz` that returns a constant `ok` — so there is nothing to roll back to and nothing to notice. **§4 later corrects the second half of that (`/healthz` is liveness by design and `/readyz` has a gated detail body), and 2026-09-19 corrects more of it again: the backup installer, the off-box mechanism, the probe-token wiring and the sudo-grant cleanup all now exist as repo scripts, and NOT ONE of them has been run on the host. §4.1 is the honest open-items board — five items, five still open, four of them now waiting on a human rather than on code.** Three architectures were judged; operator-triggered won 8/8/8. The real fix for "why do I run these scripts every time" is one versioned `bayram-release` replacing three per-feature scripts that are already the same seven beats. |
 
 The actual deployment artefacts — the unit files — live in
 [`deploy/systemd/`](../../deploy/systemd/), not here. This tree is prose about them.
@@ -157,11 +210,11 @@ The actual deployment artefacts — the unit files — live in
 > | 1 | Backups | **ANSWERED — nothing is scheduled.** ~~Seven~~ **nine** hand-taken dumps (two more from the failed cutover of 2026-09-10), no timer, no cron, no off-box copy; the HMAC key is in no dump and now exists in **two** files on one disk. Rows 33–35, 49. |
 > | 2 | `ENVIRONMENT` is exactly `prod`? | **ANSWERED for the bot and the panel: yes.** Read off the boot lines, no privilege needed. **The gateway answers `dev`** — a third process, a third file, a third answer. Row 20, `08-payme.md` §2.1. |
 > | 3 | `CREDITS_ENFORCED` true? | **ANSWERED — false**, and it is a decision with a date, not a defect: the paywall is deliberately live on the stub rail. `09-payme-go-live.md` §6. |
-> | 4 | Alembic revision | **ANSWERED — `0024`, re-verified 2026-09-11 without `psql`.** Read out of `alembic_version` inside the cutover's own pre-flight `pg_dump` at `/var/backups/hbd/pre-cutover-20260910-140653.sql.gz`, which is `0644 root:root` and needs no privilege. ~~NOT re-verified since 2026-09-09~~ superseded. **The number is the least interesting half: revision `0025` is on disk, unapplied, and currently *unappliable* — the attempt failed at 14:07:26 on 2026-09-10 because the migration role has no rights on schema `public`.** Rows 5, 15, 50. |
+> | 4 | Alembic revision | **ANSWERED — `0024`, re-verified 2026-09-11 without `psql`.** Read out of `alembic_version` inside the cutover's own pre-flight `pg_dump` at `/var/backups/hbd/pre-cutover-20260910-140653.sql.gz`, which is `0644 root:root` and needs no privilege. ~~NOT re-verified since 2026-09-09~~ superseded. ~~**The number is the least interesting half: revision `0025` is on disk, unapplied, and currently *unappliable* — the attempt failed at 14:07:26 on 2026-09-10 because the migration role has no rights on schema `public`.**~~ **Superseded 2026-09-14, recorded here 2026-09-19: the `GRANT` was issued and `0025` applied; a live session returns `t|t|0025`. The live head is `0025`, not `0024`.** Rows 5, 15, 50. |
 > | 5 | Data-root agreement | **ANSWERED — they agree**, at `/var/lib/hbd/var`, because all four units share `WorkingDirectory=`. Rows 2 and 30. Size still unknown. |
 > | 6 | Processes, topology, what is in front | **ANSWERED, and the answer corrected this file.** Four systemd units on one box; **Caddy does not terminate public TLS** — Cloudflare's edge does, over a tunnel, to plain HTTP on loopback. Rows 17, 39–43. |
 > | 7 | Worker replicas | **ANSWERED — one.** Row 9. |
-> | 8 | Two-role split and 0007's `REVOKE` | **ANSWERED 2026-09-11, and the answer is worse than "still open".** Both roles exist (`hbd`, `hbd_app`) — but **0007's `REVOKE` is NOT in force and there are no default privileges at all.** All 31 objects in `public` are owned by `hbd_app`, `admin_audit_log` included; the only privilege statements in the schema are `REVOKE USAGE ON SCHEMA public FROM PUBLIC` and `GRANT ALL ON SCHEMA public TO hbd_app`; zero `ALTER DEFAULT PRIVILEGES`, zero table-level grants. So `GET /api/audit/verify` should report `chainProtection: "hmac-only"`. **Related and worse: role `hbd` has no rights on schema `public` at all, which is why migrations fail (row 50).** Read out of the world-readable dump, not out of `psql`. Rows 12–14. |
+> | 8 | Two-role split and 0007's `REVOKE` | **ANSWERED 2026-09-11, and the answer is worse than "still open".** Both roles exist (`hbd`, `hbd_app`) — but **0007's `REVOKE` is NOT in force and there are no default privileges at all.** All 31 objects in `public` are owned by `hbd_app`, `admin_audit_log` included; the only privilege statements in the schema are `REVOKE USAGE ON SCHEMA public FROM PUBLIC` and `GRANT ALL ON SCHEMA public TO hbd_app`; zero `ALTER DEFAULT PRIVILEGES`, zero table-level grants. So `GET /api/audit/verify` should report `chainProtection: "hmac-only"`. ~~**Related and worse: role `hbd` has no rights on schema `public` at all, which is why migrations fail (row 50).**~~ **Corrected 2026-09-19: that half was resolved on 2026-09-14** — the same query returned `t|t|0025`, so both privileges are present and the head has moved to `0025` (row 50). **The `REVOKE` half of this question is untouched by that and is still the answer above**: schema privilege says nothing about table ownership, and 00 row 50 flags the table-level half of finding 9 as open for exactly that reason. Read out of the world-readable dump, not out of `psql`. Rows 12–14. |
 > | 9 | Redis persistence, Postgres location | **ANSWERED — Redis 7.0.15 with `appendonly no`, RDB only; Postgres 16.15 on the same box, loopback.** Rows 10 and 16. ~~`max_connections` still unread.~~ **`max_connections = 100`, read 2026-09-11 from `/etc/postgresql/16/main/postgresql.conf:65`, which is world-readable, with an empty `conf.d`. So the 30+30+10+5=75 pool arithmetic of `08-payme.md` §3.1 has the margin it assumes. Caveat: that is the configured value; an `ALTER SYSTEM` would live in `postgresql.auto.conf` inside the `0700` data directory.** Row 11. |
 > | 10 | Public origin and proxy hops | **HALF.** The origin matches (`https://admin.bayrambot.uz`, row 22). The hop count is **not** read and is probably now wrong: admin traffic is two proxies deep since the tunnel. **There is a route that needs no `sudo`: `GET /api/config` returns `admin_trusted_proxy_hops` and `admin_trusted_proxy_cidrs` verbatim, so one authenticated OWNER session settles it — and settles question 16's sibling, row 24, at the same time.** Row 23. |
 > | 11 | Which dotenv each process reads | **ANSWERED — from the unit files, and ONLY from the unit files.** `EnvironmentFile=/etc/hbd/hbd.env` (bot, worker), `/etc/hbd/hbd-admin.env` (panel), `Environment=HBD_PAYME_ENV_FILE=/etc/hbd/payme.env` (gateway). **The advice printed below this table — "read `env_file` off the boot lines" — is wrong for three of the four processes and is corrected there.** Because `EnvironmentFile=` means pydantic-settings never opens a file, the bot prints `"env_file": ".env"` and the panel `".env.admin"`: the relative defaults, not the real paths. Only the gateway, which uses the `*_ENV_FILE` indirection, names a real path. Rows 18–20. |
@@ -190,8 +243,12 @@ the answers in it, along with an SSH block that runs most of them at once.
 > question 11's *"or read `env_file` off the boot lines"*. See its block.
 
 **1. Is anything backing up Postgres, `var/archive`, or `BAYRAM_ADMIN_AUDIT_HMAC_KEY`?**
-Nothing in this repository backs anything up — `grep -rin backup README.md Makefile deploy/`
-returns nothing operational. `var/archive` holds every delivered song *and* every customer
+~~Nothing in this repository backs anything up~~ — **corrected 2026-09-19: `deploy/install-bayram-backup.sh`
+exists and installs a nightly `pg_dump` timer plus an off-box copy. It has STILL never been run
+on the host**, so the answer to the question as asked is unchanged: **no**. And note the scope
+even once it is run — it covers **Postgres only**, so `var/archive` and the HMAC key stay
+uncovered by anything. [`05-operations.md`](05-operations.md), *Backup and restore*, has the two
+commands and what they do not fix. The rest of this paragraph stands: `var/archive` holds every delivered song *and* every customer
 avatar (`src/bayram/storage.py:73-84`, `src/bayram/user_profiles.py:199-200`). The HMAC key has no
 key id (`src/bayram/db/admin/audit.py:10-12`), so if it exists only in the admin's dotenv file,
 losing that file makes the entire audit log permanently unverifiable.

@@ -1,5 +1,5 @@
 /**
- * The dashboard wire contract, transcribed from `.openpencil-export/dashboard-openapi.json`
+ * The dashboard wire contract, transcribed from `reference/openpencil-export/dashboard-openapi.json`
  * (produced by `bayram/admin/routers/dashboard.py` and `bayram/admin/schemas/dashboard.py`).
  *
  * Nine reads carry the whole page: five windowed sections, one windowed-on-one-half

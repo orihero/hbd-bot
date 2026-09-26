@@ -1,0 +1,13 @@
+file	media_id	url	note
+slice_LS-C.mp3	81ea18ae-23ce-4cec-8103-c67e737eb45f	https://d2ol7oe51mr4n9.cloudfront.net/user_3GqKedsDUuKOgKz8HbECaEpql0S/81ea18ae-23ce-4cec-8103-c67e737eb45f.mp3	pilot audio
+keys/REF_M1.png	a0af1c10-6d3b-4cd4-867a-84aa853ad857	https://d8j0ntlcm91z4.cloudfront.net/user_3GqKedsDUuKOgKz8HbECaEpql0S/hf_20260919_113740_c86ada17-b461-4713-975c-3ab6adcd661b.png	M1 reference
+keys/REF_F1.png	9d96ca1b-3fee-4bf9-a0ee-844cee0cbfc0	https://d8j0ntlcm91z4.cloudfront.net/user_3GqKedsDUuKOgKz8HbECaEpql0S/hf_20260919_113947_6c16ff39-827b-4ac0-9e34-c930d19860e8.png	F1 reference
+keys/S-A01.png	23f8db42-e894-494f-966e-0eed522f9f8a	-	LS-A start
+keys/S-A05.png	747b26ac-9825-45b9-acbf-a8135fe26b7b	-	K2 start
+keys/S-A09.png	3937c29a-ef6f-4513-a03f-86498906ca8a	-	K1 start
+keys/S-A10.png	6e762525-4447-4a06-b887-742b5bb563d8	-	LS-B start
+keys/S-A13.png	1c3cbdde-b29a-4b1a-b4df-dc1d5fb53cfb	-	K5 start
+keys/S-A14.png	041d54a0-2dda-41cb-a53b-1bd82b2e1de3	-	K6 start
+keys/S-B01.png	3fbbdbb0-48ed-4629-981f-29e0a8213c10	-	K4 start
+keys/S-B03.png	fa78bdad-6f6e-4e0b-8c8d-cbf30fd89572	-	LS-D start
+audio_slices/slice_LS-A.mp3	3a78bbee-40f8-4e64-8663-8d5f6d8b0b77	-	LS-A audio

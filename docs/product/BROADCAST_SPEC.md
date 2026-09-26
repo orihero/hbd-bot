@@ -8,11 +8,31 @@
 removed rather than deferred in place, so nothing here half-implements them. §6.3 records what that
 leaves standing, and what has to exist before the position changes.
 
+**Status, 2026-09-19 — shipped.** The build this document specifies exists. `0024` arrived as
+predicted (`migrations/versions/20260909_1000_0024_add_broadcast_tables.py`); the query and router
+halves are `src/bayram/db/admin/broadcasts.py` and `src/bayram/admin/routers/broadcasts.py`; the
+worker is `src/bayram/runtime/broadcast_job.py`, and §4.3's pacer landed beside it as a module of its
+own, `src/bayram/runtime/pacer.py`, rather than as code folded into the job. The panel half is
+`admin-dashboard/src/features/broadcasts/` — wizard, list and detail — with
+`BroadcastsScreen.test.tsx` and `BroadcastDetailScreen.test.tsx` next to the screens they cover. §1's
+segment engine shipped with it: `sort_expression()` is in `src/bayram/db/admin/segment.py`, and
+`?sort=` is a real parameter on `GET /api/users`, which is why the §0 row that denied one has been
+corrected below. What did **not** ship is §6.3. No `marketing_consents` table exists in `src/` or in
+`migrations/`, and no opt-out command does either, so the position recorded there is still the live
+position and **Q10 stands exactly as written**. The rest of §7 has not been re-adjudicated here;
+only Q6 is closed below, because shipping disproved it. Per `docs/README.md`, a product document is
+living until it ships and historical afterwards: read §1–§6 as the record of what was built and why,
+and where the code has since moved, the code is the authority.
+
 ---
 
 ## 0. Ground truth this specification is built on
 
-Facts established by reconnaissance over this repository and re-verified before filing:
+Facts established by reconnaissance over this repository and re-verified before filing. Three of them
+have since stopped being true — two because this specification was built, one because the tree it
+described was deleted — and are corrected in place below, dated, because §0 is the foundation every
+design choice downstream justifies itself against and a reader who checks the reasoning must not be
+misled at the root:
 
 | Fact | Consequence |
 | --- | --- |
@@ -20,7 +40,7 @@ Facts established by reconnaissance over this repository and re-verified before 
 | Migration head is `0023`; ids are hand-set 4-digit serials | The new revision is `0024`. |
 | `AuditAction` is a closed StrEnum with no broadcast member; `SUBJECT_TYPES` is a closed frozenset without `broadcast` | Both must be extended (§6.4). |
 | `Permission`, `StepUpAction`, `STEP_UP_ACTIONS`, `RBAC_MATRIX` are closed and cross-asserted by tests | Three new permissions + one step-up action (§3.1). |
-| No `sort` parameter exists anywhere; ordering is fixed `keyset_order(created_at, id)` | "Sort by anything" is a **keyset redesign**, not a router change (§1.6). |
+| ~~No `sort` parameter exists anywhere; ordering is fixed `keyset_order(created_at, id)`~~ — **true when filed, corrected 2026-09-19:** it was a keyset redesign, and the redesign happened. `compiled_segment()` in `src/bayram/admin/routers/segments.py` now takes a `sort` argument that *replaces* the document's own ordering "which is what lets ``GET /api/users`` take a ``?sort=`` parameter at all", and `routers/users.py` documents `?segment=` and `?sort=` as additions to the existing chip list. | "Sort by anything" was a **keyset redesign**, not a router change (§1.6) — and was carried out as one, before compilation, where the registry still gets to refuse an unsortable key. The refusal in §1.5 held: `last_activity_at` is still not sortable. |
 | `UserFilters` docstring refuses name/phone/free-text predicates in prose, as an unmask-oracle argument | The field registry is an **allowlist**, never derived from a row schema (§6.1). |
 | `users.last_seen_at` is withheld from every per-row projection, aggregate-only | Filterable, never projectable, **never sortable** (§1.5). |
 | `bounded_total` saturates at `TOTAL_COUNT_CAP = 10_000` | The dry-run count needs its own unbounded `count()` (§1.7). |
@@ -28,9 +48,9 @@ Facts established by reconnaissance over this repository and re-verified before 
 | Worker owns a `Bot` in the ARQ ctx (`BOT_CTX_KEY`); admin process is forbidden a bot token (`FORBIDDEN_ENV_VARS`) | Panel composes, worker sends. No exceptions. |
 | Nothing rate-limits **outbound** Telegram traffic; no `TelegramRetryAfter` handler exists in `src/` | The pacer is net-new (§4.3). |
 | `retry_jobs` defaults to `True`; SIGTERM cancels and re-runs jobs | Per-recipient persisted state is mandatory, not a nicety (§4.4). |
-| `Makefile:37` `UI := admin-dashboard`; `admin-ui/package.json` says DEPRECATED; `admin-dashboard/` is **untracked** and has **no test runner** | §5 targets `admin-dashboard`; adding vitest there is an explicit task. |
+| `UI := admin-dashboard` in the `Makefile`; ~~`admin-ui/package.json` says DEPRECATED~~; ~~`admin-dashboard/` is **untracked** and has **no test runner**~~ — **corrected 2026-09-19:** `admin-ui/` no longer exists to be deprecated, and `admin-dashboard/` is tracked (245 files under `git ls-files`) and has **two** runners, deliberately separated: `npm test` is `tsx tests/run-all.ts`, the bespoke localization E2E suite, and `npm run test:unit` is `vitest run` over `src/**/*.{test,spec}.{ts,tsx}`. | §5 targets `admin-dashboard`; adding vitest there was an explicit task, and it was done — the two broadcast screens carry `.test.tsx` files that `test:unit` picks up. |
 
-**Conflict resolved.** Two reports disagree on which SPA to build in. `admin-ui` has 102 test files and all the better abstractions; `admin-dashboard` is what `make ui` runs, what the user is actually testing, and what `admin-ui/package.json` defers to. **Decision: build in `admin-dashboard`, and port the two abstractions that are worth it (`searchParams` zod codecs, `buildFilterChips`) rather than importing across app boundaries.** Better-evidenced because it rests on the Makefile and the deprecation notice, both of which are current, while admin-ui's advantage is only test coverage — a gap this specification closes with an explicit task.
+**Conflict resolved.** Two reports disagree on which SPA to build in. `admin-ui` has 102 test files and all the better abstractions; `admin-dashboard` is what `make ui` runs, what the user is actually testing, and what `admin-ui/package.json` defers to. **Decision: build in `admin-dashboard`, and port the two abstractions that are worth it (`searchParams` zod codecs, `buildFilterChips`) rather than importing across app boundaries.** Better-evidenced because it rests on the Makefile and the deprecation notice, both of which are current, while admin-ui's advantage is only test coverage — a gap this specification closes with an explicit task. **Corrected 2026-09-19:** the two present-tense clauses above describe a tree that no longer exists — `git ls-files admin-ui` returns zero, so the 102 test files, the `DEPRECATED` notice and the deferral are all gone with it. They record the evidence the call was made on, not the state of the repository; the call itself stands, and the deletion is what vindicated it.
 
 ---
 
@@ -836,7 +856,7 @@ knowingly, not as one the system has cleared. §7 Q10 is where that question sit
 | **Q3** | **Is `12 msg/s` right?** NFR-23's 50% of ~30 msg/s is shared with the unbuilt reminder fan-out (FR-97, default 20 msg/s — the two numbers already exceed the cap). | Whoever owns NFR-23 must allocate the shared budget before both exist, or the first reminder release silently breaks the broadcast SLA. |
 | **Q4** | **Should the worker's Bot get `ChatLogOutboundMiddleware`?** It is attached only to the bot process today. Attaching it logs broadcast sends into `chat_messages` — and also starts logging every kit delivery, a behaviour change, at 50 000 rows per campaign against §7.3's retention. | Recommendation: **no**. `broadcast_recipients` is the send log. Needs an explicit ruling. |
 | **Q5** | **Aggregate sorting at scale.** Correlated subqueries in `ORDER BY` over the whole filtered set are fine at today's volume and not at 500 k users. | Decide whether to accept the ceiling or schedule a `user_rollups` materialised table (nightly, like `user_activity_snapshots`). |
-| **Q6** | **`admin-dashboard` has no test runner and is untracked.** Everything in §5 ships untested unless vitest is added. | Add vitest or accept it. Given this feature can message every customer, "accept it" is hard to defend. |
+| **Q6** | ~~**`admin-dashboard` has no test runner and is untracked.** Everything in §5 ships untested unless vitest is added.~~ | **Closed, 2026-09-19.** It was not accepted. `admin-dashboard/` is tracked, `test:unit` is `vitest run` over `src/**/*.{test,spec}.{ts,tsx}`, and the §5 screens came with `BroadcastsScreen.test.tsx` and `BroadcastDetailScreen.test.tsx` beside them — so the thing that was hard to defend was not done. The question of how *thoroughly* §5 is covered is a different one and is not what Q6 asked. |
 | **Q7** | **Scheduled sends and the `aizu` host.** A 70-minute campaign spans deploys. §4.4 handles it, but nobody has verified worker restart behaviour on the real host (SSH is blocked to this session; host facts must come from the user). | Someone must run a 5 000-recipient rehearsal against staging with a mid-flight deploy. |
 | **Q8** | **`sending` → `unknown` holes.** The never-double-send rule means a counter that does not add up after a crash. | Confirm that "we do not know if 3 of 40 000 were delivered" is preferred to "3 people got it twice". This spec assumes yes. |
 | **Q9** | **Test-send allowlist.** `settings.admin_broadcast_test_recipients` is a config list of Telegram ids. Without it, test-send is an arbitrary-message-to-any-customer endpoint. | Confirm the mechanism and who populates it. |

@@ -2,7 +2,7 @@
  * The pieces the four user-detail panels share.
  *
  * A panel here is the kit's card — white, radius 26, a 1px --stroke edge, a 16/600 title over
- * a full-width rule (`.openpencil-export/project-card.jsx`, `Frame 2147225734` and its
+ * a full-width rule (`reference/openpencil-export/project-card.jsx`, `Frame 2147225734` and its
  * `Line 183`). Tables are NOT wrapped in one: `<DataTable>` already draws the kit's Task List
  * card at radius 15, and a card inside a card is two edges saying the same thing.
  *

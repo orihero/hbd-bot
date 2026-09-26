@@ -1,0 +1,556 @@
+{
+  "_schema": "subshot cut list v1",
+  "_source_of_truth": "marketing/campaigns/peshta/final_polat_peshta_reel.mp4 (1080x1920, 30/1 CFR, 1290 frames, 43.000s). Frames win over every document.",
+  "_character_policy": "M1 = male lead, F1 = female lead, CORPS_A = black-clad wide-brim-hat ensemble in the red studio, CORPS_B = white-robed hooded ensemble in the desert. All original fictional figures. No real person or series is named anywhere in this file.",
+  "_macro_boundary_correction": {
+    "finding": "The documented 11-window frame table is WRONG by a cumulative +1 per window. Every macro cut was bisected to the frame and photographed on both sides.",
+    "documented_frame_counts": {
+      "01": 68,
+      "02": 88,
+      "03": 114,
+      "04": 85,
+      "05": 78,
+      "06": 145,
+      "07": 187,
+      "08": 134,
+      "09": 178,
+      "10": 48,
+      "11": 165
+    },
+    "measured_frame_counts": {
+      "01": 69,
+      "02": 89,
+      "03": 115,
+      "04": 86,
+      "05": 79,
+      "06": 146,
+      "07": 188,
+      "08": 135,
+      "09": 179,
+      "10": 49,
+      "11": 155
+    },
+    "measured_cut_frames": [
+      69,
+      158,
+      273,
+      359,
+      438,
+      584,
+      772,
+      907,
+      1086,
+      1135
+    ],
+    "documented_cut_frames": [
+      68,
+      156,
+      270,
+      355,
+      433,
+      578,
+      765,
+      899,
+      1077,
+      1125
+    ],
+    "note": "Both tables sum to 1290, so the error is invisible to a checksum. Drift is +1 at the first cut and +10 by the last. This file uses the MEASURED boundaries; sub-shot frames therefore sum to the measured macro spans, not the documented ones."
+  },
+  "_transitions": [
+    {
+      "at_frame": 99,
+      "span": [
+        99,
+        119
+      ],
+      "kind": "scale-in inset wipe",
+      "between": [
+        "02a",
+        "02b"
+      ],
+      "note": "Incoming shot grows from a seed rectangle at f98 to full frame at f119. Both clips must cover f99-f118 for the compositor."
+    },
+    {
+      "at_frame": 1110,
+      "span": [
+        1110,
+        1116
+      ],
+      "kind": "vertical split-screen wipe",
+      "between": [
+        "10a",
+        "10b"
+      ],
+      "note": "Left half holds 10a while the right half carries 10b; completes at f1116. Both clips must cover f1110-f1115."
+    }
+  ],
+  "_nmax_analysis": {
+    "rule": "a sub-shot of F frames at 30fps needs ceil(F*0.8) frames at 24fps; it exceeds N_max when F*0.8 > N_max",
+    "longest_subshot_frames": 59,
+    "longest_subshot_id": "02b",
+    "longest_at_24fps": 48,
+    "subshots_exceeding_nmax": {
+      "121": 0,
+      "97": 0,
+      "81": 0,
+      "61": 0
+    },
+    "conclusion": "Zero sub-shots exceed any candidate N_max, including the worst case of 61. The editorial cut list is the only thing that sets the generation count; N_max does not add a single split."
+  },
+  "_length_histogram_frames": {
+    "1-9": 1,
+    "10-19": 3,
+    "20-29": 5,
+    "30-39": 18,
+    "40-49": 7,
+    "50-59": 4
+  },
+  "_counts": {
+    "total_subshots": 38,
+    "per_macro": {
+      "01": 69,
+      "02": 89,
+      "03": 115,
+      "04": 86,
+      "05": 79,
+      "06": 146,
+      "07": 188,
+      "08": 135,
+      "09": 179,
+      "10": 49,
+      "11": 155
+    },
+    "by_confidence": {
+      "measured": 33,
+      "uncertain": 2,
+      "visual": 3
+    }
+  },
+  "_validation": {
+    "ok": true,
+    "errors": [],
+    "total_frames": 1290,
+    "contiguous_no_gaps_no_overlaps": true,
+    "sums_to_1290": true
+  },
+  "subshots": [
+    {
+      "id": "01a",
+      "parent_macro": "01",
+      "start_frame": 0,
+      "end_frame": 14,
+      "frames": 14,
+      "start_s": 0.0,
+      "end_s": 0.466667,
+      "cut_confidence": "measured",
+      "evidence": "MACRO START. F1 close-up, hand over mouth, cool key over red ground. Ends at frame 14."
+    },
+    {
+      "id": "01b",
+      "parent_macro": "01",
+      "start_frame": 14,
+      "end_frame": 46,
+      "frames": 32,
+      "start_s": 0.466667,
+      "end_s": 1.533333,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4 and t=6 @0.4667s (score 6.41); own frame-diff 25.3. Bisected: f13 = F1 CU, f14 = wide M1 on red pyramid with CORPS_A. Framing and subject both change."
+    },
+    {
+      "id": "01c",
+      "parent_macro": "01",
+      "start_frame": 46,
+      "end_frame": 69,
+      "frames": 23,
+      "start_s": 1.533333,
+      "end_s": 2.3,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4 and t=6 @1.5333s (score 8.27); frame-diff 31.5. Bisected: f45 = wide pyramid, f46 = M1 medium, hands-down dance, no pyramid. Confirms the dark wide-brim hat note is NOT here; M1 is bare-headed."
+    },
+    {
+      "id": "02a",
+      "parent_macro": "02",
+      "start_frame": 69,
+      "end_frame": 99,
+      "frames": 30,
+      "start_s": 2.3,
+      "end_s": 3.3,
+      "cut_confidence": "measured",
+      "evidence": "MACRO CUT, frame-exact: f68 = M1 medium (macro 01), f69 = F1 smiling CU. scdet t=4/6/10/14 @2.3s (score 21.0); frame-diff 70.1."
+    },
+    {
+      "id": "02b",
+      "parent_macro": "02",
+      "start_frame": 99,
+      "end_frame": 158,
+      "frames": 59,
+      "start_s": 3.3,
+      "end_s": 5.266667,
+      "cut_confidence": "uncertain",
+      "evidence": "NOT A HARD CUT - a 20-frame SCALE-IN WIPE. A seed rectangle appears f98; the incoming two-shot (F1 seated, red roses, M1 standing behind in a CREAM WIDE-BRIM HAT) grows as an inset f99-f118 and owns the full frame from f119. Boundary set at f99 = first frame carrying incoming content. Both sides must be generated across f99-f118 for the compositor. scdet t=4/6 @3.3333s; frame-diff 34.5 @100."
+    },
+    {
+      "id": "03a",
+      "parent_macro": "03",
+      "start_frame": 158,
+      "end_frame": 189,
+      "frames": 31,
+      "start_s": 5.266667,
+      "end_s": 6.3,
+      "cut_confidence": "measured",
+      "evidence": "MACRO CUT, frame-exact: f157 = M1 cream-hat medium, f158 = M1 medium-wide walking, CORPS_A behind on magenta floor. scdet t=4/6/10 @5.2667s (score 10.4); frame-diff 39.8."
+    },
+    {
+      "id": "03b",
+      "parent_macro": "03",
+      "start_frame": 189,
+      "end_frame": 221,
+      "frames": 32,
+      "start_s": 6.3,
+      "end_s": 7.366667,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6 @6.3s (score 4.01); frame-diff 23.7. Bisected: f188 = medium-wide on M1, f189 = WIDE full-body, M1 small on the magenta platform with CORPS_A. Same subject, different framing - one still cannot serve both."
+    },
+    {
+      "id": "03c",
+      "parent_macro": "03",
+      "start_frame": 221,
+      "end_frame": 273,
+      "frames": 52,
+      "start_s": 7.366667,
+      "end_s": 9.1,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6 @7.3667s (score 6.79); frame-diff 24.0. Bisected: f220 = wide, f221 = M1 medium profile, CORPS_A defocused behind. Verified continuous to f272 (checked f240-f251 frame-by-frame; the t=4 hits at 226/231/233/236/241/246/261 are dance motion, rejected)."
+    },
+    {
+      "id": "04a",
+      "parent_macro": "04",
+      "start_frame": 273,
+      "end_frame": 314,
+      "frames": 41,
+      "start_s": 9.1,
+      "end_s": 10.466667,
+      "cut_confidence": "measured",
+      "evidence": "MACRO CUT, frame-exact: f272 = M1 medium profile, f273 = F1 CU in cream ribbed turtleneck with chain harness, looking up. scdet t=4/6/10/14 @9.1s (score 16.8); frame-diff 56.2."
+    },
+    {
+      "id": "04b",
+      "parent_macro": "04",
+      "start_frame": 314,
+      "end_frame": 359,
+      "frames": 45,
+      "start_s": 10.466667,
+      "end_s": 11.966667,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10/14 @10.4667s (score 15.2); frame-diff 51.2. Bisected: f313 = F1 CU, f314 = M1 full-body on red steps."
+    },
+    {
+      "id": "05a",
+      "parent_macro": "05",
+      "start_frame": 359,
+      "end_frame": 399,
+      "frames": 40,
+      "start_s": 11.966667,
+      "end_s": 13.3,
+      "cut_confidence": "measured",
+      "evidence": "MACRO CUT, frame-exact: f358 = M1 on steps, f359 = F1 CU, cyan-tinted key, teal rope-and-cream harness. scdet t=4/6 @11.9667s (score 9.55); frame-diff 45.5. NOTE: this is the only cool-lit setup in the film; it is a costume/key choice on one shot, not a global cyan rim."
+    },
+    {
+      "id": "05b",
+      "parent_macro": "05",
+      "start_frame": 399,
+      "end_frame": 438,
+      "frames": 39,
+      "start_s": 13.3,
+      "end_s": 14.6,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10 @13.3s (score 12.5); frame-diff 35.5. Bisected: f398 = F1 CU, f399 = M1 wide full-body on red platform, CORPS_A seated/crouched below."
+    },
+    {
+      "id": "06a",
+      "parent_macro": "06",
+      "start_frame": 438,
+      "end_frame": 474,
+      "frames": 36,
+      "start_s": 14.6,
+      "end_s": 15.8,
+      "cut_confidence": "measured",
+      "evidence": "MACRO CUT, frame-exact: f437 = M1 wide, f438 = F1 seated on red steps in black, clapping. scdet t=4/6/10 @14.6s (score 10.0); frame-diff 36.7. Camera pulls back through the shot; no interior cut."
+    },
+    {
+      "id": "06b",
+      "parent_macro": "06",
+      "start_frame": 474,
+      "end_frame": 504,
+      "frames": 30,
+      "start_s": 15.8,
+      "end_s": 16.8,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6 @15.8s (score 8.28); frame-diff 33.4. Bisected: f473 = F1 seated wide, f474 = M1 medium CU looking up-left."
+    },
+    {
+      "id": "06c",
+      "parent_macro": "06",
+      "start_frame": 504,
+      "end_frame": 518,
+      "frames": 14,
+      "start_s": 16.8,
+      "end_s": 17.266667,
+      "cut_confidence": "visual",
+      "evidence": "scdet t=4 only @16.7667/16.8s (scores 4.21/4.11) - below t=6. Confirmed by eye and by frame-diff 27.3: f503 = M1 medium CU, f504 = WIDE, M1 small on the red step platform with CORPS_A. Shortest sub-shot in macro 06 at 14 frames."
+    },
+    {
+      "id": "06d",
+      "parent_macro": "06",
+      "start_frame": 518,
+      "end_frame": 553,
+      "frames": 35,
+      "start_s": 17.266667,
+      "end_s": 18.433333,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6 @17.2667s (score 7.99); frame-diff 30.4. Bisected: f517 = wide platform, f518 = M1 medium CU, hair slicked, CORPS_A behind."
+    },
+    {
+      "id": "06e",
+      "parent_macro": "06",
+      "start_frame": 553,
+      "end_frame": 584,
+      "frames": 31,
+      "start_s": 18.433333,
+      "end_s": 19.466667,
+      "cut_confidence": "visual",
+      "evidence": "scdet t=4 only @18.4333s (score 4.65); frame-diff 22.1. Confirmed by eye: f552 = M1 medium lunging, f553 = WIDE, M1 on the red pyramid with CORPS_A ranked in black."
+    },
+    {
+      "id": "07a",
+      "parent_macro": "07",
+      "start_frame": 584,
+      "end_frame": 628,
+      "frames": 44,
+      "start_s": 19.466667,
+      "end_s": 20.933333,
+      "cut_confidence": "measured",
+      "evidence": "MACRO CUT, frame-exact: f583 = wide pyramid, f584 = two-shot, F1 seated with red roses and M1 seated beside her on red steps. scdet t=4/6 @19.4667s (score 9.14); frame-diff 31.9. Slow pull-back; t=4 hits at 585/587/597/614 are that move, rejected."
+    },
+    {
+      "id": "07b",
+      "parent_macro": "07",
+      "start_frame": 628,
+      "end_frame": 665,
+      "frames": 37,
+      "start_s": 20.933333,
+      "end_s": 22.166667,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10 @20.9333s (score 10.3); frame-diff 33.5. Bisected: f627 = two-shot, f628 = F1 alone, seated on warm orange-lit steps. Slow push-in; t=4 hits at 644/647/657/662 rejected."
+    },
+    {
+      "id": "07c",
+      "parent_macro": "07",
+      "start_frame": 665,
+      "end_frame": 702,
+      "frames": 37,
+      "start_s": 22.166667,
+      "end_s": 23.4,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10 @22.1667s (score 12.7); frame-diff 49.6. Bisected: f664 = F1 seated, f665 = WIDE, M1 on the orange platform with CORPS_A in wide-brim hats."
+    },
+    {
+      "id": "07d",
+      "parent_macro": "07",
+      "start_frame": 702,
+      "end_frame": 738,
+      "frames": 36,
+      "start_s": 23.4,
+      "end_s": 24.6,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10/14 @23.4s (score 15.3); frame-diff 42.6. Bisected: f701 = wide platform, f702 = F1 CU, sleeveless black, red steps behind."
+    },
+    {
+      "id": "07e",
+      "parent_macro": "07",
+      "start_frame": 738,
+      "end_frame": 772,
+      "frames": 34,
+      "start_s": 24.6,
+      "end_s": 25.733333,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10/14 @24.6s (score 17.7); frame-diff 58.8. Bisected: f737 = F1 CU, f738 = M1 CU holding a golden pastry to camera, red roses at frame edge."
+    },
+    {
+      "id": "08a",
+      "parent_macro": "08",
+      "start_frame": 772,
+      "end_frame": 818,
+      "frames": 46,
+      "start_s": 25.733333,
+      "end_s": 27.266667,
+      "cut_confidence": "measured",
+      "evidence": "MACRO CUT, frame-exact: f771 = M1 pastry CU, f772 = EXTERIOR desert canyon, M1 in navy overcoat and DARK WIDE-BRIM HAT beside a red slanted structure. scdet t=4/6/10/14 @25.7333s (score 21.2); frame-diff 62.6. Verified f770-f815 frame-by-frame: one continuous push-in. The t=4/t=6 hits at 773/777/780/790/807 are the red wedge sweeping frame during that move - REJECTED as camera motion."
+    },
+    {
+      "id": "08b",
+      "parent_macro": "08",
+      "start_frame": 818,
+      "end_frame": 857,
+      "frames": 39,
+      "start_s": 27.266667,
+      "end_s": 28.566667,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10/14 @27.2667s (score 31.1, the largest in the film); frame-diff 98.5. Bisected: f817 = M1 medium, f818 = CORPS_B, white-robed and hooded, medium, blue sky. Verified f818-f856 frame-by-frame: ONE continuous pull-back that passes through heavy motion blur f837-f848. The t=10 and even t=14 hits at 837/840/845/850 are that blur - REJECTED. This is the exact case where a single threshold invents cuts."
+    },
+    {
+      "id": "08c",
+      "parent_macro": "08",
+      "start_frame": 857,
+      "end_frame": 907,
+      "frames": 50,
+      "start_s": 28.566667,
+      "end_s": 30.233333,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10 @28.5667s (score 13.8); frame-diff 56.6. Bisected: f856 = CORPS_B wide, f857 = M1 in navy and hat, wide, tracking past red plinths. Verified continuous (checked f876-f887 frame-by-frame)."
+    },
+    {
+      "id": "09a",
+      "parent_macro": "09",
+      "start_frame": 907,
+      "end_frame": 931,
+      "frames": 24,
+      "start_s": 30.233333,
+      "end_s": 31.033333,
+      "cut_confidence": "measured",
+      "evidence": "MACRO CUT, frame-exact: f906 = M1 tracking wide, f907 = CORPS_B hooded figure, arms out, medium. scdet t=4/6/10/14 @30.2333s (score 28.1); frame-diff 80.2. Verified f903-f930 frame-by-frame: continuous handheld; the t=6/t=10 hits at 908-930 are camera shake - REJECTED."
+    },
+    {
+      "id": "09b",
+      "parent_macro": "09",
+      "start_frame": 931,
+      "end_frame": 971,
+      "frames": 40,
+      "start_s": 31.033333,
+      "end_s": 32.366667,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10/14 @31.0333s (score 15.5); frame-diff 68.9. Bisected: f930 = CORPS_B medium, f931 = WIDE, M1 in navy and hat among CORPS_B and red plinths."
+    },
+    {
+      "id": "09c",
+      "parent_macro": "09",
+      "start_frame": 971,
+      "end_frame": 1003,
+      "frames": 32,
+      "start_s": 32.366667,
+      "end_s": 33.433333,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10/14 @32.3667s (score 21.1); frame-diff 64.3. Bisected: f970 = M1 wide, f971 = CORPS_B seen from behind, medium. t=4/6 hits at 972-1001 rejected as handheld motion."
+    },
+    {
+      "id": "09d",
+      "parent_macro": "09",
+      "start_frame": 1003,
+      "end_frame": 1057,
+      "frames": 54,
+      "start_s": 33.433333,
+      "end_s": 35.233333,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10/14 @33.4333s (score 21.6); frame-diff 79.1. Bisected: f1002 = CORPS_B back view, f1003 = M1 in navy and hat, medium-wide, red plinths. Continuous push-in to f1056 (checked f1038-f1049 frame-by-frame; t=4 hits at 1043/1045 rejected). Longest sub-shot in macro 09 at 54 frames."
+    },
+    {
+      "id": "09e",
+      "parent_macro": "09",
+      "start_frame": 1057,
+      "end_frame": 1086,
+      "frames": 29,
+      "start_s": 35.233333,
+      "end_s": 36.2,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10/14 @35.2333s (score 22.9); frame-diff 77.2. Bisected: f1056 = M1 medium, f1057 = CORPS_B, camera tracking. Verified f1053-f1085 frame-by-frame: ONE shot that accelerates into a whip-pan and ends in near-total motion blur. The t=10/t=14 hits at 1058/1070/1073/1075/1080 are that blur - REJECTED."
+    },
+    {
+      "id": "10a",
+      "parent_macro": "10",
+      "start_frame": 1086,
+      "end_frame": 1110,
+      "frames": 24,
+      "start_s": 36.2,
+      "end_s": 37.0,
+      "cut_confidence": "measured",
+      "evidence": "MACRO CUT, frame-exact: f1085 = blurred desert, f1086 = F1 CU in black with pearl chains and a pale turtleneck, red steps behind. scdet t=4/6/10/14 @36.2s (score 20.2); frame-diff 76.1."
+    },
+    {
+      "id": "10b",
+      "parent_macro": "10",
+      "start_frame": 1110,
+      "end_frame": 1132,
+      "frames": 22,
+      "start_s": 37.0,
+      "end_s": 37.733333,
+      "cut_confidence": "uncertain",
+      "evidence": "NOT A HARD CUT - a 6-frame VERTICAL SPLIT-SCREEN WIPE. f1110-f1115 show 10a still occupying the LEFT half while the incoming shot (F1 medium, forearm across the chest, on the red steps) fills the RIGHT half; the wipe completes and the incoming shot owns the frame from f1116. Boundary set at f1110 = first frame carrying incoming content. scdet t=4/6 @36.9667s and 37.2s; frame-diff 20.3 @1110, 26.4 @1116."
+    },
+    {
+      "id": "10c",
+      "parent_macro": "10",
+      "start_frame": 1132,
+      "end_frame": 1135,
+      "frames": 3,
+      "start_s": 37.733333,
+      "end_s": 37.833333,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10 @37.7333s (score 11.2); frame-diff 33.1. Bisected: f1131 = F1 medium (10b), f1132 = F1 CU again, hand raised to the chin. ONLY 3 FRAMES (0.100s) - a real cut, but far too short to be worth its own 19-minute generation; recommend covering it from the 10a still."
+    },
+    {
+      "id": "11a",
+      "parent_macro": "11",
+      "start_frame": 1135,
+      "end_frame": 1166,
+      "frames": 31,
+      "start_s": 37.833333,
+      "end_s": 38.866667,
+      "cut_confidence": "measured",
+      "evidence": "MACRO CUT, frame-exact: f1134 = F1 CU, f1135 = WIDE, M1 on the red platform with CORPS_A in wide-brim hats. scdet t=4/6/10 @37.8333s (score 10.2); frame-diff 46.7."
+    },
+    {
+      "id": "11b",
+      "parent_macro": "11",
+      "start_frame": 1166,
+      "end_frame": 1198,
+      "frames": 32,
+      "start_s": 38.866667,
+      "end_s": 39.933333,
+      "cut_confidence": "visual",
+      "evidence": "scdet t=4 only @38.8667s (score 5.43) - below t=6. Confirmed by eye and by frame-diff 26.6: f1165 = wide platform, f1166 = M1 medium profile, hands-down dance, CORPS_A in silhouette. Same subject, different framing."
+    },
+    {
+      "id": "11c",
+      "parent_macro": "11",
+      "start_frame": 1198,
+      "end_frame": 1239,
+      "frames": 41,
+      "start_s": 39.933333,
+      "end_s": 41.3,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10 @39.9333s (score 11.4); frame-diff 33.9. Bisected: f1197 = M1 medium, f1198 = F1 with a VEILED/WRAPPED head in an ivory dress on the red steps. Confirms the master does not hold one man in a hero pose across this window. t=4/6 hits at 1213/1220/1225 are the dress moving and a camera tilt - REJECTED."
+    },
+    {
+      "id": "11d",
+      "parent_macro": "11",
+      "start_frame": 1239,
+      "end_frame": 1274,
+      "frames": 35,
+      "start_s": 41.3,
+      "end_s": 42.466667,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6/10/14 @41.3s (score 17.5); frame-diff 61.3. Bisected: f1238 = ivory dress, f1239 = M1 full-body standing on a red block, wide. Verified continuous (checked f1250-f1261 frame-by-frame)."
+    },
+    {
+      "id": "11e",
+      "parent_macro": "11",
+      "start_frame": 1274,
+      "end_frame": 1290,
+      "frames": 16,
+      "start_s": 42.466667,
+      "end_s": 43.0,
+      "cut_confidence": "measured",
+      "evidence": "scdet t=4/6 @42.4667s (score 6.92); frame-diff 25.3. Bisected: f1273 = M1 wide standing, f1274 = M1 medium, walking toward camera. Runs to the last frame, f1289."
+    }
+  ]
+}

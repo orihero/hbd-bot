@@ -13,7 +13,7 @@ not be delivered in-chat could not be delivered at all.
 Three shape decisions, each stated as a decision against a named failure rather than as
 schema taste:
 
-* **A table, not columns on ``users``.** ``docs/product/ADMIN_PANEL_PLAN.md:674`` records "No DDL"
+* **A table, not columns on ``users``.** ``docs/product/ADMIN_PANEL_PLAN.md`` §5.11 records "No DDL"
   on ``users`` as a standing commitment, and ``credits.set_blocked`` UPSERTs a ``users``
   row so an operator can bar an account that never ordered — so that row must be able to
   outlive everything else we know about a person, which means ``/forget`` must never delete

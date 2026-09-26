@@ -1,0 +1,908 @@
+{
+ "_artifact": "render_budget.json",
+ "_generated": "2026-09-19",
+ "_purpose": "The honest GPU budget for the local open-weight rebuild of the 43.000 s / 1290-frame vertical reel. Replaces the '14 units, about 5 hours' figure, which was built on the false premise that each of the 11 macro windows was one continuous shot.",
+ "_character_policy": "Figures are addressed only as M1, F1, F2_VEILED, CORPS_A and CORPS_B. No real person and no television character is named in any field of this file.",
+ "_source_of_truth": "The delivered 43.000 s master reel (sha256 prefix 481e006c2cd5234b) read as extracted frames. Its filename carries a forbidden token and is deliberately not reproduced. subshots.json and shot_bible_v2.json are derived from those frames; the old bible and the execution blueprint record INTENT only.",
+ "_verification": {
+  "frames_viewed_this_pass": 16,
+  "frames_inferred_this_pass": 0,
+  "frame_indices_viewed": [
+   1086,
+   1095,
+   1103,
+   1109,
+   399,
+   410,
+   422,
+   437,
+   1150,
+   1165,
+   1166,
+   1180,
+   738,
+   748,
+   760,
+   771
+  ],
+  "what_they_confirmed": [
+   "10a IS a tight face close-up of F1 - pearl chains, cream funnel turtleneck, both hands up beside the jaw, against a deep red ground. The old bible's 'wide full-body seated shot' for this window is wrong; the frame wins.",
+   "05b IS a wide full-body dance beat - M1 alone on a red stepped platform in a black suit, feet planted and arms swinging, CORPS_A in wide-brim hats ranked behind on the red floor. The camera reframes across the window.",
+   "11a -> 11b IS a hard cut on the same man in the same wardrobe on the same red set: wide full-body at f1165, medium three-quarter profile at f1166. This is the seam that exposes identity drift.",
+   "07e IS an M1 close-up with a raised index finger and a golden pastry held right against his cheek - hand, face and prop in one frame."
+  ],
+  "inherited": "shot_bible_v2.json viewed 85 frames, cast_observed.json 64, sets_observed.json 51. Those passes are trusted where this one did not re-check them."
+ },
+ "_what_changed_from_the_old_estimate": {
+  "old": "14 units, about 5 hours.",
+  "why_it_was_wrong": "It treated each macro window as one continuous shot. Every window in fact contains interior hard cuts; the measured cut list is 38 sub-shots. It also beat-locked three new seams, which is now forbidden - boundaries come from the master's measured cuts.",
+  "new": "38 generation units. 6 to 23 hours of GPU wall clock, centre around 12, depending on three quantities nobody has measured yet: how i2v time scales with clip length, the re-roll rate, and the SR stage.",
+  "honest_multiple": "The old figure was 5 hours. The central figure is 12. The old one was not merely optimistic, it was costing a different film."
+ },
+ "A_unit_count": {
+  "rule": "A sub-shot of F timeline frames at 30 fps is delivered as F+12 frames (12 frames of trim headroom). Through the HunyuanVideo 1.5 -> RIFE x5 -> keep-every-4th chain that needs N frames at 24 fps where floor((5N-5)/4)+1 >= F+12, and N must be of the form 4n+1.",
+  "two_formulas_reported": "shot_bible_v2 computes N RIFE-aware (the 24->30 conversion means fewer 24 fps frames are needed). The task brief's literal wording - ceil(F*24/30) + headroom, rounded up to 4n+1 - is slightly more conservative. Both are reported; neither changes the answer.",
+  "headline": "ZERO model-forced splits at every candidate N_max, including the worst case of 61. The editorial cut list is the only thing that sets the generation count, so the budget is a flat 38 clips whatever the benchmark returns.",
+  "longest_subshot": {
+   "id": "02b",
+   "timeline_frames": 59,
+   "N_bible": 57,
+   "N_task_formula": 61
+  },
+  "caveat_at_61": "Under the literal task formula the longest sub-shot needs exactly N=61, which exactly equals the worst-case N_max. Zero splits, but also zero margin - if the benchmark lands below 61, 02b is the first and only sub-shot to split.",
+  "a_split_is_not_free": "Any model-forced split inserts a cut the master does not have. At 30 fps the rebuild would show a hard cut inside a shot that is continuous in the master, and the A/B would then be comparing a different edit, not a different model. It is a visible divergence, not a free operation. None are required at any candidate N_max.",
+  "per_nmax": {
+   "121": {
+    "generation_units": 38,
+    "model_forced_splits": 0,
+    "generation_units_under_literal_task_formula": 38,
+    "model_forced_splits_under_literal_task_formula": 0,
+    "longest_N_required_bible": 57,
+    "longest_N_required_task_formula": 61,
+    "margin_frames_task_formula": 60
+   },
+   "97": {
+    "generation_units": 38,
+    "model_forced_splits": 0,
+    "generation_units_under_literal_task_formula": 38,
+    "model_forced_splits_under_literal_task_formula": 0,
+    "longest_N_required_bible": 57,
+    "longest_N_required_task_formula": 61,
+    "margin_frames_task_formula": 36
+   },
+   "81": {
+    "generation_units": 38,
+    "model_forced_splits": 0,
+    "generation_units_under_literal_task_formula": 38,
+    "model_forced_splits_under_literal_task_formula": 0,
+    "longest_N_required_bible": 57,
+    "longest_N_required_task_formula": 61,
+    "margin_frames_task_formula": 20
+   },
+   "61": {
+    "generation_units": 38,
+    "model_forced_splits": 0,
+    "generation_units_under_literal_task_formula": 38,
+    "model_forced_splits_under_literal_task_formula": 0,
+    "longest_N_required_bible": 57,
+    "longest_N_required_task_formula": 61,
+    "margin_frames_task_formula": 0
+   }
+  },
+  "sum_of_N_frames_at_24fps": {
+   "bible": 1466,
+   "task_formula": 1510
+  }
+ },
+ "B_wall_clock": {
+  "measured_inputs": {
+   "flux2_still": "107 s per image at 832x1792 - MEASURED on the target box.",
+   "flux2_still_scaled_720x1280": "66.1 s - SCALED BY PIXEL COUNT FROM THE 832x1792 MEASUREMENT, NOT MEASURED. Used nowhere in the totals below; the plan generates stills at 832x1792.",
+   "hunyuan_i2v": "roughly 19 minutes per 121-frame clip at 720x1280 - the only i2v timing that exists, and the 121-frame benchmark was still running when this was written.",
+   "sr_stage": "NEVER TIMED. Treated as UNKNOWN throughout.",
+   "interpolation": "NEVER TIMED. A guess is used and labelled as one."
+  },
+  "i2v_scaling_models": {
+   "flat_19min_per_clip": {
+    "formula": "19 min regardless of N",
+    "why": "Upper bound. Assumes short clips buy nothing.",
+    "total_s": 43320,
+    "total_h": 12.03
+   },
+   "affine_fixed_plus_rate": {
+    "formula": "240 s fixed + 7.438 s per generated frame",
+    "why": "The model the brief asked for. ASSUMPTION: 4 minutes of per-run overhead (model staging, text encode, VAE decode) that does NOT shrink with clip length, so short clips are not proportionally cheaper. Calibrated so N=121 lands on 19 min.",
+    "total_s": 20024,
+    "total_h": 5.56
+   },
+   "quadratic_attention_hypothesis": {
+    "formula": "240 s fixed + 0.9365 s per (latent frame)^2, latent frames = (N-1)/4 + 1",
+    "why": "cost_model.json's hypothesis: full 3D attention makes step cost scale with the square of token count, so a 37-frame clip could cost a fifth of a 121-frame one rather than a third. UNMEASURED. Lower bound.",
+    "total_s": 13159,
+    "total_h": 3.66
+   }
+  },
+  "character_sheet": {
+   "images": "12 to 18 - a 6-image identity sheet each for M1 and F1, plus single references for F2_VEILED, CORPS_A and CORPS_B. F2_VEILED's face is gauze-covered, so she needs a reference, not an identity sheet.",
+   "s_at_107": {
+    "low": 1284,
+    "central": 1605,
+    "high": 1926
+   }
+  },
+  "stills": {
+   "count": 38,
+   "note": "ONE Flux.2 keyframe PER SUB-SHOT, not per macro window. This is the line item the 14-unit estimate missed entirely (cost_model.json COST-01).",
+   "first_pass_s": 4066,
+   "with_1_5x_rerolls_s": 6099,
+   "with_2x_rerolls_s": 8132
+  },
+  "totals_with_sr_excluded": {
+   "LOW_optimistic": {
+    "character_sheet_s": 1284,
+    "stills_s": 4066,
+    "i2v_s": 13159,
+    "sr_s": 0,
+    "interpolation_s": 1140,
+    "assembly_s": 600,
+    "total_s": 20249,
+    "total_h": 5.62
+   },
+   "CENTRAL": {
+    "character_sheet_s": 1605,
+    "stills_s": 6099,
+    "i2v_s": 25030,
+    "sr_s": 0,
+    "interpolation_s": 3420,
+    "assembly_s": 600,
+    "total_s": 36754,
+    "total_h": 10.21
+   },
+   "HIGH_pessimistic": {
+    "character_sheet_s": 1926,
+    "stills_s": 8132,
+    "i2v_s": 60648,
+    "sr_s": 0,
+    "interpolation_s": 5700,
+    "assembly_s": 600,
+    "total_s": 77006,
+    "total_h": 21.39
+   }
+  },
+  "totals_with_sr_placeholder": {
+   "placeholder": "3 min per clip - A GUESS, clearly labelled. The stage has never been run, let alone timed.",
+   "LOW_optimistic": {
+    "character_sheet_s": 1284,
+    "stills_s": 4066,
+    "i2v_s": 13159,
+    "sr_s": 0,
+    "interpolation_s": 1140,
+    "assembly_s": 600,
+    "total_s": 20249,
+    "total_h": 5.62,
+    "assumptions": "Short clips are much cheaper because attention cost scales with the square of latent frames (cost_model.json hypothesis, NOT measured). No re-rolls. SR skipped. Interpolation 30 s/clip."
+   },
+   "CENTRAL": {
+    "character_sheet_s": 1605,
+    "stills_s": 6099,
+    "i2v_s": 25030,
+    "sr_s": 6840,
+    "interpolation_s": 3420,
+    "assembly_s": 600,
+    "total_s": 43594,
+    "total_h": 12.11,
+    "assumptions": "i2v = 4 min fixed + 7.438 s/frame, calibrated so a 121-frame clip is 19 min. 1.5x still re-rolls, 1.25x i2v re-rolls. SR at the 3 min/clip PLACEHOLDER GUESS. Interpolation 90 s/clip (guess)."
+   },
+   "HIGH_pessimistic": {
+    "character_sheet_s": 1926,
+    "stills_s": 8132,
+    "i2v_s": 60648,
+    "sr_s": 6840,
+    "interpolation_s": 5700,
+    "assembly_s": 600,
+    "total_s": 83846,
+    "total_h": 23.29,
+    "assumptions": "No economy at all for short clips - every generation costs the full 19 min. 2x still re-rolls, 1.4x i2v re-rolls. SR at the 3 min/clip PLACEHOLDER GUESS. Interpolation 150 s/clip (guess)."
+   }
+  },
+  "range_headline": "6 to 23 hours of GPU wall clock; about 12 hours on the central assumptions. With the SR stage excluded: 5.6 h (LOW) / 10.2 h (CENTRAL) / 21.4 h (HIGH). With the 3 min/clip SR placeholder: 5.6 h / 12.1 h / 23.3 h. The low end assumes an unmeasured scaling law holds AND that nothing needs re-rolling - neither has ever been true on a generative job. Plan a night, and do not plan to be finished by morning.",
+  "what_drives_the_spread": [
+   "1. HOW i2v TIME SCALES WITH CLIP LENGTH. This single unmeasured quantity moves the i2v stage between 3.7 h and 12.0 h - a factor of 3.3 - and i2v is 60-75% of the total in every scenario. The 49-frame and 33-frame benchmark runs resolve it.",
+   "2. RE-ROLLS. A dance reel with hands in frame will not come back clean first time. Nothing in this project has measured a rejection rate, so the retry factor is assumed, not known.",
+   "3. THE SR STAGE, which has never been run and contributes 0 to 1.9 h depending on a number nobody has.",
+   "4. Whether the fp8_scaled text encoder is downloaded - see section C."
+  ]
+ },
+ "C_pending_downloads": {
+  "total_bytes": "9.9 GiB across four files (node_schemas.json downloads_pending_user_approval). None fetched; none approved.",
+  "items": [
+   {
+    "id": 1,
+    "what": "1080p latent upsampler",
+    "size": "192.1 MiB",
+    "buys_in_quality": "The only route to a 1080x1920 deliverable. Without it the rebuild ships 720x1280 lanczos-upscaled and the A/B is no longer resolution-matched against the 1080x1920 master.",
+    "costs_in_time": "ADDS the SR stage: 0 to 1.9 h across 38 clips, on a placeholder nobody has measured.",
+    "verdict": "Take it only if the comparison has to be at 1080x1920. For the cheapest-useful-experiment it can be skipped - see E."
+   },
+   {
+    "id": 2,
+    "what": "RIFE frame interpolation weights (v4.26 and v4.25_heavy)",
+    "size": "104 MiB for both",
+    "buys_in_quality": "The 24 -> 30 fps conversion the whole frame chain is built on. Skipping it means judder on a dance reel, which is the worst of the four to skip.",
+    "costs_in_time": "Adds the interpolation stage, guessed at 0.5 to 2.5 min per clip: 19 to 95 min across 38 clips. Never timed.",
+    "verdict": "Effectively mandatory. 104 MiB is the cheapest quality in the whole list."
+   },
+   {
+    "id": 3,
+    "what": "sigclip vision encoder",
+    "size": "816.8 MiB",
+    "buys_in_quality": "Keyframe adherence in i2v - the clip holds the still it was given. It attacks the project's single biggest quality risk (character drift, cost_model.json COST-02), which no other download touches.",
+    "costs_in_time": "Negligible: one small vision encode per clip.",
+    "verdict": "Take it. Best quality-per-byte of the four."
+   },
+   {
+    "id": 4,
+    "what": "qwen 2.5 VL 7B fp8_scaled text encoder",
+    "size": "8.74 GiB",
+    "buys_in_quality": "Nothing directly.",
+    "costs_in_time": "NEGATIVE - this is the only one of the four that attacks per-clip time.",
+    "mechanism": "Today a 15.45 GiB text encoder shares the card with a 15.5 GiB UNet. node_schemas.json names that contention as the direct cause of the ~19 min per clip. The fp8_scaled copy is 8.74 GiB and frees about 6.7 GiB of resident VRAM, so the encoder no longer has to be evicted and re-staged around every run.",
+    "estimated_saving": "ESTIMATE, NOT MEASURED: plausibly 15-35% off per-clip time, i.e. 19 min falling to roughly 12-16 min. Across 38 clips that is roughly 0.9 to 2.0 h back in the affine model and 1.8 to 4.2 h in the flat model. Treat the low end as the planning figure and be ready for it to be zero - if the real bottleneck is attention and not memory pressure, this download buys nothing at all.",
+    "download_cost": "8.74 GiB is 12 minutes at 100 Mbit/s and about 40 minutes at 30 Mbit/s, plus a manual move (it lands under a different root and must be flattened).",
+    "verdict": "Take it if the full reel is being rendered. At the experiment scale its own download time is comparable to what it saves."
+   }
+  ],
+  "also_noted": {
+   "declined": "Flux.2 Turbo LoRA (2.57 GiB). It was declined at 14 stills; at 38 stills it would save roughly 40-50 min, but it degrades the character sheet that every downstream generation inherits. Still declined. Reopen only if the user commits to the full reel and identity is already proven to hold."
+  }
+ },
+ "D_cheapest_useful_experiment": {
+  "recommendation": "Render four sub-shots - 10a, 05b, 11a, 11b - through the complete chain, and look at them before committing to anything else.",
+  "subshot_ids": [
+   "10a",
+   "05b",
+   "11a",
+   "11b"
+  ],
+  "why_these": [
+   {
+    "id": "10a",
+    "stresses": "Face close-up.",
+    "justification": "VIEWED AT f1086/1095/1103/1109: a tight face close-up of F1, both hands raised beside the jaw, fine pearl chains across a cream funnel neck, against a deep red ground. It is the hardest identity test in the reel - a large face filling the frame with hands next to it - and it is also the exact window the old bible described as a wide full-body seated shot, so rendering it proves the corrected cut list end to end."
+   },
+   {
+    "id": "05b",
+    "stresses": "Fast full-body dance with hands.",
+    "justification": "VIEWED AT f399/410/422/437: M1 alone on the red stepped platform, feet planted and arms swinging through a full-body beat, CORPS_A ranked behind him and the camera reframing. Full-body anatomy, feet on a hard edge, swinging hands and a background crowd, all at once - if local video collapses anywhere, it collapses here."
+   },
+   {
+    "id": "11a",
+    "stresses": "Seam, side A.",
+    "justification": "VIEWED AT f1150/1165: wide full-body M1 on the red platform with CORPS_A in wide-brim hats."
+   },
+   {
+    "id": "11b",
+    "stresses": "Seam, side B - the same character, cut hard to a different size.",
+    "justification": "VIEWED AT f1166/1180: the same man in the same wardrobe on the same set, now a medium three-quarter profile. 11a and 11b are generated from two INDEPENDENT Flux.2 stills and then butted together. Any identity drift lands on adjacent frames where the eye compares them directly. This is the single test the full build cannot survive failing."
+   }
+  ],
+  "what_it_does_not_test": "The desert set (SET_C), CORPS_B, F2_VEILED, the two composite wipe seams, and whether 38 stills hold one face across the whole reel rather than across four.",
+  "staged_gate": "The experiment is naturally two-staged and should be run that way. Stage 1 is the M1 and F1 identity sheets plus the four keyframe stills - about 30 minutes, Flux.2 only, needs NONE of the four downloads. LOOK AT THEM. If Flux.2 multi-reference cannot hold one face across four independently generated stills, stop: no amount of video-model quality rescues the project, and the user has spent half an hour finding that out. Only if identity holds does stage 2 - the four i2v clips, interpolation, SR and assembly - get launched.",
+  "cost": {
+   "stage_1_stills_only_s": 1712,
+   "stage_1_stills_only_min": 28.5,
+   "full_low_s": 3753,
+   "full_central_s": 5530,
+   "full_high_s": 8406,
+   "full_low_h": 1.04,
+   "full_central_h": 1.54,
+   "full_high_h": 2.33,
+   "headline": "About 2 hours, worst case 2.5. Roughly one seventh of the full build, and it answers the go/no-go question the full build is being asked to answer."
+  },
+  "downloads_required": "RIFE (104 MiB) and sigclip (817 MiB) for a fair stage 2. The 1080p upsampler can be skipped by comparing at 720x1280 with the master downscaled. The fp8_scaled encoder is not worth its own download time at four clips."
+ },
+ "E_ways_to_make_it_cheaper": [
+  {
+   "option": "Drop 10c and cover it from the 10a/10b tail",
+   "saves": "One whole generation unit: 11 min (affine, including its still, interpolation and SR) to 27 min (flat).",
+   "costs_the_comparison": "Three frames - one tenth of a second. The master's cut there is a return to a framing already on screen. Nobody can see this.",
+   "verdict": "TAKE IT. The best free saving in the list, and shot_bible_v2 OQ-03 already recommends it."
+  },
+  {
+   "option": "Generate fewer frames per clip - cut trim headroom from 12 frames to 4",
+   "saves": "About 7 frames of N per clip, 266 frames across the reel: roughly 33 min in the affine model. NOTHING in the flat model, where cost is per clip and not per frame.",
+   "costs_the_comparison": "No slack to trim. The lead-in latent freeze and any tail artefact land inside the cut instead of being discarded at assembly, so defects that would have been trimmed become visible. Small money, real risk.",
+   "verdict": "Do not do this up front. Keep it as a lever if the benchmark shows the affine model is right AND the first clips come back clean at the head."
+  },
+  {
+   "option": "Drop the SR stage and compare at 720x1280 with the master downscaled to match",
+   "saves": "The full SR placeholder - up to 1.9 h - and the 192 MiB upsampler download.",
+   "costs_the_comparison": "The A/B stops measuring finish and measures only content and motion. It also flatters both sides: downscaling the 1080x1920 master hides its own softness. A verdict reached at 720x1280 does not license a claim about a 1080x1920 deliverable.",
+   "verdict": "TAKE IT FOR THE EXPERIMENT, REJECT IT FOR THE FINAL VERDICT. Motion and identity are what is in doubt; resolution is not."
+  },
+  {
+   "option": "Reuse one still across adjacent sub-shots of the same setup",
+   "candidate_pairs_found": [
+    "03a/03b",
+    "03b/03c",
+    "06c/06d",
+    "06d/06e",
+    "10a/10b",
+    "10b/10c",
+    "11a/11b",
+    "11d/11e"
+   ],
+   "saves": "107 s per reuse - under 15 minutes even if every one of the eight were taken.",
+   "costs_the_comparison": "Six of the eight pairs are a size change (wide to medium, or back), so one still physically cannot serve both. On the two that could, two clips would open from the identical frame, and the master's cut there is a genuine setup change. The unit_plan already names this failure: identical framing plus a fresh latent equals a visible pose pop. The rebuild's cuts would read as stutters where the master's read as edits.",
+   "verdict": "REJECT. Trivial saving, visible defect, and it damages exactly the seam quality the A/B is trying to measure."
+  },
+  {
+   "option": "Fetch the fp8_scaled text encoder before starting",
+   "saves": "Estimated 0.9 to 2.0 h in the affine model - see section C. Possibly zero.",
+   "costs_the_comparison": "Nothing. It changes which copy of the same encoder is resident, not what is generated. Keep both on disk; the loader picks by name, so an A/B costs no second download.",
+   "verdict": "TAKE IT if the full reel is going to be rendered. It is the only lever that shortens the long pole without touching the picture."
+  }
+ ],
+ "F_biggest_cost_driver": {
+  "answer": "The 38 image-to-video generations, and specifically the UNMEASURED question of how HunyuanVideo i2v time scales with clip length.",
+  "share_of_total": "60% to 75% of wall clock in every scenario.",
+  "why_it_dominates": "38 clips against roughly 19 minutes each is the whole job. Stills are 68 minutes; the character sheet is half an hour; assembly is minutes. Everything else is rounding.",
+  "the_one_measurement_that_matters": "The 49-frame and 33-frame benchmark runs. They separate fixed overhead from variable cost and collapse a 3.3x spread - 3.7 h against 12.0 h - into a number. Nothing else on the list is worth this much. Do not start the reel before they land.",
+  "counter_intuitive_note": "Because per-run overhead does not shrink, 38 short clips are NOT obviously cheaper than 14 long ones even though they contain the same 43 seconds. If the flat model is right they are 2.6x more expensive. If the quadratic hypothesis is right they are cheaper. Nobody knows yet."
+ },
+ "G_quality_risk_not_in_the_clock": {
+  "note": "Time is not the only thing 38 sub-shots cost. Identity is carried only by Flux.2 native multi-reference - no LoRA, no ControlNet, no IP-Adapter, no InstantID on this box. 38 independently generated stills are 38 chances to drift, and a hard cut every 1.2 seconds places those drifts adjacent on screen where the eye compares them. Fourteen longer units hid drift by cutting less often; 38 cannot. None of the four downloads fixes this, and no amount of GPU time buys it back.",
+  "also": "The master is itself inconsistent - three visibly different male faces carry M1 across the reel (cast_observed.json). Holding one canonical M1 is a deliberate divergence from the master, and it must be stated when the A/B is judged, or the rebuild will be marked down for being more consistent than the thing it is copying."
+ },
+ "per_subshot": [
+  {
+   "id": "01a",
+   "timeline_frames_30fps": 14,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "F1"
+   ],
+   "N_24fps_bible_rife_aware": 21,
+   "N_24fps_task_formula": 25,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 396,
+   "i2v_s_quadratic": 274,
+   "framing": "tight close-up, head and shoulders"
+  },
+  {
+   "id": "01b",
+   "timeline_frames_30fps": 32,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "M1",
+    "CORPS_A"
+   ],
+   "N_24fps_bible_rife_aware": 37,
+   "N_24fps_task_formula": 37,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 515,
+   "i2v_s_quadratic": 334,
+   "framing": "wide, full body with the feet on the platform and clean floor below"
+  },
+  {
+   "id": "01c",
+   "timeline_frames_30fps": 23,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "M1"
+   ],
+   "N_24fps_bible_rife_aware": 29,
+   "N_24fps_task_formula": 29,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 456,
+   "i2v_s_quadratic": 300,
+   "framing": "medium, waist-up and a little more"
+  },
+  {
+   "id": "02a",
+   "timeline_frames_30fps": 30,
+   "set_id": "SET_B_RED_CYC_DARK",
+   "characters": [
+    "F1"
+   ],
+   "N_24fps_bible_rife_aware": 37,
+   "N_24fps_task_formula": 37,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 515,
+   "i2v_s_quadratic": 334,
+   "framing": "close-up, very shallow depth of field"
+  },
+  {
+   "id": "02b",
+   "timeline_frames_30fps": 59,
+   "set_id": "SET_B_RED_CYC_DARK",
+   "characters": [
+    "M1",
+    "F1"
+   ],
+   "N_24fps_bible_rife_aware": 57,
+   "N_24fps_task_formula": 61,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 664,
+   "i2v_s_quadratic": 451,
+   "framing": "opens as a medium two-shot, pushes in to a tight close-up on M1's face and hat by f155"
+  },
+  {
+   "id": "03a",
+   "timeline_frames_30fps": 31,
+   "set_id": "SET_B_RED_CYC_DARK",
+   "characters": [
+    "M1",
+    "CORPS_A"
+   ],
+   "N_24fps_bible_rife_aware": 37,
+   "N_24fps_task_formula": 37,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 515,
+   "i2v_s_quadratic": 334,
+   "framing": "medium-wide, knees up"
+  },
+  {
+   "id": "03b",
+   "timeline_frames_30fps": 32,
+   "set_id": "SET_B_RED_CYC_DARK",
+   "characters": [
+    "M1",
+    "CORPS_A"
+   ],
+   "N_24fps_bible_rife_aware": 37,
+   "N_24fps_task_formula": 37,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 515,
+   "i2v_s_quadratic": 334,
+   "framing": "wide, full body, the figure small in frame"
+  },
+  {
+   "id": "03c",
+   "timeline_frames_30fps": 52,
+   "set_id": "SET_B_RED_CYC_DARK",
+   "characters": [
+    "M1",
+    "CORPS_A"
+   ],
+   "N_24fps_bible_rife_aware": 53,
+   "N_24fps_task_formula": 53,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 634,
+   "i2v_s_quadratic": 424,
+   "framing": "medium, three-quarter profile"
+  },
+  {
+   "id": "04a",
+   "timeline_frames_30fps": 41,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "F1"
+   ],
+   "N_24fps_bible_rife_aware": 45,
+   "N_24fps_task_formula": 45,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 575,
+   "i2v_s_quadratic": 375,
+   "framing": "close-up"
+  },
+  {
+   "id": "04b",
+   "timeline_frames_30fps": 45,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "M1"
+   ],
+   "N_24fps_bible_rife_aware": 49,
+   "N_24fps_task_formula": 49,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 604,
+   "i2v_s_quadratic": 398,
+   "framing": "medium-full - head to upper thigh; the feet are NOT in frame"
+  },
+  {
+   "id": "05a",
+   "timeline_frames_30fps": 40,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "F1"
+   ],
+   "N_24fps_bible_rife_aware": 45,
+   "N_24fps_task_formula": 45,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 575,
+   "i2v_s_quadratic": 375,
+   "framing": "close-up"
+  },
+  {
+   "id": "05b",
+   "timeline_frames_30fps": 39,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "M1",
+    "CORPS_A"
+   ],
+   "N_24fps_bible_rife_aware": 41,
+   "N_24fps_task_formula": 45,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 545,
+   "i2v_s_quadratic": 353,
+   "framing": "wide, full body, feet on the platform"
+  },
+  {
+   "id": "06a",
+   "timeline_frames_30fps": 36,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "F1"
+   ],
+   "N_24fps_bible_rife_aware": 41,
+   "N_24fps_task_formula": 41,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 545,
+   "i2v_s_quadratic": 353,
+   "framing": "starts close on the seated figure and opens to a fuller view of the steps"
+  },
+  {
+   "id": "06b",
+   "timeline_frames_30fps": 30,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "M1"
+   ],
+   "N_24fps_bible_rife_aware": 37,
+   "N_24fps_task_formula": 37,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 515,
+   "i2v_s_quadratic": 334,
+   "framing": "medium close-up"
+  },
+  {
+   "id": "06c",
+   "timeline_frames_30fps": 14,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "M1",
+    "CORPS_A"
+   ],
+   "N_24fps_bible_rife_aware": 21,
+   "N_24fps_task_formula": 25,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 396,
+   "i2v_s_quadratic": 274,
+   "framing": "wide, the figure small at the far end of the runway"
+  },
+  {
+   "id": "06d",
+   "timeline_frames_30fps": 35,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "M1",
+    "CORPS_A"
+   ],
+   "N_24fps_bible_rife_aware": 41,
+   "N_24fps_task_formula": 41,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 545,
+   "i2v_s_quadratic": 353,
+   "framing": "medium close-up"
+  },
+  {
+   "id": "06e",
+   "timeline_frames_30fps": 31,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "M1",
+    "CORPS_A"
+   ],
+   "N_24fps_bible_rife_aware": 37,
+   "N_24fps_task_formula": 37,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 515,
+   "i2v_s_quadratic": 334,
+   "framing": "wide, full body"
+  },
+  {
+   "id": "07a",
+   "timeline_frames_30fps": 44,
+   "set_id": "SET_B_RED_CYC_DARK",
+   "characters": [
+    "M1",
+    "F1"
+   ],
+   "N_24fps_bible_rife_aware": 45,
+   "N_24fps_task_formula": 49,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 575,
+   "i2v_s_quadratic": 375,
+   "framing": "two-shot, seated, roughly thigh-up widening out"
+  },
+  {
+   "id": "07b",
+   "timeline_frames_30fps": 37,
+   "set_id": "SET_B_RED_CYC_DARK",
+   "characters": [
+    "F1"
+   ],
+   "N_24fps_bible_rife_aware": 41,
+   "N_24fps_task_formula": 41,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 545,
+   "i2v_s_quadratic": 353,
+   "framing": "medium seated, tightening"
+  },
+  {
+   "id": "07c",
+   "timeline_frames_30fps": 37,
+   "set_id": "SET_B_RED_CYC_DARK",
+   "characters": [
+    "M1",
+    "CORPS_A"
+   ],
+   "N_24fps_bible_rife_aware": 41,
+   "N_24fps_task_formula": 41,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 545,
+   "i2v_s_quadratic": 353,
+   "framing": "wide, full body on the plinth"
+  },
+  {
+   "id": "07d",
+   "timeline_frames_30fps": 36,
+   "set_id": "SET_B_RED_CYC_DARK",
+   "characters": [
+    "F1"
+   ],
+   "N_24fps_bible_rife_aware": 41,
+   "N_24fps_task_formula": 41,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 545,
+   "i2v_s_quadratic": 353,
+   "framing": "close-up"
+  },
+  {
+   "id": "07e",
+   "timeline_frames_30fps": 34,
+   "set_id": "SET_B_RED_CYC_DARK",
+   "characters": [
+    "M1"
+   ],
+   "N_24fps_bible_rife_aware": 37,
+   "N_24fps_task_formula": 41,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 515,
+   "i2v_s_quadratic": 334,
+   "framing": "close-up"
+  },
+  {
+   "id": "08a",
+   "timeline_frames_30fps": 46,
+   "set_id": "SET_C_DESERT_QUARRY_RED_PROPS",
+   "characters": [
+    "M1",
+    "CORPS_B"
+   ],
+   "N_24fps_bible_rife_aware": 49,
+   "N_24fps_task_formula": 49,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 604,
+   "i2v_s_quadratic": 398,
+   "framing": "opens on a tilted extreme close-up of the red portal edge, resolves to a medium on M1 by f780"
+  },
+  {
+   "id": "08b",
+   "timeline_frames_30fps": 39,
+   "set_id": "SET_C_DESERT_QUARRY_RED_PROPS",
+   "characters": [
+    "CORPS_B"
+   ],
+   "N_24fps_bible_rife_aware": 41,
+   "N_24fps_task_formula": 45,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 545,
+   "i2v_s_quadratic": 353,
+   "framing": "medium opening to wide"
+  },
+  {
+   "id": "08c",
+   "timeline_frames_30fps": 50,
+   "set_id": "SET_C_DESERT_QUARRY_RED_PROPS",
+   "characters": [
+    "M1",
+    "CORPS_B"
+   ],
+   "N_24fps_bible_rife_aware": 53,
+   "N_24fps_task_formula": 53,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 634,
+   "i2v_s_quadratic": 424,
+   "framing": "wide, full body in the landscape"
+  },
+  {
+   "id": "09a",
+   "timeline_frames_30fps": 24,
+   "set_id": "SET_C_DESERT_QUARRY_RED_PROPS",
+   "characters": [
+    "CORPS_B"
+   ],
+   "N_24fps_bible_rife_aware": 29,
+   "N_24fps_task_formula": 33,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 456,
+   "i2v_s_quadratic": 300,
+   "framing": "medium, slightly canted"
+  },
+  {
+   "id": "09b",
+   "timeline_frames_30fps": 40,
+   "set_id": "SET_C_DESERT_QUARRY_RED_PROPS",
+   "characters": [
+    "M1",
+    "CORPS_B"
+   ],
+   "N_24fps_bible_rife_aware": 45,
+   "N_24fps_task_formula": 45,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 575,
+   "i2v_s_quadratic": 375,
+   "framing": "wide"
+  },
+  {
+   "id": "09c",
+   "timeline_frames_30fps": 32,
+   "set_id": "SET_C_DESERT_QUARRY_RED_PROPS",
+   "characters": [
+    "CORPS_B"
+   ],
+   "N_24fps_bible_rife_aware": 37,
+   "N_24fps_task_formula": 37,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 515,
+   "i2v_s_quadratic": 334,
+   "framing": "medium, from directly behind the figure"
+  },
+  {
+   "id": "09d",
+   "timeline_frames_30fps": 54,
+   "set_id": "SET_C_DESERT_QUARRY_RED_PROPS",
+   "characters": [
+    "M1",
+    "CORPS_B"
+   ],
+   "N_24fps_bible_rife_aware": 53,
+   "N_24fps_task_formula": 57,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 634,
+   "i2v_s_quadratic": 424,
+   "framing": "medium-wide tightening to a medium"
+  },
+  {
+   "id": "09e",
+   "timeline_frames_30fps": 29,
+   "set_id": "SET_C_DESERT_QUARRY_RED_PROPS",
+   "characters": [
+    "CORPS_B"
+   ],
+   "N_24fps_bible_rife_aware": 33,
+   "N_24fps_task_formula": 37,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 485,
+   "i2v_s_quadratic": 316,
+   "framing": "close to medium, unstable"
+  },
+  {
+   "id": "10a",
+   "timeline_frames_30fps": 24,
+   "set_id": "SET_B_RED_CYC_DARK",
+   "characters": [
+    "F1"
+   ],
+   "N_24fps_bible_rife_aware": 29,
+   "N_24fps_task_formula": 33,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 456,
+   "i2v_s_quadratic": 300,
+   "framing": "TIGHT FACE CLOSE-UP with the top of the head at or above the frame edge - NO headroom"
+  },
+  {
+   "id": "10b",
+   "timeline_frames_30fps": 22,
+   "set_id": "SET_B_RED_CYC_DARK",
+   "characters": [
+    "F1"
+   ],
+   "N_24fps_bible_rife_aware": 29,
+   "N_24fps_task_formula": 29,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 456,
+   "i2v_s_quadratic": 300,
+   "framing": "medium"
+  },
+  {
+   "id": "10c",
+   "timeline_frames_30fps": 3,
+   "set_id": "SET_B_RED_CYC_DARK",
+   "characters": [
+    "F1"
+   ],
+   "N_24fps_bible_rife_aware": 13,
+   "N_24fps_task_formula": 13,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 337,
+   "i2v_s_quadratic": 255,
+   "framing": "tight close-up"
+  },
+  {
+   "id": "11a",
+   "timeline_frames_30fps": 31,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "M1",
+    "CORPS_A"
+   ],
+   "N_24fps_bible_rife_aware": 37,
+   "N_24fps_task_formula": 37,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 515,
+   "i2v_s_quadratic": 334,
+   "framing": "wide, full body"
+  },
+  {
+   "id": "11b",
+   "timeline_frames_30fps": 32,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "M1",
+    "CORPS_A"
+   ],
+   "N_24fps_bible_rife_aware": 37,
+   "N_24fps_task_formula": 37,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 515,
+   "i2v_s_quadratic": 334,
+   "framing": "medium, three-quarter profile"
+  },
+  {
+   "id": "11c",
+   "timeline_frames_30fps": 41,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "F2_VEILED"
+   ],
+   "N_24fps_bible_rife_aware": 45,
+   "N_24fps_task_formula": 45,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 575,
+   "i2v_s_quadratic": 375,
+   "framing": "medium-full on the tiers"
+  },
+  {
+   "id": "11d",
+   "timeline_frames_30fps": 35,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "M1"
+   ],
+   "N_24fps_bible_rife_aware": 41,
+   "N_24fps_task_formula": 41,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 545,
+   "i2v_s_quadratic": 353,
+   "framing": "wide, full body on a low block"
+  },
+  {
+   "id": "11e",
+   "timeline_frames_30fps": 16,
+   "set_id": "SET_A_RED_CYC_BRIGHT",
+   "characters": [
+    "M1"
+   ],
+   "N_24fps_bible_rife_aware": 25,
+   "N_24fps_task_formula": 25,
+   "i2v_s_flat": 1140,
+   "i2v_s_affine": 426,
+   "i2v_s_quadratic": 286,
+   "framing": "medium"
+  }
+ ]
+}

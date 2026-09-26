@@ -1,0 +1,232 @@
+{
+  "_meta": {
+    "purpose": "Verbatim node schemas from GET /object_info on the specific-tasks box (Windows RTX 5090, ComfyUI 0.27.0). These are GROUND TRUTH and override anything comfy_graphs.py guessed. Patch the builders against this file.",
+    "captured": "2026-09-19",
+    "source": "specific-tasks Remote Control session, live /object_info query",
+    "why_it_matters": "This Mac cannot reach that box, so node input names and output indices could not be verified locally. Three of the traps below produce SILENT wrong output rather than an error."
+  },
+
+  "traps": [
+    {
+      "id": "TRAP-05",
+      "node": "BasicGuider / CFGGuider / ReferenceLatent",
+      "trap": "Flux.2 [dev] uses BasicGuider and has NO NEGATIVE CONDITIONING AT ALL. An earlier note in this file said to chain ReferenceLatent on both positive and negative - that was taken from the Klein KV image-edit template, which is a different shape. Guidance is carried by FluxGuidance on the positive conditioning, not by CFG.",
+      "correct_wiring": "ONE ReferenceLatent per reference image, chained positive-only, terminating in BasicGuider(model, conditioning). No CFGGuider, no negative path, no ConditioningZeroOut.",
+      "failure_mode": "Emitting a negative chain fails graph validation; emitting CFGGuider runs the model in a way it is not meant to run.",
+      "consequence_for_prompts": "NEGATIVE PROMPTS DO NOT APPLY TO THE FLUX.2 STILL STAGE. They still apply to HunyuanVideo15ImageToVideo, which does take positive AND negative conditioning. Any 'global negative prompt' work is for the VIDEO stage only.",
+      "source": "template image_flux2_fp8.json, subgraph 'Image Edit (Flux.2 Dev)', which names our exact checkpoint flux2_dev_fp8mixed.safetensors"
+    },
+    {
+      "id": "TRAP-06",
+      "node": "Flux2Scheduler",
+      "trap": "Flux2Scheduler is RESOLUTION-AWARE - it takes width and height alongside steps and derives the sigma schedule from them.",
+      "correct_values": "Pass the SAME width/height to Flux2Scheduler and to EmptyFlux2LatentImage.",
+      "failure_mode": "SILENT. Mismatched values give a structurally valid graph that samples on the wrong schedule."
+    },
+    {
+      "id": "TRAP-07",
+      "node": "ImageScaleToTotalPixels",
+      "trap": "Reference images are normalised to 1 MEGAPIXEL before VAEEncode, with upscale_method 'area' - NOT to the output size, and NOT lanczos.",
+      "correct_wiring": "ImageScaleToTotalPixels(image=<ref>, upscale_method=\"area\", megapixels=1.0) -> VAEEncode -> ReferenceLatent",
+      "failure_mode": "Feeding sheet images straight into VAEEncode is off-recipe; character-sheet fidelity is exactly what must not be degraded, since every downstream generation inherits it."
+    },
+    {
+      "id": "TRAP-01",
+      "node": "HunyuanVideo15ImageToVideo",
+      "trap": "It has THREE outputs, not one. latent is output index 2, not 0.",
+      "correct_wiring": "SamplerCustomAdvanced.latent_image <- [\"<node>\", 2]; CFGGuider.positive <- [\"<node>\", 0]; CFGGuider.negative <- [\"<node>\", 1]",
+      "failure_mode": "Wiring index 0 into latent_image passes CONDITIONING where LATENT is expected - this one at least errors."
+    },
+    {
+      "id": "TRAP-02",
+      "node": "HunyuanVideo15LatentUpscaleWithModel",
+      "trap": "The official template is LANDSCAPE and sets width=1920, height=1080. Our master is PORTRAIT.",
+      "correct_values": "width=1080, height=1920",
+      "failure_mode": "SILENT. Renders a landscape master with no error. Both values are legal multiples of 8."
+    },
+    {
+      "id": "TRAP-03",
+      "node": "DualCLIPLoader",
+      "trap": "HunyuanVideo 1.5 is NOT in the single CLIPLoader's type list. Only DualCLIPLoader offers it.",
+      "correct_values": "clip_name1=qwen_2.5_vl_7b.safetensors (or _fp8_scaled), clip_name2=byt5_small_glyphxl_fp16.safetensors, type=hunyuan_video_15",
+      "failure_mode": "Using CLIPLoader gives no valid type option."
+    },
+    {
+      "id": "TRAP-04",
+      "scope": "model destination directories",
+      "trap": "The box has TWO model roots. extra_model_paths.yaml maps D:\\AI\\models for ONLY five categories: checkpoints, diffusion_models, text_encoders, vae, loras. Everything else resolves under D:\\AI\\ComfyUI\\models.",
+      "correct_values": "clip_vision, latent_upscale_models, frame_interpolation -> D:\\AI\\ComfyUI\\models\\...   |   text_encoders -> D:\\AI\\models\\text_encoders\\",
+      "failure_mode": "SILENT. Wrong root gives an empty loader dropdown with no error message."
+    }
+  ],
+
+  "flux2_still_graph_verified": {
+    "_note": "Dependency order, verified against template image_flux2_fp8.json which names our exact checkpoint. This REPLACES the earlier two-path (positive+negative) description. Positive-only, BasicGuider, no CFG.",
+    "steps": [
+      "UNETLoader(unet_name=\"flux2_dev_fp8mixed.safetensors\", weight_dtype=\"default\") -> MODEL",
+      "CLIPLoader(clip_name=\"mistral_3_small_flux2_fp8.safetensors\", type=\"flux2\", device=\"default\") -> CLIP",
+      "VAELoader(vae_name=\"flux2-vae.safetensors\") -> VAE",
+      "CLIPTextEncode(text=<prompt>, clip=CLIP) -> COND",
+      "FluxGuidance(conditioning=COND, guidance=4.0) -> COND",
+      "PER REFERENCE, CHAINED: ImageScaleToTotalPixels(image=<ref>, upscale_method=\"area\", megapixels=1.0) -> VAEEncode(pixels, vae=VAE) -> ReferenceLatent(conditioning=<prev COND>, latent=that) -> COND",
+      "BasicGuider(model=MODEL, conditioning=<final COND>) -> GUIDER",
+      "Flux2Scheduler(steps=20, width=W, height=H) -> SIGMAS",
+      "EmptyFlux2LatentImage(width=W, height=H, batch_size=1) -> LATENT",
+      "RandomNoise(noise_seed=<seed>) -> NOISE",
+      "KSamplerSelect(sampler_name=\"euler\") -> SAMPLER",
+      "SamplerCustomAdvanced(noise, guider, sampler, sigmas, latent_image) -> LATENT",
+      "VAEDecode(samples, vae) -> SaveImage"
+    ],
+    "guidance_value": "template uses 4.0; node default is 3.5",
+    "disabled_reference_trick": "With a positive-only chain, a ReferenceLatent given no latent is a single pass-through node. So a 3-reference and a 4-reference keyframe are the SAME graph with the SAME node ids - build the chain once at full length and disable individual references by omitting the latent. Makes graphs diffable when hunting identity drift."
+  },
+
+  "declined_download": {
+    "what": "Flux.2 Turbo LoRA (flips Flux2Scheduler steps from 20 to 8)",
+    "repo": "fal/FLUX.2-dev-Turbo",
+    "path": "comfy/Flux_2-Turbo-LoRA_comfyui.safetensors",
+    "size": "2.57 GiB",
+    "verdict": "DO NOT FETCH unless the user asks. It buys maybe 15-20 min across ~20 stills on a job whose long pole is 14 x ~19 min of Hunyuan i2v. Turbo LoRAs trade away detail and sample diversity, and the character sheet is the one artefact that must not be degraded because every downstream generation inherits it. Bad trade.",
+    "note": "The template's filename and the repo's filename differ (version-naming drift); LoraLoader matches on whatever is in the folder, so the name is cosmetic."
+  },
+
+  "nodes": {
+    "HunyuanVideo15ImageToVideo": {
+      "module": "comfy_extras.nodes_hunyuan",
+      "outputs": [
+        { "index": 0, "type": "CONDITIONING", "name": "positive" },
+        { "index": 1, "type": "CONDITIONING", "name": "negative" },
+        { "index": 2, "type": "LATENT", "name": "latent" }
+      ],
+      "required": {
+        "positive": { "type": "CONDITIONING" },
+        "negative": { "type": "CONDITIONING" },
+        "vae": { "type": "VAE" },
+        "width": { "type": "INT", "default": 848, "min": 16, "max": 16384, "step": 16 },
+        "height": { "type": "INT", "default": 480, "min": 16, "max": 16384, "step": 16 },
+        "length": { "type": "INT", "default": 33, "min": 1, "max": 16384, "step": 4 },
+        "batch_size": { "type": "INT", "default": 1, "min": 1, "max": 4096 }
+      },
+      "optional": {
+        "start_image": { "type": "IMAGE" },
+        "clip_vision_output": { "type": "CLIP_VISION_OUTPUT" }
+      },
+      "our_values": { "width": 720, "height": 1280, "length": "per unit, 4n+1, <= N_max", "note": "720 and 1280 are multiples of 16; 121 = 4*30+1 satisfies step 4. All legal." }
+    },
+
+    "HunyuanVideo15LatentUpscaleWithModel": {
+      "module": "comfy_extras.nodes_hunyuan",
+      "outputs": [{ "index": 0, "type": "LATENT" }],
+      "required": {
+        "model": { "type": "LATENT_UPSCALE_MODEL" },
+        "samples": { "type": "LATENT" },
+        "upscale_method": { "type": "COMBO", "default": "bilinear", "options": ["nearest-exact", "bilinear", "area", "bicubic", "bislerp"] },
+        "width": { "type": "INT", "default": 1280, "min": 0, "max": 16384, "step": 8 },
+        "height": { "type": "INT", "default": 720, "min": 0, "max": 16384, "step": 8 },
+        "crop": { "type": "COMBO", "options": ["disabled", "center"] }
+      },
+      "our_values": { "width": 1080, "height": 1920, "upscale_method": "bilinear", "crop": "disabled" }
+    },
+
+    "HunyuanVideo15SuperResolution": {
+      "module": "comfy_extras.nodes_hunyuan",
+      "outputs": [
+        { "index": 0, "type": "CONDITIONING", "name": "positive" },
+        { "index": 1, "type": "CONDITIONING", "name": "negative" },
+        { "index": 2, "type": "LATENT", "name": "latent" }
+      ],
+      "required": {
+        "positive": { "type": "CONDITIONING" },
+        "negative": { "type": "CONDITIONING" },
+        "latent": { "type": "LATENT" },
+        "noise_augmentation": { "type": "FLOAT", "default": 0.7, "min": 0.0, "max": 1.0, "step": 0.01, "advanced": true }
+      },
+      "optional": {
+        "vae": { "type": "VAE" },
+        "start_image": { "type": "IMAGE" },
+        "clip_vision_output": { "type": "CLIP_VISION_OUTPUT" }
+      }
+    },
+
+    "FrameInterpolate": {
+      "module": "comfy_extras.nodes_frame_interpolation",
+      "outputs": [{ "index": 0, "type": "IMAGE" }],
+      "required": {
+        "interp_model": { "type": "INTERP_MODEL" },
+        "images": { "type": "IMAGE" },
+        "multiplier": { "type": "INT", "default": 2, "min": 2, "max": 16 }
+      },
+      "output_frame_count": "(N - 1) * multiplier + 1",
+      "our_values": { "multiplier": 5 },
+      "notes": "In ComfyUI CORE - no custom node needed. TRUE multi-timestep, not recursive 2x, so multiplier 5 is native and exact. Preallocates the entire output on CPU RAM (~15 GB for 601 frames at 1080p) - interpolate ONE clip at a time, never batch."
+    },
+
+    "FrameInterpolationModelLoader": {
+      "module": "comfy_extras.nodes_frame_interpolation",
+      "outputs": [{ "index": 0, "type": "INTERP_MODEL" }],
+      "required": { "model_name": { "type": "COMBO", "options": [], "note": "EMPTY until RIFE weights are downloaded" } },
+      "notes": "Auto-detects FILM vs RIFE and remaps raw RIFE checkpoint keys itself (strips module./flownet., rewrites blockN. -> blocks.N.). Accepts .pkl, .pth, .safetensors."
+    },
+
+    "ReferenceLatent": {
+      "module": "comfy_extras.nodes_edit_model",
+      "outputs": [{ "index": 0, "type": "CONDITIONING" }],
+      "required": { "conditioning": { "type": "CONDITIONING" } },
+      "optional": { "latent": { "type": "LATENT" } },
+      "notes": "That is the ENTIRE node. No strength, no weight, no index input. Chaining is the only mechanism. Internally conditioning_set_values(..., append=True), so N chained nodes = N references and Flux2 consumes the whole list via ref_latents CONDList. `latent` being optional means a bare pass-through is legal - useful for flag-gating a reference off without restructuring the graph.",
+      "addressing": "References are UNWEIGHTED. Disambiguate in prompt text by numbering them in chain order as \"Figure 1\", \"Figure 2\", ... exactly as the official Flux.2 template does."
+    }
+  },
+
+  "downloads_pending_user_approval": {
+    "note": "NOT YET APPROVED. Do not fetch until the user says yes. Byte sizes came from the HF API, not recall.",
+    "total_bytes_approx": "9.9 GiB",
+    "cli_available_on_box": "D:\\AI\\ComfyUI\\venv\\Scripts\\hf.exe",
+    "existing_pattern": "D:\\AI\\resume_download.ps1 (download with --local-dir, then flatten split_files/*)",
+    "files": [
+      {
+        "id": 1,
+        "what": "1080p latent upsampler",
+        "size": "192.1 MiB (201404760 B)",
+        "repo": "Comfy-Org/HunyuanVideo_1.5_repackaged",
+        "path": "split_files/latent_upscale_models/hunyuanvideo15_latent_upsampler_1080p.safetensors",
+        "dest": "D:\\AI\\ComfyUI\\models\\latent_upscale_models\\hunyuanvideo15_latent_upsampler_1080p.safetensors",
+        "cost_of_skipping": "1080x1920 unreachable; ship 720x1280 lanczos-upscaled and the A/B is no longer resolution-matched",
+        "flatten_needed": false
+      },
+      {
+        "id": 2,
+        "what": "RIFE frame interpolation weights",
+        "size": "21.6 MiB + 82.7 MiB = 104 MiB for both picks",
+        "repo": "Comfy-Org/frame_interpolation",
+        "path": ["frame_interpolation/rife_v4.26.safetensors", "frame_interpolation/rife_v4.25_heavy.safetensors"],
+        "dest": "D:\\AI\\ComfyUI\\models\\frame_interpolation\\",
+        "cost_of_skipping": "24->30 fps judder on a dance video. Worst of the four to skip.",
+        "flatten_needed": false,
+        "note": "Repo's internal folder is already named frame_interpolation/, so --local-dir D:\\AI\\ComfyUI\\models lands correctly. Taking both variants allows an interpolation-quality A/B on one shot without a second download round trip; _heavy is the better bet for fast dance motion."
+      },
+      {
+        "id": 3,
+        "what": "sigclip vision encoder",
+        "size": "816.8 MiB (856505640 B)",
+        "repo": "Comfy-Org/HunyuanVideo_1.5_repackaged",
+        "path": "split_files/clip_vision/sigclip_vision_patch14_384.safetensors",
+        "dest": "D:\\AI\\ComfyUI\\models\\clip_vision\\sigclip_vision_patch14_384.safetensors",
+        "cost_of_skipping": "Keyframe adherence drops - precisely where character consistency already has no safety net",
+        "flatten_needed": false,
+        "note": "The template's note points at Comfy-Org/sigclip_vision_384 but it is mirrored in the HunyuanVideo repo, so files 1, 3 and 4 are all one repo."
+      },
+      {
+        "id": 4,
+        "what": "qwen 2.5 VL 7B fp8_scaled text encoder",
+        "size": "8.74 GiB (9384670680 B)",
+        "repo": "Comfy-Org/HunyuanVideo_1.5_repackaged",
+        "path": "split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "dest": "D:\\AI\\models\\text_encoders\\qwen_2.5_vl_7b_fp8_scaled.safetensors",
+        "cost_of_skipping": "Keeps a 15.45 GiB encoder competing with a 15.5 GiB UNet - the direct cause of the ~19 min/shot streaming penalty",
+        "flatten_needed": true,
+        "note": "NOTE THE OTHER ROOT (D:\\AI\\models, not D:\\AI\\ComfyUI\\models). Lands at D:\\AI\\models\\split_files\\text_encoders\\ and must be moved up. Saves 6.7 GiB resident VRAM vs the 15.45 GiB copy already on disk. Keep both - DualCLIPLoader picks by name, so an A/B needs no re-download."
+      }
+    ]
+  }
+}

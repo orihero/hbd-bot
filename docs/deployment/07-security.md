@@ -4,24 +4,33 @@ Almost every control in the admin panel is a joint venture between this reposito
 The code half is knowable: it is in the tree, it has line numbers, and it is cited below. The
 host half — what binds the socket, what terminates TLS, what the dotenv files on the box
 actually say — used to be unknowable from here; **since 2026-09-10 most of it is readable
-read-only on one host, and the part that still is not is the part behind a password.** Where a
-control needs both halves, this document says so plainly rather than assuming the second one
-landed, and where the second half has now been *observed* it says that, with the date.
+read-only on one host, and since 2026-09-17 the remainder is readable too, because the account
+that reads it was given passwordless root.** The sentence this replaced said the rest was "the
+part behind a password"; there is no such part any more, and the note under the verdict board says
+what that does to the rest of this page. Where a control needs both halves, this document says so
+plainly rather than assuming the second one landed, and where the second half has now been
+*observed* it says that, with the date.
 
 Each section is the same four questions: what the control protects, what the deployment has to
-do for it to exist, how to prove it is actually on, and what it looks like when it is not. As of
-2026-09-10 each also carries a **verdict** against one real host.
+do for it to exist, how to prove it is actually on, and what it looks like when it is not. Each
+also carries a **verdict** against one real host — and every one of those verdicts was taken on
+2026-09-10 or 2026-09-11, which is to say before the two events that changed the machine
+underneath them: the rename cutover completed on 2026-09-14, and `developer` was granted
+passwordless root on 2026-09-17. The note under the verdict board says what that costs a reader,
+and it is not a small cost.
 
-> **REVISED 2026-09-10: THE HOST IS NOW REACHABLE READ-ONLY, AND SIX OF THE SEVEN CONTROLS HAVE
-> BEEN CHECKED AGAINST IT.** This box used to say "the production host is out of reach from here;
-> nothing in this document is an observation about it." That is withdrawn. The code half is still
-> in the tree with line numbers; the host half is now checked against `aizu` (machine
-> `abdu-test`), and each claim says which it is:
+> **REVISED 2026-09-10, RE-DATED 2026-09-19: THE HOST IS REACHABLE READ-ONLY, SIX OF THE SEVEN
+> CONTROLS HAVE BEEN CHECKED AGAINST IT — AND THE MACHINE THEY WERE CHECKED AGAINST HAS SINCE
+> BEEN RENAMED AND HAS SINCE HANDED OUT PASSWORDLESS ROOT.** This box used to say "the production
+> host is out of reach from here; nothing in this document is an observation about it." That is
+> withdrawn. The code half is still in the tree with line numbers; the host half is now checked
+> against `aizu` (machine `abdu-test`), and each claim says which it is:
 >
 > | Marker | What it promises |
 > | --- | --- |
 > | *(unmarked)* | A claim about this repository's code. Open the cited file. |
-> | `[HOST 2026-09-10]` / `[HOST 2026-09-11]` | A read-only command was run against `abdu-test` on that date and the quote is faithful to its output. |
+> | `[HOST 2026-09-10]` / `[HOST 2026-09-11]` | A read-only command was run against `abdu-test` on that date and the quote is faithful to its output. **Both dates are pre-cutover**, so the command as quoted is spelled `hbd`. |
+> | `[HOST 2026-09-19]` | The same, re-read after the cutover and after the blanket `sudo` grant. It is used sparingly — the note under the verdict board, the probe-token row of the degradation table, one line in §8, and the `sudo`-grant section at the foot of this page — and **the absence of this mark on a row means nobody has re-read that row since the machine changed, not that the row survived the change.** |
 > | `[UNPROVEN]` | Nobody has established it, with the blocker named. **These are the most important sentences on this page** — an unproven control and a working one look identical from a distance, and the whole value of this marker is refusing to collapse them. |
 >
 > **One host is not all hosts.** Another deployment may answer differently on every row, and the
@@ -29,8 +38,25 @@ do for it to exist, how to prove it is actually on, and what it looks like when 
 > speculative — near-identical units are installed, running and enabled — and
 > `deploy/caddy/admin.bayrambot.uz.caddy` is deployed into `/etc/caddy/Caddyfile`.
 > `deploy/first-install-proposal.md` is still a proposal and still flagged as one at each use.
-> **The host is pre-rename** (`hbd-*` units, `/etc/hbd`, `HBD_*`, package `hbd`) and the
-> repository is post-rename; both are correct, and `08-payme.md`'s NAMING note is why.
+>
+> **CORRECTED 2026-09-19: the host is no longer pre-rename, and this box asserted for nine days
+> that it was.** The withdrawn sentence read *"The host is pre-rename (`hbd-*` units, `/etc/hbd`,
+> `HBD_*`, package `hbd`) and the repository is post-rename; both are correct, and `08-payme.md`'s
+> NAMING note is why."* It was true when it was written and it is false now: **the cutover
+> completed on 2026-09-14, the four `bayram-*` units have been live and active since, and the
+> rollback window is closed** ([`10-rename-cutover.md`](10-rename-cutover.md) §4.7). A release is
+> now an ordinary wheel upgrade driven by `bayram-release` on the host, not a cutover
+> ([`11-ci-cd.md`](11-ci-cd.md) §3).
+>
+> **Every `hbd`-spelled host path below is nevertheless kept as written**, because the reading
+> that produced it was taken on the pre-cutover machine and re-spelling somebody else's quote
+> turns a verified fact into fiction — the mistake [`00-host-inventory.md`](00-host-inventory.md)
+> finding 7 records being made once already. Read `/etc/hbd/*.env` as `/etc/bayram/*.env`,
+> `/opt/hbd` as `/opt/bayram`, `/var/lib/hbd` as `/var/lib/bayram`, and `hbd-admin` / `hbd-payme`
+> as `bayram-admin` / `bayram-payme` before you run anything; re-spell a row in place only as you
+> re-check it, and do not assume an unchecked row transferred. **The trap worth naming: the four
+> `hbd-*.service` files are still installed and merely `disabled`, so an `hbd`-spelled `systemctl`
+> or `journalctl` still resolves, exits zero, and answers about nothing.**
 
 ## The verdict board
 
@@ -43,16 +69,50 @@ against the host returned the answer, not one where the code looks right.
 | 2 | CSP + style nonce | **PROVABLY ON** | The exact policy is on the wire, the nonce differs between fetches, `/assets/` is immutable, zero `nonce_placeholder_missing` |
 | 3 | `__Host-` cookies / TLS | **ON in code, BROKEN in the deployment** | `is_cookie_secure: true` on every boot — but the login shell is **served over plain `http://` with no redirect**. §3 |
 | 4 | Exact origin check | **PROVABLY ON**, both directions | A real sign-in succeeded; a forged `Origin` was refused 403 with `reason: origin_mismatch` |
-| 5 | Trusted proxies / client-IP | **`[UNPROVEN]`, and unprovable without a password or a session** | The correct values are derivable (`hops=2`); whether the file holds them is unreadable. This is the row with no signal at any level |
+| 5 | Trusted proxies / client-IP | **`[UNPROVEN]` — but the "unprovable without a password" half is withdrawn, 2026-09-19** | The correct values are derivable (`hops=2`); whether the file holds them was unreadable on 2026-09-11 and is readable without a password today. It is now unproven because nobody has looked. Still the row with no signal at any level |
 | 6 | Audit HMAC chain + REVOKE | **HMAC half ON. REVOKE half PROVABLY OFF** | Anchors re-pinned hourly, `chain_broken` never logged; but `admin.audit.revoke_missing` fired, and the root cause is a release script that will reproduce it |
 | 7 | Loopback binding | **PROVABLY ON at the socket — but the ARGUMENT IT RESTS ON NO LONGER HOLDS** | Only `127.0.0.1:8080` listens. The panel is nevertheless published to the whole internet, with no MFA and no IP allowlist. §7 |
 | 8 | **The Payme gateway** (new section) | **ITS OWN TWO BOOT REFUSALS ARE DISARMED** | It runs `environment: dev` on the production host, and both its refusals are gated on `is_production`. §8 |
 
-**Behind the permission wall, and therefore `[UNPROVEN]` however the prose is phrased:**
+> **RE-DATED 2026-09-19, and this is the first thing to read on this page.** Every verdict in the
+> table above was returned by a command run on 2026-09-10 or 2026-09-11. Two things have happened
+> to `abdu-test` since: it was **renamed** on 2026-09-14, so the four processes those readings
+> describe now run under `bayram-*` units out of `/etc/bayram`; and on 2026-09-17 a 33-byte file,
+> `/etc/sudoers.d/90-developer-nopasswd`, gave `developer` `NOPASSWD:ALL` — passwordless root from
+> a non-interactive SSH command (the `sudo`-grant section at the foot of this page has the
+> evidence). **A `PROVABLY ON` above is therefore a statement about the machine as it stood on
+> 2026-09-11, not a statement about the machine you can SSH into today.** None of the eight rows
+> is known to have regressed; none has been re-run either, and on a security page those are not
+> the same sentence. Re-run the check in the row before you quote its verdict to anyone.
+
+**Filed here as `[UNPROVEN]`, and — SINCE 2026-09-17 — NO LONGER BEHIND ANY PERMISSION WALL:**
 everything in `/etc/hbd/*.env` — so every `BAYRAM_ADMIN_TRUSTED_PROXY_*`,
-`BAYRAM_ADMIN_PROBE_TOKEN`, DSN and role name; **live** schema privilege (`has_schema_privilege`);
+`BAYRAM_ADMIN_PROBE_TOKEN` (**and `BAYRAM_PAYME_PROBE_TOKEN`, the second one this list omitted**
+— see the probe note below), DSN and role name; **live** schema privilege (`has_schema_privilege`);
 `/var/lib/hbd` and everything under it; `/usr/local/bin/hbd-migrate`; and the alembic revision
 currently stamped.
+
+> **CORRECTED 2026-09-19: THE WALL THIS LIST IS NAMED AFTER NO LONGER EXISTS, AND A SECURITY
+> DOCUMENT THAT OVERSTATES ITS OWN CONTAINMENT IS THE WORST THING THIS PAGE COULD BE.** The
+> paragraph above used to open *"Behind the permission wall, and therefore `[UNPROVEN]` however
+> the prose is phrased"*, and every `[UNPROVEN]` on this page has been leaning on that clause
+> since 2026-09-10. It is withdrawn. Since 2026-09-17 13:55 the account these readings are taken
+> from has had passwordless root: `ssh aizu 'sudo -n /usr/bin/id -u'` returns **`0`**
+> `[HOST 2026-09-19]`. Every item on the list above — the dotenv contents, the DSN, the role
+> names, both probe tokens, `has_schema_privilege`, `/var/lib/…`, the stamped alembic revision —
+> is one non-interactive command away, with no prompt and no `use_pty` audit trail.
+>
+> **Two consequences, and they pull in opposite directions, which is why both have to be said.**
+> The first is that this page was never describing a control. "Unreadable from here" was an
+> artefact of a password prompt, not a boundary anybody designed, and a sudoers line added by
+> somebody unblocking themselves erased it in a single afternoon without touching a single
+> control described below. A reader who took the list above as a containment argument was being
+> misled by this page, and that is on this page. The second is the awkward corollary: the rows are
+> now **cheap to settle**, and several of them have been `[UNPROVEN]` for nine days for a reason
+> that stopped applying two days ago — row 5 above most of all. **Settle them, and read the
+> `sudo`-grant section at the foot of this page before you do**, because the route that makes them
+> cheap is exactly the thing that section says must not be normalised. Settling a row is worth one
+> use of that grant; a habit built on it is not.
 
 **Four things this section used to file behind that wall are answered, and for free.** They were
 answered on 2026-09-11 out of artefacts that need no privilege at all — the world-readable
@@ -66,6 +126,15 @@ operators to stop looking, which is the failure this paragraph exists to prevent
 `Permission denied` to `developer`, `sudo -n` answers `sudo: a password is required`, there is no
 `~/.pgpass`, and Postgres listens on `127.0.0.1:5432` with password auth. `/opt/hbd/diagnose.sh`
 on the host answers three of those in four queries and needs exactly one sudo password.
+
+**That reading is faithful to 2026-09-11 and half of it is false today, 2026-09-19.**
+`sudo -n` no longer answers `sudo: a password is required`; it answers as root. The `~/.pgpass`
+and the Postgres listener are untested since and are recorded here as unchecked rather than as
+still true; whether `diagnose.sh` survived the cutover at that path has not been re-checked
+either. But the sentence about it no longer holds wherever it lives: its "exactly one sudo
+password" was the one thing on this page that required a human to be present, and a blanket
+`NOPASSWD` rule removed it without anybody editing a line of this document. That is the clearest
+illustration of what changed — the same script, the same four queries, and nothing left to ask.
 
 ---
 
@@ -1206,6 +1275,16 @@ so there is no default token to forget to change (`settings.py:426-428`) — but
 monitoring path at all until one is set, and the field has no `min_length`, unlike
 `admin_audit_hmac_key`'s 32. A one-character token passes every check.
 
+**And there is a second one, on the gateway, which this page used to omit.** The Payme process
+serves its own `/healthz` and `/readyz` on `127.0.0.1:8091` with the same gating shape, behind
+`BAYRAM_PAYME_PROBE_TOKEN` (`src/bayram/payme/app.py:110-111`, `:550`, `:560`;
+`payme/settings.py:191`). **The two tokens must be independent values**, and the gateway's is
+the one with the stronger argument for being gated at all: its authorised body additionally
+reports **`isSandbox`** — whether the rail is pointed at real money — which is a fact about the
+business, not about process health, and is exactly what an unauthenticated readiness body must
+not hand out. `[HOST 2026-09-19]` `/etc/bayram/payme.env` does not declare the variable at all;
+`deploy/set-probe-tokens.sh` appends it.
+
 `/healthz` takes no container, so it answers 200 even when the lifespan never ran. Every
 lifespan-less request to an API route raises `RuntimeError("admin container is not on
 app.state; the lifespan did not run")` from `get_container` (`deps.py:126-133`) — the design
@@ -1353,7 +1432,7 @@ makes this exactly the set a reviewer has to check by hand on the host.
 | **The Payme gateway's `environment`** (§8) | `environment: dev` on a production host disarms **both** of the gateway's boot refusals: a foreign credential in its env file boots silently, and `IS_DEBUG=true` is accepted (ORM echoes idempotency keys carrying Telegram user ids) | **None.** Nothing warns, and `hbd-payme.service`'s own comment block asserts the opposite | `journalctl -u <gateway unit> \| grep payme.boot.ok` → `environment`. `[HOST 2026-09-11]` `abdu-test` reads `dev` |
 | **The Payme caller allowlist** (§8) | Not enforced and not auditable: every `peer_ip` is the proxy | **None**, and worse than none — the unit file claims the caller set *is* discoverable from our logs | `journalctl -u <gateway unit> \| grep payme.rpc`. `[HOST 2026-09-11]` 62 of 62 rows are `127.0.0.1` |
 | **Source maps at `/assets/*.map`** (§2) | The console's full TypeScript is downloadable, unauthenticated, cached immutable for a year | **None.** It is a 200 | `curl -s -o /dev/null -w '%{http_code} %{size_download}' <panel>/assets/*.js.map`. `[HOST 2026-09-11]` `200 4242767` from the public internet |
-| `/readyz` without a probe token | Constant `{"status":"ok"}` to every monitor, database down or not | **None** — that is the point of the constant (`health.py:9-19`) | `GET /api/config` → `isProbeTokenConfigured` (`config_view.py:186-188`). `[UNPROVEN]` on `abdu-test`: that call needs a session and the env file is unreadable. Circumstantially, **nothing is polling on a schedule** — only a handful of `/readyz` requests all day, several of them made by hand |
+| `/readyz` without a probe token | Constant `{"status":"ok"}` to every monitor, database down or not | **None** — that is the point of the constant (`health.py:9-19`) | `GET /api/config` → `isProbeTokenConfigured` (`config_view.py:186-188`) — keep it, but know it is **API-only**: it is rendered nowhere in `admin-dashboard` (grep finds no reference), so reading it needs a session *and* a client. **NEW PROOF ROUTE, 2026-09-19: `bayram-release verify`.** It asserts the presence of a **`database` key in the body**, which is the only *in-band* way to separate "token set and correct" from "token set and wrong" — both of those return an identical constant `{"status":"ok"}` with an identical 200, so the status word can never settle it. Three outcomes: reachability-only, gated-detail-read, or a warning that the token was presented and **rejected** ([`04-release.md`](04-release.md) §7). `[HOST 2026-09-19]` both tokens are unset, so this reports reachability only today. **Nothing is polling on a schedule** — no timer, no cron; the sole consumer is `verify`, once per release |
 | Loopback binding | The panel may be on a public interface; `/api/config` still reports `127.0.0.1` | **None** | `ss -ltnp` on the host (the Process column is empty without root — read the unit's `ExecStart` instead); the uvicorn `--host` flag in the actual command line. `[HOST 2026-09-11]` **ON** on `abdu-test` — but read §7 on why that is no longer the whole compensating control |
 | Audit write path | Actions happen and are not recorded | ERROR `admin.audit.write_failed` / `admin.audit.value_refused`; the chain shows the gap as a break at the next `seq` | `audit_sink.py:99-135` |
 | Session mirror invalidation | A revoked session may survive until its 60 s mirror expires | WARNING `admin.session.mirror_invalidation_failed` | `sessions.py:264` |
@@ -1388,3 +1467,54 @@ signal of any kind, in any log, at any level. It is the one that has to be check
 > currently bounds your only evidence is accidental; **(3)** note that until (1) exists, the
 > honest reading of any "no such line" check on this host is *"nobody has looked"*, not *"it is
 > healthy"* — which is the distinction every `[UNPROVEN]` on this page is drawing.
+
+---
+
+## The `sudo` grant set on `abdu-test` — read 2026-09-19
+
+This section is a record of the grants, not of the controls above. It exists because the one
+finding this repository has previously recorded as **closed** is not closed, and a reader who
+trusts that record will reason from a host that does not exist.
+
+| Finding | Standing, 2026-09-19 |
+|---|---|
+| **The 2026-09-16 escalation fix was SUPERSEDED the next day.** `11-ci-cd.md` §3 recorded `(root) NOPASSWD: /usr/bin/bash /opt/hbd/deploy-payme.sh` against a `developer`-owned script, and recorded the fix as deleting that grant. **The specific grant WAS removed. A blanket one replaced it.** | `[HOST 2026-09-19]` `/etc/sudoers.d/90-developer-nopasswd` — **33 bytes, mtime 2026-09-17 13:55** — contains `developer ALL=(ALL) NOPASSWD:ALL`. Verified live and unambiguously: `ssh aizu 'sudo -n /usr/bin/id -u'` → **`0`**. Passwordless root, from a non-interactive SSH command, with no prompt and no `use_pty` audit trail. **So `developer` has strictly more passwordless privilege now than the finding was about.** |
+| The script the old grant named is still there, and still writable by the account | `/opt/hbd/deploy-payme.sh` remains `developer:developer 0755` in a `developer`-owned directory `[HOST 2026-09-19]`. It is inert only because no rule names it any more. **The rule it taught still stands: a `NOPASSWD` grant naming a script path must never name a file writable by the account being granted.** |
+| **Every narrower grant in `deploy/sudoers.d/` is decorative while that line stands** | `sudo` resolves the union; a blanket `NOPASSWD:ALL` is matched for any command, so removing individual verbs changes nothing an attacker could do. Per-grant cleanup is still worth landing — it is what makes the *next* state auditable — but it must not be reported as containment until the blanket rule goes. |
+| **A load-order dependency that is easy to break by accident** | `sudo` reads `/etc/sudoers.d` in **lexical order, last match wins**. `/etc/sudoers.d/bayram-release`'s `PASSWD:` lines — the ones that keep `deploy`, `rollback` and `backup` prompting for a password — are effective **only because the filename `bayram-release` sorts after `90-developer-nopasswd`**. Renaming that file to anything sorting before `90-` silently makes those three write verbs passwordless. Nothing warns. |
+| **`sshd` accepts passwords** | `PasswordAuthentication yes`, alongside a password-bearing `developer` account and `NOPASSWD: ALL`. One guessed password is unattended root on the host that terminates payment callbacks. Keys are already in `/home/developer/.ssh/authorized_keys`, so the fix is `PasswordAuthentication no` in `/etc/ssh/sshd_config.d/` — but it belongs to whoever owns ssh policy and must not ride along in a sudoers change. |
+
+**The remedy is written and has never been run.** `deploy/prune-stale-sudo-grants.sh` installs
+the rewritten `deploy/sudoers.d/bayram-deploy`, prunes `hbd-deploy`, and — behind `--drop-blanket`
+only — removes `90-developer-nopasswd`. `plan` is the default and writes nothing.
+
+```bash
+scp -r deploy/prune-stale-sudo-grants.sh deploy/sudoers.d aizu:/tmp/
+ssh -t aizu 'sudo bash /tmp/prune-stale-sudo-grants.sh plan'
+ssh -t aizu 'sudo bash /tmp/prune-stale-sudo-grants.sh plan --drop-blanket'
+ssh -t aizu 'sudo bash /tmp/prune-stale-sudo-grants.sh apply'
+ssh -t aizu 'sudo -l -U developer'
+```
+
+**Two owner decisions gate it, and neither is a coding question.**
+
+1. **`--drop-blanket`.** `90-developer-nopasswd` was created deliberately and recently — 2026-09-17
+   13:55 — almost certainly to unblock something. **Until whoever added it says what it was for,
+   do not run `--drop-blanket`.** Removing it is a real behaviour change beyond the security one:
+   every ad-hoc `ssh aizu 'sudo …'` *without* `-t` starts failing on a password prompt it cannot
+   answer. The script refuses `--drop-blanket` unless `passwd -S developer` reports `P`, because
+   after that the password path is the only route to root.
+2. **`--drop-pg-dump`.** `(postgres) NOPASSWD: /usr/bin/pg_dump hbd` has **no script consumer** —
+   every candidate caller runs as root, the three `deploy-*.sh` are retired, and the
+   `bayram-backup` timer is not installed. But [`08-payme.md`](08-payme.md) treats it as the
+   sanctioned read path into production data for debugging. The script **keeps it by default**
+   and reduces `hbd-deploy` to that one line rather than deleting the file wholesale.
+
+> **Before `apply`, keep a second root shell open.** `/root/.ssh/authorized_keys` is empty and
+> `sshd` is `permitrootlogin without-password`, so a broken sudoers tree means the VPS provider's
+> console. The script backs `/etc/sudoers` and `/etc/sudoers.d` up to a `0600` root-only tarball,
+> `visudo -cf`s every file **before** installing it, re-checks six representative load-bearing
+> verbs with `sudo -l -U developer` afterwards, and restores the tarball automatically if either
+> check fails — but it has **never been executed end to end**. Only its syntax, its
+> grant-classification logic and the files it writes have been tested. Run `plan` and read the
+> diff.

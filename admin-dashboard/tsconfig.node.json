@@ -1,7 +1,10 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2023"],
+    /* `DOM` is here for tests/built-shell-csp.ts, which walks a jsdom `Document`. Nothing in
+       this project runs in a browser under this tsconfig; the lib supplies the element and
+       attribute types that file's own assertions are written against. */
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "moduleDetection": "force",
@@ -17,5 +20,15 @@
 
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "vitest.config.ts", "tailwind.config.ts"]
+  /* The three build configs, plus the built-shell CSP gate. That gate is the only check that
+     ever reads the SHIPPED shell (src/bayram/admin/static/index.html, which .gitignore
+     excludes and no Python test can reach), and `tsx` strips its types without checking them
+     — so until it was listed here a type error inside the panel's last CSP gate shipped
+     silently, which is the exact failure mode the gate exists to prevent. */
+  "include": [
+    "vite.config.ts",
+    "vitest.config.ts",
+    "tailwind.config.ts",
+    "tests/built-shell-csp.ts"
+  ]
 }

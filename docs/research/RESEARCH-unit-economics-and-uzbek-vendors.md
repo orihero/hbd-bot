@@ -15,6 +15,76 @@
 | A5 | Output token counts | intake 250, lyric 700, respell 60, +150 if greeting text | Assumption; kit output is capped at `max_output_tokens 2048` so 700 is safely inside |
 | A6 | LLM model | `google/gemini-3.7-flash` at $0.75/$3.75 per 1M — **the recommended replacement, not the currently-configured free model** | Verified, `openrouter.ai/api/v1/models/google/gemini-3.7-flash/endpoints` |
 | A7 | Gross margin excludes the customer-side payment acquiring fee | — | No verified UZ acquirer rate exists in the research inputs |
+| A8 | Retail price per delivered kit | **$5.90** — the divisor of every margin, every "% of price" and every revenue ceiling below. **It is not what the product charges.** The shipped price is **15 000 soʻm**: `single_song_price_minor = 1_500_000` in `src/bayram/config.py`, the owner's catalogue decision shipped 2026-09-14 in commit `604bb3f` | **[2026-09-19] CORRECTION, added after compilation.** $5.90 carries no source URL anywhere in this file and no status flag — the only input here that was never verified, and the one the whole of §4 divides by. See the addendum immediately below |
+
+### [2026-09-19] Addendum — the price this file divides by is not the price the product charges
+
+This report is chartered frozen at its compilation date, so nothing below this line has been
+touched: §§1–8 read exactly as they were written on 2026-09-05. What follows is a correction laid
+on top of them, and where the two disagree, this section is the later fact.
+
+Every margin in §4, every "% of price" in §2, and every revenue ceiling in §5 divides by **$5.90**.
+That figure arrives without a source URL, without a status flag, and without a row in the table
+above — the single unverified input in a document whose opening line promises that nothing
+unverified is presented as verified. A8 is the row that promise required and did not get.
+
+The product charges **15 000 soʻm**. That is `single_song_price_minor = 1_500_000` in
+`src/bayram/config.py`, mirrored into `.env.example`, shipped on 2026-09-14 in commit `604bb3f`
+("one song at 15 000 soʻm, and the starter plan withdrawn"). Nor was $5.90 the price on the day
+this was compiled: the default then was `700_000` — 7 000 soʻm, about **$0.55**. No *price
+setting* in this repository has ever carried $5.90. It is a planning sticker, not a catalogue
+entry: it is the USD equivalent of a 300-XTR Telegram Stars sale (`docs/decisions/DECISIONS.md`,
+the payment-rail row — a rail itself since superseded by D11), and it was carried forward into
+every planning document and never into `config.py`.
+
+At the FX rate this repository uses as its own worked example — ~12 800 soʻm per USD, the figure
+spelled out in the `BAYRAM_ADMIN_UZS_PER_USD` block of `.env.admin.example`, which is a
+hand-mirrored illustration rather than a feed and which ships **blank** — 15 000 soʻm is
+**≈ $1.17**. Nothing in §1 or §2 moves: those are dollar costs and they stand unchanged, as does
+A2's 24% COGS swing and §3's ranking of what moves COGS. Only the divisor changes. Restating
+§4's table against it, and nothing else (all DERIVED, arithmetic only):
+
+| Attempts/kit | Song-only COGS | Margin at $5.90 (§4) | **Margin at ≈$1.17** | Full-kit COGS | Full-kit at $5.90 (§4) | **Full-kit at ≈$1.17** |
+|---|---|---|---|---|---|---|
+| 1.0 | $0.3077 | 94.8% | **73.7%** | $0.3733 | 93.7% | **68.1%** |
+| **1.5 (the planned case)** | **$0.4583** | 92.2% | **60.9%** | **$0.5238** | 91.1% | **55.3%** |
+| 2.5 | $0.7594 | 87.1% | **35.2%** | $0.8249 | 86.0% | **29.6%** |
+| 3.0 (code cap) | $0.9099 | 84.6% | **22.4%** | $0.9755 | 83.5% | **16.8%** |
+
+A7 still holds and now costs more than it did: the customer-side acquiring fee is in none of these
+numbers, and against a 60.9% margin it is no longer the rounding error it was against 92.2%.
+
+Three conclusions below do not survive the substitution, and they are the three this document is
+most quoted for.
+
+- **§2's closing reassurance is the worst-damaged sentence in the file.** "1.5 costs $0.46
+  song-only — 7.8% of the $5.90 price… The retry tail cannot break this business" becomes, at
+  15 000 soʻm, **39% of price** at 1.5 attempts and **78% of price** at the 3.0 hard ceiling. Read
+  that sentence as withdrawn, not merely qualified.
+- **§4's break-even is unchanged in form and transformed in result.** With the same
+  COGS(n) = $0.00665 + n × $0.30109 and a price of $1.1719, song-only break-even falls from
+  **19.6 attempts to 3.87**, and the full kit from 19.4 to **3.65**. The hard cap of 3 no longer
+  clears break-even by 6.5×; it clears it by less than one attempt. The retry loop is therefore no
+  longer "mathematically incapable" of making a kit unprofitable — the cap is now the only thing
+  standing between a bad name and a loss-making order, which makes raising that cap a **pricing**
+  decision rather than a quality one.
+- **§5's revenue ceilings are all ~5× too high, and the tier table inverts.** Run each tier at its
+  own generation cap — its best case, since the cap is a ceiling and the fee is fixed — and price
+  the kits at ≈$1.17 with §2's 1.5-attempt COGS of $0.4583: Starter takes ~$8.20 against $6 of
+  subscription and $3.21 of COGS (**−$1.00**); Creator ~$31.64 against $22 + $12.37 (**−$2.73**);
+  Pro ~$158.20 against $99 + $61.87 (**−$2.67**); Scale ~$571.88 against $299 + $223.65
+  (**+$49.22**); Business ~$2,499.61 against $990 + $977.55 (**+$532.06**). At $5.90 the
+  subscription was a rounding error against the revenue its cap permitted; at the shipped price it
+  is 40–73% of it, and **the three tiers an individual may lawfully enrol on are all net-negative
+  at their own ceiling**. §5's conclusion that Scale is the honest floor for an incorporated
+  operator survives — it is now also the first tier that makes money at all.
+
+What this does not change: no music vendor names Uzbek (§6), the licence and reseller analysis
+(§5, §7), the two cheap experiments that would settle A2 and the Uzbek bake-off, or any COGS
+figure in this report. What it does change is the conclusion drawn from them. §3's headline that
+"everything else is rounding error against a $5.90 price" is the last casualty: the music-vendor
+swing of −$0.41 is 35% of the shipped price, which promotes the unrun Uzbek bake-off from a
+cost-optimisation to the thing the margin depends on.
 
 ---
 

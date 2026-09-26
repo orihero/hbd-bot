@@ -75,6 +75,23 @@ VERSIONS=/opt/bayram/migrations/versions
 ENVFILE=/etc/bayram/bayram.env
 BACKUP_DIR=/var/backups/bayram
 
+# THE THREE ENV FILES ARE THREE DIFFERENT FILES, and `$ENVFILE` above is only one of them.
+# These two are what systemd ACTUALLY hands the admin and payme units — confirmed on the host
+# with `systemctl show bayram-admin -p EnvironmentFiles` and `systemctl show bayram-payme -p
+# Environment`, not inferred from the unit files in this repo:
+#
+#   bayram-admin   EnvironmentFile=/etc/bayram/bayram-admin.env   (systemd/bayram-admin.service:52)
+#   bayram-payme   BAYRAM_PAYME_ENV_FILE=/etc/bayram/payme.env    (systemd/bayram-payme.service:64)
+#
+# They exist here because the readiness probe below used to source `$ENVFILE` looking for
+# `BAYRAM_ADMIN_PROBE_TOKEN`. That variable is NOT DECLARED in /etc/bayram/bayram.env at all
+# and never was: it lives in the admin file. The probe therefore reported "no token set" no
+# matter what an operator put in the admin env file — a config knob that could not be turned on
+# from outside the script. Both files are 0640 root:hbd (group `hbd`, not `bayram` — the
+# rename never touched /etc/bayram's ownership).
+ADMIN_ENVFILE=/etc/bayram/bayram-admin.env
+PAYME_ENVFILE=/etc/bayram/payme.env
+
 # THE DATABASE IS STILL NAMED `hbd`. The hbd -> bayram rename cut over the units, the paths and
 # the package; it did not rename the database, and all three predecessor scripts dump `hbd`
 # (deploy-d17.sh:55, deploy-support.sh:89). Renaming it is its own change with its own
@@ -102,15 +119,36 @@ SETTLE=4
 
 # The two HTTP processes and their loopback readiness endpoints (01-architecture.md:115-116).
 # Both bind 127.0.0.1 only; nothing here is reachable from off the box.
-READY_PROBES=("bayram-admin|http://127.0.0.1:8080/readyz" "bayram-payme|http://127.0.0.1:8091/readyz")
+#
+# FOUR fields, not two: unit|url|env file|token variable. EACH PROCESS HAS ITS OWN TOKEN, in
+# its own file, and the two are compared by two different processes — `admin_probe_token`
+# (admin/routers/health.py) and `payme_probe_token` (payme/app.py:587-595). They are not one
+# secret with two names. This table used to carry only the unit and the url, and the loop below
+# sent ONE token — the admin one — to both endpoints, so the payme probe could never see detail
+# unless somebody had happened to write the same string into both files.
+READY_PROBES=(
+  "bayram-admin|http://127.0.0.1:8080/readyz|$ADMIN_ENVFILE|BAYRAM_ADMIN_PROBE_TOKEN"
+  "bayram-payme|http://127.0.0.1:8091/readyz|$PAYME_ENVFILE|BAYRAM_PAYME_PROBE_TOKEN"
+)
 
 # `/readyz` answers a CONSTANT word to an unauthenticated caller and pings nothing — that is
 # deliberate (admin/routers/health.py, §6.3): an unauthenticated detailed body is fleet
 # telemetry for anyone who can reach the port. The detail needs a session or this header,
-# compared with `compare_digest` against `admin_probe_token`. Where the token is unset — which
-# is the default, `BAYRAM_ADMIN_PROBE_TOKEN=` ships empty in .env.admin.example — the probe
-# below still proves the process answers HTTP at all, which is the thing `systemctl is-active`
-# cannot tell you.
+# compared with `compare_digest` against the process's own probe token.
+#
+# WHAT THIS PROBE CAN AND CANNOT TELL YOU. An empty token and a WRONG token are byte-identical
+# from outside: both get HTTP 200 and the constant `{"status":"ok"}`, because the unauthorised
+# branch returns before anything is pinged (health.py:127-130, app.py:570-572). So this probe
+# cannot distinguish "the token is set and correct" from "the token is set and I hold the wrong
+# one" by the status word — the ONLY in-band signal is the SHAPE of the body. An authorised
+# read carries `database` and `redis` keys; an unauthorised one carries nothing but `status`.
+# The loop below uses exactly that: with a token configured, a 200 whose body has no `database`
+# key means the token was presented and rejected, and it says so. Out of band, the other way to
+# tell set from empty is `/api/config`'s `is_probe_token_configured` (schemas/config_view.py:188),
+# which needs an operator session with CONFIG_READ and is not rendered in the panel.
+#
+# Where a token is unset the probe still proves the process answers HTTP at all, which is the
+# thing `systemctl is-active` cannot tell you — and it now says WHICH file to put the token in.
 PROBE_TOKEN_HEADER='X-Probe-Token'
 
 RESTORE_PHRASE='RESTORE THE DATABASE AND LOSE DATA'
@@ -224,7 +262,41 @@ require_host_layout() {
   test -d "$VERSIONS"        || die_usage "migrations versions dir missing: $VERSIONS"
 }
 
+# `plan` IS READ-ONLY, AND IT HAS TO BE — THE SUDOERS GRANT SELLS IT AS ONE.
+# deploy/sudoers.d/bayram-release puts `plan` in Cmnd_Alias BAYRAM_RELEASE_RO with NOPASSWD, on
+# the stated grounds that "`plan` and `verify` change nothing". ensure_dirs is six root
+# `install -d -o … -g …` calls against /opt/bayram, $RELEASE_ROOT, $WORK_ROOT, $WHEEL_STORE,
+# $BACKUP_DIR and $INCOMING — and the $INCOMING one re-creates it 0770 root:developer, i.e. a
+# passwordless caller in group `developer` could silently RE-LOOSEN a directory somebody had
+# tightened, by running the verb documented as the safe one. Under `plan` this function now
+# reports what deploy would assert and touches nothing.
+report_dirs() {
+  local d spec
+  step "plan — directories deploy WOULD create or re-assert (nothing is being changed)"
+  for spec in \
+      "/opt/bayram|0755 root:root" \
+      "$RELEASE_ROOT|0755 root:root" \
+      "$WORK_ROOT|0700 root:root" \
+      "$WHEEL_STORE|0755 root:root" \
+      "$BACKUP_DIR|0700 root:root" \
+      "$INCOMING|0770 root:developer (0750 root:root if group 'developer' is absent)"; do
+    d="${spec%%|*}"
+    if [ -d "$d" ]; then
+      say "  $(stat -c '%a %U:%G' "$d")  $d   -> deploy asserts ${spec#*|}"
+    else
+      say "  MISSING                  $d   -> deploy would create it ${spec#*|}"
+    fi
+  done
+  if ! getent group developer >/dev/null 2>&1; then
+    warn "group 'developer' does not exist; deploy would create $INCOMING root-only."
+  fi
+}
+
 ensure_dirs() {
+  if [ "$PLAN_ONLY" = "yes" ]; then
+    report_dirs
+    return 0
+  fi
   # Modes are the contract's. `install -d` re-asserts them on every run, so a directory that
   # was loosened by hand is tightened again by the next release rather than at the next audit.
   install -d -m 0755 -o root -g root /opt/bayram
@@ -269,8 +341,42 @@ script never guesses which release you meant." ;;
 # Extraction into a fresh, never-reused staging directory
 # ============================================================================================
 stage_bundle() {
-  WORK="$(mktemp -d "$WORK_ROOT/rel-XXXXXXXX")"
+  # A DRY RUN CANNOT INSPECT A BUNDLE WITHOUT EXTRACTING IT — the manifest, the wheel and every
+  # hash preflight checks live inside the tarball. So `plan` does extract, and says so. What it
+  # must NOT do is depend on ensure_dirs having asserted $WORK_ROOT first, because under `plan`
+  # ensure_dirs asserts nothing.
+  #
+  # $WORK_ROOT is used only when it ALREADY exists as a root-owned directory closed to group and
+  # other; if it is missing or has been loosened, plan falls back to a fresh `mktemp -d` (under
+  # $TMPDIR, or /tmp), which is created 0700 and owned by the caller — root. Either way the
+  # extracted copy of a tarball that anyone in group `developer` could have written lands
+  # somewhere `developer` cannot open, and the EXIT trap removes it. Plan never CORRECTS a
+  # loosened $WORK_ROOT; correcting it is deploy's job and deploy is the verb that asks for a
+  # password.
+  if [ "$PLAN_ONLY" = "yes" ]; then
+    local parent="" wr_mode wr_owner
+    if [ -d "$WORK_ROOT" ]; then
+      wr_owner="$(stat -c '%u' "$WORK_ROOT")"
+      wr_mode="$(stat -c '%a' "$WORK_ROOT")"
+      if [ "$wr_owner" = "0" ] && [ "$(( 0$wr_mode & 077 ))" -eq 0 ]; then
+        parent="$WORK_ROOT"
+      else
+        warn "$WORK_ROOT is mode $wr_mode owned by uid $wr_owner, not 0700 root. plan will not"
+        warn "  extract into it and will not tighten it either — that is deploy's job."
+      fi
+    fi
+    if [ -n "$parent" ]; then
+      WORK="$(mktemp -d "$parent/rel-XXXXXXXX")"
+    else
+      WORK="$(mktemp -d)"
+    fi
+  else
+    WORK="$(mktemp -d "$WORK_ROOT/rel-XXXXXXXX")"
+  fi
   chmod 0700 "$WORK"
+  [ "$PLAN_ONLY" != "yes" ] || say "plan: extracting the bundle into $WORK — root-only (0700),
+       removed when this command exits. It is the one thing plan writes, and it writes it
+       nowhere a non-root account can read."
   local staging="$WORK/staging"
   mkdir -p "$staging" "$WORK/fields"
 
@@ -353,6 +459,29 @@ PY
 # ============================================================================================
 preflight() {
   local staging="$WORK/staging" fields="$WORK/fields"
+
+  # --- beat 0: is there a recent nightly backup? -----------------------------------------
+  # deploy/install-bayram-backup.sh writes /var/lib/bayram-backup/status.json on every run and
+  # names exactly two places a reader belongs. This is the second of them, and until now it had
+  # none: the sentinel, `bayram-backup check` and `bayram-backup check-offbox` were written,
+  # documented and wired to nothing.
+  #
+  # NON-FATAL, and that is a departure from what the backup script's own comment asks for
+  # ("refuse the deploy with exit 2 if it fails"). The nightly timer is NOT installed on this
+  # host today — /etc/systemd/system/bayram-backup* does not exist — and that is a deliberate
+  # open item (docs 11-ci-cd.md, CD prerequisite 4), not a fault. A refusal here would mean no
+  # release at all could run until somebody installs the timer, which is how a safety check
+  # gets deleted rather than satisfied. Beat 1 below takes its OWN pre-deploy pg_dump and
+  # `test -s`s it, so the thing a release actually depends on is taken by this script
+  # regardless; a missing or stale nightly costs history, not this deploy's rollback.
+  #
+  # `check` is read-only — it stats and greps the sentinel and writes nothing — so this is also
+  # safe under `plan`.
+  if [ -x /opt/bayram/sbin/bayram-backup ]; then
+    step "preflight — the nightly backup"
+    /opt/bayram/sbin/bayram-backup check \
+      || warn "the nightly backup is missing, failed or stale — beat 1 will still take its own dump"
+  fi
 
   step "preflight — validate the manifest and every hash in it"
   "$(pybin)" - "$staging" "$fields" "$VENV" <<'PY' || refuse "the bundle failed preflight (see above)"
@@ -1023,8 +1152,31 @@ PY
 # does not answer is reported loudly and sets a flag the summary repeats. A probe that answers
 # with an explicit `"status":"degraded"` IS fatal, because that is the process telling us
 # something it depends on is down.
+# `probe_curl <url> <token>` — GET $url presenting the probe token, with the token NEVER in argv.
+#
+# `-H "$PROBE_TOKEN_HEADER: $token"` writes the secret into /proc/<pid>/cmdline, which is
+# world-readable on this host, for the whole life of the curl process — up to --max-time 10.
+# Any local account can read it with `ps -o args` in a loop, and this host has accounts that are
+# not root. That breaks the rule the backup installer states for the same host
+# (deploy/install-bayram-backup.sh, offbox_push_s3: "Credentials are passed in the ENVIRONMENT,
+# never in argv: /proc/<pid>/cmdline is world-readable and this host has accounts that are not
+# root") and it would hand away the very value that unlocks the detailed /readyz body.
+#
+# `-K -` makes curl read its options from STDIN instead — a pipe, which is neither a file on
+# disk nor visible in another process's argv. The value sits inside curl's double-quoted config
+# syntax, so the two characters that syntax escapes, backslash and double quote, are escaped
+# here: this token is read out of an env file an operator edits by hand, so it is not safe to
+# assume it is 64 characters of hex.
+probe_curl() {
+  local url="$1" token="$2" esc
+  esc="${token//\\/\\\\}"
+  esc="${esc//\"/\\\"}"
+  printf 'header = "%s: %s"\n' "$PROBE_TOKEN_HEADER" "$esc" \
+    | curl -K - -s --max-time 10 -w '\n%{http_code}' "$url" 2>/dev/null || true
+}
+
 do_readiness_probe() {
-  local entry unit url code body token=""
+  local entry unit url env_file token_var code body token=""
   local degraded=no
 
   if ! command -v curl >/dev/null 2>&1; then
@@ -1032,21 +1184,23 @@ do_readiness_probe() {
     return 0
   fi
 
-  # Read the token out of the admin env file in a SUBSHELL, so the rest of this script does not
-  # inherit the file's other contents — it holds the bot token and four vendor credentials.
-  if [ -r "$ENVFILE" ]; then
-    token="$( set -a; . "$ENVFILE" 2>/dev/null; set +a; printf '%s' "${BAYRAM_ADMIN_PROBE_TOKEN:-}" )" || token=""
-  fi
-  [ -n "$token" ] || say "  (no BAYRAM_ADMIN_PROBE_TOKEN set — probing for reachability only)"
-
   for entry in "${READY_PROBES[@]}"; do
-    unit="${entry%%|*}"
-    url="${entry#*|}"
+    IFS='|' read -r unit url env_file token_var <<<"$entry"
+
+    # Read THIS unit's OWN token out of the file systemd hands THIS unit, in a SUBSHELL, so the
+    # rest of this script does not inherit that file's other contents — the admin file holds the
+    # bot token and four vendor credentials, the payme file holds the merchant key. The subshell
+    # is the whole reason this is not a top-level `.`; keep it.
+    token=""
+    if [ -r "$env_file" ]; then
+      token="$( set -a; . "$env_file" 2>/dev/null; set +a; printf '%s' "${!token_var:-}" )" || token=""
+    fi
+
     # --max-time bounds a hung socket; -s -o keeps the body out of the log except where we
     # deliberately read it. The token goes in a header, never in the URL, so it cannot land in
-    # an access log.
+    # an access log — and never in argv either, which is what probe_curl below is for.
     if [ -n "$token" ]; then
-      body="$(curl -s --max-time 10 -H "$PROBE_TOKEN_HEADER: $token" -w '\n%{http_code}' "$url" 2>/dev/null || true)"
+      body="$(probe_curl "$url" "$token")"
     else
       body="$(curl -s --max-time 10 -w '\n%{http_code}' "$url" 2>/dev/null || true)"
     fi
@@ -1058,8 +1212,26 @@ do_readiness_probe() {
         if printf '%s' "$body" | grep -q '"status"[[:space:]]*:[[:space:]]*"degraded"'; then
           say "  $unit readyz: DEGRADED — $body"
           degraded=yes
+        elif [ -z "$token" ]; then
+          # Say WHICH variable in WHICH file turns the detail on. The old wording named the
+          # variable and no file, and it named the wrong file's contents by implication.
+          say "  $unit readyz: 200 — REACHABILITY ONLY (the port answers; nothing was pinged)"
+          say "      $token_var is unset in $env_file; see deploy/set-probe-tokens.sh"
+        elif printf '%s' "$body" | grep -q '"database"'; then
+          # The one strong assertion available: `database` appears ONLY in the authorised body.
+          # Getting it back proves the token in the env file matches the one the RUNNING process
+          # loaded, and that the process really reached postgres and redis to answer.
+          say "  $unit readyz: 200 — GATED DETAIL READ (token accepted) — $body"
         else
-          say "  $unit readyz: 200"
+          # 200, a token IS configured, and the body came back without the detail. There is no
+          # other way to read this: the header was sent and rejected. A wrong token and no token
+          # produce byte-identical answers, so this is the only place that distinction surfaces.
+          warn "$unit answered 200 but WITHOUT the gated detail, while $token_var IS set in"
+          warn "  $env_file. The token was presented and REJECTED — /readyz returns the same"
+          warn "  constant {\"status\":\"ok\"} to a wrong token as to none at all, so this is"
+          warn "  the only signal there is. Most likely the file was edited without restarting"
+          warn "  $unit, so the process is still holding the previous value."
+          warn "  Check: systemctl show $unit -p ExecMainStartTimestamp; then restart it."
         fi
         ;;
       ""|000)
@@ -1146,6 +1318,12 @@ NOT DONE BY deploy, and still a person's job:
   * nothing is stopped, restored or rolled back automatically. Read the output.
   * the customer-visible side effects of a release are not reversible by rollback at all —
     04-release.md §8. A message already sent is sent.
+
+WHAT plan ITSELF DID, stated exactly rather than claimed away:
+  * it created ONE temporary directory, 0700 and root-owned, extracted the bundle into it and
+    removed it on exit. Nothing else. No PERSISTENT directory was created — `ensure_dirs` only
+    reports under `plan`, it asserts nothing — no mode or owner was changed, no package
+    installed, no unit touched, no row written.
 =======================================================================================
 PLAN
   say "plan complete. Nothing on this host was changed."

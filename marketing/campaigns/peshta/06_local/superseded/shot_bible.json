@@ -1,0 +1,546 @@
+{
+  "schema_version": "1.0",
+  "generated": "2026-09-19",
+  "purpose": "Model-agnostic shot bible for the LOCAL open-weight A/B rebuild of the 43.000s Peshta reel. Describes WHAT each shot must contain, not how to prompt any specific model. Pipeline assumed: one still keyframe per shot -> image-to-video from that still -> mux the existing 43.000s master music underneath.",
+  "sources_in_authority_order": [
+    "marketing/campaigns/peshta/FINAL_RECREATION_REPORT.md §3 (authoritative calibrated windows)",
+    "marketing/campaigns/peshta/05_higgsfield_execution_blueprint.md §1.3, §2, §3",
+    "marketing/campaigns/peshta/driving_clips/SHOT_TABLE.md",
+    "marketing/campaigns/peshta/04_generation_plan.md (see notes: describes a DIFFERENT deliverable)",
+    "marketing/campaigns/peshta/character_assets/CHARACTER_PROMPTS.md and HIGGSFIELD_UI_CARDS.md (wardrobe canon, consulted for wardrobe_per_character)",
+    "marketing/campaigns/peshta/assemble_polat_peshta.py (machine cross-check of the 11 durations)"
+  ],
+  "master_timeline": {
+    "duration_s": 43.0,
+    "fps": 30.0,
+    "frame_count": 1290,
+    "resolution": "1080x1920",
+    "aspect": "9:16",
+    "audio_master": "/Users/ai/Downloads/Xamdam_Sobirov_Peshta_27s_to_1m10s.mp3 (43.000s, 48kHz stereo, -14.0 LUFS)",
+    "tempo_bpm": 95.8,
+    "beat_period_s": 0.6263,
+    "beat_drop_s": 6.92,
+    "beat_drop_frame": 208,
+    "tiles_cleanly": true,
+    "tiling_check": "The 11 calibrated windows sum to exactly 43.000s with zero gap and zero overlap; verified arithmetically and cross-checked against the DEFAULT_CALIBRATED_DURATIONS list in assemble_polat_peshta.py."
+  },
+  "sets": [
+    {
+      "id": "red-velvet-studio-steps",
+      "name": "Red velvet pyramid steps, dark studio",
+      "shots": ["01", "02", "03", "04", "05", "06", "07", "10", "11"],
+      "description": "Interior studio. Wide tiered 'pyramid' steps fully carpeted in rich crimson red velvet, rising away from camera. Dark, near-black studio backdrop with deep red ambient bounce and soft red bokeh. No signage, no windows, no practical set dressing beyond the steps themselves.",
+      "dressing": ["crimson red velvet stair carpet", "tiered pyramid step geometry", "bouquet of red roses (shot 02 only)", "backing dance ensemble on the upper steps (shots 01, 03, 07)"],
+      "lighting": "Low-key chiaroscuro. Warm key (3200K-3800K) from camera left on the female lead; hard cool 5600K cyan/steel-blue rim light placed roughly 45 degrees behind the subject, carving a crisp specular edge along black suit shoulders, lapels and hair so the dark subject separates from the dark ground. This rim is the single most load-bearing lighting note in the whole build.",
+      "light_direction": "key camera-left and slightly high; cyan rim from upper rear, subject's left-rear"
+    },
+    {
+      "id": "canyon-exterior",
+      "name": "Arid sandstone canyon with red archway",
+      "shots": ["08", "09"],
+      "description": "Outdoor daylight. Arid rocky quarry/canyon with warm sandstone formations, and a vivid deep-red architectural archway / doorway standing in the rock face. Low red cube platforms stand centre-frame as a stomp stage.",
+      "dressing": ["deep red architectural archway/doorway", "red cube platforms", "sandstone/quarry rock walls", "corps of dancers in white (the 'White Corps')"],
+      "lighting": "High-contrast natural sunlight with hard canyon shadow, plus a strong crisp 5600K rim sculpting hat brim, shoulders and jacket silhouette against the quarry backdrop.",
+      "light_direction": "hard sun high and slightly behind; rim reads on the subject's rear-left"
+    }
+  ],
+  "characters": {
+    "polat": {
+      "name": "Polat Alemdar",
+      "look": "Mediterranean man, early 30s. Sharp chiselled rectangular jawline, high cheekbones, cleft chin, deep-set brooding dark brown eyes, unblinking stoic stare, thick jet-black swept-back pompadour, natural stubble. Matte unretouched skin with visible pores. He never smiles beyond a faint stoic smirk - the whole joke is the deadpan mafia face on top of high-energy Uzbek folk choreography."
+    },
+    "elif": {
+      "name": "Elif Eylul",
+      "look": "Turkish woman, 26. Soft heart-shaped face, delicate rounded chin, warm hazel-brown almond eyes, natural rose lips, rich chocolate-brunette hair in loose cascading waves. Matte unretouched skin, delicate peach blush."
+    },
+    "ensemble_studio": {
+      "name": "Studio backing ensemble",
+      "look": "Small corps of backing dancers occupying the upper red steps behind Polat. Never in focus, never individually featured."
+    },
+    "white_corps": {
+      "name": "White Corps (canyon dancers)",
+      "look": "Corps of dancers dressed in white, flanking Polat in the canyon. Never individually featured."
+    }
+  },
+  "wardrobe_canon": {
+    "polat_studio": "Bespoke single-breasted midnight-black Italian wool suit with structured roped shoulders, crisp stark-white cotton dress shirt open at the collar, matching black trousers with a clean break, polished black oxford shoes, vintage stainless-steel wristwatch. NO HAT.",
+    "polat_canyon": "Dark vintage wool-felt fedora angled low over the brow, tailored dark navy-blue/black heavy pilot bomber jacket with silver zip hardware and structured aviator collar, white shirt collar visible, tailored charcoal trousers.",
+    "elif_studio": "Elegant minimalist ivory-white silk-crepe tea-length dress with a modest neckline, delicate multi-strand freshwater pearl necklace, dainty white ankle-strap heels.",
+    "elif_studio_alt_upper": "Cream knit with blazer (cited for the waist-up call-and-response framing in shots 04 and 05 only; see notes CONTRA-05)"
+  },
+  "shots": [
+    {
+      "id": "01",
+      "start_s": 0.0,
+      "end_s": 2.256,
+      "dur_s": 2.256,
+      "frames": 68,
+      "driving_clip": "clip_01_verse1_setup.mp4",
+      "source_range_s": [27.264, 29.52],
+      "location": "red-velvet-studio-steps",
+      "characters_present": ["elif", "polat", "ensemble_studio"],
+      "wardrobe_per_character": {
+        "polat": "polat_studio",
+        "elif": "elif_studio",
+        "ensemble_studio": "dark studio wardrobe, unfeatured"
+      },
+      "camera": {
+        "framing": "wide",
+        "shot_size": "full body, feet visible on the steps with clean floor clearance",
+        "angle": "eye-level, frontal to the steps",
+        "lens_feel": "35mm master prime, deep-ish focus, cinematic realism",
+        "move": "static / locked off - nothing in the sources describes a camera move here",
+        "crop_center_x_in_source": 960
+      },
+      "action_beats": [
+        {"t_in_shot_s": 0.0, "beat": "Hook opens on Elif's surprise reaction - head snaps up, eyes widen. The source performs this as a smartphone reaction; the smartphone prop is DELIBERATELY DROPPED in the rebuild (see notes PROP-01), so the reaction reads as a look off-lens with empty, naturally resting hands."},
+        {"t_in_shot_s": 0.9, "beat": "Cut/transition to the red pyramid steps: Polat standing centre on the wide steps, the backing ensemble ranged behind and above him."},
+        {"t_in_shot_s": 1.3, "beat": "Polat executes subtle confident wrist flourishes facing camera, ensemble mirroring; establishing the staging for the whole studio half."}
+      ],
+      "keyframe_moment": "Polat standing centre on the wide crimson steps, full body, weight settled, both hands mid wrist-flourish at about waist height, deadpan stare down the lens, backing ensemble ranged behind and above him on the upper steps, cyan rim light hard on his shoulders and pompadour against the near-black backdrop.",
+      "motion_summary": "From that still, the wrists roll through a slow confident flourish and the ensemble behind takes a small unison weight-shift - subtle, establishing motion only, background steps and architecture dead still.",
+      "continuity_links": {
+        "previous": "none - first shot of the reel; this still also sets the master look (crimson velvet, near-black backdrop, cyan rim) that shots 02-07 and 10-11 must match",
+        "next": "Same set, same wardrobe, same light direction as 02. Polat must be on a HIGHER step than Elif at the end of this shot so the 02 lean-down reads. Polat's screen position: centre; Elif enters 02 at screen left-of-centre."
+      },
+      "music_sync": "Verse 1 buildup, bar 1. No hit to land; this shot's only obligation is to be on screen at t=0 and hand off cleanly at 2.256s.",
+      "sources": ["FINAL_RECREATION_REPORT.md §3 row 01", "05_higgsfield_execution_blueprint.md §3 Clip 01", "SHOT_TABLE.md row 01"]
+    },
+    {
+      "id": "02",
+      "start_s": 2.256,
+      "end_s": 5.176,
+      "dur_s": 2.92,
+      "frames": 88,
+      "driving_clip": "clip_02_hook_duo_roses.mp4",
+      "source_range_s": [29.52, 32.44],
+      "location": "red-velvet-studio-steps",
+      "characters_present": ["polat", "elif"],
+      "wardrobe_per_character": {
+        "polat": "polat_studio - CONTESTED, see notes CONTRA-02 (the report says white fedora, the blueprint forbids any hat here)",
+        "elif": "elif_studio"
+      },
+      "camera": {
+        "framing": "medium",
+        "shot_size": "two-shot, roughly thigh-up, both faces clearly readable",
+        "angle": "eye-level, slightly favouring Elif seated so Polat leans down INTO frame from the upper step",
+        "lens_feel": "35mm anamorphic prime, nostalgic 2003 television-drama elegance",
+        "move": "static / locked off",
+        "crop_center_x_in_source": 884
+      },
+      "action_beats": [
+        {"t_in_shot_s": 0.0, "beat": "Elif seated gracefully on the crimson velvet steps, a bouquet of red roses held in her lap/against her chest."},
+        {"t_in_shot_s": 0.6, "beat": "Polat, standing one or two steps above and behind her, leans down charismatically toward her - torso angled in, shoulders dropping into frame."},
+        {"t_in_shot_s": 1.8, "beat": "Held romantic beat: her gaze lifts to meet his; he holds the brooding non-smile. Small settle of the rose stems."},
+        {"t_in_shot_s": 2.85, "beat": "Hard out on the last frame - this cut is the pre-roll into the drop section."}
+      ],
+      "keyframe_moment": "The apex of the lean: Elif seated, roses in her hands, face tilted up; Polat bent down from the higher step so his head is just above and behind hers, black wool sleeve passing close to but never touching the ivory silk, warm key on her face and cool cyan rim carving his back and shoulders so the two silhouettes stay separable.",
+      "motion_summary": "From that still, Polat completes the downward lean and holds while Elif's head tilts up to him and the rose heads settle - slow, romantic, almost no travel.",
+      "continuity_links": {
+        "previous": "Same set/light as 01. Polat's wardrobe must be unchanged from 01 unless CONTRA-02 is resolved in favour of the fedora, in which case the hat has to appear in 01 too or the cut will pop.",
+        "next": "Cuts straight into the drop shot 03. Polat must end this shot upright-capable and standing on the steps; 03 opens on him centre-frame full-body on the SAME steps, so his step level and screen position should read as continuous. Elif and the roses leave frame entirely at the cut."
+      },
+      "music_sync": "Last bar of the verse-1 buildup. The blueprint trims one frame off the tail of this shot expressly 'before the cut to the drop' - so the cut at 5.176s must feel like an intake of breath, not a resolution.",
+      "sources": ["FINAL_RECREATION_REPORT.md §3 row 02", "05_higgsfield_execution_blueprint.md §3 Clip 02", "SHOT_TABLE.md row 02"]
+    },
+    {
+      "id": "03",
+      "start_s": 5.176,
+      "end_s": 8.976,
+      "dur_s": 3.8,
+      "frames": 114,
+      "driving_clip": "clip_03_chorus_drop_hero.mp4",
+      "source_range_s": [32.44, 36.24],
+      "location": "red-velvet-studio-steps",
+      "characters_present": ["polat", "ensemble_studio"],
+      "wardrobe_per_character": {
+        "polat": "polat_studio",
+        "ensemble_studio": "dark studio wardrobe, unfeatured"
+      },
+      "camera": {
+        "framing": "wide",
+        "shot_size": "full body hero wide, whole figure plus shoes plus floor clearance, ensemble readable behind",
+        "angle": "eye-level, dead centre, symmetrical",
+        "lens_feel": "35mm master prime, ultra-sharp focus, gritty noir",
+        "move": "static / locked off - the energy must come from the body, not the camera",
+        "crop_center_x_in_source": 960
+      },
+      "action_beats": [
+        {"t_in_shot_s": 0.0, "beat": "Polat lands centre-frame on the steps, commanding upright posture, ensemble ranged behind. Sub-bass has DROPPED OUT - this is the hole in the music."},
+        {"t_in_shot_s": 1.744, "beat": "THE DROP. On the sub-bass slam Polat drops decisively into an explosive Khorezm Lazgi deep squat bounce; the ensemble snaps into synchronised knee bounces on the same frame. This is master frame 208 / t=6.920s."},
+        {"t_in_shot_s": 2.2, "beat": "Rebound up out of the squat, weight rolling back over the heels, into a second smaller bounce on the following beat."},
+        {"t_in_shot_s": 3.0, "beat": "Settles into the chorus groove, knees soft, ready to hand off."}
+      ],
+      "keyframe_moment": "The bottom of the squat: Polat at his lowest, knees driven wide and deep, spine straight, arms braced out, shoes flat and clearly planted on a red step, deadpan stare still locked to the lens, the ensemble behind him caught at the same depth - one symmetrical frozen slam. THIS IS THE HERO STILL OF THE WHOLE REEL.",
+      "motion_summary": "From that still, the body explodes upward out of the squat and rebounds into a second knee bounce, the ensemble moving in unison with him, everything else in frame rigid.",
+      "continuity_links": {
+        "previous": "Same steps, same wardrobe, same light as 02. Polat re-enters at the screen centre the lean left him near.",
+        "next": "Cuts to a tight waist-up of Elif. Polat must be back near neutral standing posture at the out-point so his reappearance in 04 is not a jump."
+      },
+      "music_sync": "PRIMARY BEAT DROP. Sub-bass dropout followed by the slam at master t=6.920s (frame 208), which is 1.744s into this shot. Visual apex of the squat must sit on that transient within one frame (+/-33ms). Everything else in the reel was calibrated around this one instant - the whole 43s source window (27.264s-70.264s of the raw video) exists because 34.184-6.920=27.264.",
+      "is_drop_anchor": true,
+      "sources": ["FINAL_RECREATION_REPORT.md §3 row 03", "05_higgsfield_execution_blueprint.md §1.3 and §3 Clip 03", "SHOT_TABLE.md row 03"]
+    },
+    {
+      "id": "04",
+      "start_s": 8.976,
+      "end_s": 11.816,
+      "dur_s": 2.84,
+      "frames": 85,
+      "driving_clip": "clip_04_call_response_1.mp4",
+      "source_range_s": [36.24, 39.08],
+      "location": "red-velvet-studio-steps",
+      "characters_present": ["elif", "polat"],
+      "wardrobe_per_character": {
+        "polat": "polat_studio",
+        "elif": "elif_studio - CONTESTED, the blueprint's own prompt for this shot says cream knit and blazer; see notes CONTRA-05"
+      },
+      "camera": {
+        "framing": "medium",
+        "shot_size": "waist-up on both halves; latents concentrated on shoulders, collarbones and face",
+        "angle": "eye-level; Elif in three-quarter profile, Polat frontal",
+        "lens_feel": "50mm anamorphic, 35mm film grain",
+        "move": "static / locked off",
+        "crop_center_x_in_source": 940
+      },
+      "action_beats": [
+        {"t_in_shot_s": 0.0, "beat": "CALL: Elif in profile glance, one hand clutching the pearl strand at her throat, chin turning across the lens."},
+        {"t_in_shot_s": 1.2, "beat": "RESPONSE: cut to Polat executing sharp alternating shoulder pops (yelka qoqish) - left clavicle punches up, then right, then left, one pop per beat at 95.8 BPM."},
+        {"t_in_shot_s": 2.6, "beat": "Last pop lands and holds; hard out."}
+      ],
+      "keyframe_moment": "Polat waist-up, frontal, caught at the top of a single shoulder pop - one shoulder driven visibly higher than the other, lapels lifted with it, head level and face utterly deadpan, cyan rim tracing the raised shoulder line. (If the local stack can carry two subjects in one still, the alternate keyframe is a split of Elif's profile pearl-clutch and this pop; otherwise generate this one and cover Elif's call with a separate still.)",
+      "motion_summary": "From that still, the shoulders alternate-pop sharply on the beat - up, down, up on the other side - torso and head staying rigid, clavicles doing all of the work.",
+      "continuity_links": {
+        "previous": "Polat's wardrobe and light unchanged from 03; the pearl necklace on Elif carries forward from 02 and forward again into 05 and 10.",
+        "next": "05 is the same call-and-response structure one notch tighter. Elif's hand must still be near her throat at the out-point so the 05 close-up picks up the same gesture, and Polat's screen position should not jump."
+      },
+      "music_sync": "Call-and-response phase 1 over the chorus. One shoulder pop per beat at 95.8 BPM (0.626s per beat). The CALL half sits on Elif, the RESPONSE half on Polat; the internal cut should land on a downbeat around 1.2s into the shot.",
+      "sources": ["FINAL_RECREATION_REPORT.md §3 row 04", "05_higgsfield_execution_blueprint.md §3 Clip 04", "SHOT_TABLE.md row 04"]
+    },
+    {
+      "id": "05",
+      "start_s": 11.816,
+      "end_s": 14.416,
+      "dur_s": 2.6,
+      "frames": 78,
+      "driving_clip": "clip_05_call_response_2.mp4",
+      "source_range_s": [39.08, 41.68],
+      "location": "red-velvet-studio-steps",
+      "characters_present": ["elif", "polat"],
+      "wardrobe_per_character": {
+        "polat": "polat_studio",
+        "elif": "elif_studio - CONTESTED, see notes CONTRA-05"
+      },
+      "camera": {
+        "framing": "closeup",
+        "shot_size": "tight chest-up on Elif, widening to medium waist-up on Polat",
+        "angle": "eye-level, dead frontal - Elif looks straight down the lens",
+        "lens_feel": "85mm prime portrait, Kodak Vision2 film-stock look, shallow focus",
+        "move": "static / locked off",
+        "crop_center_x_in_source": 850
+      },
+      "action_beats": [
+        {"t_in_shot_s": 0.0, "beat": "CALL: Elif in tight close-up making direct, unbroken eye contact with the lens, fingers playing along the pearl necklace at her throat."},
+        {"t_in_shot_s": 1.1, "beat": "RESPONSE: cut to Polat, both shoulders shrugging sharply UPWARD together (not alternating this time) on the snare hit."},
+        {"t_in_shot_s": 1.9, "beat": "Shoulders drop back; the stare never breaks."}
+      ],
+      "keyframe_moment": "Elif's close-up: heart-shaped face filling the frame, hazel eyes locked straight down the lens, two fingertips resting on the pearl strand, warm key from camera left with deep falloff behind - the single most intimate still in the reel.",
+      "motion_summary": "From that still, the fingers slide a fraction along the pearls and the eyes hold the lens with one slow blink - micro-motion only; no head travel, no reframing.",
+      "continuity_links": {
+        "previous": "Picks up Elif's hand at the pearls exactly where 04 left it. Same warm-key-left / cyan-rim lighting.",
+        "next": "06 opens on Elif again (seated, prayer/wrist-snap) before handing to Polat - so her hand position at the out-point should read as travelling down from her throat toward her lap."
+      },
+      "music_sync": "Call-and-response phase 2. Polat's dual-shoulder shrug apex is locked to the snare transient at master t=13.10s, which is 1.284s into this shot.",
+      "sources": ["FINAL_RECREATION_REPORT.md §3 row 05", "05_higgsfield_execution_blueprint.md §3 Clip 05", "SHOT_TABLE.md row 05"]
+    },
+    {
+      "id": "06",
+      "start_s": 14.416,
+      "end_s": 19.256,
+      "dur_s": 4.84,
+      "frames": 145,
+      "driving_clip": "clip_06_strophe_swagger_strut.mp4",
+      "source_range_s": [41.68, 46.52],
+      "location": "red-velvet-studio-steps",
+      "characters_present": ["elif", "polat"],
+      "wardrobe_per_character": {
+        "polat": "polat_studio",
+        "elif": "elif_studio"
+      },
+      "camera": {
+        "framing": "wide",
+        "shot_size": "full body on the Polat half - shoes and stair treads must be in frame; the Elif opening is seated medium",
+        "angle": "LOW ANGLE on the Polat half, camera below his eyeline looking up the steps as he descends toward lens",
+        "lens_feel": "35mm master prime, ultra-sharp, Turkish noir",
+        "move": "the SUBJECT travels toward camera down the steps; the sources describe no dolly, so hold the camera and let him grow in frame",
+        "crop_center_x_in_source": 960
+      },
+      "action_beats": [
+        {"t_in_shot_s": 0.0, "beat": "Elif seated on the steps in an emotional strophe beat - hands together in a prayer-like gesture, resolving into a wrist snap."},
+        {"t_in_shot_s": 1.5, "beat": "Cut to Polat in low-angle full body, rhythmic lateral torso sway - weight rolling side to side over the hips, shoulders counter-swinging."},
+        {"t_in_shot_s": 2.6, "beat": "The 'Davra glide': he struts DOWN the red velvet steps toward camera, one tread per beat, each shoe landing flat and locked to a tread - no sliding, no ice-skating."},
+        {"t_in_shot_s": 4.5, "beat": "Arrives near the bottom of the steps, still swaying, ready to bridge into the duo shot."}
+      ],
+      "keyframe_moment": "Low-angle full body: Polat mid-stride on the crimson steps, one foot planted flat on a lower tread and one still on the tread above, torso swayed off-axis to his left, jacket falling open, shot from below so he towers against the dark backdrop with the cyan rim hard on his shoulders and the toe of the polished oxford.",
+      "motion_summary": "From that still, he continues the swaggering descent - two or three more treads toward camera with the torso swaying laterally on the beat, feet staying rigidly planted on each tread with no slide.",
+      "continuity_links": {
+        "previous": "Elif's seated position and the pearl/ivory wardrobe carry from 05. Polat's suit and the cyan rim unchanged.",
+        "next": "07 is the duo on the same velvet steps. Polat must finish LOW on the steps (near Elif's level) so the 07 backward lean beside her is geographically possible. The blueprint trims the tail here specifically to bridge into 07."
+      },
+      "music_sync": "Emotional strophe into the swagger section. One stair tread per beat (0.626s) during the glide; the internal cut from Elif to Polat should land on a downbeat around 1.5s into the shot.",
+      "sources": ["FINAL_RECREATION_REPORT.md §3 row 06", "05_higgsfield_execution_blueprint.md §3 Clip 06", "SHOT_TABLE.md row 06"]
+    },
+    {
+      "id": "07",
+      "start_s": 19.256,
+      "end_s": 25.496,
+      "dur_s": 6.24,
+      "frames": 187,
+      "driving_clip": "clip_07_duo_charm_finger_wag.mp4",
+      "source_range_s": [46.52, 52.76],
+      "location": "red-velvet-studio-steps",
+      "characters_present": ["polat", "elif", "ensemble_studio"],
+      "wardrobe_per_character": {
+        "polat": "polat_studio",
+        "elif": "elif_studio"
+      },
+      "camera": {
+        "framing": "medium",
+        "shot_size": "waist-up two-shot, wide enough to read both torsos and the forward hand gesture",
+        "angle": "eye-level, frontal",
+        "lens_feel": "50mm anamorphic, 35mm film grain",
+        "move": "static / locked off",
+        "crop_center_x_in_source": 910
+      },
+      "action_beats": [
+        {"t_in_shot_s": 0.0, "beat": "Intercut romantic gestures between the two on the velvet steps - small charmed exchanges, her warm smile against his non-smile."},
+        {"t_in_shot_s": 1.8, "beat": "Polat leans smoothly BACKWARD on the steps, weight going onto the step behind him, jacket opening."},
+        {"t_in_shot_s": 3.2, "beat": "Ensemble unison pelvic bounce behind them, locked to the downbeats."},
+        {"t_in_shot_s": 4.6, "beat": "THE FINGER WAG: Polat raises one hand and wags a single index finger directly INTO the camera lens, faint stoic smirk. Longest single beat in the reel's studio half."},
+        {"t_in_shot_s": 6.0, "beat": "Wag resolves; hard out into the canyon."}
+      ],
+      "keyframe_moment": "Polat leaned back on the crimson steps, one index finger raised and extended toward the lens mid-wag, faint smirk, Elif beside him smiling warmly, the ensemble caught mid-bounce behind - the hand foreshortened toward camera but with all five digits unambiguously readable.",
+      "motion_summary": "From that still, the raised index finger wags side to side two or three times toward the lens while his torso rocks back on the steps and the ensemble bounces in unison behind - the rest of the body near-still.",
+      "continuity_links": {
+        "previous": "Polat arrives from 06 low on the steps beside Elif; wardrobe, pearls, roses-free staging and light all carry from 06.",
+        "next": "HARD SET CHANGE at 25.496s - studio to canyon exterior, black suit to fedora and navy bomber, low-key interior to hard daylight. This is the single biggest discontinuity in the reel and it is deliberate; the cut must be hard, with no dissolve to soften it."
+      },
+      "music_sync": "Duo charm section. The ensemble pelvic bounce lands on the downbeats; the finger wag is the section's punctuation and should begin on a downbeat roughly 4.6s into the shot.",
+      "sources": ["FINAL_RECREATION_REPORT.md §3 row 07", "05_higgsfield_execution_blueprint.md §3 Clip 07", "SHOT_TABLE.md row 07"]
+    },
+    {
+      "id": "08",
+      "start_s": 25.496,
+      "end_s": 29.976,
+      "dur_s": 4.48,
+      "frames": 134,
+      "driving_clip": "clip_08_canyon_transition_stomp.mp4",
+      "source_range_s": [52.76, 57.24],
+      "location": "canyon-exterior",
+      "characters_present": ["polat", "white_corps"],
+      "wardrobe_per_character": {
+        "polat": "polat_canyon",
+        "white_corps": "all-white dancewear"
+      },
+      "camera": {
+        "framing": "medium",
+        "shot_size": "medium-full portrait - hat brim to below the knee, red cubes readable under him",
+        "angle": "eye-level to slightly low, frontal to the archway",
+        "lens_feel": "35mm cinematic anamorphic, hard daylight contrast",
+        "move": "static / locked off",
+        "crop_center_x_in_source": 920
+      },
+      "action_beats": [
+        {"t_in_shot_s": 0.0, "beat": "Hard cut to canyon. Polat swaggers through / in front of the vivid red architectural archway in the fedora and navy pilot bomber."},
+        {"t_in_shot_s": 1.4, "beat": "The White Corps throw a unison arm thrust that opens the instrumental break."},
+        {"t_in_shot_s": 2.6, "beat": "Polat takes centre stage on the low red cubes and drives a heavy Khorezm Lazgi STOMP - full body weight down through the planted foot, arms thrusting out with it."},
+        {"t_in_shot_s": 3.8, "beat": "Second stomp / recovery, holding the stance."}
+      ],
+      "keyframe_moment": "Polat centre-frame standing on the red cube platform at the top of the stomp - one knee raised and the other leg loaded, both arms thrust outward, fedora brim shading the eyes but the stare still readable, the vivid red archway directly behind him and the White Corps flanking in soft focus, hard canyon sun with a crisp rim on the hat brim and jacket shoulders.",
+      "motion_summary": "From that still, the raised foot slams down onto the red cube in a heavy Lazgi stomp with the arms thrusting on the impact, dust and jacket settling after - the corps thrusting in unison behind.",
+      "continuity_links": {
+        "previous": "Deliberate total break from 07: new set, new wardrobe, new light. The ONLY things that must carry are the face and the deadpan performance. The fedora appears here for the first time, so the 07-08 cut has to be hard enough to sell the costume change.",
+        "next": "09 is the same canyon, same wardrobe, same corps, same light direction. Polat should end near the centre of the red cubes so 09 opens without a jump."
+      },
+      "music_sync": "Instrumental break. The White Corps arm thrust marks the START of the break (called the '19s break' in the sources - see notes CONTRA-06), and the Lazgi stomp lands on the heaviest accent inside this window.",
+      "sources": ["FINAL_RECREATION_REPORT.md §3 row 08", "05_higgsfield_execution_blueprint.md §3 Clip 08", "SHOT_TABLE.md row 08"]
+    },
+    {
+      "id": "09",
+      "start_s": 29.976,
+      "end_s": 35.896,
+      "dur_s": 5.92,
+      "frames": 178,
+      "driving_clip": "clip_09_canyon_double_point.mp4",
+      "source_range_s": [57.24, 63.16],
+      "location": "canyon-exterior",
+      "characters_present": ["polat", "white_corps"],
+      "wardrobe_per_character": {
+        "polat": "polat_canyon",
+        "white_corps": "all-white dancewear"
+      },
+      "camera": {
+        "framing": "medium",
+        "shot_size": "dynamic low-angle medium - chest and arms dominant, canyon sky above",
+        "angle": "LOW ANGLE, camera below the eyeline looking up at him against sandstone and sky",
+        "lens_feel": "35mm anamorphic prime, hard daylight, gritty action realism",
+        "move": "CAMERA PAN - this is the only shot in the reel with an explicit camera move. A lateral pan riding the wrist snaps; the original preserved it from the driving footage rather than generating it.",
+        "crop_center_x_in_source": 980
+      },
+      "action_beats": [
+        {"t_in_shot_s": 0.0, "beat": "Wrist-snap accents carried on a lateral camera pan across the canyon."},
+        {"t_in_shot_s": 1.6, "beat": "Low-angle elbow-pump groove - elbows driving back and forward alternately on the beat, hips riding under."},
+        {"t_in_shot_s": 3.4, "beat": "THE PESHTA DOUBLE-POINT: both index fingers snap forward and point straight into the camera lens, arms fully extended, stare unwavering. The signature gesture of the whole track."},
+        {"t_in_shot_s": 4.8, "beat": "Lateral arm whip out of the point, releasing the tension."}
+      ],
+      "keyframe_moment": "The double-point at full extension: low angle, both arms thrust straight toward the lens with index fingers extended and foreshortened, fedora brim low, jaw set, deadpan; the red archway and white-clad corps compressed behind him, hard sun and crisp rim on the hat brim. Five unambiguous digits per hand - this is the hardest frame in the reel to generate cleanly.",
+      "motion_summary": "From that still, the arms retract and re-punch the double-point once more on the beat before whipping laterally across the body, the camera panning slightly with the whip.",
+      "continuity_links": {
+        "previous": "Direct continuation of 08 - identical canyon, wardrobe, corps and sun direction; only the angle drops lower and the camera starts moving.",
+        "next": "HARD SET CHANGE BACK at 35.896s to the red velvet studio for Elif. Same discontinuity as 07-08 but in reverse; cut hard."
+      },
+      "music_sync": "Peak of the instrumental break. The double-point must land synchronously with the vocal hit inside this window; the elbow pumps run one per beat at 95.8 BPM.",
+      "sources": ["FINAL_RECREATION_REPORT.md §3 row 09", "05_higgsfield_execution_blueprint.md §3 Clip 09", "SHOT_TABLE.md row 09"]
+    },
+    {
+      "id": "10",
+      "start_s": 35.896,
+      "end_s": 37.496,
+      "dur_s": 1.6,
+      "frames": 48,
+      "driving_clip": "clip_10_elif_red_steps.mp4",
+      "source_range_s": [63.16, 64.76],
+      "location": "red-velvet-studio-steps",
+      "characters_present": ["elif"],
+      "wardrobe_per_character": {
+        "elif": "elif_studio"
+      },
+      "camera": {
+        "framing": "wide",
+        "shot_size": "full body seated, with a mandatory ~18% headroom above her hair - head cutoff is the named failure mode for this shot",
+        "angle": "eye-level, frontal, subject placed left of centre",
+        "lens_feel": "35mm film prime, soft focus falloff, red bokeh background",
+        "move": "static / locked off",
+        "crop_center_x_in_source": 650,
+        "framing_note": "The original crop was shifted 310px left of the sequence default specifically to buy headroom. In the local rebuild this means: compose her off-centre-left with generous space above the head."
+      },
+      "action_beats": [
+        {"t_in_shot_s": 0.0, "beat": "Return to the red studio. Elif seated on the crimson velvet steps, torso upright, arms crossed gently and tightly over her chest, fingers clutching the pearl strand."},
+        {"t_in_shot_s": 0.7, "beat": "Her eyes lift upward in a tender, mysterious gaze - a slow head tilt, nothing more."},
+        {"t_in_shot_s": 1.5, "beat": "Hold. Out."}
+      ],
+      "keyframe_moment": "Elif seated on the tiered crimson steps, arms crossed over her chest with the pearls gathered in her fingers, chin slightly raised and eyes looking upward past the lens, warm key from camera left, deep red bokeh behind, wide clear headroom above her hair.",
+      "motion_summary": "From that still, only a slow head tilt and a lift of the eyes with one soft blink - the lowest-motion shot in the reel by design; arms and pearls must not move.",
+      "continuity_links": {
+        "previous": "Returns to the exact studio set, wardrobe, pearls and warm-key-left lighting last seen in 07. Her seated position should read as the same steps she sat on in 02, 05 and 06.",
+        "next": "11 returns Polat to the SAME steps in the SAME studio light. She sits low; he stands high - the two shots should read as two halves of one space."
+      },
+      "music_sync": "Breath / turnaround between the instrumental break and the outro. No accent to hit; its whole job is 1.6 seconds of stillness before the final hero shot.",
+      "sources": ["FINAL_RECREATION_REPORT.md §3 row 10", "05_higgsfield_execution_blueprint.md §3 Clip 10", "SHOT_TABLE.md row 10"]
+    },
+    {
+      "id": "11",
+      "start_s": 37.496,
+      "end_s": 43.0,
+      "dur_s": 5.504,
+      "frames": 165,
+      "driving_clip": "clip_11_polat_hero_outro.mp4",
+      "source_range_s": [64.76, 70.264],
+      "location": "red-velvet-studio-steps",
+      "characters_present": ["polat"],
+      "wardrobe_per_character": {
+        "polat": "polat_studio"
+      },
+      "camera": {
+        "framing": "medium",
+        "shot_size": "waist-up hero medium - maximum facial resolution for the smirk, suit silhouette rock-solid",
+        "angle": "eye-level, frontal, subject right of centre",
+        "lens_feel": "50mm anamorphic, 35mm film grain, mafia noir",
+        "move": "static / locked off",
+        "crop_center_x_in_source": 1020
+      },
+      "action_beats": [
+        {"t_in_shot_s": 0.0, "beat": "Polat standing commanding atop the red pyramid steps, waist-up, dark studio behind."},
+        {"t_in_shot_s": 1.0, "beat": "The extended signature wrist flick (called the 'dinosaur wrist flick' in two of the three sources - see notes TERM-01): a slow swaggering rotation of the hand at the wrist, showy, unhurried."},
+        {"t_in_shot_s": 3.2, "beat": "A faint stoic smirk crosses the face - the only near-smile in 43 seconds."},
+        {"t_in_shot_s": 4.2, "beat": "Deceleration into an immovable statuesque hero pose, at attention, facing camera."},
+        {"t_in_shot_s": 5.5, "beat": "Hold the final frame dead still to lock the 43.000s mark. NO fade, NO trim off the tail."}
+      ],
+      "keyframe_moment": "The final hero pose: Polat waist-up atop the crimson steps, squared to camera at attention, one hand just settled from the flick, faint stoic smirk, unblinking penetrating stare, warm 3200K key with the brilliant cyan rim carving his shoulders and pompadour out of the near-black backdrop.",
+      "motion_summary": "From that still, run the shot BACKWARD in intent: the hand rolls through a slow swaggering wrist flick, the smirk forms, and everything decelerates into a locked, motionless statue that must be rock-still for the last second.",
+      "continuity_links": {
+        "previous": "Same studio, steps, wardrobe and light as 10 - she was seated low, he stands high on the same set. Screen position shifts right of centre so the two shots do not stack.",
+        "next": "none - final shot. Its last frame IS master frame 1289. Nothing may be trimmed off this tail or the 43.000s lock breaks."
+      },
+      "music_sync": "The music transitions into Verse 2 across this shot; the statuesque freeze should be fully settled before the reel hard-ends at 43.000s. This shot carries any cover-frame / loop-point duty.",
+      "sources": ["FINAL_RECREATION_REPORT.md §3 row 11", "05_higgsfield_execution_blueprint.md §3 Clip 11", "SHOT_TABLE.md row 11"]
+    }
+  ],
+  "notes": [
+    {
+      "id": "TILE-01",
+      "kind": "verification",
+      "text": "The 11 calibrated windows tile 0.000s to 43.000s exactly, with no gap and no overlap. Cumulative check: 2.256, 5.176, 8.976, 11.816, 14.416, 19.256, 25.496, 29.976, 35.896, 37.496, 43.000. The same 11 durations appear verbatim as DEFAULT_CALIBRATED_DURATIONS in marketing/campaigns/peshta/assemble_polat_peshta.py, so the report, the shot table, the blueprint and the code all agree. No discrepancy to report on the windows themselves."
+    },
+    {
+      "id": "CONTRA-01",
+      "kind": "contradiction",
+      "text": "WHICH MODEL RENDERED WHAT. FINAL_RECREATION_REPORT §1 says all 11 macro shots were 'motion-transferred using Higgsfield Genjutsu (hf_mult_motion_control)'. The blueprint §2 shot-table and §3 profiles assign Kling 3.0 Motion Control to shots 01, 03, 06, 08, 09, 10, 11 (7 x 10 credits) and Genjutsu only to shots 02, 04, 05, 07 (4 x 35 credits), totalling 210 credits. Both readings are recorded; neither is picked. IMPACT ON THIS REBUILD: none directly - the local pipeline is still-then-i2v, not motion transfer - but it matters for the A/B write-up, because 'what the cloud version actually was' is one of the things being compared."
+    },
+    {
+      "id": "CONTRA-02",
+      "kind": "contradiction",
+      "text": "POLAT'S HEADWEAR IN SHOT 02. FINAL_RECREATION_REPORT §3 row 02 reads 'Polat Alemdar in white fedora leaning charismatically towards Elif on red velvet steps'. The blueprint §3 Clip 02 positive prompt dresses him in the black wool suit with NO hat, and its negative prompt explicitly excludes 'hat' - as does every other studio shot. The blueprint's only fedora is the DARK wool-felt canyon fedora of Card P04 (shots 08 and 09); a WHITE fedora appears nowhere else in any source, and the operator troubleshooting table treats a missing fedora outside the canyon as correct behaviour. Both readings recorded. This must be settled before shot 02's keyframe is generated, because it also forces a decision about shot 01 (a hat that appears only in 02 will pop at both cuts)."
+    },
+    {
+      "id": "CONTRA-03",
+      "kind": "contradiction",
+      "text": "04_generation_plan.md DESCRIBES A DIFFERENT DELIVERABLE. It was named as a source for this extraction, but it is the 'Peshta Promo - Variant D 15-Second Generation Plan': 15.000s, 50 fps, 750 frames, FOUR shots (SH-01..SH-04 plus cold open, vacuum, demo and CTA segments), whose subject is the Bayram bot DOG MASCOT in a Chust doppi and retro sunglasses, not Polat and Elif. It shares the song and the campaign but nothing about the 43s/30fps/11-shot build. Nothing from its shot list, its beat grid (§2.4), its keyframe set (§4.4) or its clip table (§6.4) has been merged into this bible. Flagging rather than silently ignoring it, because its §2 beat-grid ruling and its §5 character-consistency ladder (verbatim prompt carry-forward, hero-keyframe reuse, start_image chaining) are the parts of it that DO transfer to a local still-then-i2v pipeline and are worth reading before the rebuild."
+    },
+    {
+      "id": "CONTRA-04",
+      "kind": "contradiction",
+      "text": "BEAT-DROP TIME VS FRAME NUMBER. Every source writes the drop as 't = 6.920s (Frame 208)'. At 30 fps those are not the same instant: 6.920s is frame 207.6, and frame 208 is 6.9333s - a 13ms / 0.4-frame disagreement. The blueprint's own transient check adds a third form ('frame index 52 within rendered clip 03 aligns to master frame 208'), and 5.176s x 30 = 155.28, so 208 - 155.28 = 52.72, also not an integer. Readings recorded: 6.920s (used as the canonical value in this file, being the measured audio transient) and frame 208 (the integer the assembly was checked against). Sub-frame, but the entire 43s window was derived from this number (34.184 - 6.920 = 27.264), so it is worth stating rather than rounding away."
+    },
+    {
+      "id": "CONTRA-05",
+      "kind": "contradiction",
+      "text": "ELIF'S WARDROBE IN SHOTS 04 AND 05. The blueprint's Clip 04 positive prompt puts her in 'cream knit and blazer', while Card E01/E02/E03 and every other shot put her in the ivory-white silk-crepe dress with the pearl necklace. Shot 05's prompt names no garment at all (chest-up framing). Both readings recorded. Since 04 and 05 are waist-up and chest-up, the garment is barely on screen either way - but the local rebuild generates a fresh still per shot with no shared latent, so whichever reading is chosen has to be chosen explicitly or these two stills will drift from 02, 06, 07 and 10."
+    },
+    {
+      "id": "CONTRA-06",
+      "kind": "contradiction",
+      "text": "THE '19s BREAK' IN SHOT 08. The blueprint §3 Clip 08 and SHOT_TABLE row 08 both say the White Corps arm thrust lands 'at start of 19s break'. Shot 08 occupies 25.496s-29.976s on the master timeline and 52.760s-57.240s in the source video - 19s is neither. The most likely readings: (a) 19s is a position in the ORIGINAL uncut song, outside both of this project's timelines, or (b) it is a stale figure carried over from an earlier cut. Recorded unresolved. It does not block the rebuild - the arm thrust is anchored to the first heavy accent inside the shot regardless - but it should not be treated as a timeline number."
+    },
+    {
+      "id": "TERM-01",
+      "kind": "undefined_term",
+      "text": "'DINOSAUR WRIST FLICK' (shot 11). FINAL_RECREATION_REPORT §3 row 11 and SHOT_TABLE row 11 both call it the 'signature dinosaur wrist flick'; the blueprint §3 Clip 11 describes the same beat as a 'slow swaggering wrist flick' with no such word, and no source anywhere defines what 'dinosaur' modifies. Two-of-three sources use it, so it is recorded, but it is a label without a definition - it should be resolved by watching rendered_shot_11.mp4 or the source video before the shot 11 keyframe is locked."
+    },
+    {
+      "id": "PROP-01",
+      "kind": "deliberate_omission",
+      "text": "THE SMARTPHONE IN SHOT 01. The source choreography opens on a smartphone surprise reaction, and both SHOT_TABLE and the blueprint describe it. The blueprint then deliberately REMOVES the prop (§3 Clip 01, Anticipated Challenges): the prompt conditions naturally resting hands and wrist flourishes, and the motion vector is absorbed into the hand rather than generating a phone. Carried into this bible as a deliberate omission, not an oversight. The local rebuild must make the same call consciously - an i2v pass from a still with empty hands cannot produce a phone, so the reaction has to be sold by the face and the head snap alone."
+    },
+    {
+      "id": "TRIM-01",
+      "kind": "method_difference",
+      "text": "LEAD-IN / LEAD-OUT TRIMS ARE INTERNAL, NOT TIMELINE EDITS. The blueprint specifies a 0.100s (3-frame) lead-in trim on every clip to discard the model's initial latent freeze, plus assorted lead-out trims, and two of those (clips 06 and 09) are given as '0.050s (1.5 frames)' - not representable at 30 fps. These trims shorten the RENDERED material, which the assembly then conforms back out to the calibrated durations (the script's tpad=stop_mode=clone / trim pair). They never change the 11 windows. For the local rebuild the practical consequence is: generate each i2v clip LONGER than its window - at least 0.2s of headroom at each end - so the same trimming is available, and re-time to the exact window at assembly."
+    },
+    {
+      "id": "SETS-01",
+      "kind": "scope",
+      "text": "ONLY TWO DISTINCT SETS EXIST across all sources: red-velvet-studio-steps (9 shots) and canyon-exterior (2 shots). No third location is described anywhere and none has been invented. The two set changes (07->08 and 09->10) are hard cuts with total wardrobe and lighting reversals; they are the two highest-risk continuity moments in the reel and the two places where a still-then-i2v pipeline is actually ADVANTAGED over motion transfer, because each side is generated independently anyway."
+    },
+    {
+      "id": "CAM-01",
+      "kind": "gap",
+      "text": "CAMERA MOVEMENT IS BARELY SPECIFIED. Across all 11 shots the sources describe exactly one explicit camera move - the pan in shot 09, which the cloud build preserved from the driving footage via scene_control rather than generating. Shot 06 has subject-toward-camera travel down the steps, which reads as movement but is not a camera move. Everything else should be treated as locked off. This is a REAL constraint for the local rebuild, not an omission to fill in: in a still-then-i2v pipeline any camera move has to be instructed deliberately, and inventing moves the original did not have would break the A/B comparison this rebuild exists to make."
+    },
+    {
+      "id": "AB-01",
+      "kind": "method_difference",
+      "text": "WHAT CHANGES BECAUSE THE METHOD CHANGED. The cloud build transferred motion from 11 real driving clips onto character anchor stills, so per-shot timing, internal cuts and ensemble sync came free from the footage. The local build generates one still per shot and animates it, so: (a) the internal cuts inside shots 01, 04, 05 and 06 - each of which cuts from Elif to Polat MID-SHOT - have no equivalent in a single i2v clip and must either be split into two generations conformed into one window, or re-staged as a single continuous action; (b) ensemble unison (shots 03 and 07) is no longer guaranteed and may need to be accepted as approximate; (c) the beat drop at 6.920s is now a manual alignment problem, since nothing in the generated motion knows about the music. Shots 01, 04, 05 and 06 are therefore the four highest-risk items in the rebuild."
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # deploy-support.sh — ship the support-ticket queue, the group picker and the money strip
 # to abdu-test.
-#
+# RETIRED 2026-09-19 — superseded by deploy/bayram-release. DO NOT RUN. See the footer below.
 # Run as root, once:   sudo bash /tmp/deploy-support.sh
 #
 # It is IDEMPOTENT. A rerun re-dumps the database, finds `alembic upgrade head` a no-op,
@@ -35,7 +35,7 @@
 # new tables stay behind, unused, costing nothing. DO NOT `alembic downgrade` — it drops
 # `support_tickets`, and with it every complaint a customer has filed since the deploy.
 
-set -euo pipefail
+printf '%s\n' '' 'REFUSED: deploy-support.sh is RETIRED (2026-09-19) and will not run.' '' '  It is superseded IN FULL. Use the release tool instead:' '      sudo /opt/bayram/sbin/bayram-release deploy' '' '  WHY THIS IS A HARD REFUSAL, NOT A WARNING: this file pins the wheel' '  bayram_bot-0.1.0-20260915b (:40), which is OLDER than the wheel live on' '  abdu-test (bayram_bot-0.1.0rc1, deployed 2026-09-17, schema head 0028).' '  Running it would pg_dump the database, run `alembic upgrade head`, install that' '  stale wheel over the live one and restart all four units -- rolling the host' '  BACKWARDS.' '' '  There is no override: no environment variable, no --force, no escape hatch. It is' '  retired IN PLACE, rather than deleted, so that it can still be READ. Read it; do' '  not run it.' '' >&2; if (return 0 2>/dev/null); then return 1; fi; exit 1  # replaces `set -euo pipefail` in place -- everything below is unreachable by design.
 
 WHEEL=${WHEEL:-/tmp/bayram_bot-0.1.0-20260915b-py3-none-any.whl}
 MIGRATIONS=(
@@ -159,3 +159,38 @@ echo "Rollback (code only, NEVER the schema):"
 echo "  $VENV/bin/pip install --force-reinstall --no-deps <previous wheel>"
 echo "  systemctl restart bayram-bot bayram-worker bayram-admin bayram-payme"
 echo "Backup taken at: $BACKUP"
+
+# ----------------------------------------------------------------------------------------------
+# RETIRED 2026-09-19. DO NOT RUN THIS FILE.
+#
+# Kept verbatim, at its ORIGINAL LINE NUMBERS, as a citation target: deploy/bayram-release
+# references :18-20, :58-65, :89, :93, :96, :99, :113 and :114, and
+# deploy/install-bayram-backup.sh references :7, :88, :89 and :91-93 — the last of those to say
+# which guard "must survive verbatim". EDITING RULE: replace a line in place, or append below
+# this block. Never insert, never reflow.
+#
+# The seven beats belong to deploy/bayram-release now, and it improves on all of them: an
+# assertion on `alembic current` instead of a banner, per-unit restarts in runbook order with
+# NRestarts crash-loop detection, /readyz probes, manifest hashing, state.json and rollback.
+#
+# TWO CHECKS THIS FILE HAD ARE NOT REPRODUCED VERBATIM ANYWHERE. Both are named here so that
+# nobody re-derives them from scratch after wondering where they went.
+#
+#   1. THE WHEEL-CONTENT ASSERTION (:71-83). This opened the wheel as a zip and refused to touch
+#      the database unless bayram/admin/static/ was non-empty AND the JS blob contained
+#      "support.groups" or "Группа поддержки". It moved LEFT, to the producer:
+#      .github/workflows/release.yml builds the console before the wheel and asserts that the
+#      bytes vite wrote are the bytes hatchling packed. That is fatal, and on the normal path it
+#      cannot be skipped. On the CONSUMER side bayram-release checks presence and a sha256 match
+#      of index.html against MANIFEST.json, but its comparison against the INSTALLED console is
+#      deliberately REPORT-ONLY rather than fatal. Since there is no bundle signing in v1, a
+#      hand-assembled bundle can still carry a stale console past preflight. That is a real and
+#      accepted narrowing of what this script guaranteed, not an oversight.
+#
+#   2. THE STEP 7/7 ENV ADVISORIES (:140-148) — BAYRAM_SUPPORT_PANEL_BASE_URL unset, and retired
+#      BAYRAM_SUPPORT_GROUP_* lines still sitting in bayram.env. bayram-release has no
+#      post-deploy env-advisory beat at all. Feature-specific, one-off, and UNREPLACED.
+#
+# The executable bit was dropped with the retirement, so `./deploy-support.sh` cannot be run by
+# reflex, and the :38 guard refuses `bash deploy-support.sh` too -- stderr, exit 1, no body.
+# ----------------------------------------------------------------------------------------------

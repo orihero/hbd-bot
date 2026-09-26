@@ -18,7 +18,9 @@
     "test:e2e": "tsx tests/run-all.ts",
     "test:e2e:strict": "tsx tests/run-all.ts --strict",
     "test:unit": "vitest run",
-    "test:unit:watch": "vitest"
+    "test:unit:watch": "vitest",
+    "//check:built-shell": "Reads the BUILT shell (`../src/bayram/admin/static/index.html`, which .gitignore excludes) for code the panel's CSP would refuse. Requires `build` to have run first, and fails rather than skips when it has not — the Python suite covers the source shell and structurally cannot reach this one.",
+    "check:built-shell": "tsx tests/built-shell-csp.ts"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.1.0",

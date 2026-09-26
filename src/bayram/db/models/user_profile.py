@@ -1,7 +1,7 @@
 """``user_profiles`` — what one Telegram account told us about itself.
 
 **A table, not columns on ``users``, and that is a decision about erasure rather than
-schema taste.** Two facts in the tree today force it. ``docs/product/ADMIN_PANEL_PLAN.md:674``
+schema taste.** Two facts in the tree today force it. ``docs/product/ADMIN_PANEL_PLAN.md`` §5.11
 records "No DDL" on ``users`` as a standing commitment; and ``credits.set_blocked``
 (``src/bayram/db/credits.py``) UPSERTs a ``users`` row precisely so an operator can bar an
 account that never ordered — which means a ``users`` row must be able to outlive everything

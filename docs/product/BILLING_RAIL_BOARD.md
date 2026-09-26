@@ -45,6 +45,30 @@ CLI itself has **nine** subcommands, and its refusals and exit codes are invento
 > corrections, and both are kept rather than rewritten, because the reasoning in them is what the
 > **next** empty screen in this product should inherit.
 
+> **STATUS, 2026-09-19 — both blocks above are superseded as descriptions of this deployment, and
+> the sentence they share is the one that is now false: money has moved.** They are kept, because
+> the reasoning in them is the part that travels and a specification that quietly deletes its own
+> predictions teaches nobody anything. What changed after 2026-09-11: the `hbd` → `bayram` cutover
+> completed and was verified on **2026-09-14**
+> ([`../deployment/10-rename-cutover.md`](../deployment/10-rename-cutover.md) §4.7), and on that
+> same day the rail itself went to production — `BAYRAM_CHECKOUT_PROVIDER=payme`, a gateway whose
+> boot line reads `is_sandbox: false`, a price of 15 000 soʻm, credits enforcement on, no pause in
+> force, and **fourteen settled payments that are not rehearsals**
+> (`../marketing/04-production-pack.md` §3, FACT 2, read off the live host on 2026-09-17). So
+> "`is_sandbox` is still `true`", "`CHECKOUT_PROVIDER` is still unset" and "**no customer has ever
+> been charged**" are each false from 2026-09-14 onward, and the empty state this document was
+> drawn around is history rather than the product. §2's host block and §8 carry the dated
+> corrections; nothing in the mechanism between them changed.
+>
+> **One qualification that production pack makes itself, and which this document should not lose in
+> the retelling.** `is_sandbox: false` is a reading of the gateway's boot line, and the merchant id
+> beside it — `6aa24fd9ee30563de3a1ac22` — is the one the 2026-09-11 block above reads off that
+> same boot line and calls a real **sandbox** cashbox, installed 2026-09-10. Nothing has renumbered
+> it since. Which side of the Payme cabinet that id lives on is a fact that lives in the cabinet
+> and not on this host, and nobody has gone and looked. *The rail is armed and has taken money* is
+> verified; *a stranger's card settles against a production cashbox* is not, and §2.4 is the
+> section that cares about the difference.
+
 ---
 
 > **AMENDMENT, 2026-09-10 — the board is gone from the console; the server is unchanged.**
@@ -125,22 +149,44 @@ exactly one of them.** Every design decision on the header follows from that sen
 conflating them is the most likely way to turn the rail on by accident. The panel inherits that
 hazard and must not become a fourth way to trip over it.
 
-> **THE TWO NAMES IN THAT TABLE DO NOT MATCH THE RUNNING HOST, AND SINCE 2026-09-10 ONE OF THEM
-> RESOLVES TO THE WRONG FILE RATHER THAN TO NOTHING.** This document is written in the
-> repository's post-rename spellings, like every specification here, and `aizu` is pre-rename. So:
+> **THE TWO NAMES IN THAT TABLE NOW MATCH THE RUNNING HOST, AND THE BLOCK THAT STOOD HERE UNTIL
+> TODAY POINTED AT EXACTLY THE WRONG FILE. Corrected 2026-09-19.** From 2026-09-11 until this
+> correction it said that the gateway reads `/etc/hbd/payme.env`, that the `/etc/bayram/payme.env`
+> beside it was cutover debris nothing reads, and that the running wheel writes `hbd:payme:paused`
+> while only the staged wheel and this repository write `bayram:payme:paused`. Every one of those
+> sentences was true on the day it was written and every one of them has since inverted: **the
+> `hbd` → `bayram` cutover completed and was verified on 2026-09-14**, the four `bayram-*` units
+> have been live and active since, and a release is now an ordinary wheel upgrade
+> (`../deployment/08-payme.md` §11.4) rather than a cutover. So:
 >
-> * **the dotenv path.** The gateway reads `/etc/hbd/payme.env` `[HOST 2026-09-11]`. A
->   `/etc/bayram/payme.env` also exists on that host now — 361 B, `0640 root:hbd`, written by a
->   rename cutover that aborted before installing a single unit — **and nothing reads it.** An edit
->   there changes nothing, raises nothing and logs nothing. Check the gateway's `payme.boot.ok`
->   line for `env_file` before believing any edit took.
-> * **the Redis key.** The running wheel writes `hbd:payme:paused`; `bayram:payme:paused` is what
->   the staged wheel and this repository write. `[HOST 2026-09-11]` **neither key is set** — Redis
->   holds five keys and neither spelling is among them.
+> * **the dotenv path.** `/etc/bayram/payme.env` — the path in the table above — is *the* file the
+>   gateway reads. It is where `BAYRAM_PAYME_PROBE_TOKEN` is found to be undeclared, from a live
+>   session `[HOST 2026-09-19]` (`../deployment/00-host-inventory.md` row 24). `/etc/hbd/payme.env`
+>   is now the one whose edits change nothing, raise nothing and log nothing. **The habit the old
+>   block taught is the half worth keeping, precisely because it survived the inversion**: read
+>   `env_file` off the gateway's `payme.boot.ok` line before believing any edit took, rather than
+>   trusting a path somebody wrote down — this block included.
+> * **the Redis key.** `bayram:payme:paused` — the key in the table above — is what the running
+>   wheel writes, because the running wheel is the `bayram` wheel; `src/bayram/payme/pause.py:75`
+>   `[TREE 2026-09-19]` is the only spelling any code in this tree writes — the `hbd:` form
+>   survives only in prose and in host transcripts — and `hbd:payme:paused` is the orphan. **What
+>   is not recorded anywhere is whether either key is set.** The last direct reading
+>   of both is still `[HOST 2026-09-11]`, which found neither present, and the cutover's step 12
+>   re-arms the key *only if it was set when the window opened*
+>   (`../deployment/10-rename-cutover.md` §5.1). The nearest thing to a live answer is
+>   `../marketing/04-production-pack.md` §3, FACT 2, which reports the rail unpaused on 2026-09-17
+>   — a statement about the rail, taken from a read-only host session, not a `GET` on the key. The
+>   panel reads it through `is_paused` like everything else, so §2.2's two caveats are what stand
+>   in for the missing reading.
 >
-> [`../deployment/10-rename-cutover.md`](../deployment/10-rename-cutover.md) §3 is the inventory of
-> everything now duplicated under two names, and `09-payme-go-live.md` §11.5 is what the cutover
-> does to whoever is looking at this screen when it happens.
+> [`../deployment/10-rename-cutover.md`](../deployment/10-rename-cutover.md) is the record of the
+> window — its head block is the outcome, and the dated 2026-09-19 note inside **§4.7** is the one
+> that matters to this screen: it says the cutover was verified, that the rollback window
+> closed on 2026-09-14, and that **the four `hbd-*` unit files were not deleted — they are still in
+> `/etc/systemd/system`, merely `disabled`** — which is why a command that names one still resolves
+> and still tells you nothing whatever about what is running. `09-payme-go-live.md` §11.5, which
+> this block used to offer as what the cutover would do to whoever was sitting in front of this
+> screen, is history rather than warning; it happened, and nobody was.
 
 ### 2.1 Measured, not declared
 
@@ -612,6 +658,41 @@ The same distinction governs every empty state on the board, which is §8.
 ---
 
 ## 8. The empty state is the product today
+
+> **DATED CORRECTION, 2026-09-19 — the empty state is not the product any more, and this section is
+> a design record rather than a description of anything.** Everything under this heading was written
+> for a deployment with three empty tables and a `placeholder` merchant id, then corrected once, on
+> 2026-09-11, for a deployment full of rehearsal rows. Neither is the deployment that exists. Since
+> **2026-09-14** the bot has run `BAYRAM_CHECKOUT_PROVIDER=payme` against a gateway whose boot line
+> reads `is_sandbox: false`, at 15 000 soʻm, with credits enforcement on and no pause in force
+> (§2's host block on what that reading is and is not), and it has settled **fourteen payments that
+> are not rehearsals** — every one of which
+> auto-started a render and delivered a song (`../marketing/04-production-pack.md` §3, FACT 2, read
+> off the live host on 2026-09-17; that document is frozen at its date and is the only written
+> reading of this rail since the cutover). The head of this document carries the same correction and
+> the one qualification it comes with.
+>
+> **Three things follow, and only the first is about this section being out of date.**
+>
+> * **§8.1 and §8.2 are kept exactly as they stand**, superseding notes and all, because their
+>   subject was never this deployment — it was the class of screen whose every number is `0`, and
+>   that screen gets drawn again for the next rail this product grows. Read them as design, and read
+>   the probe mechanism in §8.1 as the part that transfers.
+> * **§8.2's correction was the valuable half, and the rail going live has not retired it — it has
+>   made it sharper.** That subsection argued that `railVerdict` reaching **`selling`** over
+>   exclusively sandbox rows was the wrong word, and that the durable distinction on this screen is
+>   *sandbox versus real* rather than *calls versus intents*. From 2026-09-14 the word is finally
+>   true, and the ladder still cannot tell you so, because `is_sandbox` appears nowhere in it. A
+>   verdict that was wrong for four days and is right today for reasons it cannot see is not a
+>   verdict; the correction stands unchanged, and it is still the one change without which that band
+>   should not be rebuilt.
+> * **`railVerdict` is still not in the tree.** `[TREE 2026-09-19]` a grep for `railVerdict`,
+>   `armed_but_idle` and `never_armed` across `src/` and `admin-dashboard/src/` returns nothing,
+>   exactly as §8.2's addendum recorded on 2026-09-11; the row probes (`has_opened_any_intent` and
+>   its siblings, in `src/bayram/admin/routers/billing.py` and `src/bayram/admin/schemas/billing.py`)
+>   and the `never_settled` verdict of §5.1 are still there, and still have no caller in the console.
+>   The rail going live changed neither fact — which is the ordinary way a specification and a tree
+>   drift: not by disagreeing, but by the world moving under both of them.
 
 ### 8.1 What the board says on 2026-09-10
 

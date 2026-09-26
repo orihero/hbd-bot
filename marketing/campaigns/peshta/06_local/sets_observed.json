@@ -1,0 +1,263 @@
+{
+  "_meta": {
+    "generated": "2026-09-19",
+    "ground_truth_source": "marketing/campaigns/peshta/final_polat_peshta_reel.mp4",
+    "method": "51 distinct master frames extracted with ffmpeg into marketing/campaigns/peshta/06_local/a_frames/ and viewed directly as images. 3 additional full-resolution crops were viewed to adjudicate the rim-light question. Nothing in this file is inferred from the blueprint, the old shot_bible.json, filenames or timestamps.",
+    "frames_viewed": 51,
+    "frames_inferred": 0,
+    "extra_crops_viewed": 3,
+    "character_policy": "Leads are addressed only as M1 (male lead) and F1 (female lead); ensemble as CORPS_A / CORPS_B. No real person or TV character is named anywhere in this file.",
+    "rule": "Where this file and any document disagree, this file follows the frame. The frame wins.",
+    "timebase": "1080x1920, 30/1 CFR, 1290 frames, 43.000s. All seconds are frames/30; no second value was copied from a document.",
+    "window_frames": {"01":[0,68],"02":[68,156],"03":[156,270],"04":[270,355],"05":[355,433],"06":[433,578],"07":[578,765],"08":[765,899],"09":[899,1077],"10":[1077,1125],"11":[1125,1290]}
+  },
+
+  "set_count": 3,
+
+  "sets": [
+    {
+      "set_id": "SET_A_RED_CYC_BRIGHT",
+      "name": "Red cyclorama studio - bright crimson state",
+      "physical_note": "SET_A and SET_B are the SAME physical red cyclorama build, in two different dressing/grade states. They are split into two sets here because a generator fed one clause will not produce the other.",
+      "backdrop": {
+        "what": "Seamless painted/papered cyclorama. No corner seam, no horizon line, no wall/floor junction visible anywhere. It is a lit cyc, not a black void: it is illuminated across the upper two-thirds of frame and only vignettes at the extreme corners.",
+        "colour": "Saturated fire-engine crimson.",
+        "measured_rgb": {
+          "f0030_head_height": [149,8,1],
+          "f0057_upper_left": [121,3,0],
+          "f0292_upper_right": [167,18,13],
+          "f0334_upper_right": [159,13,14],
+          "f0416_upper_right": [106,1,1],
+          "f0505_upper_right": [100,5,2],
+          "f1166_upper_right": [129,0,0],
+          "f1256_upper_right": [126,4,0]
+        },
+        "falloff": "Soft radial falloff from roughly RGB(160,15,10) at the hot centre to RGB(100,5,2) at the frame edges, plus a heavier bottom-corner vignette. It never reaches black in this state."
+      },
+      "floor_and_risers": {
+        "floor": "Matte red-painted / red-carpeted deck, duller and browner than the backdrop. Measured RGB(104,18,19) at f0030.",
+        "riser_default": "A five-tread staircase leading to a flat top platform, entirely draped in crimson velvet / heavy cloth. Visible drape folds, cornered seams and a skirt that pools on the deck. Measured RGB(44,3,9) in the shadowed drape to RGB(115,26,24) on lit tread tops.",
+        "riser_variants": [
+          "w06: dressed instead as a long straight red-carpet runway / catwalk, roughly two treads high, running away from camera. Carpet measured RGB(162,42,44) at f0505, RGB(96,53,57) at f0548.",
+          "w11 sub3-4: low red velvet-draped tiers arranged like theatre benches rather than a staircase."
+        ]
+      },
+      "palette": {
+        "dominant": "Crimson cyclorama, oxblood velvet, matte black wardrobe, warm skin, bone-white shirting, gold metal.",
+        "one_line": "Saturated fire-engine crimson on every surface - cyc, floor and velvet riser - against matte black wardrobe and warm skin; no second hue in the set except gold trim and a thin cyan edge on the silhouette."
+      },
+      "lighting": {
+        "key": "Single high frontal key, roughly 20-30 degrees camera-LEFT and 30-40 degrees above the eye line. Confirmed on f0057, f0496, f1256, f1282 - the leads' screen-left cheek and screen-left lapel carry the highlight in every one.",
+        "key_colour_temp": "Warm, tungsten-biased. Face key measured RGB(132,87,44) at f1095 and RGB(123,71,41) on M1's shirt at f0057. Practical target ~3200K. Both values are further reddened by cyc bounce.",
+        "fill": "There is NO artificial fill. The entire fill is red bounce off the cyclorama, which is why the shadow side of every face reads red rather than neutral grey.",
+        "rim": {
+          "exists": true,
+          "colour": "Cyan / teal. Genuinely cyan, not neutral: R sits well below G and B.",
+          "measured_rgb": {"f0057_shoulder_edge":[60,123,133],"f1282_lapel_edge":[62,124,131],"f0377_shoulder_specular":[83,149,155],"f0188_edge":[71,131,134],"f0245_edge":[65,128,130],"f1166_edge":[66,135,142],"f1197_edge":[89,148,152]},
+          "hue_estimate_deg": 183,
+          "quality": "Narrow and SOFT-edged, not hard. A 5-15px lip on the camera-left / upper-shoulder silhouette. Cool pixels (B-R > 20, mid-bright) occupy only 0.3-1.3% of frame in normal shots; the single exception is f0377, where a cyan specular runs the whole length of F1's shoulder and upper arm and reaches 10.6% of frame.",
+          "where": "SET_A only, plus the two backlit crowd shots in w03. Measurably ABSENT (0.000% cool pixels) from every SET_B intimate shot and from every SET_C frame - see sets[1] and sets[2]."
+        },
+        "contrast": "Per-window YLOW 18-21 against YHIGH 64-90, i.e. roughly 3.5-4.5 stops between shadow body and highlight body. YMAX ~240 only on speculars.",
+        "shadows": "Soft-edged and single-source on the riser treads and deck. No crisp double shadow anywhere in SET_A."
+      },
+      "dressing_and_props": "Red velvet drape on riser and tiers; gold chain body harness and gold bangles; long pearl ropes; bouquets of red roses; black patent shoes; gold wristwatch. No furniture other than the riser. No visible lamps, flags, stands, signage or scenic pieces of any kind.",
+      "who_else_in_frame": {
+        "corps_size_visible": "4 to 8",
+        "wardrobe": "CORPS_A: black floor-length dresses or black high-neck tops with black trousers; hair scraped back tight. Black wide-brim hats in w01, w05 and w11. BARE-HEADED, no hats, in w06 (confirmed f0496, f0505, f0548).",
+        "placement": "Two symmetrical flanking wings at deck level or one tread below the lead, framing the riser left and right; in w06 they line both sides of the runway."
+      }
+    },
+
+    {
+      "set_id": "SET_B_RED_CYC_DARK",
+      "name": "Red cyclorama studio - low-key oxblood state",
+      "physical_note": "Same cyclorama as SET_A, keyed down roughly two stops and re-dressed.",
+      "backdrop": {
+        "what": "The same seamless cyclorama, lit only enough to read as a deep oxblood field that falls off to effectively black at the corners. In shallow-focus close-ups it renders as a dark warm brown bokeh.",
+        "colour": "Deep oxblood / dried-blood maroon, going to near-black at the edges.",
+        "measured_rgb": {
+          "f0188_mid": [56,0,8],
+          "f0245_mid": [55,0,8],
+          "f0603_upper_left": [54,5,10],
+          "f0720_upper_right": [47,0,10],
+          "f0751_upper_left": [40,0,10],
+          "f1095_upper_left": [41,0,10],
+          "f0084_defocused_corner": [4,2,10],
+          "f0111_upper_red": [90,1,0],
+          "f0128_upper_right": [87,0,1]
+        },
+        "note": "This is the ONLY place in the master that comes anywhere near the old bible's 'near-black studio backdrop', and even here it is oxblood red, never a neutral black."
+      },
+      "floor_and_risers": {
+        "w07_plinth": "A large low flat-topped rectangular plinth whose TOP is TAN / TERRACOTTA velvet - measured RGB(218,140,76) at f0671 and RGB(224,147,80) at f0683. This is the single warmest and lightest surface in the whole film and it is unmistakably NOT red. Its skirt and the surrounding treads are red carpet, measured RGB(27,1,9) in shade.",
+        "w03_w10_w11sub1": "Red velvet steps and treads, dark: measured RGB(90,13,13) at f1130.",
+        "floor": "Same red deck as SET_A, rendered dark and largely unlit."
+      },
+      "palette": {
+        "dominant": "Oxblood, matte black, terracotta, warm skin, bone-white shirting, antique gold.",
+        "one_line": "Low-key oxblood cyclorama falling to black at the edges, one terracotta-topped plinth as the only light surface, black wardrobe and gold frogging - roughly half the chroma of the bright state (SATAVG 18-25 vs 29-38)."
+      },
+      "lighting": {
+        "key": "Hard top-front key. Two of them: the plinth top at f0671 and f0683 carries crisp DOUBLE shadows off M1's legs, both sources high and frontal at roughly plus/minus 20 degrees off axis.",
+        "key_colour_temp": "Warm-neutral, same family as SET_A (~3200K) but with far less red bounce because the cyc is dark.",
+        "fill": "Effectively none. Shadows go unfilled to near-black.",
+        "rim": {
+          "exists": false,
+          "evidence": "Cool-pixel fraction (B-R > 20 at mid-brightness) measures 0.000% at f0084, f0111, f0128, f0603, f0646, f0671, f0683, f0720, f0751, f1095 and f1120. There is no rim of any colour in the SET_B intimate and plinth shots; separation comes from the hard key and from the backdrop falling off behind the subject."
+        },
+        "contrast": "Steepest in the film. YLOW ~17 against YHIGH 57-130 depending on window; w03 is the darkest window of all at YAVG 33.32.",
+        "shadows": "HARD. Crisp, sharp-edged, and doubled on the plinth top - the opposite of SET_A's soft single shadow."
+      },
+      "dressing_and_props": "Bouquet of red roses (w02, w07); gold military frogging and a gold-buckled belt on M1's tunic (w07); a flatbread / pancake held up as a prop at f0751; long pearl ropes and a cream ribbed turtleneck on F1 (w10, w11 sub1); cream wide-brim panama with a black band on M1 from f0108.",
+      "who_else_in_frame": {
+        "corps_size_visible": "5 to 8",
+        "wardrobe": "CORPS_B: black, with black wide-brim hats, in w07 and w03. Hair back. In w03 they are behind M1 in a loose crowd, almost entirely in silhouette.",
+        "placement": "w07: standing on the deck in two flanking rows around the plinth, below the lead. w03: massed behind and below M1, unlit."
+      }
+    },
+
+    {
+      "set_id": "SET_C_DESERT_QUARRY_RED_PROPS",
+      "name": "Desert quarry exterior with red modular props",
+      "physical_note": "A real exterior location. The old bible does not mention this set at all, yet it occupies 312 of 1290 frames (24.2% of the film).",
+      "backdrop": {
+        "what": "No backdrop. An eroded sand/clay quarry face or dune wall rising the full height of frame, heavily rilled with vertical erosion gullies and scattered dark scrub on the ridge line. Above it, clear unclouded sky.",
+        "colour": "Ochre-tan cliff under a deep slate-blue sky.",
+        "measured_rgb": {
+          "f0878_cliff": [139,108,65],
+          "f0951_cliff": [117,88,48],
+          "f1040_cliff": [88,66,40],
+          "f0878_sky_top": [55,93,121],
+          "f0915_sky_top": [51,69,87]
+        },
+        "note": "This sky is the only large blue field in the entire film. It reads desaturated slate-blue, not cyan."
+      },
+      "floor_and_risers": {
+        "floor": "Flat compacted pale sand/gravel pan. Measured RGB(82,67,53) in shade to RGB(155,131,92) in sun.",
+        "risers": "None. In place of a riser there is a grid of freestanding props - see dressing."
+      },
+      "palette": {
+        "dominant": "Ochre sand, slate-blue sky, cream/off-white costume, one saturated red for the props, navy for M1.",
+        "one_line": "Sun-bleached ochre quarry sand under deep slate-blue sky, dressed with saturated red modular blocks and a red portal, everyone else in cream - the brightest and least saturated pair of windows in the film (YAVG 90-104, SATAVG 18-23)."
+      },
+      "lighting": {
+        "key": "Direct hard low-angle SUN from camera-left and slightly behind. Confirmed by the crisp single shadows thrown right across the sand at f0878 and f0951 and by the lit left edge of the cliff.",
+        "key_colour_temp": "Daylight, roughly 5000-5600K at source, graded warm-golden in the final. The white costumes measure RGB(123,100,75) in shade and near-clipping in sun.",
+        "fill": "Open sky bounce plus sand bounce. Soft and warm on the shadow side; far more fill than either studio set.",
+        "rim": {
+          "exists": false,
+          "evidence": "No artificial rim. The bright edges on the cream costumes are sun. The cool-pixel counts in w09 (22-27% of frame at f0915, f0981, f0988, f0996) are the blue SKY area, not an edge light - the mean of those pixels is RGB(61-69, 80-91, 98-109), a large flat field, not a silhouette lip."
+        },
+        "contrast": "Brightest and flattest-shadowed windows: YLOW 32-48 against YHIGH 171-175, YAVG 90.20 (w08) and 104.28 (w09).",
+        "shadows": "HARD, single, sun-cast, with sharp edges on the sand."
+      },
+      "dressing_and_props": "One large freestanding RED painted rectangular PORTAL / doorway frame standing in the sand - seen close and tilted at f0772, in the mid-ground at f0878 and f0951; measured RGB(191,60,46). Plus roughly 10-14 matte RED cubes / knee-high plinths laid out in two converging rows forming an aisle, measured RGB(102,23,20) in shade. This red is the only saturated colour in the set and is the visual tie back to SET_A and SET_B.",
+      "who_else_in_frame": {
+        "corps_size_visible": "8 to 10",
+        "wardrobe": "CORPS_A and CORPS_B together, head to toe in CREAM / OFF-WHITE suiting - cropped jackets, wide trousers, long coats - with the head and face fully WRAPPED in white cloth hoods so the face is obscured. Confirmed at f0838, f0915, f0981, f0988, f0996, f1060, f1070.",
+        "placement": "Standing on and between the red cubes in two flanking rows along the aisle, with one or two pushed into extreme foreground as a wipe element."
+      },
+      "lead_wardrobe_note": "M1 wears a navy double-breasted coat / navy bomber, black trousers, a DARK wide-brim felt hat and a cream neck scarf throughout this set."
+    }
+  ],
+
+  "per_window_assignment": {
+    "01": {"frames":[0,68],"seconds":[0.0,2.2667],"set_id":"SET_A_RED_CYC_BRIGHT","deviation":"sub1 (f0-13) is a tight close-up of F1 against the bright cyc with the riser out of frame; sub2 (f14-45) and sub3 (f46-67) are the riser wide and a mid on M1. M1 wears a DARK wide-brim hat at f34 (t=1.133) - the 'NO HAT' canon is wrong."},
+    "02": {"frames":[68,156],"seconds":[2.2667,5.2],"set_id":"SET_B_RED_CYC_DARK","deviation":"sub1 (f68-99) is a very shallow-DOF close-up of F1 with the backdrop rendered as near-black warm bokeh. sub2 opens on a FRAMED-PRINT INSERT COMPOSITE: from f100 to roughly f117 a rectangular picture-in-picture of the couple sits over a defocused foreground neck/shoulder, then pushes in to full frame by f118. M1 wears a CREAM wide-brim panama with a black band from f108 onward (clearly at f111, t=3.700)."},
+    "03": {"frames":[156,270],"seconds":[5.2,9.0],"set_id":"SET_B_RED_CYC_DARK","deviation":"Darkest window in the film (YAVG 33.32). M1 in a black long coat with fringed/beaded epaulettes. CORPS_B massed behind him in black with black wide-brim hats, essentially in silhouette. A thin cyan edge is measurable on M1's silhouette here (f0188, f0245) even though the rest of SET_B has none."},
+    "04": {"frames":[270,355],"seconds":[9.0,11.8333],"set_id":"SET_A_RED_CYC_BRIGHT","deviation":"Hottest backdrop in the film, RGB(167,18,13) at f0292. F1 in a cream ribbed turtleneck under a gold chain harness; M1 wide on the red staircase."},
+    "05": {"frames":[355,433],"seconds":[11.8333,14.4333],"set_id":"SET_A_RED_CYC_BRIGHT","deviation":"sub1 (f355-398) is graded duller and warmer than the rest of SET_A (VAVG 145.04, SATAVG 25.98) with a brick/terracotta-looking backdrop, and carries the STRONGEST cyan light in the film - a teal specular down F1's shoulder and arm at f0377 measuring RGB(153,204,201) at its core. sub2 (f399-432) returns to full crimson."},
+    "06": {"frames":[433,578],"seconds":[14.4333,19.2667],"set_id":"SET_A_RED_CYC_BRIGHT","deviation":"Riser re-dressed as a long straight red-carpet runway / catwalk. CORPS are BARE-HEADED here - no hats at f0496, f0505 or f0548 - unlike every other studio window. sub1 (f433-473) is a seated female dancer in black on red velvet steps."},
+    "07": {"frames":[578,765],"seconds":[19.2667,25.5],"set_id":"SET_B_RED_CYC_DARK","deviation":"The TERRACOTTA plinth window. Plinth top measures RGB(218,140,76). Hard DOUBLE shadows on the plinth top. M1 in a black military tunic with gold frogging and a gold-buckled belt. CORPS_B in black with black wide-brim hats on the deck. Six sub-shots. A flatbread/pancake prop close-up at f0751."},
+    "08": {"frames":[765,899],"seconds":[25.5,29.9667],"set_id":"SET_C_DESERT_QUARRY_RED_PROPS","deviation":"sub1 (f765-779) is a tilted extreme close-up ON the red portal frame, so the frame is dominated by flat saturated red (VAVG 152.17, SATAVG 29.10) before the desert resolves at f780. That single sub-shot is the only place SET_C reads as red-dominant."},
+    "09": {"frames":[899,1077],"seconds":[29.9667,35.9],"set_id":"SET_C_DESERT_QUARRY_RED_PROPS","deviation":"Brightest window in the film (YAVG 104.28). Ten sub-shots, alternating M1 wide-in-the-aisle with hand-held whip-pans past the white-hooded corps. Confirmed desert right to the last frame of the window (f1060, f1070, f1076): the set change to the studio happens exactly on the w09/w10 boundary at f1077 (t=35.900)."},
+    "10": {"frames":[1077,1125],"seconds":[35.9,37.5],"set_id":"SET_B_RED_CYC_DARK","deviation":"A TIGHT FACE CLOSE-UP of F1 - not a wide full-body seated shot and there is no mandatory headroom. She is in a black top over a cream ribbed turtleneck with long pearl ropes, against dark red velvet steps. Confirmed at f1095 (t=36.500) and f1120 (t=37.333)."},
+    "11": {"frames":[1125,1290],"seconds":[37.5,43.0],"set_id":"SET_A_RED_CYC_BRIGHT","deviation":"sub1 (f1125-1134) carries over SET_B's dark grade before the cyc comes back up. sub2 (f1135-1197) is M1 with CORPS_B in black wide-brim hats behind. sub3-sub4 (f1198-1238) is a VEILED WOMAN in an ivory/bone bias-cut dress, face and head wrapped in sheer cloth, seated on red velvet tiers - measured dress RGB(204,191,149), backdrop RGB(124,0,0). M1 returns at f1239 (t=41.300) standing on the red staircase. sub5 (f1239-1273) is the most saturated red in the film (VAVG 171.42, SATAVG 45.14)."}
+  },
+
+  "measured_signalstats": {
+    "_note": "ffmpeg signalstats averaged over every frame of each macro window. YLOW/YHIGH are the 10th/90th luma percentiles. UAVG/VAVG neutral is 128; VAVG above 128 means red-dominant chroma. Frame ranges are half-open [start,end).",
+    "01": {"frames":[0,68],"YAVG":45.74,"YLOW":18.16,"YHIGH":63.76,"YMIN":6.82,"YMAX":246.51,"UAVG":119.70,"VAVG":163.14,"SATAVG":38.00,"SATMAX":72.21,"HUEAVG":188.96,"HUEMED":166.12},
+    "02": {"frames":[68,156],"YAVG":57.03,"YLOW":17.55,"YHIGH":129.36,"YMIN":10.05,"YMAX":240.70,"UAVG":121.00,"VAVG":146.65,"SATAVG":22.01,"SATMAX":58.98,"HUEAVG":184.38,"HUEMED":163.40},
+    "03": {"frames":[156,270],"YAVG":33.32,"YLOW":17.20,"YHIGH":56.89,"YMIN":7.04,"YMAX":245.41,"UAVG":128.05,"VAVG":144.46,"SATAVG":20.10,"SATMAX":62.86,"HUEAVG":210.94,"HUEMED":181.86},
+    "04": {"frames":[270,355],"YAVG":55.59,"YLOW":20.92,"YHIGH":89.98,"YMIN":8.64,"YMAX":235.80,"UAVG":117.27,"VAVG":162.28,"SATAVG":37.98,"SATMAX":76.85,"HUEAVG":178.08,"HUEMED":165.89},
+    "05": {"frames":[355,433],"YAVG":49.87,"YLOW":19.90,"YHIGH":75.42,"YMIN":9.19,"YMAX":242.09,"UAVG":120.54,"VAVG":153.44,"SATAVG":31.33,"SATMAX":58.46,"HUEAVG":189.84,"HUEMED":162.45},
+    "06": {"frames":[433,578],"YAVG":41.95,"YLOW":17.79,"YHIGH":78.57,"YMIN":8.48,"YMAX":241.83,"UAVG":122.49,"VAVG":154.08,"SATAVG":29.09,"SATMAX":56.23,"HUEAVG":196.31,"HUEMED":167.58},
+    "07": {"frames":[578,765],"YAVG":49.90,"YLOW":17.71,"YHIGH":125.70,"YMIN":9.96,"YMAX":244.92,"UAVG":120.67,"VAVG":147.85,"SATAVG":23.24,"SATMAX":65.24,"HUEAVG":182.58,"HUEMED":174.12},
+    "08": {"frames":[765,899],"YAVG":90.20,"YLOW":32.15,"YHIGH":170.87,"YMIN":11.63,"YMAX":237.40,"UAVG":117.90,"VAVG":142.59,"SATAVG":23.20,"SATMAX":68.68,"HUEAVG":172.14,"HUEMED":146.54},
+    "09": {"frames":[899,1077],"YAVG":104.28,"YLOW":48.19,"YHIGH":175.08,"YMIN":12.16,"YMAX":239.69,"UAVG":118.15,"VAVG":137.58,"SATAVG":18.48,"SATMAX":63.43,"HUEAVG":167.03,"HUEMED":130.89},
+    "10": {"frames":[1077,1125],"YAVG":61.46,"YLOW":26.62,"YHIGH":126.73,"YMIN":11.33,"YMAX":242.23,"UAVG":121.12,"VAVG":141.54,"SATAVG":19.00,"SATMAX":48.12,"HUEAVG":180.10,"HUEMED":169.27},
+    "11": {"frames":[1125,1290],"YAVG":50.28,"YLOW":21.39,"YHIGH":89.92,"YMIN":10.16,"YMAX":243.53,"UAVG":119.40,"VAVG":160.01,"SATAVG":35.25,"SATMAX":65.44,"HUEAVG":183.25,"HUEMED":165.63}
+  },
+
+  "measured_signalstats_by_subshot": {
+    "_note": "Same statistic per detected sub-shot inside each macro window. Sub-shot boundaries come from ffmpeg scdet threshold 6 with detections within 6 frames of a window boundary dropped and runs shorter than 8 frames merged back. Keys are window.sub.",
+    "01.1":{"frames":[0,14],"YAVG":45.21,"UAVG":121.49,"VAVG":152.79,"SATAVG":28.89},
+    "01.2":{"frames":[14,46],"YAVG":46.95,"UAVG":118.59,"VAVG":168.49,"SATAVG":42.02},
+    "01.3":{"frames":[46,68],"YAVG":44.31,"UAVG":120.18,"VAVG":161.95,"SATAVG":37.94},
+    "02.1":{"frames":[68,100],"YAVG":75.74,"UAVG":118.19,"VAVG":143.55,"SATAVG":20.12},
+    "02.2":{"frames":[100,156],"YAVG":46.34,"UAVG":122.61,"VAVG":148.42,"SATAVG":23.09},
+    "03.1":{"frames":[156,221],"YAVG":31.28,"UAVG":128.42,"VAVG":146.19,"SATAVG":21.26},
+    "03.2":{"frames":[221,270],"YAVG":36.02,"UAVG":127.55,"VAVG":142.16,"SATAVG":18.55},
+    "04.1":{"frames":[270,314],"YAVG":69.63,"UAVG":113.71,"VAVG":160.79,"SATAVG":37.58},
+    "04.2":{"frames":[314,355],"YAVG":40.52,"UAVG":121.09,"VAVG":163.87,"SATAVG":38.40},
+    "05.1":{"frames":[355,399],"YAVG":58.44,"UAVG":121.43,"VAVG":145.04,"SATAVG":25.98},
+    "05.2":{"frames":[399,433],"YAVG":38.78,"UAVG":119.40,"VAVG":164.32,"SATAVG":38.26},
+    "06.1":{"frames":[433,474],"YAVG":41.45,"UAVG":122.94,"VAVG":153.63,"SATAVG":27.98},
+    "06.2":{"frames":[474,518],"YAVG":43.93,"UAVG":122.47,"VAVG":152.09,"SATAVG":27.97},
+    "06.3":{"frames":[518,578],"YAVG":40.82,"UAVG":122.20,"VAVG":155.84,"SATAVG":30.66},
+    "07.1":{"frames":[578,628],"YAVG":39.76,"UAVG":123.03,"VAVG":148.17,"SATAVG":22.42},
+    "07.2":{"frames":[628,665],"YAVG":53.80,"UAVG":119.56,"VAVG":149.66,"SATAVG":25.33},
+    "07.3":{"frames":[665,702],"YAVG":46.98,"UAVG":121.04,"VAVG":148.48,"SATAVG":23.46},
+    "07.4":{"frames":[702,738],"YAVG":53.74,"UAVG":120.37,"VAVG":145.00,"SATAVG":21.00},
+    "07.5":{"frames":[738,765],"YAVG":62.25,"UAVG":117.70,"VAVG":147.70,"SATAVG":24.59},
+    "08.1":{"frames":[765,780],"YAVG":67.28,"UAVG":118.01,"VAVG":152.17,"SATAVG":29.10},
+    "08.2":{"frames":[780,820],"YAVG":73.00,"UAVG":120.25,"VAVG":141.88,"SATAVG":21.57},
+    "08.3":{"frames":[820,857],"YAVG":110.91,"UAVG":119.74,"VAVG":136.44,"SATAVG":19.25},
+    "08.4":{"frames":[857,899],"YAVG":96.51,"UAVG":114.00,"VAVG":145.27,"SATAVG":26.12},
+    "09.1":{"frames":[899,931],"YAVG":124.90,"UAVG":117.56,"VAVG":136.80,"SATAVG":18.42},
+    "09.2":{"frames":[931,972],"YAVG":96.43,"UAVG":115.34,"VAVG":141.15,"SATAVG":20.73},
+    "09.3":{"frames":[972,990],"YAVG":128.41,"UAVG":119.32,"VAVG":132.87,"SATAVG":17.48},
+    "09.4":{"frames":[990,1003],"YAVG":132.56,"UAVG":118.91,"VAVG":133.65,"SATAVG":16.84},
+    "09.5":{"frames":[1003,1077],"YAVG":88.87,"UAVG":119.55,"VAVG":137.78,"SATAVG":17.79},
+    "10.1":{"frames":[1077,1116],"YAVG":67.84,"UAVG":119.89,"VAVG":141.16,"SATAVG":19.37},
+    "10.2":{"frames":[1116,1125],"YAVG":33.82,"UAVG":126.47,"VAVG":143.22,"SATAVG":17.38},
+    "11.1":{"frames":[1125,1135],"YAVG":39.33,"UAVG":124.90,"VAVG":143.52,"SATAVG":18.12},
+    "11.2":{"frames":[1135,1198],"YAVG":41.48,"UAVG":121.16,"VAVG":159.63,"SATAVG":34.88},
+    "11.3":{"frames":[1198,1225],"YAVG":67.08,"UAVG":117.51,"VAVG":155.30,"SATAVG":31.21},
+    "11.4":{"frames":[1225,1239],"YAVG":91.73,"UAVG":113.44,"VAVG":155.32,"SATAVG":33.25},
+    "11.5":{"frames":[1239,1274],"YAVG":44.33,"UAVG":117.71,"VAVG":171.42,"SATAVG":45.14},
+    "11.6":{"frames":[1274,1290],"YAVG":40.22,"UAVG":121.11,"VAVG":158.88,"SATAVG":34.34}
+  },
+
+  "cool_edge_measurement": {
+    "_note": "Fraction of frame pixels with B-R > 20 at mid-brightness or above, sampled at 270x480 on each viewed frame, with the mean RGB of those pixels. This is the objective test for the rim-light claim. On SET_A a small percentage with a teal mean = a narrow cyan silhouette lip. On SET_C a large percentage with a flat blue mean = sky, not a rim.",
+    "SET_A_frames": {"f0057":{"pct":1.167,"mean":[60,123,133]},"f0377":{"pct":10.625,"mean":[83,149,155]},"f0416":{"pct":0.295,"mean":[84,120,129]},"f0496":{"pct":0.449,"mean":[70,103,99]},"f0548":{"pct":0.519,"mean":[68,95,92]},"f1166":{"pct":0.978,"mean":[66,135,142]},"f1197":{"pct":0.458,"mean":[89,148,152]},"f1248":{"pct":0.285,"mean":[60,114,125]},"f1256":{"pct":0.356,"mean":[57,116,127]},"f1282":{"pct":1.086,"mean":[62,124,131]}},
+    "SET_B_frames": {"f0084":{"pct":0.0},"f0111":{"pct":0.0},"f0128":{"pct":0.0},"f0603":{"pct":0.0},"f0646":{"pct":0.0},"f0671":{"pct":0.0},"f0683":{"pct":0.0},"f0720":{"pct":0.0},"f0751":{"pct":0.0},"f1095":{"pct":0.0},"f1120":{"pct":0.0},"f0188":{"pct":1.198,"mean":[71,131,134],"note":"backlit crowd wide - the only SET_B frames with an edge"},"f0245":{"pct":0.903,"mean":[65,128,130]}},
+    "SET_C_frames": {"f0915":{"pct":22.419,"mean":[61,80,98],"note":"sky field"},"f0981":{"pct":27.131,"mean":[61,82,100],"note":"sky field"},"f0988":{"pct":23.032,"mean":[66,87,105],"note":"sky field"},"f0996":{"pct":21.852,"mean":[69,91,109],"note":"sky field"},"f0951":{"pct":3.871,"mean":[144,162,174],"note":"sky plus sunlit cream"}}
+  },
+
+  "prompt_clauses": {
+    "_usage": "Append the matching clause verbatim to every keyframe prompt for shots assigned to that SET_ID in per_window_assignment. These describe the delivered master, not the original blueprint intent.",
+
+    "SET_A_RED_CYC_BRIGHT": "Shot on a seamless saturated fire-engine red cyclorama with no corner seam and no visible horizon; the backdrop is fully lit across the upper two thirds and vignettes softly to a deeper red at the frame corners, never to black. The floor is a matte red-painted deck and the riser is a five-tread staircase and flat top platform fully draped in crimson velvet with visible drape folds and cornered seams. Everything in the set is red. Lit by a single high frontal warm tungsten key, about 3200 kelvin, placed roughly twenty degrees camera-left and thirty degrees above the eye line; there is no artificial fill, so the shadow side of every face is filled only by red bounce off the cyclorama and reads warm red rather than grey. A narrow, soft-edged cyan-teal edge light rims the camera-left shoulder and jawline of the figures and separates black wardrobe from the red field - a thin lip, not a broad wrap. Shadows on the riser are soft-edged and single. Warm skin, matte black wardrobe, bone-white shirting and gold metal are the only colours besides red. Medium contrast, rich blacks, filmic grain, anamorphic portrait framing.",
+
+    "SET_B_RED_CYC_DARK": "Shot on the same red cyclorama keyed down two stops: a deep oxblood field that falls off to near-black at the frame corners, rendering as dark warm brown bokeh when the lens is open. The floor is dark red deck; where a plinth appears its top is tan terracotta velvet, the single warmest and lightest surface in frame, with a red carpet skirt below it. Lit by two hard high frontal sources about twenty degrees either side of the lens axis, warm neutral, throwing crisp sharp-edged double shadows on the plinth top. No fill at all: shadows drop unfilled to black. There is no rim light of any colour - separation comes from the hard key and from the backdrop falling away behind the subject. Low chroma for a red set, roughly half the saturation of the bright state. Matte black wardrobe, antique gold trim, bone-white shirting, warm skin. High contrast, deep crushed blacks, filmic grain, anamorphic portrait framing.",
+
+    "SET_C_DESERT_QUARRY_RED_PROPS": "Shot on location in an eroded sand and clay quarry: an ochre-tan cliff face rilled with vertical erosion gullies fills the background to the full height of frame, with sparse dark scrub on the ridge line and a clear unclouded deep slate-blue sky above it. The ground is a flat compacted pale sand and gravel pan. Dressed with one large freestanding rectangular portal frame painted saturated matte red, and ten to fourteen knee-high matte red cubes laid out in two converging rows forming an aisle; that red is the only saturated colour in the set. Lit by direct hard low-angle daylight sun from camera-left and slightly behind, roughly 5400 kelvin graded warm golden, with crisp single hard shadows raking across the sand and generous warm bounce fill off the sand and open sky. No artificial rim: the bright edges on pale costume are sun. Bright overall, low saturation apart from the red props, wide exposure range from deep hat-brim shadow to near-clipping sunlit cream. Filmic grain, anamorphic portrait framing."
+  },
+
+  "corrections_to_old_shot_bible": [
+    "BACKDROP: the old bible says 'near-black studio backdrop'. The master has a lit, saturated RED cyclorama measuring RGB(149,8,1) to RGB(167,18,13) at head height. Only the low-key SET_B state approaches darkness, and even there it is oxblood RGB(40-56, 0-5, 8-10), never neutral black.",
+    "FLOOR: the old bible does not describe one. The studio floor is red - a matte red deck at RGB(104,18,19) with crimson velvet drape on every riser.",
+    "RIM LIGHT: the old bible says 'hard 5600K cyan rim'. A cyan rim DOES exist - this contradicts the critic's 'there is no cyan rim anywhere'. But the old bible's description is wrong on three of four counts: it is SOFT-edged, not hard; it is not 5600K (5600K is neutral daylight white, whereas the measured rim is genuinely cyan at roughly hue 183, RGB(60,123,133) at f0057 and RGB(62,124,131) at f1282); and it is not global - it is measurably ABSENT (0.000% cool pixels) from every SET_B intimate and plinth shot and from all of SET_C. It is a narrow silhouette lip covering 0.3-1.3% of frame, rising to 10.6% only at f0377.",
+    "SET COUNT: the old bible describes one studio. The master has THREE distinct looks: a bright red cyclorama (SET_A), the same cyclorama low-key with a terracotta plinth (SET_B), and a DESERT QUARRY EXTERIOR with red modular props and a blue sky (SET_C) occupying windows 08 and 09, 312 frames or 24.2% of the film. SET_C is absent from the old bible entirely.",
+    "SHOT 10: the old bible says a wide full-body seated shot with mandatory headroom. The master at f1095 (t=36.500) and f1120 (t=37.333) is a TIGHT FACE CLOSE-UP of F1 with the top of her head at or above the frame edge.",
+    "SHOT 11: the old bible says one man in a hero pose. The master from f1198 to f1238 (t=39.933 to t=41.267) is a VEILED WOMAN in an ivory bias-cut dress on red velvet tiers, dress measuring RGB(204,191,149). M1 returns at f1239 (t=41.300).",
+    "HATS: wardrobe canon says 'NO HAT'. M1 wears a dark wide-brim hat at f34 (t=1.133), a cream wide-brim panama with a black band at f111 (t=3.700) and throughout f108-f155, and a dark wide-brim felt hat through all of SET_C. The corps wear black wide-brim hats in windows 01, 03, 05, 07 and 11 - and are bare-headed in window 06, so the hat is not even constant across the ensemble.",
+    "CONTINUITY: the old bible treats each of the 11 windows as one continuous shot. Every window contains interior hard cuts; the per-subshot statistics above list 36 distinct setups across 11 windows.",
+    "RISER COLOUR: the w07 plinth top is TERRACOTTA, RGB(218,140,76) at f0671 and RGB(224,147,80) at f0683 - the warmest surface in the film and not red. Any prompt that says 'red riser' for window 07 will generate the wrong set.",
+    "CORPS WARDROBE: it is not constant. Black dresses with black wide-brim hats on the studio sets, bare-headed black in window 06, and head-to-toe CREAM suiting with the face fully wrapped in white cloth hoods for all of SET_C."
+  ]
+}

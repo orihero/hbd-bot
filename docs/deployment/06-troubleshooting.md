@@ -42,17 +42,42 @@ variable and need no page here.
 > document executable in five seconds:
 >
 > ```bash
-> ssh aizu 'journalctl -u hbd-admin  -o cat | grep admin.boot.ok'
-> ssh aizu 'journalctl -u hbd-worker -o cat | grep "retention sweep finished"'
-> ssh aizu 'journalctl -u hbd-bot    -o cat | grep "host verified"'
-> ssh aizu 'journalctl -u hbd-payme  -o cat | grep payme.boot.ok'
+> ssh aizu 'journalctl -u bayram-admin  -o cat | grep admin.boot.ok'
+> ssh aizu 'journalctl -u bayram-worker -o cat | grep "retention sweep finished"'
+> ssh aizu 'journalctl -u bayram-bot    -o cat | grep "host verified"'
+> ssh aizu 'journalctl -u bayram-payme  -o cat | grep payme.boot.ok'
 > ```
 >
-> Two caveats, both of which have cost somebody time. **The host is PRE-RENAME**: units are
-> `hbd-*`, paths are `/etc/hbd` and `/opt/hbd`, the importable package is `hbd`, variables are
-> `HBD_*`. Every `python -m bayram.…` and `BAYRAM_…` below is typed `hbd` / `HBD_` at a shell on
-> that box, and that is correct rather than stale — see `08-payme.md`'s NAMING note. And
-> **`journalctl -u hbd-worker | jq` fails on every other line**: arq logs each line twice, once
+> Two caveats, both of which have cost somebody time, and the first of them used to be stated
+> backwards. **THE RENAME CUTOVER IS DONE — corrected 2026-09-19.** This block used to tell its
+> reader that the host was PRE-RENAME, that its units were `hbd-*`, and that the `hbd` spelling was
+> *correct rather than stale*. All three were true when they were written and are false now:
+> the cutover ran and was re-verified on **2026-09-14**, when `systemctl is-active` answered
+> `active` for all four `bayram-*` units and `inactive` for all four `hbd-*`. So the units are
+> `bayram-bot`, `bayram-worker`, `bayram-admin` and `bayram-payme`; they read `/etc/bayram/*.env`;
+> the interpreter is `/opt/bayram/venv/bin/python` and the importable package is `bayram` — which
+> means every `python -m bayram.…` and `BAYRAM_…` below is typed on that box exactly as it is
+> spelled here, and needs no translation. **Three things deliberately did not move**, so meeting
+> them is not evidence that the cutover half-ran: the service account `hbd:hbd`, which keeps
+> `WorkingDirectory=/var/lib/hbd` and `ReadWritePaths=/var/lib/hbd /var/log/hbd` because that
+> account owns the media archive and renaming it would mean chowning customer artefacts during a
+> cutover (`deploy/cutover-to-bayram.sh:13-18, :147, :166`); the Postgres roles and databases; and
+> the wheel drop-box `/opt/hbd/release/`. A release to this host is now an ordinary wheel upgrade
+> — one `bayram-release` invocation on the box — and `deploy/cutover-to-bayram.sh` must not be run
+> a second time.
+>
+> **The dated quotes below still say `hbd-admin`, `/etc/hbd/…` and `HBD_…`, and they stay that
+> way.** Everything marked `[HOST 2026-09-10]` or `[HOST 2026-09-11]` is a record of what that
+> machine answered on those dates, and a quotation that has been re-spelled is no longer evidence
+> of anything. Read the marker, then re-spell the unit yourself. What has been corrected here is
+> every command you are meant to *type*: each `journalctl -u …` in this document now names a
+> `bayram-*` unit, because those are the ones that exist. That cuts across a dated block in one
+> place only — §13's `[HOST 2026-09-11]` console transcript, whose `$` line has been re-spelled
+> because it is there to be re-run. Its output below the prompt is untouched, and the output is
+> the evidence.
+>
+> The second caveat is mechanical and the rename does not touch it.
+> **`journalctl -u bayram-worker | jq` fails on every other line**: arq logs each line twice, once
 > as its own plain text and once inside our JSON envelope, because `arq/cli.py:44-45` applies
 > `dictConfig` after our `configure_logging()` has run and overwrites the `_NOISY_LOGGERS` floor
 > (logging.py:100-113). Pipe through `grep '^{'` first. The gateway's journal carries uvicorn's
@@ -70,26 +95,42 @@ is the only invocation (Makefile:69, Makefile:72, Makefile:75):
 
 ---
 
-## 1. Modals stop locking the background; everything else looks fine
+## 1. The served shell carries no CSP style nonce
 
-**SYMPTOM.** The console renders, sign-in works, data loads. But open any dialog and the page
-keeps scrolling underneath it. No error banner, no failed request, no 500. In a PROD bundle the
-browser console carries one `console.error` and nothing else.
+**READ THIS FIRST — corrected 2026-09-19.** This section used to be headed *"Modals stop locking
+the background"* and told you to look for a scrolling page behind an open dialog. **That symptom
+does not exist in the console that ships.** It described `admin-ui/`, the legacy console deleted on
+2026-09-16, which mounted Radix dialogs and therefore `react-remove-scroll`. `admin-dashboard/`
+depends on none of that — no Radix, no `react-remove-scroll`, no `react-style-singleton`, no
+`get-nonce`, installed or transitive — and its three dialogs (`components/ConfirmDialog.tsx`,
+`features/support/SupportGroupDialog.tsx`, `features/reveal/DialogShell.tsx`) lock scrolling by
+assigning `document.body.style.overflow`, which goes through the CSSOM and is not policed by CSP.
+The built bundle injects no `<style>` element at all. **Chasing a modal that will not lock is
+chasing a bug this codebase cannot have.**
+
+**SYMPTOM.** There is no browser-visible symptom, and that is the point of this section. The only
+signals are server-side: the log event below, or the `curl` in **HOW TO CONFIRM**. Nothing in the
+bundle reads the meta element, so there is no `console.error` either — if you were sent here
+looking for one, that is the stale wording talking.
+
+**WHY YOU STILL CARE.** A shell with no placeholder is a shell built before the placeholder
+existed, which means the deploy shipped a **stale bundle** — and the nonce is the cheapest thing to
+notice that with. The nonce itself is currently load-bearing for nothing (`src/bayram/admin/shell.py`
+module docstring says so, and says what would have to change for that to stop being true), so treat
+this as a staleness alarm, not as a broken panel.
 
 **LIKELY CAUSE.** The deployed console bundle predates the CSP style-nonce placeholder, or the
-deploy did not rebuild it. `admin-ui/index.html` carries `__BAYRAM_CSP_NONCE__` in a
+deploy did not rebuild it. `admin-dashboard/index.html` carries `__BAYRAM_CSP_NONCE__` in a
 `<meta name="csp-nonce">`, and the API substitutes this response's nonce into it per request
-(shell.py:55, shell.py:86). A shell with no placeholder is served **unchanged** with a single
-WARNING — deliberately, not by accident: shell.py:65-77 argues that an operator reaching for the
-panel mid-incident is better served by a panel whose modals do not lock than by a 500. The cost is
-that this is the only signal. Without the nonce, `style-src 'self' 'nonce-…'` blocks the `<style>`
-element `react-remove-scroll` injects for every Radix modal.
+(`shell.py`, `CSP_NONCE_PLACEHOLDER` and the `str.replace` closing `render_shell`). A shell with no
+placeholder is served **unchanged** with a single WARNING — deliberately, not by accident:
+`render_shell`'s own docstring argues that an operator reaching for the panel mid-incident is better
+served by a panel than by a 500. The cost is that this is the only signal.
 
-`src/bayram/admin/static/` is gitignored (app.py:124-128), so the bundle on any host is whatever the
-last `npm run build` left behind. Nothing gates it: `tests/test_admin/test_spa_nonce.py:49` checks
-the **checked-in source** `admin-ui/index.html`, not the built artefact, and `make ui-e2e` rebuilds
-before it runs (Makefile:112). The placeholder-drift check and the staleness check are different
-checks, and only the first exists.
+`src/bayram/admin/static/` is gitignored (.gitignore:63), so the bundle on any host is whatever the
+last `npm run build` left behind. Nothing gates it: `tests/test_admin/test_spa_nonce.py:50` checks
+the **checked-in source** `admin-dashboard/index.html`, not the built artefact. The placeholder-drift
+check and the staleness check are different checks, and only the first exists.
 
 **HOW TO CONFIRM.** Grep the admin process's log for the one event:
 
@@ -111,7 +152,7 @@ which the meta element is present at all, which is most of them.
 | --- | --- |
 | `content="<a base64url value>"` | Healthy. |
 | `content=""` | The shell rendered with an **empty** nonce, so `SecurityHeadersMiddleware` was not in the stack. `_serve_spa_index` reads the nonce off the ASGI scope with a `""` default deliberately, "so a shell served by an application assembled without SecurityHeadersMiddleware renders an empty nonce instead of raising" (app.py:240-244). That response carries no CSP either. |
-| `content="__BAYRAM_CSP_NONCE__"` | **This route did not serve that HTML.** `render_shell` substitutes the placeholder unconditionally whenever it is present (shell.py:78-86), so this code path can never emit the literal. A proxy or a stale CDN copy is serving `index.html` itself — which is what the SPA's own `console.error` says (`admin-ui/src/lib/csp.ts`, `installCspNonce`). |
+| `content="__BAYRAM_CSP_NONCE__"` | **This route did not serve that HTML.** `render_shell` substitutes the placeholder unconditionally whenever it is present (shell.py:99-107), so this code path can never emit the literal. A proxy or a stale CDN copy is serving `index.html` itself. **Nothing in the browser will tell you so** — no SPA code reads this meta element (the `admin-ui/src/lib/csp.ts` / `installCspNonce` this row used to cite went with the legacy console on 2026-09-16, and `admin-dashboard/` never had a replacement; see the `shell.py` module docstring for why it does not need one). This `curl` is the whole diagnosis. |
 | no output at all | A bundle built before the placeholder existed. This is the case that logs `admin.spa.nonce_placeholder_missing`. |
 
 **FIX.** It depends on which of two deployment shapes you are on, and **that is the first thing
@@ -127,7 +168,8 @@ ls <site-packages>/<pkg>/admin/static/index.html && echo "WHEEL SHAPE"   # a bun
   prefix:
 
   ```bash
-  cd <checkout>/admin-ui && npm ci && npm run build   # writes ../src/bayram/admin/static/
+  cd <checkout>/admin-dashboard && npm ci && npm run build   # writes ../src/bayram/admin/static/
+  # or, from the repo root: make ui-build (Makefile:113-114)
   ```
 
 * **A wheel host.** There is nothing to rebuild *here*: the bundle is force-included in the
@@ -176,9 +218,10 @@ Sep 10 00:01. The bundle is present and correct there, so §2 is **not** the dia
 host today.
 
 **FIX.** See §1's FIX — the two shapes and the one-line test that tells them apart. On a
-build-in-place host, `cd <checkout>/admin-ui && npm ci && npm run build`. On a wheel host, rebuild
-and reinstall the wheel. Note that the repo installs no Node anywhere: `admin-ui/package.json`
-declares `"engines": {"node": ">=20.19"}` and `admin-ui/package-lock.json` is lockfileVersion 3
+build-in-place host, `cd <checkout>/admin-dashboard && npm ci && npm run build`. On a wheel host,
+rebuild and reinstall the wheel. Note that the repo installs no Node anywhere:
+`admin-dashboard/package.json` declares `"engines": {"node": ">=20.19"}` and
+`admin-dashboard/package-lock.json` is lockfileVersion 3
 (npm 7+), and how Node reaches the *build* machine is still an open question this repo cannot
 answer — `[HOST 2026-09-11]` on `abdu-test` it never needs to, because Node is absent and the
 bundle arrives pre-built.
@@ -242,7 +285,7 @@ chainProtection=hmac-only.
 
 ```bash
 # 1. NO credential needed. The cheapest signal there is.
-ssh aizu 'journalctl -u hbd-admin -o cat | grep admin.audit.revoke_missing'
+ssh aizu 'journalctl -u bayram-admin -o cat | grep admin.audit.revoke_missing'
 ```
 
 ```sql
@@ -797,6 +840,31 @@ curl -s -H 'X-Probe-Token: <token>' http://127.0.0.1:8080/readyz      # the real
 model imposes no minimum length on it — unlike the HMAC key's `min_length=32` — so length is
 operator discipline here.
 
+**Do not do it by hand, and do not forget the restart.** `deploy/set-probe-tokens.sh` generates
+both tokens with `openssl rand -hex 32`, writes them into the right files with the existing owner
+and mode preserved, restarts `bayram-admin` and `bayram-payme`, and then proves the tokens took by
+reading the gated body back:
+
+```bash
+scp deploy/set-probe-tokens.sh aizu:/tmp/set-probe-tokens.sh
+ssh -t aizu 'sudo bash /tmp/set-probe-tokens.sh'
+ssh -t aizu 'rm -f /tmp/set-probe-tokens.sh'
+```
+
+The restart is not optional and it is the part people skip: **the process reads its env file at
+`exec` time only**, so a token that is set in the file but not restarted into is
+**indistinguishable from an unset one** from outside — same 200, same constant `{"status":"ok"}`.
+(There are two tokens, not one; the gateway on `:8091` has its own,
+`BAYRAM_PAYME_PROBE_TOKEN`. `--admin-only` leaves the settlement rail alone, which matters because
+under `DECISIONS.md` D17 restarting `bayram-payme` is a live settlement action.)
+
+**NEW SYMPTOM, 2026-09-19 — the one that names this exact drift.** If
+`bayram-release verify` prints a **WARNING that the token "was presented and REJECTED"**, it means
+precisely that: the script has a token, the process disagrees, and in practice the env file was
+edited without restarting the unit. Restart that unit and re-run `verify`. The warning is
+non-fatal; `"status":"degraded"` is the only fatal probe outcome. [`04-release.md`](04-release.md)
+§7 has the full three-line vocabulary.
+
 **Do not chase `configVersion: null`.** Nothing in this tree writes `bayram:settings:version`; the key
 is read at health.py:74 and written nowhere, awaiting the Phase 7 config editor (health.py:50-51).
 `null` means "nobody has published one", never "Redis is broken".
@@ -1106,7 +1174,7 @@ healthy set looks like there, and note that the retention summary's failure key 
 not the `error_code` the SQL above selects:
 
 ```console
-$ ssh aizu 'journalctl -u hbd-worker --since "2026-09-11 00:00" -o cat | grep -E \
+$ ssh aizu 'journalctl -u bayram-worker --since "2026-09-11 00:00" -o cat | grep -E \
     "sweep finished|poll finished|snapshot recorded" | grep "^{"'
 {"ts":"2026-09-11T10:17:00+0500","message":"retention sweep finished","context":{"trigger":"cron",
  "duration_ms":121,"rows_affected":0,"storage_keys_returned":0,"storage_keys_deleted":0,
@@ -1333,7 +1401,7 @@ absence of new lines — an absence is the only proof, so give it an hour of wor
 a minute:
 
 ```bash
-ssh aizu 'journalctl -u hbd-bot -f -o cat | grep --line-buffered TelegramConflictError'
+ssh aizu 'journalctl -u bayram-bot -f -o cat | grep --line-buffered TelegramConflictError'
 ```
 
 **Why this matters more than its ERROR count suggests.** A customer who pays and then sends the
@@ -1416,7 +1484,7 @@ its mirror expires.
 > propagation hands the record to both handlers. The `hbd-payme` journal carries uvicorn's plain
 > `INFO:     Started server process […]` lines for the same reason — 42 of them.
 >
-> The practical consequence: **a naive `journalctl -u hbd-worker | jq` dies on every other line.**
+> The practical consequence: **a naive `journalctl -u bayram-worker | jq` dies on every other line.**
 > Pipe through `grep '^{'` first, and do not conclude from the plain lines that JSON logging is
 > misconfigured. The sentence "one JSON object per line whenever `BAYRAM_IS_DEBUG` is false" is
 > true of every line *this application* emits, and not of everything in the unit's journal.
@@ -1538,8 +1606,10 @@ The checkable form of that claim is `grep -rin backup README.md Makefile deploy/
 **zero hits** — same grep the sibling doc runs (00-host-inventory.md:93-94). Widening it to `docs/`
 returns around thirty, and they are not counter-evidence: all but one are `docs/deployment/` saying
 this same sentence in its own words. The one substantive hit for the word anywhere in the tree is
-`docs/research/DASHBOARD_METRICS_RESEARCH.md:133`, where "backup" means a **fallback vendor**, not a data
-backup. A real backup covers four things, three of which are not the database:
+`docs/research/DASHBOARD_METRICS_RESEARCH.md` §4, the *Vendor fallback share* row, where "backup"
+means a **fallback vendor**, not a data backup. (That citation named a line number until
+2026-09-19; it is a section now, because a section number survives the document being reordered
+and a line number does not.) A real backup covers four things, three of which are not the database:
 
 1. Postgres — including `credit_ledger`, `plan_purchases` and `topup_purchases`, which migration
    0020 calls receipts that answer disputes months after the name, the note and the audio are
@@ -1663,7 +1733,7 @@ changes no behaviour at all. The boot line therefore reports a sandbox *label* a
 **HOW TO CONFIRM.**
 
 ```bash
-ssh aizu 'journalctl -u hbd-payme -o cat | grep payme.boot.ok | tail -1'
+ssh aizu 'journalctl -u bayram-payme -o cat | grep payme.boot.ok | tail -1'
 ```
 
 Read `environment`. `prod` is what you want. Anything else means the two refusals above are off.

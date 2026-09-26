@@ -1,0 +1,22 @@
+{
+ "method": "within-shot noise floor vs seeded across-cut; supersedes the circular 0.592",
+ "within_shot": {
+  "pairs": 2135,
+  "mean": 0.4723,
+  "median": 0.4817,
+  "p10": 0.0492,
+  "min": -0.2053
+ },
+ "seed_shot": {
+  "start_s": 5.266667,
+  "end_s": 9.1,
+  "faces": 37
+ },
+ "across_cut_vs_seed": {
+  "n": 72,
+  "mean": 0.3581,
+  "median": 0.3474,
+  "frac_above_floor": 0.9861
+ },
+ "caveat": "across-cut population mixes the seed lead with other cast; this metric cannot separate drift from a genuinely different person."
+}

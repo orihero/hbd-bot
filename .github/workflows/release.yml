@@ -7,8 +7,9 @@
 # cannot SSH in, and 11-ci-cd.md §2 argues at length that this is the security posture rather
 # than a gap. The other half is `/opt/bayram/sbin/bayram-release`, run by a human on the box.
 #
-# WHY A BUNDLE AND NOT JUST A WHEEL. A wheel carries no migrations — `deploy-support.sh` had to
-# scp two revision files into `/opt/bayram/migrations/versions/` by hand, and its own comment
+# WHY A BUNDLE AND NOT JUST A WHEEL. A wheel carries no migrations — `deploy-support.sh`
+# (retired 2026-09-19; kept as a citation target, see deploy/README.md) had to scp two
+# revision files into `/opt/bayram/migrations/versions/` by hand, and its own comment
 # says why: if a revision is absent, `alembic upgrade head` stops at the one before it, which
 # "looks exactly like success and leaves the schema short of the tables the code is about to
 # serve". Code and schema ship as ONE artefact here, or they drift again.
@@ -223,8 +224,9 @@ jobs:
           # 1. The console is IN the wheel. `src/bayram/admin/static/` is gitignored and packaged
           #    as a hatchling artifact (pyproject.toml, [tool.hatch.build.targets.wheel]); if
           #    that force-include is ever removed or the path changes, the wheel builds happily
-          #    and ships an API with no UI. This is the check deploy-support.sh does on the host,
-          #    moved left to where it costs a second instead of a deploy.
+          #    and ships an API with no UI. This is the check deploy-support.sh did on the
+          #    host before it was retired, moved left to where it costs a second instead of
+          #    a deploy.
           index = "bayram/admin/static/index.html"
           if index not in names:
               sys.exit(f"FATAL: {wheel.name} carries no {index} — the hatchling artifact "

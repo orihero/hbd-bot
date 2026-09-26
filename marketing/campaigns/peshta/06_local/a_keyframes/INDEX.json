@@ -1,0 +1,637 @@
+{
+  "_schema": "a_keyframes index v1",
+  "_generated": "2026-09-19",
+  "_ground_truth": "marketing/campaigns/peshta/final_polat_peshta_reel.mp4 (1080x1920, 30/1 CFR, 1290 frames, 43.000s). Every still here was cut from that file. Where a document and a frame disagree, the frame wins.",
+  "_character_policy": "Figures are addressed only as M1 (male lead), F1 (female lead), CORPS_A (black-clad wide-brim-hat ensemble, red studio) and CORPS_B (white-suited head-wrapped ensemble, desert). All original fictional figures; no real person and no series is named in this file.",
+  "_method": "Nominal frame = subshot.start_frame + round(0.25 * subshot.frames), because subshots.json carries no keyframe_moment field. Each nominal still was rendered and visually inspected; blurred or mid-transition ones were replaced by the best frame within +-15, clamped to the sub-shot's own range.",
+  "_supersedes": "marketing/campaigns/peshta/06_local/source_motion_stills/ (formerly driving_stills/) - those are frames of the ORIGINAL SOURCE VIDEO in a different wardrobe and must not be used as composition references.",
+  "_frames_viewed": {
+    "master_frames_rendered_and_viewed": 47,
+    "nominal": 38,
+    "alternates_for_nudging": 9,
+    "inferred_from_documents": 0
+  },
+  "_counts": {
+    "subshots": 38,
+    "keyframes_extracted": 38,
+    "nudged": 5,
+    "flagged": 3,
+    "no_usable_still": [
+      "09e"
+    ]
+  },
+  "_resolution": "1080x1920 PNG, full master resolution, no scaling or cropping applied.",
+  "keyframes": [
+    {
+      "subshot_id": "01a",
+      "parent_macro": "01",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_01a.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_01a.png",
+      "source_frame": 4,
+      "source_time_s": 0.133333,
+      "nominal_frame": 4,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        0,
+        14
+      ],
+      "description": "Tight CU on F1, hand flat over her mouth, gold chains over a black halter, cool blue-white key against a flat saturated red cyclorama."
+    },
+    {
+      "subshot_id": "01b",
+      "parent_macro": "01",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_01b.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_01b.png",
+      "source_frame": 22,
+      "source_time_s": 0.733333,
+      "nominal_frame": 22,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        14,
+        46
+      ],
+      "description": "Full wide: M1 in a dark suit standing on the red velvet-draped stepped pyramid, CORPS_A in black floor-length gowns and wide-brim hats flanking left and right, red floor and red wall."
+    },
+    {
+      "subshot_id": "01c",
+      "parent_macro": "01",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_01c.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_01c.png",
+      "source_frame": 52,
+      "source_time_s": 1.733333,
+      "nominal_frame": 52,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        46,
+        69
+      ],
+      "description": "Medium on M1 alone against flat red, dark suit over an open white shirt, both hands raised palms-down at chest height."
+    },
+    {
+      "subshot_id": "02a",
+      "parent_macro": "02",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_02a.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_02a.png",
+      "source_frame": 77,
+      "source_time_s": 2.566667,
+      "nominal_frame": 77,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        69,
+        99
+      ],
+      "description": "Very tight CU on F1 smiling straight to camera, warm key, dark out-of-focus red behind, white neckline at the bottom edge."
+    },
+    {
+      "subshot_id": "02b",
+      "parent_macro": "02",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_02b.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_02b.png",
+      "source_frame": 127,
+      "source_time_s": 4.233333,
+      "nominal_frame": 114,
+      "nudge_offset_frames": 13,
+      "nudge_reason": "Nominal f114 sits inside the 20-frame scale-in wipe (f99-f118): the incoming shot is an inset with a strip of the outgoing shot across the bottom. Moved past wipe completion at f119 to the first clean full-frame setup.",
+      "subshot_range_frames": [
+        99,
+        158
+      ],
+      "description": "Medium on M1 in a CREAM WIDE-BRIM HAT and dark suit, leaning with one hand low, red roses entering bottom-left, red ground.",
+      "flag": "Sub-shot straddles a 20-frame scale-in wipe; only frames >= f119 are full-frame. Any first-frame reference for 02b must come from f119 or later."
+    },
+    {
+      "subshot_id": "03a",
+      "parent_macro": "03",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_03a.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_03a.png",
+      "source_frame": 166,
+      "source_time_s": 5.533333,
+      "nominal_frame": 166,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        158,
+        189
+      ],
+      "description": "Medium-wide: M1 walking toward camera in a long dark overcoat, CORPS_A in wide-brim hats receding behind him along a magenta-red runway, dark red falloff overhead."
+    },
+    {
+      "subshot_id": "03b",
+      "parent_macro": "03",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_03b.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_03b.png",
+      "source_frame": 197,
+      "source_time_s": 6.566667,
+      "nominal_frame": 197,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        189,
+        221
+      ],
+      "description": "Wide: M1 mid-step on the red carpeted ramp, CORPS_A in black with wide-brim hats arrayed around him, dark red vignetted cyclorama."
+    },
+    {
+      "subshot_id": "03c",
+      "parent_macro": "03",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_03c.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_03c.png",
+      "source_frame": 234,
+      "source_time_s": 7.8,
+      "nominal_frame": 234,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        221,
+        273
+      ],
+      "description": "Medium CU, M1 in profile, dark suit and open white shirt, mouth open mid-lyric, two CORPS_A figures blurred at lower-left."
+    },
+    {
+      "subshot_id": "04a",
+      "parent_macro": "04",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_04a.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_04a.png",
+      "source_frame": 283,
+      "source_time_s": 9.433333,
+      "nominal_frame": 283,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        273,
+        314
+      ],
+      "description": "CU on F1 in a cream ribbed turtleneck strung with fine gold body-chains, looking up and off-camera, flat red wall behind."
+    },
+    {
+      "subshot_id": "04b",
+      "parent_macro": "04",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_04b.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_04b.png",
+      "source_frame": 325,
+      "source_time_s": 10.833333,
+      "nominal_frame": 325,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        314,
+        359
+      ],
+      "description": "Medium: M1 in a black military-cut jacket leaning over the red steps, arm extended down-left, a dark silhouette at the left edge."
+    },
+    {
+      "subshot_id": "05a",
+      "parent_macro": "05",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_05a.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_05a.png",
+      "source_frame": 369,
+      "source_time_s": 12.3,
+      "nominal_frame": 369,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        359,
+        399
+      ],
+      "description": "Tight CU on F1 under a distinctly COOL CYAN-TINTED key, wet-look hair, ivory rope-and-cord harness top, warm red wall behind. Cyan keying does exist in the master."
+    },
+    {
+      "subshot_id": "05b",
+      "parent_macro": "05",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_05b.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_05b.png",
+      "source_frame": 409,
+      "source_time_s": 13.633333,
+      "nominal_frame": 409,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        399,
+        438
+      ],
+      "description": "Wide: M1 in a dark suit atop the red stepped platform, legs braced wide, CORPS_A in hats along both flanks, red on red."
+    },
+    {
+      "subshot_id": "06a",
+      "parent_macro": "06",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_06a.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_06a.png",
+      "source_frame": 447,
+      "source_time_s": 14.9,
+      "nominal_frame": 447,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        438,
+        474
+      ],
+      "description": "F1 seated on the red velvet steps in a black long-sleeve dress, palms pressed together, stacked gold bangles, legs crossed."
+    },
+    {
+      "subshot_id": "06b",
+      "parent_macro": "06",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_06b.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_06b.png",
+      "source_frame": 482,
+      "source_time_s": 16.066667,
+      "nominal_frame": 482,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        474,
+        504
+      ],
+      "description": "Medium CU, M1 three-quarter, dark suit over open white shirt, flat red ground, one CORPS_A head clipping the right edge."
+    },
+    {
+      "subshot_id": "06c",
+      "parent_macro": "06",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_06c.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_06c.png",
+      "source_frame": 508,
+      "source_time_s": 16.933333,
+      "nominal_frame": 508,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        504,
+        518
+      ],
+      "description": "Wide: M1 centre on the red runway mid-dance, CORPS_A in plain black (bare-headed here, no hats) fanned symmetrically to both sides."
+    },
+    {
+      "subshot_id": "06d",
+      "parent_macro": "06",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_06d.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_06d.png",
+      "source_frame": 527,
+      "source_time_s": 17.566667,
+      "nominal_frame": 527,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        518,
+        553
+      ],
+      "description": "Medium: M1 three-quarter to camera, one hand sweeping across the bottom of frame, two CORPS_A figures blurred at lower-left and right."
+    },
+    {
+      "subshot_id": "06e",
+      "parent_macro": "06",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_06e.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_06e.png",
+      "source_frame": 561,
+      "source_time_s": 18.7,
+      "nominal_frame": 561,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        553,
+        584
+      ],
+      "description": "Full wide: M1 standing on the red stepped pyramid with arms out, CORPS_A in black gowns flanking, near-symmetric composition."
+    },
+    {
+      "subshot_id": "07a",
+      "parent_macro": "07",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_07a.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_07a.png",
+      "source_frame": 595,
+      "source_time_s": 19.833333,
+      "nominal_frame": 595,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        584,
+        628
+      ],
+      "description": "Two-shot on the red steps: F1 seated left in black holding a large bouquet of red roses, M1 seated right in a black epaulette jacket with a gold aiguillette."
+    },
+    {
+      "subshot_id": "07b",
+      "parent_macro": "07",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_07b.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_07b.png",
+      "source_frame": 637,
+      "source_time_s": 21.233333,
+      "nominal_frame": 637,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        628,
+        665
+      ],
+      "description": "Wide-ish: F1 reclining along the red-orange steps in a black dress, one arm stretched down the step edge, legs extended to the right."
+    },
+    {
+      "subshot_id": "07c",
+      "parent_macro": "07",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_07c.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_07c.png",
+      "source_frame": 674,
+      "source_time_s": 22.466667,
+      "nominal_frame": 674,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        665,
+        702
+      ],
+      "description": "Wide: M1 centre on the red platform in the gold-chained epaulette jacket, legs braced, CORPS_A in wide-brim hats flanking both sides."
+    },
+    {
+      "subshot_id": "07d",
+      "parent_macro": "07",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_07d.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_07d.png",
+      "source_frame": 711,
+      "source_time_s": 23.7,
+      "nominal_frame": 711,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        702,
+        738
+      ],
+      "description": "Tight CU on F1 three-quarter, hair pulled back, black harness top with gold chain, warm key, dark red surround."
+    },
+    {
+      "subshot_id": "07e",
+      "parent_macro": "07",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_07e.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_07e.png",
+      "source_frame": 746,
+      "source_time_s": 24.866667,
+      "nominal_frame": 746,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        738,
+        772
+      ],
+      "description": "Very tight CU on M1 smiling, index finger raised, holding a golden crimped pastry; a red rose at the bottom-left corner."
+    },
+    {
+      "subshot_id": "08a",
+      "parent_macro": "08",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_08a.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_08a.png",
+      "source_frame": 784,
+      "source_time_s": 26.133333,
+      "nominal_frame": 784,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        772,
+        818
+      ],
+      "description": "EXTERIOR desert canyon seen THROUGH a red frame/aperture: M1 in a dark wide-brim hat and navy overcoat over a blue double-breasted suit, arm raised, eroded sand cliff behind."
+    },
+    {
+      "subshot_id": "08b",
+      "parent_macro": "08",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_08b.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_08b.png",
+      "source_frame": 821,
+      "source_time_s": 27.366667,
+      "nominal_frame": 828,
+      "nudge_offset_frames": -7,
+      "nudge_reason": "Nominal f828 was smeared by fast camera motion; f821 is the sharpest frame in the window and holds the same three-figure low-angle setup.",
+      "subshot_range_frames": [
+        818,
+        857
+      ],
+      "description": "Low-angle desert: three CORPS_B figures in white suits with white head-wraps, arms extended toward camera, sand cliff and deep blue sky."
+    },
+    {
+      "subshot_id": "08c",
+      "parent_macro": "08",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_08c.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_08c.png",
+      "source_frame": 869,
+      "source_time_s": 28.966667,
+      "nominal_frame": 869,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        857,
+        907
+      ],
+      "description": "Wide desert: M1 in dark hat and navy suit dancing centre, two rows of red cube plinths, CORPS_B in white flanking, eroded cliff wall behind."
+    },
+    {
+      "subshot_id": "09a",
+      "parent_macro": "09",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_09a.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_09a.png",
+      "source_frame": 925,
+      "source_time_s": 30.833333,
+      "nominal_frame": 913,
+      "nudge_offset_frames": 12,
+      "nudge_reason": "Nominal f913 was heavily motion-blurred (faces and hands smeared). f925 is the sharpest frame inside the sub-shot and keeps the low-angle three-figure composition.",
+      "subshot_range_frames": [
+        907,
+        931
+      ],
+      "description": "Low-angle: CORPS_B figures in white suits with fully wrapped white head-coverings mid-turn, sand cliff at left, blue sky."
+    },
+    {
+      "subshot_id": "09b",
+      "parent_macro": "09",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_09b.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_09b.png",
+      "source_frame": 941,
+      "source_time_s": 31.366667,
+      "nominal_frame": 941,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        931,
+        971
+      ],
+      "description": "Wide desert: M1 in dark hat and navy suit mid-step, red cubes and a free-standing red doorway frame, CORPS_B in white on both sides."
+    },
+    {
+      "subshot_id": "09c",
+      "parent_macro": "09",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_09c.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_09c.png",
+      "source_frame": 976,
+      "source_time_s": 32.533333,
+      "nominal_frame": 979,
+      "nudge_offset_frames": -3,
+      "nudge_reason": "Nominal f979 was soft; f976 is sharper and better separated from the background while holding the same back-view framing.",
+      "subshot_range_frames": [
+        971,
+        1003
+      ],
+      "description": "Low-angle back view of a CORPS_B figure in white with a wrapped head-covering, a second white figure deeper in shot, sand cliff and blue sky."
+    },
+    {
+      "subshot_id": "09d",
+      "parent_macro": "09",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_09d.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_09d.png",
+      "source_frame": 1017,
+      "source_time_s": 33.9,
+      "nominal_frame": 1017,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        1003,
+        1057
+      ],
+      "description": "Medium: M1 in the dark wide-brim hat and navy jacket, both fists forward at chest height, red cubes and cliff behind."
+    },
+    {
+      "subshot_id": "09e",
+      "parent_macro": "09",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_09e.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_09e.png",
+      "source_frame": 1064,
+      "source_time_s": 35.466667,
+      "nominal_frame": 1064,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        1057,
+        1086
+      ],
+      "description": "Whip-motion beat: CORPS_B figures in white crossing frame, one hand raised high, cliff and sky smeared. Retained at nominal despite blur - see flags.",
+      "flag": "NO CLEAN STILL AVAILABLE. Every frame in 1057-1085 is a whip/handheld motion-blur beat; the sharpest candidate (f1060) is no better than nominal. Generate this sub-shot from a neighbouring pose rather than from this still, or accept the blur as intentional."
+    },
+    {
+      "subshot_id": "10a",
+      "parent_macro": "10",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_10a.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_10a.png",
+      "source_frame": 1092,
+      "source_time_s": 36.4,
+      "nominal_frame": 1092,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        1086,
+        1110
+      ],
+      "description": "CU on F1 in black with a white turtleneck collar and crossed ropes of pearls, both hands raised at her throat, dark red ground."
+    },
+    {
+      "subshot_id": "10b",
+      "parent_macro": "10",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_10b.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_10b.png",
+      "source_frame": 1116,
+      "source_time_s": 37.2,
+      "nominal_frame": 1116,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        1110,
+        1132
+      ],
+      "description": "Medium: F1 in black with the pearl ropes, arms crossed over her chest, deep red steps and wall behind."
+    },
+    {
+      "subshot_id": "10c",
+      "parent_macro": "10",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_10c.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_10c.png",
+      "source_frame": 1133,
+      "source_time_s": 37.766667,
+      "nominal_frame": 1133,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        1132,
+        1135
+      ],
+      "description": "Tight CU on F1 in the same pearl-rope wardrobe, hand raised toward her face, right-weighted framing. Sub-shot is only 3 frames long.",
+      "flag": "Sub-shot is 3 frames (1132-1134). The +-15 search would leave the sub-shot entirely, so no nudge was attempted; f1133 is clean."
+    },
+    {
+      "subshot_id": "11a",
+      "parent_macro": "11",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_11a.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_11a.png",
+      "source_frame": 1143,
+      "source_time_s": 38.1,
+      "nominal_frame": 1143,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        1135,
+        1166
+      ],
+      "description": "WIDE: M1 on the red platform in a dark suit, both hands raised palms-down, CORPS_A in wide-brim hats at the right, flat red ground."
+    },
+    {
+      "subshot_id": "11b",
+      "parent_macro": "11",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_11b.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_11b.png",
+      "source_frame": 1174,
+      "source_time_s": 39.133333,
+      "nominal_frame": 1174,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        1166,
+        1198
+      ],
+      "description": "Medium CU, M1 in profile mid-lyric, one hand raised, CORPS_A in hats blurred across the lower-left."
+    },
+    {
+      "subshot_id": "11c",
+      "parent_macro": "11",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_11c.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_11c.png",
+      "source_frame": 1223,
+      "source_time_s": 40.766667,
+      "nominal_frame": 1208,
+      "nudge_offset_frames": 15,
+      "nudge_reason": "Nominal f1208 was dim and soft; f1223 is better lit and sharper with the figure and skirt fully inside frame.",
+      "subshot_range_frames": [
+        1198,
+        1239
+      ],
+      "description": "F1 in an ivory/cream dress with a wrapped head-covering and shoulder cords, seated on the red steps, skirt spread across the tread."
+    },
+    {
+      "subshot_id": "11d",
+      "parent_macro": "11",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_11d.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_11d.png",
+      "source_frame": 1248,
+      "source_time_s": 41.6,
+      "nominal_frame": 1248,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        1239,
+        1274
+      ],
+      "description": "Full-body wide: M1 standing on the red stepped platform in a dark suit, a hand entering at the right edge."
+    },
+    {
+      "subshot_id": "11e",
+      "parent_macro": "11",
+      "png": "marketing/campaigns/peshta/06_local/a_keyframes/subshot_11e.png",
+      "png_abs": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/a_keyframes/subshot_11e.png",
+      "source_frame": 1278,
+      "source_time_s": 42.6,
+      "nominal_frame": 1278,
+      "nudge_offset_frames": 0,
+      "nudge_reason": null,
+      "subshot_range_frames": [
+        1274,
+        1290
+      ],
+      "description": "Medium: M1 three-quarter, dark suit and open white shirt, both fists clenched, flat red background."
+    }
+  ]
+}

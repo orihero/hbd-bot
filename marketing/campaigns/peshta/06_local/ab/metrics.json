@@ -1,0 +1,1230 @@
+{
+  "generated": "2026-09-19T15:02:23+00:00",
+  "harness": "marketing/campaigns/peshta/06_local/compare_ab.py",
+  "reading": "docs/research/RESEARCH-ab-higgsfield-vs-local-reel-metrics.md",
+  "self_test": true,
+  "inputs": {
+    "A": {
+      "path": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/final_polat_peshta_reel.mp4",
+      "exists": true,
+      "width": 1080,
+      "height": 1920,
+      "fps": 30.0,
+      "nb_frames": 1290,
+      "duration_s": 43.0,
+      "video_codec": "h264",
+      "has_audio": true,
+      "size_bytes": 33325964
+    },
+    "B": {
+      "path": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/final_polat_peshta_reel.mp4",
+      "exists": true,
+      "width": 1080,
+      "height": 1920,
+      "fps": 30.0,
+      "nb_frames": 1290,
+      "duration_s": 43.0,
+      "video_codec": "h264",
+      "has_audio": true,
+      "size_bytes": 33325964
+    },
+    "audio_master": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/audio/Xamdam_Sobirov_Peshta_27s_to_1m10s.mp3",
+    "labels": {
+      "A": "A  HIGGSFIELD CLOUD",
+      "B": "B  SELF-TEST COPY"
+    }
+  },
+  "shot_windows": {
+    "source": "shot_bible.json",
+    "path": "marketing/campaigns/peshta/06_local/shot_bible.json",
+    "fallback_used": false,
+    "schema_version": "1.0"
+  },
+  "bucketing_note": "frames_observed counts frames whose pts falls in [start_s, end_s), which can differ by one from the shot bible's nominal round(dur*fps) at a window boundary. Both sides are bucketed by the identical rule, so this never biases an A-vs-B delta.",
+  "sharpness": {
+    "laplacian_variance_computed": false,
+    "modules_present": {
+      "numpy": false,
+      "cv2": false,
+      "PIL": false
+    },
+    "reason": "Laplacian VARIANCE is not reported: it needs numpy plus opencv or Pillow to read decoded frames into an array, and none of those are installed on this machine. The brief forbids pip-installing them, so the metric is omitted rather than faked. 'edge_energy_ffmpeg_laplacian' is reported instead: it is the mean of a 4-neighbour Laplacian edge map computed by ffmpeg's convolution filter. It moves in the same direction as sharpness (soft frame -> lower) but it is a MEAN, not a variance, so it is more sensitive to global contrast and less sensitive to a small region going soft. Compare it A-vs-B on the same content only; never quote it as a Laplacian variance."
+  },
+  "outputs": {
+    "contact_sheet_A": {
+      "path": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/ab/contact_sheet_A.png",
+      "grid": "4x3",
+      "cells": 11,
+      "clamped_shots": []
+    },
+    "contact_sheet_B": {
+      "path": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/ab/contact_sheet_B.png",
+      "grid": "4x3",
+      "cells": 11,
+      "clamped_shots": []
+    },
+    "side_by_side": {
+      "path": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/06_local/ab/side_by_side.mp4",
+      "layout": "hstack",
+      "resolution": "2160x1920",
+      "audio_source": "/Users/ai/Desktop/work/projects/hbd-bot/promo_peshta/audio/Xamdam_Sobirov_Peshta_27s_to_1m10s.mp3",
+      "audio_doubled": false,
+      "timecode_hz": 1,
+      "timecode_badge_px": [
+        529,
+        59
+      ]
+    }
+  },
+  "per_shot": {
+    "A": [
+      {
+        "id": "01",
+        "start_s": 0.0,
+        "end_s": 2.256,
+        "dur_s": 2.256,
+        "label": "clip_01_verse1_setup.mp4",
+        "frames_observed": 68,
+        "frame_diff": {
+          "mean": 2.8565,
+          "stddev": 3.677,
+          "min": 0.011,
+          "max": 23.0837,
+          "n": 67
+        },
+        "scene_changes": {
+          "count": 0,
+          "threshold": 10.0,
+          "times_s": []
+        },
+        "luma": {
+          "mean": 45.7388,
+          "stddev": 1.4457,
+          "min": 43.5123,
+          "max": 48.7905,
+          "n": 68
+        },
+        "saturation": {
+          "mean": 37.9967,
+          "stddev": 5.0579,
+          "min": 28.3057,
+          "max": 43.6634,
+          "n": 68
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.7673,
+          "stddev": 0.1824,
+          "min": 0.5117,
+          "max": 1.1544,
+          "n": 68
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "02",
+        "start_s": 2.256,
+        "end_s": 5.176,
+        "dur_s": 2.92,
+        "label": "clip_02_hook_duo_roses.mp4",
+        "frames_observed": 88,
+        "frame_diff": {
+          "mean": 6.4048,
+          "stddev": 7.4867,
+          "min": 0.0135,
+          "max": 58.0498,
+          "n": 88
+        },
+        "scene_changes": {
+          "count": 1,
+          "threshold": 10.0,
+          "times_s": [
+            2.3
+          ]
+        },
+        "luma": {
+          "mean": 57.029,
+          "stddev": 15.2414,
+          "min": 36.7282,
+          "max": 79.4976,
+          "n": 88
+        },
+        "saturation": {
+          "mean": 22.009,
+          "stddev": 3.9096,
+          "min": 18.6942,
+          "max": 36.7599,
+          "n": 88
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.6468,
+          "stddev": 0.1653,
+          "min": 0.4275,
+          "max": 0.9129,
+          "n": 88
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "03",
+        "start_s": 5.176,
+        "end_s": 8.976,
+        "dur_s": 3.8,
+        "label": "clip_03_chorus_drop_hero.mp4",
+        "frames_observed": 114,
+        "frame_diff": {
+          "mean": 4.75,
+          "stddev": 4.7708,
+          "min": 0.0086,
+          "max": 33.059,
+          "n": 114
+        },
+        "scene_changes": {
+          "count": 1,
+          "threshold": 10.0,
+          "times_s": [
+            5.267
+          ]
+        },
+        "luma": {
+          "mean": 33.3153,
+          "stddev": 4.1246,
+          "min": 27.4872,
+          "max": 49.4446,
+          "n": 114
+        },
+        "saturation": {
+          "mean": 20.0977,
+          "stddev": 4.6235,
+          "min": 14.7388,
+          "max": 27.9581,
+          "n": 114
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.4389,
+          "stddev": 0.0497,
+          "min": 0.338,
+          "max": 0.6232,
+          "n": 114
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "04",
+        "start_s": 8.976,
+        "end_s": 11.816,
+        "dur_s": 2.84,
+        "label": "clip_04_call_response_1.mp4",
+        "frames_observed": 85,
+        "frame_diff": {
+          "mean": 6.5283,
+          "stddev": 7.4776,
+          "min": 0.0157,
+          "max": 47.7236,
+          "n": 85
+        },
+        "scene_changes": {
+          "count": 2,
+          "threshold": 10.0,
+          "times_s": [
+            9.1,
+            10.467
+          ]
+        },
+        "luma": {
+          "mean": 55.5882,
+          "stddev": 16.0802,
+          "min": 35.9835,
+          "max": 76.6577,
+          "n": 85
+        },
+        "saturation": {
+          "mean": 37.9769,
+          "stddev": 3.127,
+          "min": 21.8542,
+          "max": 40.2646,
+          "n": 85
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.5508,
+          "stddev": 0.1199,
+          "min": 0.3766,
+          "max": 0.7722,
+          "n": 85
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "05",
+        "start_s": 11.816,
+        "end_s": 14.416,
+        "dur_s": 2.6,
+        "label": "clip_05_call_response_2.mp4",
+        "frames_observed": 78,
+        "frame_diff": {
+          "mean": 6.345,
+          "stddev": 6.2998,
+          "min": 0.0153,
+          "max": 33.1227,
+          "n": 78
+        },
+        "scene_changes": {
+          "count": 1,
+          "threshold": 10.0,
+          "times_s": [
+            13.3
+          ]
+        },
+        "luma": {
+          "mean": 49.8719,
+          "stddev": 10.8225,
+          "min": 36.6972,
+          "max": 63.0688,
+          "n": 78
+        },
+        "saturation": {
+          "mean": 31.3335,
+          "stddev": 6.8851,
+          "min": 21.1441,
+          "max": 38.9838,
+          "n": 78
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.656,
+          "stddev": 0.1116,
+          "min": 0.422,
+          "max": 0.9982,
+          "n": 78
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "06",
+        "start_s": 14.416,
+        "end_s": 19.256,
+        "dur_s": 4.84,
+        "label": "clip_06_strophe_swagger_strut.mp4",
+        "frames_observed": 145,
+        "frame_diff": {
+          "mean": 4.6151,
+          "stddev": 4.8034,
+          "min": 0.0146,
+          "max": 30.6562,
+          "n": 145
+        },
+        "scene_changes": {
+          "count": 1,
+          "threshold": 10.0,
+          "times_s": [
+            14.6
+          ]
+        },
+        "luma": {
+          "mean": 41.945,
+          "stddev": 2.2244,
+          "min": 37.8893,
+          "max": 47.7463,
+          "n": 145
+        },
+        "saturation": {
+          "mean": 29.0858,
+          "stddev": 4.7227,
+          "min": 21.6708,
+          "max": 38.3182,
+          "n": 145
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.6158,
+          "stddev": 0.1565,
+          "min": 0.3561,
+          "max": 0.9014,
+          "n": 145
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "07",
+        "start_s": 19.256,
+        "end_s": 25.496,
+        "dur_s": 6.24,
+        "label": "clip_07_duo_charm_finger_wag.mp4",
+        "frames_observed": 187,
+        "frame_diff": {
+          "mean": 6.6192,
+          "stddev": 7.1226,
+          "min": 0.0152,
+          "max": 55.2134,
+          "n": 187
+        },
+        "scene_changes": {
+          "count": 4,
+          "threshold": 10.0,
+          "times_s": [
+            20.933,
+            22.167,
+            23.4,
+            24.6
+          ]
+        },
+        "luma": {
+          "mean": 49.903,
+          "stddev": 8.0005,
+          "min": 37.2949,
+          "max": 65.7513,
+          "n": 187
+        },
+        "saturation": {
+          "mean": 23.2417,
+          "stddev": 3.3816,
+          "min": 18.3993,
+          "max": 36.7162,
+          "n": 187
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.7027,
+          "stddev": 0.0713,
+          "min": 0.5066,
+          "max": 0.9788,
+          "n": 187
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "08",
+        "start_s": 25.496,
+        "end_s": 29.976,
+        "dur_s": 4.48,
+        "label": "clip_08_canyon_transition_stomp.mp4",
+        "frames_observed": 135,
+        "frame_diff": {
+          "mean": 10.1303,
+          "stddev": 12.7168,
+          "min": 0.0004,
+          "max": 84.5602,
+          "n": 135
+        },
+        "scene_changes": {
+          "count": 7,
+          "threshold": 10.0,
+          "times_s": [
+            25.733,
+            27.267,
+            27.9,
+            28.0,
+            28.167,
+            28.333,
+            28.567
+          ]
+        },
+        "luma": {
+          "mean": 90.2041,
+          "stddev": 21.2674,
+          "min": 53.8717,
+          "max": 132.456,
+          "n": 135
+        },
+        "saturation": {
+          "mean": 23.22,
+          "stddev": 4.6341,
+          "min": 16.2918,
+          "max": 37.7783,
+          "n": 135
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 1.0029,
+          "stddev": 0.4253,
+          "min": 0.5157,
+          "max": 1.7357,
+          "n": 135
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "09",
+        "start_s": 29.976,
+        "end_s": 35.896,
+        "dur_s": 5.92,
+        "label": "clip_09_canyon_double_point.mp4",
+        "frames_observed": 177,
+        "frame_diff": {
+          "mean": 10.4783,
+          "stddev": 13.3173,
+          "min": 0.0005,
+          "max": 71.9057,
+          "n": 177
+        },
+        "scene_changes": {
+          "count": 11,
+          "threshold": 10.0,
+          "times_s": [
+            30.233,
+            30.267,
+            30.767,
+            31.033,
+            32.367,
+            33.433,
+            35.233,
+            35.267,
+            35.667,
+            35.767,
+            35.833
+          ]
+        },
+        "luma": {
+          "mean": 104.3525,
+          "stddev": 24.2337,
+          "min": 68.2264,
+          "max": 142.856,
+          "n": 177
+        },
+        "saturation": {
+          "mean": 18.4374,
+          "stddev": 2.643,
+          "min": 14.0658,
+          "max": 26.0311,
+          "n": 177
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 1.1501,
+          "stddev": 0.5387,
+          "min": 0.4887,
+          "max": 2.2204,
+          "n": 177
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "10",
+        "start_s": 35.896,
+        "end_s": 37.496,
+        "dur_s": 1.6,
+        "label": "clip_10_elif_red_steps.mp4",
+        "frames_observed": 48,
+        "frame_diff": {
+          "mean": 12.1578,
+          "stddev": 12.7061,
+          "min": 0.0041,
+          "max": 72.2323,
+          "n": 48
+        },
+        "scene_changes": {
+          "count": 2,
+          "threshold": 10.0,
+          "times_s": [
+            36.0,
+            36.2
+          ]
+        },
+        "luma": {
+          "mean": 61.4641,
+          "stddev": 28.3126,
+          "min": 31.1516,
+          "max": 124.626,
+          "n": 48
+        },
+        "saturation": {
+          "mean": 18.9993,
+          "stddev": 3.9084,
+          "min": 15.2464,
+          "max": 28.8536,
+          "n": 48
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.5207,
+          "stddev": 0.1137,
+          "min": 0.2788,
+          "max": 0.7518,
+          "n": 48
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "11",
+        "start_s": 37.496,
+        "end_s": 43.0,
+        "dur_s": 5.504,
+        "label": "clip_11_polat_hero_outro.mp4",
+        "frames_observed": 165,
+        "frame_diff": {
+          "mean": 5.7283,
+          "stddev": 7.3581,
+          "min": 0.0145,
+          "max": 57.433,
+          "n": 165
+        },
+        "scene_changes": {
+          "count": 4,
+          "threshold": 10.0,
+          "times_s": [
+            37.733,
+            37.833,
+            39.933,
+            41.3
+          ]
+        },
+        "luma": {
+          "mean": 50.2844,
+          "stddev": 16.3695,
+          "min": 33.3699,
+          "max": 95.5432,
+          "n": 165
+        },
+        "saturation": {
+          "mean": 35.251,
+          "stddev": 6.8511,
+          "min": 17.6303,
+          "max": 45.7273,
+          "n": 165
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.5939,
+          "stddev": 0.0851,
+          "min": 0.3443,
+          "max": 0.7682,
+          "n": 165
+        },
+        "laplacian_variance": null
+      }
+    ],
+    "B": [
+      {
+        "id": "01",
+        "start_s": 0.0,
+        "end_s": 2.256,
+        "dur_s": 2.256,
+        "label": "clip_01_verse1_setup.mp4",
+        "frames_observed": 68,
+        "frame_diff": {
+          "mean": 2.8565,
+          "stddev": 3.677,
+          "min": 0.011,
+          "max": 23.0837,
+          "n": 67
+        },
+        "scene_changes": {
+          "count": 0,
+          "threshold": 10.0,
+          "times_s": []
+        },
+        "luma": {
+          "mean": 45.7388,
+          "stddev": 1.4457,
+          "min": 43.5123,
+          "max": 48.7905,
+          "n": 68
+        },
+        "saturation": {
+          "mean": 37.9967,
+          "stddev": 5.0579,
+          "min": 28.3057,
+          "max": 43.6634,
+          "n": 68
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.7673,
+          "stddev": 0.1824,
+          "min": 0.5117,
+          "max": 1.1544,
+          "n": 68
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "02",
+        "start_s": 2.256,
+        "end_s": 5.176,
+        "dur_s": 2.92,
+        "label": "clip_02_hook_duo_roses.mp4",
+        "frames_observed": 88,
+        "frame_diff": {
+          "mean": 6.4048,
+          "stddev": 7.4867,
+          "min": 0.0135,
+          "max": 58.0498,
+          "n": 88
+        },
+        "scene_changes": {
+          "count": 1,
+          "threshold": 10.0,
+          "times_s": [
+            2.3
+          ]
+        },
+        "luma": {
+          "mean": 57.029,
+          "stddev": 15.2414,
+          "min": 36.7282,
+          "max": 79.4976,
+          "n": 88
+        },
+        "saturation": {
+          "mean": 22.009,
+          "stddev": 3.9096,
+          "min": 18.6942,
+          "max": 36.7599,
+          "n": 88
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.6468,
+          "stddev": 0.1653,
+          "min": 0.4275,
+          "max": 0.9129,
+          "n": 88
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "03",
+        "start_s": 5.176,
+        "end_s": 8.976,
+        "dur_s": 3.8,
+        "label": "clip_03_chorus_drop_hero.mp4",
+        "frames_observed": 114,
+        "frame_diff": {
+          "mean": 4.75,
+          "stddev": 4.7708,
+          "min": 0.0086,
+          "max": 33.059,
+          "n": 114
+        },
+        "scene_changes": {
+          "count": 1,
+          "threshold": 10.0,
+          "times_s": [
+            5.267
+          ]
+        },
+        "luma": {
+          "mean": 33.3153,
+          "stddev": 4.1246,
+          "min": 27.4872,
+          "max": 49.4446,
+          "n": 114
+        },
+        "saturation": {
+          "mean": 20.0977,
+          "stddev": 4.6235,
+          "min": 14.7388,
+          "max": 27.9581,
+          "n": 114
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.4389,
+          "stddev": 0.0497,
+          "min": 0.338,
+          "max": 0.6232,
+          "n": 114
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "04",
+        "start_s": 8.976,
+        "end_s": 11.816,
+        "dur_s": 2.84,
+        "label": "clip_04_call_response_1.mp4",
+        "frames_observed": 85,
+        "frame_diff": {
+          "mean": 6.5283,
+          "stddev": 7.4776,
+          "min": 0.0157,
+          "max": 47.7236,
+          "n": 85
+        },
+        "scene_changes": {
+          "count": 2,
+          "threshold": 10.0,
+          "times_s": [
+            9.1,
+            10.467
+          ]
+        },
+        "luma": {
+          "mean": 55.5882,
+          "stddev": 16.0802,
+          "min": 35.9835,
+          "max": 76.6577,
+          "n": 85
+        },
+        "saturation": {
+          "mean": 37.9769,
+          "stddev": 3.127,
+          "min": 21.8542,
+          "max": 40.2646,
+          "n": 85
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.5508,
+          "stddev": 0.1199,
+          "min": 0.3766,
+          "max": 0.7722,
+          "n": 85
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "05",
+        "start_s": 11.816,
+        "end_s": 14.416,
+        "dur_s": 2.6,
+        "label": "clip_05_call_response_2.mp4",
+        "frames_observed": 78,
+        "frame_diff": {
+          "mean": 6.345,
+          "stddev": 6.2998,
+          "min": 0.0153,
+          "max": 33.1227,
+          "n": 78
+        },
+        "scene_changes": {
+          "count": 1,
+          "threshold": 10.0,
+          "times_s": [
+            13.3
+          ]
+        },
+        "luma": {
+          "mean": 49.8719,
+          "stddev": 10.8225,
+          "min": 36.6972,
+          "max": 63.0688,
+          "n": 78
+        },
+        "saturation": {
+          "mean": 31.3335,
+          "stddev": 6.8851,
+          "min": 21.1441,
+          "max": 38.9838,
+          "n": 78
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.656,
+          "stddev": 0.1116,
+          "min": 0.422,
+          "max": 0.9982,
+          "n": 78
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "06",
+        "start_s": 14.416,
+        "end_s": 19.256,
+        "dur_s": 4.84,
+        "label": "clip_06_strophe_swagger_strut.mp4",
+        "frames_observed": 145,
+        "frame_diff": {
+          "mean": 4.6151,
+          "stddev": 4.8034,
+          "min": 0.0146,
+          "max": 30.6562,
+          "n": 145
+        },
+        "scene_changes": {
+          "count": 1,
+          "threshold": 10.0,
+          "times_s": [
+            14.6
+          ]
+        },
+        "luma": {
+          "mean": 41.945,
+          "stddev": 2.2244,
+          "min": 37.8893,
+          "max": 47.7463,
+          "n": 145
+        },
+        "saturation": {
+          "mean": 29.0858,
+          "stddev": 4.7227,
+          "min": 21.6708,
+          "max": 38.3182,
+          "n": 145
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.6158,
+          "stddev": 0.1565,
+          "min": 0.3561,
+          "max": 0.9014,
+          "n": 145
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "07",
+        "start_s": 19.256,
+        "end_s": 25.496,
+        "dur_s": 6.24,
+        "label": "clip_07_duo_charm_finger_wag.mp4",
+        "frames_observed": 187,
+        "frame_diff": {
+          "mean": 6.6192,
+          "stddev": 7.1226,
+          "min": 0.0152,
+          "max": 55.2134,
+          "n": 187
+        },
+        "scene_changes": {
+          "count": 4,
+          "threshold": 10.0,
+          "times_s": [
+            20.933,
+            22.167,
+            23.4,
+            24.6
+          ]
+        },
+        "luma": {
+          "mean": 49.903,
+          "stddev": 8.0005,
+          "min": 37.2949,
+          "max": 65.7513,
+          "n": 187
+        },
+        "saturation": {
+          "mean": 23.2417,
+          "stddev": 3.3816,
+          "min": 18.3993,
+          "max": 36.7162,
+          "n": 187
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.7027,
+          "stddev": 0.0713,
+          "min": 0.5066,
+          "max": 0.9788,
+          "n": 187
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "08",
+        "start_s": 25.496,
+        "end_s": 29.976,
+        "dur_s": 4.48,
+        "label": "clip_08_canyon_transition_stomp.mp4",
+        "frames_observed": 135,
+        "frame_diff": {
+          "mean": 10.1303,
+          "stddev": 12.7168,
+          "min": 0.0004,
+          "max": 84.5602,
+          "n": 135
+        },
+        "scene_changes": {
+          "count": 7,
+          "threshold": 10.0,
+          "times_s": [
+            25.733,
+            27.267,
+            27.9,
+            28.0,
+            28.167,
+            28.333,
+            28.567
+          ]
+        },
+        "luma": {
+          "mean": 90.2041,
+          "stddev": 21.2674,
+          "min": 53.8717,
+          "max": 132.456,
+          "n": 135
+        },
+        "saturation": {
+          "mean": 23.22,
+          "stddev": 4.6341,
+          "min": 16.2918,
+          "max": 37.7783,
+          "n": 135
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 1.0029,
+          "stddev": 0.4253,
+          "min": 0.5157,
+          "max": 1.7357,
+          "n": 135
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "09",
+        "start_s": 29.976,
+        "end_s": 35.896,
+        "dur_s": 5.92,
+        "label": "clip_09_canyon_double_point.mp4",
+        "frames_observed": 177,
+        "frame_diff": {
+          "mean": 10.4783,
+          "stddev": 13.3173,
+          "min": 0.0005,
+          "max": 71.9057,
+          "n": 177
+        },
+        "scene_changes": {
+          "count": 11,
+          "threshold": 10.0,
+          "times_s": [
+            30.233,
+            30.267,
+            30.767,
+            31.033,
+            32.367,
+            33.433,
+            35.233,
+            35.267,
+            35.667,
+            35.767,
+            35.833
+          ]
+        },
+        "luma": {
+          "mean": 104.3525,
+          "stddev": 24.2337,
+          "min": 68.2264,
+          "max": 142.856,
+          "n": 177
+        },
+        "saturation": {
+          "mean": 18.4374,
+          "stddev": 2.643,
+          "min": 14.0658,
+          "max": 26.0311,
+          "n": 177
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 1.1501,
+          "stddev": 0.5387,
+          "min": 0.4887,
+          "max": 2.2204,
+          "n": 177
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "10",
+        "start_s": 35.896,
+        "end_s": 37.496,
+        "dur_s": 1.6,
+        "label": "clip_10_elif_red_steps.mp4",
+        "frames_observed": 48,
+        "frame_diff": {
+          "mean": 12.1578,
+          "stddev": 12.7061,
+          "min": 0.0041,
+          "max": 72.2323,
+          "n": 48
+        },
+        "scene_changes": {
+          "count": 2,
+          "threshold": 10.0,
+          "times_s": [
+            36.0,
+            36.2
+          ]
+        },
+        "luma": {
+          "mean": 61.4641,
+          "stddev": 28.3126,
+          "min": 31.1516,
+          "max": 124.626,
+          "n": 48
+        },
+        "saturation": {
+          "mean": 18.9993,
+          "stddev": 3.9084,
+          "min": 15.2464,
+          "max": 28.8536,
+          "n": 48
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.5207,
+          "stddev": 0.1137,
+          "min": 0.2788,
+          "max": 0.7518,
+          "n": 48
+        },
+        "laplacian_variance": null
+      },
+      {
+        "id": "11",
+        "start_s": 37.496,
+        "end_s": 43.0,
+        "dur_s": 5.504,
+        "label": "clip_11_polat_hero_outro.mp4",
+        "frames_observed": 165,
+        "frame_diff": {
+          "mean": 5.7283,
+          "stddev": 7.3581,
+          "min": 0.0145,
+          "max": 57.433,
+          "n": 165
+        },
+        "scene_changes": {
+          "count": 4,
+          "threshold": 10.0,
+          "times_s": [
+            37.733,
+            37.833,
+            39.933,
+            41.3
+          ]
+        },
+        "luma": {
+          "mean": 50.2844,
+          "stddev": 16.3695,
+          "min": 33.3699,
+          "max": 95.5432,
+          "n": 165
+        },
+        "saturation": {
+          "mean": 35.251,
+          "stddev": 6.8511,
+          "min": 17.6303,
+          "max": 45.7273,
+          "n": 165
+        },
+        "edge_energy_ffmpeg_laplacian": {
+          "mean": 0.5939,
+          "stddev": 0.0851,
+          "min": 0.3443,
+          "max": 0.7682,
+          "n": 165
+        },
+        "laplacian_variance": null
+      }
+    ],
+    "delta_A_minus_B": [
+      {
+        "id": "01",
+        "frames_observed_delta": 0,
+        "frame_diff_mean_delta": 0.0,
+        "frame_diff_stddev_delta": 0.0,
+        "scene_changes_delta": 0,
+        "luma_mean_delta": 0.0,
+        "saturation_mean_delta": 0.0,
+        "edge_energy_mean_delta": 0.0
+      },
+      {
+        "id": "02",
+        "frames_observed_delta": 0,
+        "frame_diff_mean_delta": 0.0,
+        "frame_diff_stddev_delta": 0.0,
+        "scene_changes_delta": 0,
+        "luma_mean_delta": 0.0,
+        "saturation_mean_delta": 0.0,
+        "edge_energy_mean_delta": 0.0
+      },
+      {
+        "id": "03",
+        "frames_observed_delta": 0,
+        "frame_diff_mean_delta": 0.0,
+        "frame_diff_stddev_delta": 0.0,
+        "scene_changes_delta": 0,
+        "luma_mean_delta": 0.0,
+        "saturation_mean_delta": 0.0,
+        "edge_energy_mean_delta": 0.0
+      },
+      {
+        "id": "04",
+        "frames_observed_delta": 0,
+        "frame_diff_mean_delta": 0.0,
+        "frame_diff_stddev_delta": 0.0,
+        "scene_changes_delta": 0,
+        "luma_mean_delta": 0.0,
+        "saturation_mean_delta": 0.0,
+        "edge_energy_mean_delta": 0.0
+      },
+      {
+        "id": "05",
+        "frames_observed_delta": 0,
+        "frame_diff_mean_delta": 0.0,
+        "frame_diff_stddev_delta": 0.0,
+        "scene_changes_delta": 0,
+        "luma_mean_delta": 0.0,
+        "saturation_mean_delta": 0.0,
+        "edge_energy_mean_delta": 0.0
+      },
+      {
+        "id": "06",
+        "frames_observed_delta": 0,
+        "frame_diff_mean_delta": 0.0,
+        "frame_diff_stddev_delta": 0.0,
+        "scene_changes_delta": 0,
+        "luma_mean_delta": 0.0,
+        "saturation_mean_delta": 0.0,
+        "edge_energy_mean_delta": 0.0
+      },
+      {
+        "id": "07",
+        "frames_observed_delta": 0,
+        "frame_diff_mean_delta": 0.0,
+        "frame_diff_stddev_delta": 0.0,
+        "scene_changes_delta": 0,
+        "luma_mean_delta": 0.0,
+        "saturation_mean_delta": 0.0,
+        "edge_energy_mean_delta": 0.0
+      },
+      {
+        "id": "08",
+        "frames_observed_delta": 0,
+        "frame_diff_mean_delta": 0.0,
+        "frame_diff_stddev_delta": 0.0,
+        "scene_changes_delta": 0,
+        "luma_mean_delta": 0.0,
+        "saturation_mean_delta": 0.0,
+        "edge_energy_mean_delta": 0.0
+      },
+      {
+        "id": "09",
+        "frames_observed_delta": 0,
+        "frame_diff_mean_delta": 0.0,
+        "frame_diff_stddev_delta": 0.0,
+        "scene_changes_delta": 0,
+        "luma_mean_delta": 0.0,
+        "saturation_mean_delta": 0.0,
+        "edge_energy_mean_delta": 0.0
+      },
+      {
+        "id": "10",
+        "frames_observed_delta": 0,
+        "frame_diff_mean_delta": 0.0,
+        "frame_diff_stddev_delta": 0.0,
+        "scene_changes_delta": 0,
+        "luma_mean_delta": 0.0,
+        "saturation_mean_delta": 0.0,
+        "edge_energy_mean_delta": 0.0
+      },
+      {
+        "id": "11",
+        "frames_observed_delta": 0,
+        "frame_diff_mean_delta": 0.0,
+        "frame_diff_stddev_delta": 0.0,
+        "scene_changes_delta": 0,
+        "luma_mean_delta": 0.0,
+        "saturation_mean_delta": 0.0,
+        "edge_energy_mean_delta": 0.0
+      }
+    ]
+  },
+  "whole_reel": {
+    "A": {
+      "frame_diff_mean": 6.9649,
+      "scene_changes_total": 34,
+      "luma_mean": 58.1542,
+      "saturation_mean": 27.059,
+      "edge_energy_mean": 0.6951
+    },
+    "B": {
+      "frame_diff_mean": 6.9649,
+      "scene_changes_total": 34,
+      "luma_mean": 58.1542,
+      "saturation_mean": 27.059,
+      "edge_energy_mean": 0.6951
+    }
+  },
+  "self_test_result": {
+    "max_abs_delta": 0,
+    "passed": true,
+    "expectation": "every per-shot delta must be exactly 0.0 when A and B are the same file; a non-zero value means the harness itself is non-deterministic."
+  }
+}

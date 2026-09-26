@@ -13,7 +13,8 @@ tried in ``bayram.contracts``.)
 
 **Why ``ui_language`` is a READ here and :meth:`UserProfileStore.record_language` is the
 WRITE.** The column stays on ``users``: that table is DDL-frozen
-(``docs/product/ADMIN_PANEL_PLAN.md:674`` says "No DDL"), and ``credits.set_blocked`` upserts
+(``docs/product/ADMIN_PANEL_PLAN.md`` §5.11 says "No DDL", amended 2026-09-19 for the one
+column revision 0017 added), and ``credits.set_blocked`` upserts
 it so an operator can bar an account that never ordered — which is exactly why a phone number
 and a face may not live there, since ``/forget`` must be able to delete those and must never
 delete the row an operator blocked. So the personal data goes in its own table keyed on

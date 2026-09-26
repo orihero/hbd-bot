@@ -217,19 +217,20 @@ def test_no_scratch_directory_survives_a_failed_render(tmp_path: Path) -> None:
 # the artwork, and the copy of it that ships
 # ---------------------------------------------------------------------------
 def test_the_packaged_cover_is_byte_identical_to_the_brand_original() -> None:
-    # Arrange: the wheel ships a COPY of brand/Logo-Bot.png, because brand/ is not packaged.
+    # Arrange: the wheel ships a COPY of marketing/brand/Logo-Bot.png, because that
+    # folder is not packaged.
     # The copy is therefore what can rot: whoever redraws the artwork edits the brand file,
     # and nothing edits this one. This test is the entire reason copying was an acceptable
     # answer — a redraw that forgets it fails here, loudly, rather than shipping last
     # month's cover on every song for a month.
-    brand = REPO_ROOT / "brand" / "Logo-Bot.png"
+    brand = REPO_ROOT / "marketing" / "brand" / "Logo-Bot.png"
     packaged = Path(str(resources.files("bayram.audio.assets").joinpath("cover.png")))
 
     # Act / Assert
-    assert brand.is_file(), "brand/Logo-Bot.png is the source of truth and is missing"
+    assert brand.is_file(), "marketing/brand/Logo-Bot.png is the source of truth and is missing"
     assert packaged.read_bytes() == brand.read_bytes(), (
-        "src/bayram/audio/assets/cover.png has drifted from brand/Logo-Bot.png. "
-        "Re-copy it: cp brand/Logo-Bot.png src/bayram/audio/assets/cover.png"
+        "src/bayram/audio/assets/cover.png has drifted from marketing/brand/Logo-Bot.png. "
+        "Re-copy it: cp marketing/brand/Logo-Bot.png src/bayram/audio/assets/cover.png"
     )
 
 
@@ -257,7 +258,7 @@ def test_an_unreadable_cover_resource_is_an_error_and_not_a_blank_picture(
 def test_the_artwork_is_not_stretched_when_the_source_is_not_square(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Arrange: brand/Logo-Bot.png is square today, so the centre crop is a no-op and would
+    # Arrange: marketing/brand/Logo-Bot.png is square today, so the centre crop is a no-op and would
     # never be exercised. It exists for the day the brand file is replaced with a rectangle,
     # where the alternative is a silently stretched face. Substitute a wide source whose
     # left and right thirds are red and whose centre square is green: a correct centre crop

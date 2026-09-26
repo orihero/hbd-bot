@@ -343,12 +343,9 @@ function hasQuickFilters(state: UsersUrlState): boolean {
 /* -------------------------------------------------------------------------- */
 
 /*
- * The advanced section's own heading and its one sentence. Sized to the kit's control label
- * and hint rather than to a page heading: this is a section INSIDE the filter panel, and a
- * 22px title in there would read as a second screen.
+ * The advanced section's status lines — a count, a loading line, a failure. Sized to the
+ * kit's control hint: this is a section INSIDE the filter panel, not a second screen.
  */
-const SECTION_HEADING_CLASS =
-  "m-0 text-[14px] font-semibold leading-5 tracking-[-0.084px] text-ink-800";
 const SECTION_HINT_CLASS = "m-0 max-w-[68ch] text-[12px] font-normal leading-[1.4] text-ink-400";
 
 /* -------------------------------------------------------------------------- */
@@ -1219,7 +1216,6 @@ export function UsersScreen(): JSX.Element {
               }}
               trueLabel={t("users.standing.blocked")}
               falseLabel={t("users.standing.notBlocked")}
-              hint={t("users.hints.blocked")}
             />
             <TriStateSelect
               label={t("users.filter.creditBalance")}
@@ -1229,7 +1225,6 @@ export function UsersScreen(): JSX.Element {
               }}
               trueLabel={t("users.filter.aboveZero")}
               falseLabel={t("users.filter.zeroOrNever")}
-              hint="“Above zero” is a strictly positive stored balance. The other position covers both remaining shapes — metered down to zero, and never metered at all."
             />
             <EnumToggleGroup<Language>
               label={t("users.filter.botLanguage")}
@@ -1239,7 +1234,6 @@ export function UsersScreen(): JSX.Element {
                 patch({ uiLanguage: next });
               }}
               format={(language) => t(LANGUAGE_LABEL_KEY[language])}
-              hint={t("users.hints.language")}
             />
             <DateRangeFields
               label={t("users.filter.accountCreated")}
@@ -1248,7 +1242,6 @@ export function UsersScreen(): JSX.Element {
               onChange={(next) => {
                 patch({ from: next.from, to: next.to });
               }}
-              hint={t("users.hints.accountCreated")}
             />
           </div>
 
@@ -1256,10 +1249,6 @@ export function UsersScreen(): JSX.Element {
               this is the complete one. Both narrow the same list and both write to the same
               URL, and everything they select is ANDed. */}
           <div className="mt-5 flex flex-col gap-2 border-t border-stroke pt-5">
-            <div className="flex flex-col gap-1">
-              <h2 className={SECTION_HEADING_CLASS}>{t("users.segment.heading")}</h2>
-              <p className={SECTION_HINT_CLASS}>{t("users.segment.description")}</p>
-            </div>
             <SegmentPanel
               view={registry.data ?? null}
               isPending={registry.isPending}
@@ -1271,7 +1260,6 @@ export function UsersScreen(): JSX.Element {
                   audience={preview.data ?? null}
                   isPending={preview.isFetching}
                   error={previewFailure}
-                  hasQuickFilters={quickFiltersActive}
                 />
               }
             />
@@ -1478,16 +1466,12 @@ function SegmentPanel({
 /**
  * How many accounts this segment selects — and what the number is not.
  *
- * Three honesty rules, all of them the server's own arithmetic:
- *
- * `matched`, `skippedBlocked` and `skippedBotBlocked` OVERLAP — the first is everyone the
- * document selects, the second is the accounts we barred, the third the accounts that blocked
- * the bot, and one person can be in both bars. Only `reachable` is the complement, so the two
- * skips are rendered as reasons and never added up.
+ * Two things it is not, both of them the server's own arithmetic:
  *
  * It counts the SEGMENT alone. `GET /api/segments/preview` takes `?segment=` and nothing else,
- * so while a quick filter is on, this number is larger than the list underneath it — and the
- * sentence says so rather than letting an operator read it as the table's total.
+ * so while a quick filter is on, this number is larger than the list underneath it. The panel
+ * no longer says so — the wizard is where an audience is approved, and it states its own
+ * reachable count there.
  *
  * It is exact. The toolbar's total saturates at `TOTAL_COUNT_CAP` and says "10,000+"; this one
  * does not, because "at least ten thousand" is a refusal to answer rather than an approximation
@@ -1497,12 +1481,10 @@ function AudiencePreview({
   audience,
   isPending,
   error,
-  hasQuickFilters,
 }: {
   readonly audience: SegmentPreviewView | null;
   readonly isPending: boolean;
   readonly error: AdminQueryError | null;
-  readonly hasQuickFilters: boolean;
 }): JSX.Element {
   const { t } = useI18n();
 
@@ -1525,16 +1507,6 @@ function AudiencePreview({
       <p className="m-0 text-[14px] font-semibold leading-5 tracking-[-0.084px] text-ink-800">
         {t("users.audience.matched", { count: formatCount(audience.matched) })}
       </p>
-      <p className={SECTION_HINT_CLASS}>
-        {t("users.audience.reachable", {
-          reachable: formatCount(audience.reachable),
-          blocked: formatCount(audience.skippedBlocked),
-          botBlocked: formatCount(audience.skippedBotBlocked),
-        })}
-      </p>
-      {hasQuickFilters ? (
-        <p className={SECTION_HINT_CLASS}>{t("users.audience.quickFiltersExcluded")}</p>
-      ) : null}
     </div>
   );
 }

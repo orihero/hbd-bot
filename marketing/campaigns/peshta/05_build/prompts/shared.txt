@@ -1,0 +1,9 @@
+SET_A: monochrome red-orange seamless cyclorama studio, matte orange foam blocks scattered across the floor, a low red-carpeted rostrum of three broad risers; a corps of sixteen dancers in floor-length black dresses and black wide-brim hats
+SET_A_LATERAL: the corps stands in a symmetric bank spreading to both the left and right edges of the frame, the outer figures cut off by the frame edge so the line reads as continuing off screen
+SET_A_DEPTH: the corps in four receding rows behind the subject, not in a lateral line
+SET_B: eroded sand-cliff quarry exterior under a pale bleached sky, freestanding red-painted rectangular gate frames standing vertically in the sand, red blocks scattered; a corps in all-white suits with plain white lace masks fully covering their faces
+LIGHT_A: single hard warm key from camera-left 45 degrees, deep red gel wash on the background, hot specular edge along the jaw, heavy falloff, no fill
+LIGHT_B: open noon daylight, bleached highlights, hard short shadows, no fill
+LENS: 50mm anamorphic feel, T2.0, shallow depth of field, subject centred in a vertical 9:16 frame, eyeline at 38 percent from the top of frame
+GRADE: filmic, warm, crushed blacks, fine 35mm grain, slight halation on highlights, saturated red channel
+FORMAT: 1080x1920 vertical, 9:16

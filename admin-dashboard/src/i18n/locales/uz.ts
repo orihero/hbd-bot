@@ -552,13 +552,6 @@ export const uz: TranslationSchema = {
       zeroOrNever: "nol yoki hech qachon hisoblanmagan",
       languageJoin: " yoki ",
     },
-    hints: {
-      blocked: "“Istalgan” hammani soʻraydi: parametr yoʻq, false emas.",
-      language:
-        "Bir vaqtda bir nechtasi yoqilishi mumkin: parametr takrorlanadi va API buni YOKI deb oʻqiydi.",
-      accountCreated:
-        "Yarim ochiq oraliq, sizning vaqt mintaqangizda: “gacha” tanlangan kunni toʻliq qamrab oladi.",
-    },
     subtitles: {
       reading: "Maʻlumotnoma oʻqilmoqda…",
       failed: "Maʻlumotnomani oʻqib boʻlmadi.",
@@ -577,18 +570,11 @@ export const uz: TranslationSchema = {
         "“{column}” boʻyicha saralashni bekor qilib, “avval eng yangi hisoblar” tartibiga qaytish",
     },
     segment: {
-      heading: "Kengaytirilgan segment",
-      description:
-        "Auditoriyani server eʻlon qiladigan maydonlardan yigʻing. Har bir qoida yuqoridagi tezkor filtrlar bilan VA orqali birlashadi, va oʻsha auditoriyani toʻgʻridan-toʻgʻri xabarnomaga uzatish mumkin.",
       builderLabel: "Auditoriya qoidalari",
     },
     audience: {
       counting: "Auditoriya sanalmoqda…",
       matched: "Bu segmentga mos hisoblar: {count}",
-      reachable:
-        "Ulardan {reachable} tasiga xabar yetadi. Biz bloklaganlar: {blocked}; botni bloklaganlar: {botBlocked} — bu ikki guruh kesishadi, ularni qoʻshib boʻlmaydi.",
-      quickFiltersExcluded:
-        "Bu son faqat segmentniki: yuqoridagi tezkor filtrlar unga kirmaydi.",
       failed: "Auditoriyani sanab boʻlmadi. {message}",
       forbidden: "Rolingiz auditoriyani sanay olmaydi.",
     },
@@ -1887,16 +1873,11 @@ export const uz: TranslationSchema = {
   },
   segments: {
     title: "Kengaytirilgan segment",
-    description:
-      "Auditoriyani server eʼlon qilgan maydonlardan yigʻing. Bu yerda ism ham, telefon raqami ham, xabar matni ham yoʻq — faqat akkaunt haqidagi faktlar.",
     builderLabel: "Segment qoidalari",
     everyone: "Hozircha qoida yoʻq — hamma tanlangan.",
-    everyoneWarning:
-      "Boʻsh segment toraytirilgan segment emas: unga bazadagi har bir akkaunt tushadi.",
     frozenNote:
       "Auditoriya xabarnoma yaratilganda muzlatiladi. Keyin segmentni tahrirlash allaqachon rejalashtirilgan yuborishga taʼsir qilmaydi.",
     readOnlyNote: "Bu auditoriya muzlatilgan va endi tahrirlanmaydi.",
-    summary: "{rules} / {maxRules} qoida · ichma-ichlik {depth} / {maxDepth}",
     addRule: "Qoida qoʻshish",
     addGroup: "Guruh qoʻshish",
     removeRule: "Bu qoidani oʻchirish",
@@ -1995,12 +1976,6 @@ export const uz: TranslationSchema = {
       asc: "Avval eng kichigi",
       desc: "Avval eng kattasi",
       registryDefault: "Standart tartib (birinchi aloqa, avval yangilari)",
-      narrowsNothing:
-        "Saralash auditoriyani tartiblaydi, lekin hech qachon toraytirmaydi. Buning uchun qoida qoʻshing.",
-      aggregateCost:
-        "Bu saralash boshqa jadvallar boʻyicha hisoblanadi, shuning uchun yonida aniq jami rad etiladi.",
-      nullsSortLow:
-        "Bu hodisa boʻlmagan akkauntlar nol yoki epoxa boshi sifatida saralanadi.",
     },
     issues: {
       heading: "Segmentdan foydalanishdan oldin shularni tuzating",

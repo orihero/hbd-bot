@@ -545,13 +545,6 @@ export const en: TranslationSchema = {
       zeroOrNever: "zero or never metered",
       languageJoin: " or ",
     },
-    hints: {
-      blocked: "Any asks for everyone; the parameter is absent, not false.",
-      language:
-        "Several may be on at once: the parameter repeats, and the API reads that as OR.",
-      accountCreated:
-        "Half-open, in your own time zone: “to” includes the whole day picked.",
-    },
     subtitles: {
       reading: "Reading the directory…",
       failed: "The directory could not be read.",
@@ -567,18 +560,11 @@ export const en: TranslationSchema = {
       clear: "Stop sorting by {column} and go back to newest account first",
     },
     segment: {
-      heading: "Advanced segment",
-      description:
-        "Build the audience from the fields the server publishes. Every rule is ANDed with the quick filters above, and the same audience can be handed straight to a campaign.",
       builderLabel: "Audience rules",
     },
     audience: {
       counting: "Counting the audience…",
       matched: "{count} accounts match this segment",
-      reachable:
-        "{reachable} of them can be messaged. {blocked} are barred by us and {botBlocked} have blocked the bot — the two overlap, so never add them together.",
-      quickFiltersExcluded:
-        "This count is the segment alone: the quick filters above are not part of it.",
       failed: "The audience could not be counted. {message}",
       forbidden: "Your role cannot count an audience.",
     },
@@ -1867,16 +1853,11 @@ export const en: TranslationSchema = {
   },
   segments: {
     title: "Advanced segment",
-    description:
-      "Build the audience out of the fields the server publishes. Nothing here is a name, a phone number or a message — only facts about the account.",
     builderLabel: "Segment rules",
     everyone: "No rules yet — this selects everyone.",
-    everyoneWarning:
-      "An empty segment is not a narrowed one: it matches every account in the database.",
     frozenNote:
       "The audience is frozen when the campaign is created. Editing this segment afterwards changes nothing that was already scheduled.",
     readOnlyNote: "This audience is frozen and can no longer be edited.",
-    summary: "{rules} of {maxRules} rules · nesting {depth} of {maxDepth}",
     addRule: "Add rule",
     addGroup: "Add group",
     removeRule: "Remove this rule",
@@ -1975,12 +1956,6 @@ export const en: TranslationSchema = {
       asc: "Lowest first",
       desc: "Highest first",
       registryDefault: "Default order (first contact, newest first)",
-      narrowsNothing:
-        "A sort orders the audience; it never narrows it. Add a rule for that.",
-      aggregateCost:
-        "This sort is computed across other tables, so an exact total is refused beside it.",
-      nullsSortLow:
-        "Accounts this never happened to sort as zero, or as the epoch.",
     },
     issues: {
       heading: "Fix these before this segment can be used",

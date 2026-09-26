@@ -1,0 +1,74 @@
+{
+  "_meta": {
+    "what": "Identity-drift measurement on the delivered Higgsfield master, and the threshold derived from it for judging the local rebuild.",
+    "date": "2026-09-19",
+    "runs_on": "macOS, isolated venv, cv2 5.0.0 + opencv_zoo YuNet/SFace ONNX. Same cv2 version as the target GPU box, so numbers are comparable across machines.",
+    "credit": "Method, calibration and both corrections came from the specific-tasks session."
+  },
+
+  "THE_ANSWER": {
+    "threshold": 0.64,
+    "typical": 0.79,
+    "statement": "Under single-subject stable framing, with identity FIXED BY CONSTRUCTION and only pose, lighting, motion blur and compression varying, SFace cosine sits at 0.636-0.918 (n=8 shots, 846 pairs, mean 0.785, median 0.788).",
+    "how_to_use": "A generated keyframe set scoring at or above ~0.79 is as stable as typical real continuous footage. Below ~0.64 - the weakest genuine continuous shot in the whole reel - it is drifting for certain. Between the two is ambiguous and needs the eye.",
+    "what_it_is_NOT": "NOT Higgsfield's score, and NOT a scoreboard. These are frames from within single continuous shots, where the face stays the same because physics says so, not because the model was good. Clearing 0.79 means 'our drift is not detectable above measurement noise', not 'we beat Higgsfield'."
+  },
+
+  "two_retracted_numbers": [
+    {
+      "number": 0.592,
+      "why_wrong": "CIRCULAR. Clusters were formed by thresholding cosine >= 0.55, then the mean cosine WITHIN those clusters was reported. Any set built that way has a within-set mean just above the threshold, almost regardless of the footage. It measured the threshold, not the film.",
+      "also": "Three of six clusters were frames 0.5s apart, i.e. the same shot - near-duplicates inflating the mean with something that is not identity performance at all."
+    },
+    {
+      "number": 0.472,
+      "label_used": "within-shot noise floor",
+      "why_wrong": "A MEAN OVER A BIMODAL POPULATION. The real distribution was two regimes - single-subject shots at 0.77-0.88 and crowded shots at 0.30-0.38 - and 0.472 is the midpoint between them, describing neither.",
+      "root_cause": "see subject_switching_bug"
+    }
+  ],
+
+  "subject_switching_bug": {
+    "what": "v1 best_face() returned the HIGHEST-CONFIDENCE face in each frame. This reel has a corps, so in a multi-person frame that is not a stable subject: the detector locks onto the lead in one frame and a dancer in the next, then the 'within-shot pair' is two different people and the score collapses.",
+    "fix": "Rank candidates by BOX AREA, not confidence - the lead is nearly always framed largest, and area is far more stable frame-to-frame. Plus IoU>0.4 dedup between the full-frame and top-crop search windows, and an explicit face COUNT so multi-face frames are impossible to miss.",
+    "confirmed_mechanically": {
+      "test": "Do the shots that scored low under v1 show high multi-face rates?",
+      "v1_low_shots_multi_face_pct": 79,
+      "v1_high_shots_multi_face_pct": 33,
+      "gap_points": 46,
+      "verdict": "CONFIRMED",
+      "control": "The two 0%-multi-face shots scored byte-identical before and after the fix (0.768 and 0.883), proving the fix stabilises the subject only where the subject was unstable rather than inflating everything."
+    }
+  },
+
+  "hard_constraints_this_imposes_on_the_rebuild": [
+    "Every test keyframe must be SINGLE-SUBJECT by design, or the detector-switching problem reappears in our own measurements.",
+    "The character sheet must be single-subject too - a sheet image with a second figure in frame poisons every measurement downstream of it.",
+    "Always look at the crops side by side before quoting any cosine. Twice in this session the picture beat the statistic, and both times the statistic was the one that was wrong."
+  ],
+
+  "qualitative_findings_that_do_not_depend_on_any_score": {
+    "source": "master_face_contact_sheet.png - 80 aligned face crops in time order, viewed directly",
+    "findings": [
+      "The master does not hold its own cast. The male lead reads as four or five visibly different men across 43 seconds; the female lead as at least three different women.",
+      "The studio is a saturated RED cyclorama, wall and floor, in every one of 80 crops. The old prompt-derived bible's 'near-black backdrop with a hard 5600K cyan rim' appears nowhere in the film.",
+      "Headwear: dark wide-brim hat early, cream/light hat around t=004-005, dark wide-brim throughout the canyon section. The old wardrobe canon's 'NO HAT' is simply false.",
+      "A wrapped/veiled pale head appears around t=040.0-041.0 which is neither lead and which no project document mentions. Pale blurred head shapes around t=027.5-029.5 are NOT claimed as the same thing - in the canyon those are more likely motion-blurred white-clad corps."
+    ]
+  },
+
+  "open_product_question": {
+    "question": "Are the two leads meant to be the same two people throughout?",
+    "why_it_matters": "If the changing faces, the corps and the veiled figure are deliberate, then beating the master on face-similarity means we made a DIFFERENT film, not a better one. That would make this metric a red herring rather than a scoreboard.",
+    "status": "put to the user, unanswered"
+  },
+
+  "files": {
+    "score_master.py": "v1 - retained as audit trail. Contains the circular clustering. Do not reuse.",
+    "within_vs_across.py": "the within-shot vs across-cut split that exposed the bimodality",
+    "face2.py": "v2 detector - largest-face selection, IoU dedup, face counting. USE THIS ONE.",
+    "widen.py": "widened the floor sample from 2 shots to 8 (846 pairs). Produced THE_ANSWER.",
+    "widened_floor.json": "the authoritative floor result",
+    "master_face_contact_sheet.png": "the 80 crops. Look at this before trusting anything else in here."
+  }
+}

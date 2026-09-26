@@ -1,6 +1,37 @@
 # Releasing a change
 
-## STATUS — §2, §3 and §5 of this document cannot be run on `aizu`. Updated 2026-09-11.
+## STATUS — a release is one command; §2, §3 and §5 of this document cannot be run on `aizu`. Updated 2026-09-19.
+
+> **CORRECTION 2026-09-19 — the release is one command now, and everything under this heading
+> was written before that was true.** Since 2026-09-17 a release on this host is
+> `sudo /opt/bayram/sbin/bayram-release deploy`, typed by a human on `abdu-test` against exactly
+> one bundle left in `/opt/bayram/release/incoming/`. Its seven beats are the ones this page has
+> always argued for, in the order this page argues for them — backup, stage the migrations,
+> optionally stop, migrate, install, restart, verify (`cmd_deploy`,
+> deploy/bayram-release:1332-1422) `[TREE 2026-09-19]`. What the bundle has to contain, and what
+> `MANIFEST.json` has to say about it, is [`11-ci-cd.md`](11-ci-cd.md) §3; why a push does
+> **not** deploy, and why that is the security posture rather than an omission, is §2 of that
+> page.
+>
+> **The hand-run wheel procedure below is not deleted and must not be — it is the fallback.**
+> When the one command refuses, or when the thing that is broken is the script itself, you are
+> back to one `pip install --force-reinstall --no-deps` and four `systemctl restart`s, and §0.1,
+> §3 and §6 are how you type them without inventing an order.
+>
+> **What stays here rather than moving into 11**: §4 (the migration step and the owner-role
+> question underneath it), §6 (the restart order and what each restart costs a customer), §7
+> (what to read afterwards) and §8 (what a rollback does not return). None of that is in 11, and
+> the section numbers are an interface — `.github/workflows/ci.yml`, `release.yml`,
+> `deploy/bayram-release`, `deploy/deploy-payme.sh`, `deploy/caddy/admin.bayrambot.uz.caddy` and
+> the sibling pages in this directory cite them by number. Add subsections; do not resequence.
+>
+> **§1's opening sentence is stale in the same direction.** *"There is no CI in this repository
+> — no `.github` directory exists"* was true when it was written and has been false since
+> 2026-09-16: `.github/workflows/ci.yml` runs lint, typecheck, coverage, the console's six steps
+> and the migration-safety scan on every push, and `release.yml` sits beside it
+> `[TREE 2026-09-19]`. The three `make` commands in §1 are still worth typing before you cut a
+> bundle — CI gates the push, not the tarball — but "the gates pass means a human typed three
+> commands" is no longer the whole of it. [`11-ci-cd.md`](11-ci-cd.md) §1 is the account.
 
 **There is no git checkout on the production host, and there never has been.** `/opt/hbd`
 holds `venv/`, `release/`, `migrations/` and four loose scripts; `test -d /opt/hbd/.git`
@@ -16,12 +47,13 @@ out of.** Those sections are kept — they are still correct for a host that *do
 checkout, and §3's and §5's *arguments* are exactly what the wheel model has to compensate
 for — but on `aizu` you want §0 and nothing else above §4.
 
-**A release on `aizu` is a wheel.** §0 is the shape and the state. The worked end-to-end
-procedure, written from the script that actually performed it, is
-[`08-payme.md`](08-payme.md) **§11**, and this page deliberately does not restate it: §11.1
-(the model and the privilege), §11.2 (the filename), §11.3 (the migrations trap), §11.4 (the
-order), §11.5 (`--no-deps` and `pip check`), §11.7 (rollback), §11.8 (idempotency). Read §0,
-then read §11.
+**A release on `aizu` is a wheel — and since 2026-09-17 it is a wheel inside a bundle, installed
+by one command.** §0 is the shape and the state. The end-to-end procedure is
+`sudo /opt/bayram/sbin/bayram-release deploy` and the contract it enforces is
+[`11-ci-cd.md`](11-ci-cd.md) §3. The worked hand-run account, written from the script that
+performed the last manual release, is [`08-payme.md`](08-payme.md) **§11**; this page still does
+not restate it, and it is now what you read when the one command will not run rather than what
+you read first. Read §0, then run `plan`.
 
 ### The three marks
 
@@ -36,19 +68,42 @@ The convention is [`01-architecture.md`](01-architecture.md)'s, and it is load-b
   always the same one: `sudo -n true` returns `sudo: a password is required`, the `NOPASSWD`
   drop-in grants `pg_dump` and not `psql`, and `/etc/hbd` is `0750 root:hbd`.
 
-**The host is PRE-RENAME and that is correct.** Host commands below are spelled `hbd`,
-`HBD_`, `/etc/hbd`, `/opt/hbd` because that is what the machine says; code claims are spelled
-`bayram`, `BAYRAM_` because that is what this tree says. Both are right at once — the argument
-is [`09-payme-go-live.md`](09-payme-go-live.md) §1.2. **Do not sweep this page with a rename
-pass**; a blind rename has already turned verified host facts into fiction in this tree once
-([`00-host-inventory.md`](00-host-inventory.md), finding 7).
+**The host WAS pre-rename when this was written, and has not been since 2026-09-14 — corrected
+2026-09-19.** The cutover was completed and verified on that date and the four `bayram-*` units
+have been live and active ever since ([`10-rename-cutover.md`](10-rename-cutover.md) §4.7). So
+every host command below spelled `hbd`, `HBD_`, `/etc/hbd`, `/opt/hbd` and marked
+`[HOST 2026-09-11]` is a faithful record of a machine that no longer has that shape: while you
+read, translate `/opt/hbd` to `/opt/bayram`, `/etc/hbd` to `/etc/bayram`, and
+`hbd-{bot,worker,admin,payme}` to `bayram-*`. The live names are the ones the release script
+hard-codes — `/opt/bayram/venv`, `/opt/bayram/migrations`, `/opt/bayram/release/incoming`,
+`/etc/bayram/bayram.env`, `/etc/bayram/bayram-admin.env`, `/etc/bayram/payme.env`,
+`/var/backups/bayram` (deploy/bayram-release:71-115) `[TREE 2026-09-19]`. **The database did not
+move**: `PGDATABASE_NAME=hbd` (deploy/bayram-release:100), because nothing renamed it and
+[`10-rename-cutover.md`](10-rename-cutover.md) §3.11 argues why.
 
-**Reading order, for a release on `aizu` today:** §0 (all of it, including the four warnings in
-§0.4), then §1 on your own machine, then [`08-payme.md`](08-payme.md) §11 for the procedure,
-then §6 and §7 here for the restart order and what to read in the journal, then §8 before you
-need it. §2, §3's editable path and §5 are kept for their arguments and for hosts that have a
-checkout. Read the whole thing top to bottom the first time; after that it is a checklist and
-the callouts are the parts that bite.
+**This page has still not been swept, and that is deliberate.** A `[HOST 2026-09-11]` line is
+evidence with a date on it; respelling it would leave the mark asserting that somebody read
+`/opt/bayram` on a day when nobody could have, and a blind rename has already turned verified
+host facts into fiction in this tree once ([`00-host-inventory.md`](00-host-inventory.md),
+finding 7). So translate as you read, and **re-verify before you type**: nothing below has been
+re-run against the post-rename host, and which of the 2026-09-11 observations survived the
+cutover unchanged is precisely what this correction did not check. The argument for carrying
+both spellings on the same page at once is [`09-payme-go-live.md`](09-payme-go-live.md) §1.2;
+keep it for the reasoning, not for the tense.
+
+**Reading order, for a release on `aizu` today — rewritten 2026-09-19:** §0 (all of it,
+including the four warnings in §0.4 and the date on them), then §1 on your own machine, then
+**the script**: `sudo /opt/bayram/sbin/bayram-release plan`, which is a dry run that writes
+nothing and is meant to be read, then `deploy`, then `verify` — whose three per-unit `/readyz`
+outcomes are the last subsection of §7. Then §6 for what the restarts you just triggered cost,
+and §8 before you need it. [`08-payme.md`](08-payme.md) §11 is still the best line-by-line
+account of a wheel release — §11.1 (the model and the privilege), §11.2 (the filename), §11.3
+(the migrations trap), §11.4 (the order), §11.5 (`--no-deps` and `pip check`), §11.7 (rollback),
+§11.8 (idempotency) — but it is now the **fallback**, not the path: read it when the one command
+refuses, or when what is broken is the script. §2, §3's editable path and §5 are kept for their
+arguments and for hosts that have a checkout; this one still does not have one. Read the whole
+thing top to bottom the first time; after that it is a checklist and the callouts are the parts
+that bite.
 
 > **SUPERSEDED 2026-09-10, kept because it dates the change.** This document opened, until
 > 2026-09-10, with: *"Everything about the **host** is not [checked]. This repository does not
@@ -77,19 +132,53 @@ the callouts are the parts that bite.
 
 ### 0.1 The model, in six lines
 
+> **Corrected 2026-09-19: the six lines are now one command, and the six lines are what it
+> does.** A release is `sudo /opt/bayram/sbin/bayram-release deploy`, which refuses unless
+> exactly one `*.tar.gz` is sitting in `/opt/bayram/release/incoming/` — **no path argument is
+> ever passed to it**, deliberately, because `sudo` matches command arguments with fnmatch
+> rather than a regex and a wildcard in a grant therefore constrains nothing
+> (deploy/bayram-release:11-18, [`11-ci-cd.md`](11-ci-cd.md) §3) `[TREE 2026-09-19]`. The bundle
+> carries the wheel **and** the migration files, which is the whole reason it is a bundle and
+> not a wheel: a wheel packages no `migrations/`, and that gap is what §0.4's warning 1 and
+> [`08-payme.md`](08-payme.md) §11.3 are each describing from one end.
+>
+> ```
+> build the bundle                     .github/workflows/release.yml, on a v* tag
+> leave exactly one in incoming/       /opt/bayram/release/incoming is 0770 root:developer
+> sudo bayram-release plan             a dry run that writes nothing. Read what it prints.
+> sudo bayram-release deploy           backup → stage migrations → [stop] → migrate →
+>                                      install → restart → verify
+> sudo bayram-release verify           re-runnable on its own, afterwards, any number of times
+> ```
+>
+> `plan` and `verify` are read-only and `deploy`, `rollback` and `backup` are meant to prompt
+> for a password — that is the `PASSWD:` line in `deploy/sudoers.d/bayram-release`, and the
+> friction is the point. On `abdu-test` that prompt is cosmetic for as long as
+> `/etc/sudoers.d/90-developer-nopasswd` grants `developer` passwordless root, which it still
+> does ([`11-ci-cd.md`](11-ci-cd.md) §4.1). **The script is installed by hand and no bundle
+> carries it**, so editing `deploy/bayram-release` in this tree changes nothing on the host
+> until somebody copies it up — §7 has those two commands.
+
+**The six lines below are the same beats typed by hand, and they are the fallback.** They are
+what a release was until 2026-09-17 and what it becomes again the moment the script is the thing
+that is broken. The paths are corrected to the post-cutover names; the arguments are unchanged.
+
 ```
 build the wheel on a developer machine        uv build --wheel
 check the FILENAME parses as PEP 427          08-payme.md §11.2 — this has already cost a window
-scp it into /opt/hbd/release/                 the account is `developer`, which OWNS /opt/hbd
+scp it into /opt/bayram/release/              as root: /opt/bayram is 0755 root:root and only
+                                              incoming/ is group-writable (bayram-release:277-311)
 copy any NEW migration files separately       a wheel carries none — 08-payme.md §11.3
-/opt/hbd/venv/bin/pip install --force-reinstall --no-deps <wheel>  &&  pip check
+/opt/bayram/venv/bin/pip install --force-reinstall --no-deps <wheel>  &&  pip check
 restart, in the order §6 argues for
 ```
 
 Every one of those six lines has a failure mode with a name, and all six are developed in
 [`08-payme.md`](08-payme.md) §11.1–§11.5. Do not re-derive them from this page; the reason
 they are written there rather than here is that §11 was written **from the script that ran**,
-and this page was written from the repository.
+and this page was written from the repository. `bayram-release` did not repeal any of them — it
+is the same six beats with the ordering, the `pip check` and the refusals nailed down so that a
+tired operator cannot reorder them at 02:00.
 
 **What is installed right now** `[HOST 2026-09-11]` — `pip`, non-editable, from a file URL:
 
@@ -117,6 +206,17 @@ this document says `uv`, it means your machine.
 > ```bash
 > ssh aizu 'cat /opt/hbd/venv/lib/python3.12/site-packages/hbd_bot-0.1.0.dist-info/direct_url.json'
 > ```
+>
+> **Dated 2026-09-19, and "right now" above means 2026-09-11.** At least one release has landed
+> through `bayram-release` since — the first was 2026-09-17 — so read the wheel name above as a
+> record of that day and ask the host for today's. The half of this note that has been
+> *answered* is "nothing in the directory records which one is installed": on the post-cutover
+> host something does. `/opt/bayram/release/state.json`, `0600 root:root`, carries
+> the release string, the commit, the wheel and `previous_wheel`, written before the risky beats
+> and moved forward only as each one passes — which is why `rollback` goes back exactly one
+> release and not two (deploy/bayram-release:779-786, :1344-1358) `[TREE 2026-09-19]`. The
+> `direct_url.json` read stays correct and stays the one that needs no state file to be right,
+> which is the reason to keep typing it.
 
 ### 0.2 When the last release landed, and what has happened since
 
@@ -143,8 +243,12 @@ what a runbook can assume:
 2. **Revision `0025` was staged and not applied.** `/opt/hbd/migrations/versions/` holds 25
    revision files including `20260910_1000_0025_index_settlement_clocks.py`; the database is
    at `0024` `[HOST 2026-09-11]`. See §4.
-3. **The rename cutover was run and failed, taking all four services down for just under
-   three minutes.** §0.4.
+3. **The rename cutover was run on 2026-09-10 and failed, taking all four services down for
+   just under three minutes.** §0.4. **It was afterwards completed, and verified on
+   2026-09-14** — the four `bayram-*` units have been live and active since, and a release is
+   an ordinary bundle upgrade rather than a cutover ([`10-rename-cutover.md`](10-rename-cutover.md)
+   §4.7; added here 2026-09-19). Read the failure as the reason the schema and grant questions
+   in §4.1 were asked, not as the state of the machine.
 4. **All four units were bounced twice by `unattended-upgrades` on 2026-09-11 at 06:49:45 and
    06:50:11 +05** — `systemd[1]: Reexecuting requested from client PID 192157 ('systemctl')
    (unit apt-daily-upgrade.service)` at 06:49:35, then stop/start of all four; `hbd-bot`
@@ -157,10 +261,13 @@ what a runbook can assume:
 ### 0.3 `deploy/` is a proposal, and four of its files have drifted
 
 `deploy/` is **not** a record of this host and must not be read as one. That was true when the
-directory was written blind, and it is more true now: the tree has been renamed `hbd` →
-`bayram` and the host has not, so every path and unit name in `deploy/` now names something
-that does not exist on `aizu`. What follows is each file's actual standing `[TREE 2026-09-11]`
-against the host `[HOST 2026-09-11]`.
+directory was written blind, and the standings below are dated `[TREE 2026-09-11]` against the
+host as it was at `[HOST 2026-09-11]` — **which was the four days between the tree being renamed
+`hbd` → `bayram` and the host following it on 2026-09-14** (corrected 2026-09-19; this paragraph
+used to say the host had not been renamed, which stopped being true on that date). The gap that
+produced the rows below has closed; what each row is still worth is its *reasoning* — why the
+file it names cannot be pasted at a host without being read against
+[`00-host-inventory.md`](00-host-inventory.md) first.
 
 | `deploy/` file | Standing |
 | --- | --- |
@@ -168,20 +275,48 @@ against the host `[HOST 2026-09-11]`.
 | `systemd/bayram-payme.service` | Wrong for the host in the same way, **and it does not agree with the other three.** It alone says `WorkingDirectory=/var/lib/bayram` (`:63`) and `ExecStart=/opt/bayram/venv/bin/python` (`:65`), against `/srv/bayram` and `/srv/bayram/.venv/bin/python` in the other three. Copy all four verbatim and the gateway gets a **different data root** from the bot — precisely the failure [03-provisioning.md](03-provisioning.md) §2 calls "the load-bearing one" — and needs a second venv nothing creates. Its `InaccessiblePaths=/etc/bayram/bayram.env /etc/bayram/bayram-admin.env` (`:93`) also names two files the other three units never create; they write `/etc/bayram/bot.env` and `/etc/bayram/admin.env`. As a set, the four units do not describe one machine. |
 | `deploy-payme.sh` (committed, HEAD) | **Never the script that ran.** `diff -u HEAD:deploy/deploy-payme.sh /opt/hbd/deploy-payme.sh.pre-cutover.bak` — the host's own copy of what executed — produces exactly two hunks: `WHEEL=` names `hbd_bot-0.1.0-PAYME-20260909.whl` where the host copy names `hbd_bot-0.1.0-20260909-py3-none-any.whl`, and the host copy carries a 24-line `=== 5.5/6 give the gateway its database and queue ===` stage that the committed file **does not have at all** `[HOST+TREE 2026-09-11]`. That stage is the one [`08-payme.md`](08-payme.md) §11.8 explains line by line. **The only faithful copy is on the host**, at `/opt/hbd/deploy-payme.sh.pre-cutover.bak`. |
 | `deploy-payme.sh` (working tree, uncommitted) | Has the `5.5/6` stage, and has renamed everything to `bayram`, so it matches neither the host nor `HEAD`. §0.4 is why this matters today. |
-| `cutover-to-bayram.sh` | Untracked, **has been run twice, and failed both times.** §0.4. |
+| `cutover-to-bayram.sh` | **Was** untracked and had been run twice and failed both times, which is what §0.4's warning 3 is about. Both halves are now out of date `[TREE 2026-09-19]`: `git ls-files deploy/` lists it, and the cutover was completed and verified on 2026-09-14 (§0.2 item 3). It is kept as the rollback reference and as the record of which paths and accounts did *not* move — not as something to re-enter. |
 | `caddy/*.caddy`, `payme-open-orders.py`, `first-install-proposal.md` | Another surveyor's area and already documented elsewhere; `first-install-proposal.md` is a citation target and explicitly not to be followed (`deploy/README.md`, "Why `first-install-proposal.md` is still here"). |
 
-> **`deploy/README.md` is behind this.** It lists three unit files where four are tracked, and
-> mentions neither `deploy-payme.sh`, `cutover-to-bayram.sh` nor `deploy/caddy/`
-> `[TREE 2026-09-11]` — so a reader who starts there does not learn that the two scripts in
-> that directory are the ones that have actually touched the production host. Its routing
-> table also sends every deploy question to 03 and 04 and never mentions
-> [`08-payme.md`](08-payme.md) §11, which is the only place the procedure that works is
-> written down. Both are that file's to fix, not this one's.
+> **`deploy/README.md` was behind this on 2026-09-11, and the complaint is itself out of date —
+> checked 2026-09-19.** It said three unit files where four were tracked; it now lists all four
+> (deploy/README.md:7-10), and `git ls-files deploy/systemd` returns exactly
+> `bayram-{admin,bot,payme,worker}.service` and nothing else `[TREE 2026-09-19]`. It names
+> `cutover-to-bayram.sh`, `deploy/caddy/` and the retired `deploy-{d17,payme,support}.sh`, and it
+> now carries a table of the scripts an operator runs — `bayram-release` first among them, with
+> the sentence this page needed it to have: *"Live on the host since 2026-09-17."* The second
+> half of the complaint has expired rather than been answered: its routing table still does not
+> point at [`08-payme.md`](08-payme.md) §11, and that no longer matters, because §11 is no longer
+> the only place the procedure that works is written down — the procedure that works is one
+> command, and `deploy/README.md` and [`11-ci-cd.md`](11-ci-cd.md) §3 both document it. **What
+> is left of the row above is the standing it always had**: `deploy/` describes a shape somebody
+> could deploy, and only `00-host-inventory.md` describes this machine.
 
 ### 0.4 WARNINGS — four things in `deploy/` or on the host that will do the wrong thing today
 
-These are live. Each one is a command somebody could reasonably type this afternoon.
+These were live when they were written on 2026-09-11, and each was a command somebody could
+reasonably have typed that afternoon.
+
+> **Dated 2026-09-19, and read the four that follow with the date in hand.** The cutover the
+> warnings turn on completed on 2026-09-14, so **warning 3 is history** — the script has been
+> run to completion, the `bayram-*` units exist, and nobody should be re-entering
+> `cutover-to-bayram.sh` at all ([`10-rename-cutover.md`](10-rename-cutover.md) §4.7,
+> `deploy/README.md`'s row for that script). Warning 1 turns on the same fact from the other
+> side: it describes a `/opt/hbd/migrations/env.py` importing `bayram` against a venv that had
+> only `hbd`, and the live venv is now `/opt/bayram/venv` with `/opt/bayram/migrations` beside
+> it, which is the layout `bayram-release` requires and refuses to run without
+> (deploy/bayram-release:71-74, :258-262) `[TREE 2026-09-19]`. **This correction does not assert
+> that warning 1 is repaired** — only that the machine it was written against was replaced, and
+> that the two files it names have not been looked at since. Warnings 2 and 4 both turn on
+> `deploy-payme.sh`: the repository's copy was retired on 2026-09-19 and kept as a citation
+> target (`deploy/README.md`), and its own header now records that the host's unrelated
+> 434-byte file of the same name survives but that **the sudoers grant which made that path a
+> root entry point is gone** (`deploy/deploy-payme.sh`, the header paragraph headed *"UNRELATED
+> FILE, SAME NAME, ENDLESS CONFUSION"*, marked `[HOST 2026-09-19]` there — cited by its heading
+> rather than by line, because that header is edited often). What is left of warning 2 is its
+> argument, which was never really about that file: a privileged path whose contents change
+> daily is not a runbook step. Treat all four as a dated record of how this class of thing goes
+> wrong, and re-verify anything you intend to act on.
 
 > **1. `/opt/hbd/migrations/` can no longer run a migration at all, and the error does not say
 > why.** `/opt/hbd/migrations/env.py` and `alembic.ini` were both overwritten on 2026-09-10 at
@@ -1034,6 +1169,53 @@ while those two counters can still match. The raw numbers are on the row too, as
 
 Note also that `RECONCILED` is not today's normal clean answer. `KEYS_UNRECORDED` — asset rows
 deleted with no key handed back — is (retention.py:101-104), and it means "unknown", not "clean".
+
+### The readiness probe, and its three outcomes — rewritten 2026-09-19
+
+Everything above this heading is read out of the journal by hand. `bayram-release verify` also
+makes **one loopback `GET /readyz` per HTTP process** — `bayram-admin` on `:8080`, `bayram-payme`
+on `:8091` — after the restart, because a unit can be `active` while uvicorn is still starting,
+while a router failed to mount, or while a lazily-read dependency is unreachable.
+
+**It used to print one banner: `(no BAYRAM_ADMIN_PROBE_TOKEN set)`, and it printed it forever.**
+The script read the token out of `/etc/bayram/bayram.env`, **which does not declare it** — the
+variable lives in `/etc/bayram/bayram-admin.env`, which is what systemd hands the unit. So the
+banner was not a report on the deployment; it was a report on a bug. The same single token was
+also sent to *both* endpoints, so the payme probe could never unlock detail at all. Both are
+fixed: each process is now probed with **its own** token read from **its own** file.
+
+**Why the output vocabulary had to change.** An empty token and a *wrong* token are byte-identical
+from outside: both give HTTP 200 and both give the constant `{"status":"ok"}`, and nothing is
+pinged either way. **The status word can therefore never confirm that a token took.** The only
+in-band signal is the body's **shape** — the `database` and `redis` keys appear only in the
+authorised branch — and that is what `verify` now asserts. Three distinct per-unit lines replace
+the one banner:
+
+| Line | What it means | What to do |
+| --- | --- | --- |
+| `<unit> readyz: 200 — REACHABILITY ONLY (the port answers; nothing was pinged)` | No token is configured for that process. The line names the variable and the file to put it in. | Nothing, if you have not set one. This is the state on `abdu-test` today. Otherwise `deploy/set-probe-tokens.sh` |
+| `<unit> readyz: 200 — GATED DETAIL READ (token accepted) — <body>` | The token was presented and accepted; the real body follows. | Read `"status"` |
+| a **WARNING** that the token **was presented and REJECTED** | The script has a token and the process disagrees with it. In practice this means **the env file was edited without restarting the unit** — the process reads its env file at `exec` time only. | `systemctl restart` that unit, then re-run `verify` |
+
+**The REJECTED warning is non-fatal**, deliberately: the probe runs *after* the fleet is already
+restarted, and turning a configuration drift into a failed release would make this less reliable
+than what it replaces. It is loud and it does not exit. **`"status":"degraded"` remains the only
+fatal probe outcome (exit 4)**, because that is the process itself saying a backing service is
+down. A no-answer at all is reported loudly and is likewise not fatal.
+
+That rejected branch is worth having for one reason: it is the **only** failure this design can
+otherwise not self-diagnose. All four branches — accepted, rejected, unset, unreachable — were
+exercised against a fake `/readyz` before the change landed.
+
+> **`/opt/bayram/sbin/bayram-release` is installed by hand and is NOT shipped by the wheel
+> bundle.** The host copy is a standalone file dated 2026-09-17. Editing the script in this
+> repository changes nothing on `abdu-test`; a release will not carry it. Copy it up explicitly:
+>
+> ```bash
+> scp deploy/bayram-release aizu:/tmp/bayram-release
+> ssh -t aizu 'sudo install -m 0755 -o root -g root /tmp/bayram-release /opt/bayram/sbin/bayram-release && rm -f /tmp/bayram-release'
+> ssh -t aizu 'sudo /opt/bayram/sbin/bayram-release verify'
+> ```
 
 ---
 

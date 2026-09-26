@@ -322,8 +322,8 @@ component suite was guarded by no target.
 > Cyrillic coverage is the operator's machine's rather than the bundle's. Restoring either
 > check means new specs written against `admin-dashboard/`; the old ones are in git history.
 
-Until this repo has CI wired to it, "before a release" means a human running both sets —
-`make check` and `make ui-check` — and that is the whole of the policy.
+Both sets run automatically now — `.github/workflows/ci.yml`, on every push to `main` and
+every pull request, since 2026-09-16. See *How it builds and ships*, below.
 
 Measured on this machine on **2026-09-16**, with the commands above, after `admin-ui/` was
 removed and the eleven standing `mypy` errors were fixed: `make lint` clean; `make typecheck`
@@ -542,14 +542,59 @@ gap, is any post-perform reversal — `CancelTransaction` on a performed transac
 (`PAYME_INTEGRATION` §6). Also out: fiscalisation (`SetFiscalData`), Payme's Subscribe API,
 and Telegram Stars, which remains the named fallback rail and is not implemented.
 
-The admin panel used to be on this list and is not any more: `make admin` serves it today.
-It is **read-only** in this build — no reveal, no retry, no purge, no config commit — so
-treat the absent write surface as the scope note, not the panel itself.
+The admin panel used to be on this list and is not any more: `make admin` serves it today,
+and it is **not read-only**, whatever this paragraph claimed before **2026-09-19**. Reveal
+ships — `routers/reveal.py` serves a `POST` behind `enforce_step_up` — and so do credit
+grants, user block and unblock, the whole broadcast lifecycle, support ticket replies and
+assignment, rail pause and resume, and admin creation: twenty-five write endpoints across
+nine of the twenty-one router modules. What is still missing is narrower than "the write
+surface": there is no retry, no purge and no config commit.
+`routers/config.py` says so in its own docstring — "no override table behind this route,
+no tier on any field and nothing to commit or roll back" — and `routers/retention.py`
+exposes one `GET` and nothing else. Read the blast radius as **write, with a step-up in
+front of the sensitive cells**, not as read-only.
+
+## How it builds and ships
+
+CI is a gate, not a deploy, and the separation is deliberate.
+
+`.github/workflows/ci.yml` runs on every push to `main` and on every pull request: `make lint`,
+`make typecheck` and `make cov` under the coverage floor, then the admin re-report; the
+console's six npm scripts as six separate steps; and a migration-safety job that refuses
+destructive DDL in a revision new to the PR. The Postgres-and-Redis integration job is opt-in
+by label rather than automatic. None of the gate needs a secret, which is what makes it safe to
+run on a pull request from any branch.
+
+`.github/workflows/release.yml` runs on a `v*` tag and produces exactly one artefact —
+`bayram-<version>.tar.gz`, code *and* migrations in one bundle, because a wheel carries no
+revision files and a missing revision looks exactly like a successful `alembic upgrade head`.
+It deploys nothing and holds no host credential.
+
+**Pushing does not deploy, and that is the design.** The host has no public IP and every byte
+of its public traffic arrives through a Cloudflare tunnel, so a GitHub-hosted runner cannot
+reach it at all; [`docs/deployment/11-ci-cd.md`](docs/deployment/11-ci-cd.md) argues at length
+that this is the security posture rather than a gap. A release is one command, run by a human
+on the box:
+
+```bash
+sudo /opt/bayram/sbin/bayram-release plan      # dry run: say what would happen
+sudo /opt/bayram/sbin/bayram-release deploy
+sudo /opt/bayram/sbin/bayram-release verify
+sudo /opt/bayram/sbin/bayram-release rollback
+```
+
+Since the `hbd` → `bayram` host cutover completed — it ran and was verified on **2026-09-14**,
+and the four `bayram-*` units are what serve the product — a release is an ordinary wheel
+upgrade with no cutover step left in it. There is no signing in v1 and the pipeline does not
+pretend otherwise: `MANIFEST.json` hashes the files sitting beside it in the same tarball,
+which proves the bundle is internally intact and proves nothing about who built it.
+Authenticity rests entirely on who can write to `/opt/bayram/release/incoming/` and on the
+operator who chooses to run the script.
 
 ## Reference documents
 
 Everything that is not this file lives under [`docs/`](docs/README.md), which has its own
-index. The three that explain *why the product is shaped this way*:
+index. The four that explain *why the product is shaped this way*:
 
 | Document | What it settles |
 | --- | --- |
@@ -557,6 +602,12 @@ index. The three that explain *why the product is shaped this way*:
 | [`docs/decisions/DECISIONS.md`](docs/decisions/DECISIONS.md) | Vendor picks, their named fallbacks, and the trigger that switches to each |
 | [`docs/research/BENCHMARK-song-generation.md`](docs/research/BENCHMARK-song-generation.md) | Why ElevenLabs won, and which `DECISIONS.md` claims it corrects |
 | [`docs/product/PAYME_INTEGRATION.md`](docs/product/PAYME_INTEGRATION.md) | The Payme rail: the two seams, both state machines, the one commit that makes fulfilment exactly-once, and the go-live sequence |
+
+Two sibling trees hold writing that is not about the product, each with its own index and the
+same rule that nothing lands loose: [`marketing/`](marketing/README.md) is how the product is
+taken to market — the Instagram strategy, the brand assets the bot actually ships, and the
+campaign working trees — and [`reference/`](reference/README.md) is vendored material we only
+read, such as the design export the admin console was measured from.
 
 Deploying, or debugging a live problem, starts at
 [`docs/deployment/README.md`](docs/deployment/README.md).
