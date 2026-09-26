@@ -286,6 +286,7 @@ __all__ = [
     "MediaRuntime",
     "ProviderCache",
     "media_runtime",
+    "prime_media_runtime",
     "media_prescreen",
     "media_screen",
     "media_start",
@@ -635,6 +636,27 @@ def media_runtime(ctx: Mapping[str, Any]) -> MediaRuntime:
     if isinstance(ctx, dict):
         ctx[MEDIA_CTX_KEY] = runtime
     return runtime
+
+
+def prime_media_runtime(ctx: dict[str, Any]) -> None:
+    """Build the runtime once into the worker's SHARED context, at startup.
+
+    ARQ hands every job ``{**worker.ctx, job_id, ...}`` — a fresh dict — so the cache write in
+    :func:`media_runtime` lands on a copy that dies with the job, and each stage used to build
+    its own runtime: a new provider cache per stage. Harmless for the local gateway, which
+    remembers its own jobs, but a stateful adapter (the fake) then answered ``media_poll`` for
+    a job ``media_submit`` had handed to a different instance, the poll read "unknown", and
+    every request failed as an ambiguous submit. Priming here puts the one runtime in the dict
+    every job is copied from. A process with no database (the demo path) is left alone.
+    """
+    from bayram.runtime.container import AppContainer
+
+    container = ctx.get(_CONTAINER_CTX_KEY)
+    if MEDIA_CTX_KEY in ctx or not isinstance(container, AppContainer):
+        return
+    if container.session_factory is None:
+        return
+    media_runtime(ctx)
 
 
 def _build_narration(

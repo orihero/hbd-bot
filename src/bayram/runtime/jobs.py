@@ -182,6 +182,7 @@ from bayram.runtime.media_jobs import (
     media_submit,
     media_tts,
     media_voice_prepare,
+    prime_media_runtime,
 )
 from bayram.runtime.media_sweep import MEDIA_SWEEP_CRON_MINUTES, media_sweep
 from bayram.runtime.payme_jobs import (
@@ -829,6 +830,8 @@ def build_kit_worker_settings(
 
     async def startup(ctx: dict[str, Any]) -> None:
         ctx.update(await build_dependencies())
+        # Into THIS dict, which every job's context is copied from — not into a job's copy.
+        prime_media_runtime(ctx)
         _LOG.info(
             "worker started",
             extra={"concurrency": settings.worker_concurrency, "job": KIT_JOB_NAME},
