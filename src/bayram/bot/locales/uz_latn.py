@@ -310,8 +310,8 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.output_language.prompt_noname": "Qoʻshiq qaysi tilda boʻlsin?",
     "wizard.lyrics.writing": ("✍️ {name} uchun soʻzlarni yozayapman… bu bir daqiqagacha oladi."),
     "wizard.lyrics.preview": (
-        "<b>{title}</b>\n"
-        "<blockquote expandable>{lyrics}</blockquote>\n"
+        "<b>{title}</b>\n\n"
+        "<b>{lyrics}</b>\n\n"
         "Aynan shu soʻzlar kuylanadi. Hali hech narsa yozib olinmadi — shuni qoldiring, "
         "boshqasini soʻrang yoki oʻz matningizni xabar qilib yuboring."
     ),
@@ -340,8 +340,8 @@ CATALOGUE: Final[dict[str, str]] = {
     # Koʻrib chiqish oynasining egizagi — mijozning oʻzi yozgan soʻzlari uchun. Bu yerda
     # «oʻz matningizni yuboring» deyish mumkin emas: u buni endigina qildi.
     "wizard.lyrics.own_preview": (
-        "<b>{title}</b>\n"
-        "<blockquote expandable>{lyrics}</blockquote>\n"
+        "<b>{title}</b>\n\n"
+        "<b>{lyrics}</b>\n\n"
         "Sizning soʻzlaringiz — aynan shundayligicha kuylanadi. Hali hech narsa yozib "
         "olinmadi: shuni qoldiring yoki boshqasini xabar qilib yuboring."
     ),
@@ -414,7 +414,10 @@ CATALOGUE: Final[dict[str, str]] = {
     # Har biri oʻz qatorini oladi: {amount} = "49 000" bilan uzunlik yigirmadan sal
     # oshadi, ``MAX_ROW_LABEL_CHARS`` = 30 esa butun qatorga hisoblanadi.
     "button.pay": "💳 {amount} soʻm — 1 qoʻshiq",
+    "button.pay_payme": "📲 Payme orqali: {amount} soʻm",
     "button.subscribe": "🌟 {amount} soʻm — {songs} ta",
+    "button.subscribe_payme": "💎 Payme: {amount} soʻm — {songs} ta",
+
     # Mahsulotdagi tashqi havolali birinchi tugma — u toʻlov sahifasiga olib chiqadi. 💳 emas,
     # 🔗: 💳 bir ekran oldin ``button.pay``ga tegishli. Narx unda yoʻq — narx tepadagi xabarda.
     "button.pay_now": "🔗 Toʻlash",

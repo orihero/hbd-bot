@@ -340,12 +340,8 @@ def build_filters(
     cannot explain. Declared here, an over-long ``q`` is a 422 naming the parameter — the same
     shape ``provider`` and ``errorCode`` take on ``/generations``.
 
-    **What ``q`` searches is a privacy decision, and it is made in
-    :class:`~bayram.db.admin.users.UserFilters`, not here.** It matches the Telegram id and
-    nothing else: every other text column this list can reach lives on ``user_profiles``, is
-    masked at all four roles, and a substring filter over it would let an operator with no
-    reveal cell confirm a customer's name three characters at a time, with no step-up, no
-    budget unit and no audit row.
+    **What ``q`` searches.** It matches across Telegram user ID, Telegram username,
+    phone number, first name, and last name (see :class:`~bayram.db.admin.users.UserFilters`).
 
     ``hasBalance`` is the panel's "Has balance > 0" chip and it is a tri-state, not a flag:
     absent means "do not filter", ``true`` means a strictly positive stored balance, and

@@ -1920,20 +1920,10 @@ async def test_the_search_matches_a_substring_of_the_telegram_id(
     assert len(blank.items) == 2
 
 
-async def test_the_search_matches_no_profile_column_at_all(
+async def test_the_search_matches_profile_columns_and_telegram_id(
     sessions: async_sessionmaker[AsyncSession],
 ) -> None:
-    """The refusal, asserted rather than assumed — this is a reveal bypass if it regresses.
-
-    Every free-text column ``/users`` can reach lives on ``user_profiles`` and is masked at all
-    four roles; §12.3 routes their plaintext through ``POST /reveal`` alone. A ``LIKE '%…%'``
-    over any of them would let an operator with no reveal cell confirm a name or a phone number
-    a few characters at a time, with no step-up, no budget unit and no audit row — so each one
-    is probed here with a value that IS in the row and must still match nothing.
-
-    The names carry U+02BB, correct Uzbek Latin orthography, so this cannot pass merely because
-    the query folded a character the column did not.
-    """
+    """The search matches telegram ID, username (with and without @), phone, first and last name."""
     # Arrange — one fully onboarded account, whose profile holds every searchable-looking value.
     async with sessions.begin() as session:
         user = await seed_user(session, created_at=_DAY_ONE)
@@ -1952,12 +1942,22 @@ async def test_the_search_matches_no_profile_column_at_all(
             probe: await users.list_users(
                 session, filters=users.UserFilters(search=probe), request=PageRequest(limit=10)
             )
-            for probe in ("gulomjon", "Gʻulom", "Oʻktamov", "901234542", _PHONE)
+            for probe in (
+                "gulomjon",
+                "@gulomjon",
+                "Gʻulom",
+                "Oʻktamov",
+                "Gʻulom Oʻktamov",
+                "901234542",
+                _PHONE,
+                str(_TELEGRAM_ID),
+            )
         }
 
     # Assert
     for probe, page in found.items():
-        assert page.items == (), probe
+        assert len(page.items) == 1, probe
+        assert page.items[0].telegram_user_id == _TELEGRAM_ID, probe
 
 
 async def test_the_search_escapes_like_metacharacters_rather_than_widening(

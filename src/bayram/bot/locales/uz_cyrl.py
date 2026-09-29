@@ -310,8 +310,8 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.output_language.prompt_noname": "Қўшиқ қайси тилда бўлсин?",
     "wizard.lyrics.writing": "✍️ {name} учун сўзларни ёзаяпман… бу бир дақиқагача олади.",
     "wizard.lyrics.preview": (
-        "<b>{title}</b>\n"
-        "<blockquote expandable>{lyrics}</blockquote>\n"
+        "<b>{title}</b>\n\n"
+        "<b>{lyrics}</b>\n\n"
         "Айнан шу сўзлар куйланади. Ҳали ҳеч нарса ёзиб олинмади — шуни қолдиринг, "
         "бошқасини сўранг ёки ўз матнингизни хабар қилиб юборинг."
     ),
@@ -338,8 +338,8 @@ CATALOGUE: Final[dict[str, str]] = {
     # Кўриб чиқиш ойнасининг эгизаги — мижознинг ўзи ёзган сўзлари учун. Бу ерда «ўз
     # матнингизни юборинг» дейиш мумкин эмас: у буни энди қилди.
     "wizard.lyrics.own_preview": (
-        "<b>{title}</b>\n"
-        "<blockquote expandable>{lyrics}</blockquote>\n"
+        "<b>{title}</b>\n\n"
+        "<b>{lyrics}</b>\n\n"
         "Сизнинг сўзларингиз — айнан шундайлигича куйланади. Ҳали ҳеч нарса ёзиб олинмади: "
         "шуни қолдиринг ёки бошқасини хабар қилиб юборинг."
     ),
@@ -411,7 +411,10 @@ CATALOGUE: Final[dict[str, str]] = {
     # Ҳар бири ўз қаторини олади: {amount} = "49 000" билан узунлик йигирмадан сал ошади,
     # ``MAX_ROW_LABEL_CHARS`` = 30 эса бутун қаторга ҳисобланади.
     "button.pay": "💳 {amount} сўм — 1 қўшиқ",
+    "button.pay_payme": "📲 Payme орқали: {amount} сўм",
     "button.subscribe": "🌟 {amount} сўм — {songs} та",
+    "button.subscribe_payme": "💎 Payme: {amount} сўм — {songs} та",
+
     # Маҳсулотдаги ташқи ҳаволали биринчи тугма — у тўлов саҳифасига олиб чиқади. 💳 эмас,
     # 🔗: 💳 бир экран олдин ``button.pay``га тегишли. Нарх унда йўқ — нарх тепадаги хабарда.
     "button.pay_now": "🔗 Тўлаш",

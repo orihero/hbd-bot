@@ -517,12 +517,12 @@ export const en: TranslationSchema = {
       botBlocked: "Blocked the bot",
     },
     paginationSubtitle: "Showing {start}–{end} of {total} users",
-    searchLabel: "Search by Telegram id",
-    searchPlaceholder: "Search by Telegram ID or username…",
+    searchLabel: "Search users",
+    searchPlaceholder: "Search by Telegram ID, username, phone, or name…",
     searchHint:
-      "Matches a substring of the Telegram id and nothing else. Names, usernames and phone numbers are masked at every role and are deliberately not searchable — a substring filter over them would be a reveal with no step-up, no budget and no audit row.",
+      "Matches Telegram ID, username, phone number, first name, or last name.",
     noMatchHint:
-      "This list searches the Telegram id only, so a name or a handle can never match here.",
+      "Try searching by Telegram ID, username, phone number, or name.",
     subject: "The directory",
     notes: {
       forbiddenMessage:
@@ -535,7 +535,7 @@ export const en: TranslationSchema = {
     filtersAria: "User filters",
     tableCaption: "Users, newest account first",
     chips: {
-      query: "Telegram id contains",
+      query: "Search contains",
       blocked: "Blocked",
       creditBalance: "Credit balance",
       language: "Language",

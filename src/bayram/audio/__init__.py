@@ -37,6 +37,11 @@ from bayram.audio.lyric_sheet import (
     render_lyric_sheet,
     write_lyric_sheet,
 )
+from bayram.audio.lyrics_image import (
+    LYRICS_IMAGE_FILENAME,
+    LYRICS_IMAGE_MIME,
+    render_lyrics_image,
+)
 from bayram.audio.probe import parse_ffprobe_report
 from bayram.audio.processor import FfmpegAudioPostProcessor
 from bayram.audio.startup import ensure_ffmpeg_available
@@ -51,6 +56,10 @@ __all__ = [
     "COVER_MIME",
     "COVER_SIZE",
     "COVER_SUFFIX",
+    # lyrics image
+    "render_lyrics_image",
+    "LYRICS_IMAGE_FILENAME",
+    "LYRICS_IMAGE_MIME",
     # lyric sheet
     "render_lyric_sheet",
     "write_lyric_sheet",
@@ -65,3 +74,4 @@ __all__ = [
     "LYRIC_SHEET_MIME",
     "LYRIC_SHEET_SUFFIX",
 ]
+

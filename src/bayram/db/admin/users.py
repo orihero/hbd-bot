@@ -102,8 +102,15 @@ from bayram.db.admin.segment import (
     SegmentError,
     sort_expression,
 )
-from bayram.db.admin.segment import SortSpec as SegmentSortSpec
-from bayram.db.admin.sql import TimeWindow, apply_search, apply_window, count_where
+from bayram.db.admin.sql import (
+    LIKE_ESCAPE_CHAR,
+    MAX_SEARCH_CHARS,
+    TimeWindow,
+    apply_search,
+    apply_window,
+    count_where,
+    escape_like,
+)
 from bayram.db.admin.views import SegmentBreakdown, UserDetail, UserListItem
 from bayram.db.credit_sql import read_balance
 from bayram.db.models.credit_account import CreditAccountRow
@@ -180,22 +187,9 @@ class UserFilters:
     exists to prevent.
     """
 
-    #: Exact ``telegram_user_id``. Deliberately not a name search, and now deliberately not a
-    #: phone search either. A name lives in ``briefs`` and is purged on its own clock, so a
-    #: name query returns a shrinking answer set for the same input and reads as data loss.
-    #: The phone is the refusal the class docstring argues: an exact-match filter on a value
-    #: masked at every role is an unaudited unmask oracle.
+    #: Exact ``telegram_user_id``.
     telegram_user_id: int | None = None
-    #: §6.6's ``q``, and it searches **the Telegram id and nothing else** — the one value an
-    #: operator has in hand from a support ticket, and the one this screen already returns
-    #: unmasked in every row (``schemas/users.py``: every ``/users/**`` route keys on it, so
-    #: the panel could not build a link or a reveal without it). Matching a substring of a
-    #: value the same response already prints in full discloses nothing the caller did not
-    #: have; matching a substring of a masked name discloses the mask. It is separate from
-    #: :attr:`telegram_user_id` rather than a widening of it because the two are asked in
-    #: different situations — a pasted id is exact, a half-remembered or line-wrapped one is
-    #: not — and because an exact filter that silently became a substring match would change
-    #: what every existing caller's page means.
+    #: §6.6's ``q``, searching across Telegram user ID, username, phone number, first name, and last name.
     search: str | None = None
     is_blocked: bool | None = None
     #: "Has balance > 0", and its ``False`` is the exact complement of its ``True`` — which is
@@ -527,17 +521,58 @@ async def load_avatar(
 # ---------------------------------------------------------------------------
 # internals
 # ---------------------------------------------------------------------------
-#: The only column ``?q=`` may touch, and the ``CAST`` is what makes a substring of an
-#: integer expressible at all. Rendered as ``CAST(users.telegram_user_id AS VARCHAR)`` on
-#: both dialects; there is no index that could serve the leading wildcard either way, so the
-#: cast costs nothing a ``LIKE '%…%'`` was not already going to cost.
-#:
-#: Built as a module constant rather than inside :func:`_filtered` so that the answer to "what
-#: can an operator search here?" is one greppable line, and so that adding a second column is
-#: a diff a reviewer sees rather than an argument that grew.
-_SEARCHABLE_COLUMNS: tuple[sa.SQLColumnExpression[str], ...] = (
-    sa.cast(UserRow.telegram_user_id, sa.String),
-)
+def _user_search_clause(search: str | None) -> sa.ColumnElement[bool] | None:
+    """Build the search predicate across Telegram user ID, username, phone, and name.
+
+    Matches Telegram user ID (cast to String), Telegram username, phone number,
+    first name, last name, and full name (first_name + ' ' + last_name).
+    """
+    if search is None:
+        return None
+    trimmed = search.strip()
+    if not trimmed:
+        return None
+    term = trimmed[:MAX_SEARCH_CHARS]
+    escaped_term = escape_like(term)
+    pattern = f"%{escaped_term}%"
+
+    user_predicates: list[sa.ColumnElement[bool]] = [
+        sa.cast(UserRow.telegram_user_id, sa.String).ilike(pattern, escape=LIKE_ESCAPE_CHAR)
+    ]
+
+    profile_predicates: list[sa.ColumnElement[bool]] = [
+        UserProfileRow.telegram_username.ilike(pattern, escape=LIKE_ESCAPE_CHAR),
+        UserProfileRow.first_name.ilike(pattern, escape=LIKE_ESCAPE_CHAR),
+        UserProfileRow.last_name.ilike(pattern, escape=LIKE_ESCAPE_CHAR),
+        sa.func.concat(
+            sa.func.coalesce(UserProfileRow.first_name, ""),
+            " ",
+            sa.func.coalesce(UserProfileRow.last_name, ""),
+        ).ilike(pattern, escape=LIKE_ESCAPE_CHAR),
+        UserProfileRow.phone_e164.ilike(pattern, escape=LIKE_ESCAPE_CHAR),
+    ]
+
+    if term.startswith("@"):
+        no_at = escape_like(term.lstrip("@"))
+        if no_at:
+            profile_predicates.append(
+                UserProfileRow.telegram_username.ilike(f"%{no_at}%", escape=LIKE_ESCAPE_CHAR)
+            )
+
+    clean_digits = escape_like(term.replace(" ", "").replace("-", ""))
+    if clean_digits and clean_digits != escaped_term:
+        profile_predicates.append(
+            UserProfileRow.phone_e164.ilike(f"%{clean_digits}%", escape=LIKE_ESCAPE_CHAR)
+        )
+
+    profile_match = sa.exists(
+        sa.select(sa.literal(1)).where(
+            UserProfileRow.user_id == UserRow.id,
+            sa.or_(*profile_predicates),
+        )
+    ).correlate(UserRow)
+
+    return sa.or_(*user_predicates, profile_match)
 
 
 def _has_positive_balance() -> sa.ColumnElement[bool]:
@@ -647,10 +682,9 @@ def _sort_value(value: Any) -> SortValue:
 def _filtered(filters: UserFilters) -> Select[tuple[UserRow]]:
     statement = sa.select(UserRow)
     statement = apply_window(statement, UserRow.created_at, filters.window)
-    # Applied HERE rather than in :func:`_filtered_with_profile`, so ``count_users`` and
-    # ``list_users`` narrow identically: a ``?withTotal=true`` computed without the search
-    # would label a two-row page "1,204".
-    statement = apply_search(statement, filters.search, _SEARCHABLE_COLUMNS)
+    search_clause = _user_search_clause(filters.search)
+    if search_clause is not None:
+        statement = statement.where(search_clause)
     if filters.telegram_user_id is not None:
         statement = statement.where(UserRow.telegram_user_id == filters.telegram_user_id)
     if filters.is_blocked is not None:

@@ -524,12 +524,12 @@ export const uz: TranslationSchema = {
     },
     paginationSubtitle:
       "{total} ta foydalanuvchidan {start}–{end} koʻrsatilmoqda",
-    searchLabel: "Telegram ID boʻyicha qidirish",
-    searchPlaceholder: "Telegram ID, toʻliq yoki qisman…",
+    searchLabel: "Foydalanuvchilarni qidirish",
+    searchPlaceholder: "Telegram ID, username, telefon yoki ism boʻyicha qidirish…",
     searchHint:
-      "Qidiruv faqat Telegram ID qismiga mos keladi. Ismlar, yuzerlar va telefon raqamlari barcha rollar uchun niqoblangan va qidiruvga berilmaydi — ular boʻyicha qidirish qayta autentifikatsiyasiz maʼlumotni ochish hisoblanar edi.",
+      "Telegram ID, username, telefon raqami, ism yoki familiya boʻyicha qidiradi.",
     noMatchHint:
-      "Ushbu roʻyxat faqat Telegram ID boʻyicha qidiradi, ism yoki taxallus bu yerda topilmaydi.",
+      "Telegram ID, username, telefon raqami yoki ism boʻyicha qidirib koʻring.",
     subject: "Maʻlumotnoma",
     notes: {
       forbiddenMessage:
@@ -542,7 +542,7 @@ export const uz: TranslationSchema = {
     filtersAria: "Foydalanuvchi filtrlari",
     tableCaption: "Foydalanuvchilar, eng yangi hisobdan boshlab",
     chips: {
-      query: "Telegram id tarkibida",
+      query: "Qidiruv tarkibida",
       blocked: "Bloklangan",
       creditBalance: "Kredit balansi",
       language: "Til",

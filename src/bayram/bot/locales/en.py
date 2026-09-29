@@ -314,8 +314,8 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.output_language.prompt_noname": "Which language should the song be in?",
     "wizard.lyrics.writing": "✍️ Writing the words for {name}… it takes up to a minute.",
     "wizard.lyrics.preview": (
-        "<b>{title}</b>\n"
-        "<blockquote expandable>{lyrics}</blockquote>\n"
+        "<b>{title}</b>\n\n"
+        "<b>{lyrics}</b>\n\n"
         "These are the exact words that will be sung. Nothing is recorded yet — keep them, "
         "ask for a different set, or send me your own as a message."
     ),
@@ -345,8 +345,8 @@ CATALOGUE: Final[dict[str, str]] = {
     # The preview's twin, for words the customer wrote. It must NOT invite them to "send
     # your own", which is what ``wizard.lyrics.preview`` does — they just did.
     "wizard.lyrics.own_preview": (
-        "<b>{title}</b>\n"
-        "<blockquote expandable>{lyrics}</blockquote>\n"
+        "<b>{title}</b>\n\n"
+        "<b>{lyrics}</b>\n\n"
         "Your words, exactly as they will be sung. Nothing is recorded yet — keep them, or "
         "send a different set as a message."
     ),
@@ -424,7 +424,10 @@ CATALOGUE: Final[dict[str, str]] = {
     # Each gets its own keyboard row: rendered with {amount} at "49 000" these run to the
     # low twenties, and ``MAX_ROW_LABEL_CHARS`` is 30 for a whole row.
     "button.pay": "💳 {amount} UZS — 1 song",
+    "button.pay_payme": "📲 Pay via Payme: {amount} UZS",
     "button.subscribe": "🌟 {amount} UZS — {songs} songs",
+    "button.subscribe_payme": "💎 Payme: {amount} UZS — {songs}",
+
     # The label on the product's first ``url=`` button — the one that hands the customer to
     # the payment rail's own page. 🔗 rather than 💳, which is ``button.pay`` one screen
     # earlier and would collide with it under

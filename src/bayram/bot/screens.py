@@ -433,7 +433,9 @@ def _note_screen(draft: WizardDraft) -> Screen:
     parts = [translate("wizard.note.prompt", language, limit=MAX_NOTE_CHARS)]
     if note:
         parts.append(_quoted(note))
-    parts.append(translate("wizard.note.privacy_line", language))
+    privacy = translate("wizard.note.privacy_line", language).strip()
+    if privacy:
+        parts.append(privacy)
     return Screen(
         "\n\n".join(parts),
         note_keyboard(language, is_note_present=bool(note)),
@@ -545,10 +547,8 @@ def _lyrics_screen(draft: WizardDraft) -> Screen:
 
     This is the screen that answers the objection the rest of the flow cannot: the customer
     is not buying a promise, they are reading the exact words and nothing has been recorded
-    yet. The template puts the lyric in a ``<blockquote expandable>`` and says so in the
-    line underneath — the quote makes the words visibly theirs and keeps the bot's voice
-    outside them, and expandable is what lets a long lyric be read in place rather than
-    pushing the three answers off the screen.
+    yet. The template puts the lyric in bold ordinary text and says so in the
+    line underneath — keeping the words clear and readable outside quote styling.
 
     On the bring-your-own path it wears two other faces. With no lyric yet it is the prompt
     that asks for one; with the customer's own words in it, it says they are the customer's

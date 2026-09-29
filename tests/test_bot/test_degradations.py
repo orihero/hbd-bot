@@ -145,32 +145,23 @@ async def test_a_screen_that_cannot_be_edited_is_sent_as_a_new_message(
 # ---------------------------------------------------------------------------
 # delivery
 # ---------------------------------------------------------------------------
-async def test_a_greeting_with_no_file_is_reported(bot: Bot, kit: Kit, tmp_path: Path) -> None:
+async def test_a_song_with_no_file_is_reported(bot: Bot, kit: Kit) -> None:
     # Arrange
-    ghost = make_asset(
-        tmp_path,
-        path=tmp_path / "ghost.ogg",
-        kind=AssetKind.GREETING,
-        mime="audio/ogg",
-        duration_s=20.0,
-        persona_id="ghost",
-    )
-    ghost.path.unlink()
-    broken = kit.model_copy(update={"greetings": (ghost,)})
+    kit.song.path.unlink()
 
     # Act
-    result = await deliver_kit(bot, chat_id=CHAT_ID, kit=broken, language=Language.EN)
+    result = await deliver_kit(bot, chat_id=CHAT_ID, kit=kit, language=Language.EN)
 
     # Assert
     assert isinstance(result, Err)
-    assert "greeting:missing-file" in str(result.error.context["failures"])
+    assert "missing-file" in str(result.error.context["failures"])
 
 
-async def test_a_lyric_sheet_that_cannot_be_sent_is_reported(
+async def test_a_lyric_image_that_cannot_be_sent_is_reported(
     bot: Bot, session: RecordingSession, kit: Kit
 ) -> None:
     # Arrange
-    session.failures["SendMessage"] = TelegramBadRequest(
+    session.failures["SendPhoto"] = TelegramBadRequest(
         method=SendMessage(chat_id=CHAT_ID, text="x"), message="chat not found"
     )
 
@@ -180,20 +171,12 @@ async def test_a_lyric_sheet_that_cannot_be_sent_is_reported(
     # Assert
     assert isinstance(result, Err)
     failures = str(result.error.context["failures"])
-    assert "lyric_sheet" in failures
-    assert "closing" in failures
+    assert "lyric_image" in failures
 
 
-async def test_a_gap_from_a_stage_nobody_mapped_is_disclosed_without_an_error_string(
+async def test_a_gap_from_a_stage_nobody_mapped_does_not_break_delivery(
     bot: Bot, session: RecordingSession, kit: Kit
 ) -> None:
-    """``gap_message_key`` is total: an unmapped stage costs a detail, never the disclosure.
-
-    A gap recorded at PERSISTING is an asset that failed to ARCHIVE — an operator concern
-    with nothing a customer can hear, since the file was delivered from local disk either
-    way. It must not put ``error.generic`` under a delivered song, and it must not quietly
-    turn the closing message back into a clean one.
-    """
     # Arrange
     gap = PipelineGap(
         stage=PipelineStage.PERSISTING,
@@ -203,12 +186,13 @@ async def test_a_gap_from_a_stage_nobody_mapped_is_disclosed_without_an_error_st
     )
 
     # Act
-    await deliver_kit(bot, chat_id=CHAT_ID, kit=kit, language=Language.EN, gaps=(gap,))
+    result = await deliver_kit(bot, chat_id=CHAT_ID, kit=kit, language=Language.EN, gaps=(gap,))
 
-    # Assert
-    closing = session.named("SendMessage")[-1].text  # type: ignore[attr-defined]
-    assert translate("error.generic", Language.EN) not in closing
-    assert order_reference(kit.order_id) in closing
+    # Assert — exactly 2 messages: lyric image and audio
+    assert not isinstance(result, Err)
+    assert len(session.named("SendPhoto")) == 1
+    assert len(session.named("SendAudio")) == 1
+    assert not session.named("SendMessage")
 
 
 async def test_a_ledger_that_forgot_an_order_resends_rather_than_sending_nothing(

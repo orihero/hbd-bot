@@ -61,11 +61,12 @@ from uuid import UUID
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest, TelegramForbiddenError
-from aiogram.types import FSInputFile, Message
+from aiogram.types import FSInputFile, InlineKeyboardMarkup, Message
 
+from bayram.audio.lyrics_image import LYRICS_IMAGE_FILENAME, render_lyrics_image
 from bayram.bot.i18n import escape_html, translate
 from bayram.bot.keyboards import post_delivery_keyboard
-from bayram.contracts import GeneratedAsset, Kit, Language, Result, err, ok
+from bayram.contracts import Err, GeneratedAsset, Kit, Language, Ok, Result, err, ok
 from bayram.errors import DeliveryError
 from bayram.logging import get_logger
 from bayram.pipeline.events import PipelineStage
@@ -341,22 +342,14 @@ async def deliver_kit(
     invite = translate("watermark.invite", language, handle=WATERMARK_HANDLE)
 
     failures.extend(
+        await _send_lyric_image(
+            bot, chat_id=chat_id, kit=kit, language=language, out=outbox
+        )
+    )
+    failures.extend(
         await _send_song(
             bot, chat_id=chat_id, kit=kit, language=language, mark=song_mark, out=outbox
         )
-    )
-    failures.extend(
-        await _send_greetings(
-            bot, chat_id=chat_id, kit=kit, language=language, mark=invite, out=outbox
-        )
-    )
-    failures.extend(
-        await _send_lyric_sheet(
-            bot, chat_id=chat_id, kit=kit, language=language, mark=invite, out=outbox
-        )
-    )
-    failures.extend(
-        await _send_closing(bot, chat_id=chat_id, kit=kit, language=language, gaps=gaps, out=outbox)
     )
 
     if failures:
@@ -384,6 +377,33 @@ async def deliver_kit(
             extra={"order_id": str(kit.order_id), "already_delivered": already_sent},
         )
     return ok(outbox.song_file_id)
+
+
+async def _send_lyric_image(
+    bot: Bot, *, chat_id: int, kit: Kit, language: Language, out: _Outbox
+) -> tuple[str, ...]:
+    """The auto-generated lyric card image, sent before the song itself."""
+    key = "lyric_image"
+    if out.is_sent(key):
+        return ()
+    image_path = kit.song.path.parent / LYRICS_IMAGE_FILENAME
+    if not image_path.exists():
+        rendered = render_lyrics_image(kit.lyrics, image_path, language=language)
+        if isinstance(rendered, Err):
+            _LOG.warning(
+                "lyric image could not be rendered",
+                extra={"order_id": str(kit.order_id), "reason": str(rendered.error)},
+            )
+            return (f"lyric_image:{rendered.error}",)
+    try:
+        await bot.send_photo(
+            chat_id=chat_id,
+            photo=FSInputFile(image_path),
+        )
+    except TelegramAPIError as exc:
+        return (_log_failure("lyric_image", kit, exc, out=out),)
+    out.mark(key)
+    return ()
 
 
 async def _send_song(
@@ -431,7 +451,10 @@ async def _send_song(
     if missing is not None:
         return (missing,)
     branding = _song_branding(kit)
-    sent = await _send_song_once(bot, chat_id=chat_id, kit=kit, caption=caption, extra=branding)
+    keyboard = post_delivery_keyboard(language, order_id=kit.order_id)
+    sent = await _send_song_once(
+        bot, chat_id=chat_id, kit=kit, caption=caption, extra=branding, reply_markup=keyboard
+    )
     if isinstance(sent, TelegramBadRequest):
         _LOG.warning(
             "Telegram rejected the branded song with a 400; retrying without the branding",
@@ -441,7 +464,9 @@ async def _send_song(
                 "failure": repr(sent),
             },
         )
-        sent = await _send_song_once(bot, chat_id=chat_id, kit=kit, caption=caption, extra={})
+        sent = await _send_song_once(
+            bot, chat_id=chat_id, kit=kit, caption=caption, extra={}, reply_markup=keyboard
+        )
     if isinstance(sent, TelegramAPIError):
         return (_log_failure("song", kit, sent, out=out),)
     # Observed here and stored by nobody in this module. ``sent.audio`` is optional on the
@@ -490,7 +515,13 @@ def _song_branding(kit: Kit) -> dict[str, Any]:
 
 
 async def _send_song_once(
-    bot: Bot, *, chat_id: int, kit: Kit, caption: str, extra: Mapping[str, Any]
+    bot: Bot,
+    *,
+    chat_id: int,
+    kit: Kit,
+    caption: str,
+    extra: Mapping[str, Any],
+    reply_markup: InlineKeyboardMarkup | None = None,
 ) -> Message | TelegramAPIError:
     """One ``sendAudio`` attempt, returning the rejection instead of raising it.
 
@@ -511,6 +542,7 @@ async def _send_song_once(
             caption=caption,
             title=kit.lyrics.title,
             duration=int(kit.song.duration_s),
+            reply_markup=reply_markup,
             **extra,
         )
     except TelegramAPIError as exc:

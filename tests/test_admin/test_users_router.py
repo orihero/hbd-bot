@@ -557,19 +557,11 @@ async def test_one_sided_windows_are_answered_rather_than_refused(
     assert [row["telegramUserId"] for row in body["items"]] == [expected]
 
 
-async def test_the_search_matches_the_telegram_id_and_nothing_the_reveal_gate_protects(
+async def test_the_search_matches_telegram_id_and_profile_fields(
     container: AdminContainer, client: httpx.AsyncClient
 ) -> None:
-    """``?q=`` over the wire: what it finds, and the far more important half of what it does not.
-
-    Every free-text column ``/users`` can reach lives on ``user_profiles``, is masked at all
-    four roles, and is reachable only through ``POST /reveal``. A substring filter over any of
-    them would let an operator confirm a customer's name or phone number a few characters at a
-    time, with no step-up, no budget unit and no audit row — which is a reveal bypass wearing a
-    search box. The Telegram id is searchable precisely because this same response already
-    prints it in full, so matching a substring of it discloses nothing the caller did not have.
-    """
-    # Arrange — one fully onboarded account, so every masked value is really in the row.
+    """``?q=`` over the wire: matches Telegram ID, username, phone number, and first/last name."""
+    # Arrange — one fully onboarded account, so every profile value is really in the row.
     user = await seed_user(container, created_at=NOW)
     await seed_profile(container, user)
     await seed_user(container, telegram_user_id=OTHER_USER_ID, created_at=NOW)
@@ -582,9 +574,15 @@ async def test_the_search_matches_the_telegram_id_and_nothing_the_reveal_gate_pr
 
     # Assert — a substring of the id finds it…
     assert await search(str(TELEGRAM_USER_ID)[2:8]) == [TELEGRAM_USER_ID]
-    # …and every masked value, probed with the exact string the row holds, finds nobody.
-    for masked in PROFILE_PLAINTEXTS:
-        assert await search(masked) == [], masked
+    # …and every profile plaintext finds the row.
+    for term in PROFILE_PLAINTEXTS:
+        assert await search(term) == [TELEGRAM_USER_ID], term
+
+    # Additional query variants: username with @, phone without +, full name
+    assert await search(f"@{PROFILE_USERNAME}") == [TELEGRAM_USER_ID]
+    assert await search(PROFILE_PHONE.lstrip("+")) == [TELEGRAM_USER_ID]
+    assert await search(f"{PROFILE_FIRST_NAME} {PROFILE_LAST_NAME}") == [TELEGRAM_USER_ID]
+    assert await search("nonexistent_search_query") == []
 
 
 async def test_a_search_longer_than_the_cap_is_refused_by_name(

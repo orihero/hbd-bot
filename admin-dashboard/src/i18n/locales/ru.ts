@@ -519,12 +519,12 @@ export const ru: TranslationSchema = {
       botBlocked: "Заблокировали бота",
     },
     paginationSubtitle: "Показано {start}–{end} из {total} пользователей",
-    searchLabel: "Поиск по Telegram ID",
-    searchPlaceholder: "Поиск по Telegram ID или юзернейму…",
+    searchLabel: "Поиск пользователей",
+    searchPlaceholder: "Поиск по Telegram ID, юзернейму, телефону или имени…",
     searchHint:
-      "Поиск выполняется строго по подстроке Telegram ID. Имена, юзернеймы и номера телефонов маскируются для всех ролей и намеренно недоступны для поиска: поиск по ним являлся бы раскрытием персональных данных без повторной аутентификации, бюджета и записи в аудит.",
+      "Поиск по Telegram ID, юзернейму, номеру телефона, имени или фамилии.",
     noMatchHint:
-      "Этот список ищет только по Telegram ID, поэтому поиск по имени или юзернейму не даст результатов.",
+      "Попробуйте поискать по Telegram ID, юзернейму, номеру телефона или имени.",
     subject: "Справочник",
     notes: {
       forbiddenMessage:
@@ -537,7 +537,7 @@ export const ru: TranslationSchema = {
     filtersAria: "Фильтры пользователей",
     tableCaption: "Пользователи, начиная с новых аккаунтов",
     chips: {
-      query: "Telegram id содержит",
+      query: "Поиск содержит",
       blocked: "Заблокирован",
       creditBalance: "Баланс кредитов",
       language: "Язык",

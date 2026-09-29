@@ -330,6 +330,23 @@ def test_the_note_step_states_its_character_limit() -> None:
     assert str(MAX_NOTE_CHARS) in screen.text
 
 
+def test_russian_note_step_has_no_name_or_removal_notes() -> None:
+    # Arrange
+    draft = full_draft().model_copy(update={"ui_language": Language.RU})
+
+    # Act
+    screen = render_step(WizardStep.NOTE, draft)
+
+    # Assert — no notes about name or auto removal
+    assert "Имя" not in screen.text
+    assert "имя" not in screen.text
+    assert "храню" not in screen.text
+    assert "удалится" not in screen.text
+    assert "🔒" not in screen.text
+    assert "🎯 <b>Сделаем песню личной!</b>" in screen.text
+    assert str(MAX_NOTE_CHARS) in screen.text
+
+
 def test_the_name_step_shows_the_name_already_resolved() -> None:
     """Back from the confirmation used to mean retyping the spelling from memory."""
     # Arrange
