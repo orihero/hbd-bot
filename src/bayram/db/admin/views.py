@@ -1811,13 +1811,15 @@ class OrderFunnel:
 class RevenueSource(StrEnum):
     """Which receipts table a revenue row came from.
 
-    Two tables and not one because a plan and a top-up are different products sold under
-    different terms; they share a column vocabulary so a revenue read is a clean union, and
-    this member is what keeps the union from collapsing into an unattributable total.
+    Separate tables because a plan, a top-up and a media request are different products sold
+    under different terms; they share a column vocabulary so a revenue read is a clean union,
+    and this member is what keeps the union from collapsing into an unattributable total.
+    ``media`` rows carry a ``MediaSku`` as their product (IMAGE_VIDEO_SPEC §7.7).
     """
 
     PLAN = "plan"
     TOPUP = "topup"
+    MEDIA = "media"
 
 
 @dataclass(frozen=True, slots=True)

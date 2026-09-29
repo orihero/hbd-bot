@@ -197,6 +197,18 @@ async def test_the_response_carries_each_sweeps_own_count_and_the_run_metadata(
         # Revision 0024's delivery ledger, on the same 400-day cutoff shape, and the one an
         # operator has most reason to watch: the table takes a row per account per campaign.
         "broadcastRecipientsDeleted": 0,
+        # Revision 0030's anonymised Terms acceptances (IMAGE_VIDEO_SPEC §3.2.1).
+        "termsAcceptancesDeleted": 0,
+        # Revision 0031's media sweeps (IMAGE_VIDEO_SPEC §3.2.4).
+        "mediaInputsDeleted": 0,
+        "mediaOutputsDeleted": 0,
+        "mediaInputHoldsDeleted": 0,
+        "mediaOutputHoldsDeleted": 0,
+        "mediaJobTextsPurged": 0,
+        "mediaJobsDeleted": 0,
+        "mediaAttemptsDeleted": 0,
+        "mediaPurchasesDeleted": 0,
+        "mediaCreditEntriesDeleted": 0,
     }
     assert run["totalRowsAffected"] == 91
     assert run["trigger"] == "manual"
@@ -445,6 +457,16 @@ async def test_an_empty_database_reports_no_backlog_rather_than_omitting_a_clock
         "paymeRpcRowsDeleted",
         "paymentIntentsDeleted",
         "broadcastRecipientsDeleted",
+        "termsAcceptancesDeleted",
+        "mediaInputsDeleted",
+        "mediaOutputsDeleted",
+        "mediaInputHoldsDeleted",
+        "mediaOutputHoldsDeleted",
+        "mediaJobTextsPurged",
+        "mediaJobsDeleted",
+        "mediaAttemptsDeleted",
+        "mediaPurchasesDeleted",
+        "mediaCreditEntriesDeleted",
     }
     assert set(body["rowsPastExpiry"].values()) == {0}
 

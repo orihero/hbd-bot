@@ -78,6 +78,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+from bayram.bot.albums import AlbumMemory
 from bayram.bot.handlers.common import COMMAND_PREFIX
 from bayram.bot.i18n import FALLBACK_LANGUAGE, translate
 from bayram.bot.middleware import resolve_language_or_none
@@ -385,8 +386,11 @@ class InboundGateMiddleware(BaseMiddleware):
         policy: InboundPolicy = DEFAULT_INBOUND_POLICY,
         clock: Clock = utc_now,
         touches: TouchQueue | None = None,
+        albums: AlbumMemory | None = None,
     ) -> None:
         self._entitlements = entitlements
+        #: IMAGE_VIDEO_SPEC §2.3.2: an album's follow-on items count as zero updates.
+        self._albums = albums if albums is not None else AlbumMemory()
         self._counters = counters if counters is not None else InMemoryWindowCounterStore()
         self._policy = policy
         self._clock = clock
@@ -466,6 +470,13 @@ class InboundGateMiddleware(BaseMiddleware):
         if not _is_answer_to_the_bot(event) and await self._is_blocked(telegram_user_id, now):
             _LOG.info("blocked account refused", extra={"telegram_user_id": telegram_user_id})
             return await self._refuse(_BLOCKED_MESSAGE_KEY, spoken, telegram_user_id, now)
+        if isinstance(event, Message) and not self._albums.first(
+            telegram_user_id, event.media_group_id, purpose="gate", now=now
+        ):
+            # A follow-on item of an album already counted (IMAGE_VIDEO_SPEC §2.3.2): Telegram
+            # sends one message per photo, and two ten-photo albums would otherwise be most of
+            # the 30-per-minute ceiling. The block wall above still applied to it.
+            return None
         verdict = await check_update_rate(
             self._counters, telegram_user_id=telegram_user_id, now=now, policy=self._policy
         )

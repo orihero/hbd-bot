@@ -148,6 +148,7 @@ _SAFE_CONTEXT_KEYS: Final[tuple[str, ...]] = (
     "hit_in",  # WHICH field tripped the denylist ("note"/"name"/"lyrics") — never what was in it
     "failure",  # an ErrorCode value from a nested error
     "attempts",
+    "needs_review",  # our own flag: refused without a verdict (IMAGE_VIDEO_SPEC §6.8)
     "chunk_index",
     "chunk_count",
     "timeout_s",

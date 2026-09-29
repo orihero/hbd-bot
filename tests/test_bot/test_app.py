@@ -188,6 +188,7 @@ def test_commands_are_routed_before_the_free_text_steps(settings: Settings) -> N
         "menu",
         "support",
         "navigation",
+        "media",
         "questions",
         "name",
         "lyrics",

@@ -81,6 +81,12 @@ export const VENDOR_VALUES = [
   "gemini",
   "openai_compatible",
   "fake",
+  // IMAGE_VIDEO_SPEC §3.2.3 — the media products' vendors.
+  "local_genai",
+  "higgsfield",
+  "fal",
+  "gemini_tts",
+  "gateway_guard",
 ] as const;
 export const vendorSchema = z.enum(VENDOR_VALUES);
 export type Vendor = z.infer<typeof vendorSchema>;
@@ -93,6 +99,10 @@ export const VENDOR_OPERATION_VALUES = [
   "transcription",
   "chat_completion",
   "health",
+  // IMAGE_VIDEO_SPEC §3.2.3 — the media products' operations.
+  "image_generate",
+  "video_generate",
+  "safety_classify",
 ] as const;
 export const vendorOperationSchema = z.enum(VENDOR_OPERATION_VALUES);
 export type VendorOperation = z.infer<typeof vendorOperationSchema>;
@@ -111,8 +121,9 @@ export const ORDER_STATE_VALUES = [
 export const orderStateSchema = z.enum(ORDER_STATE_VALUES);
 export type OrderState = z.infer<typeof orderStateSchema>;
 
-/** `RevenueSource` — which receipts table a row came from. Never collapse the two. */
-export const REVENUE_SOURCE_VALUES = ["plan", "topup"] as const;
+/** `RevenueSource` — which receipts table a row came from. Never collapse them. `media` rows
+ * carry a media SKU as their product and are read from `media_purchases` (IMAGE_VIDEO_SPEC §7.7). */
+export const REVENUE_SOURCE_VALUES = ["plan", "topup", "media"] as const;
 export const revenueSourceSchema = z.enum(REVENUE_SOURCE_VALUES);
 export type RevenueSource = z.infer<typeof revenueSourceSchema>;
 

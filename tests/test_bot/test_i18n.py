@@ -258,17 +258,19 @@ def test_the_error_family_carries_no_onboarding_key() -> None:
         assert "onboarding.contact.required" in catalogue, language
 
 
-def test_the_privacy_notice_takes_exactly_the_four_kwargs_the_handler_passes() -> None:
-    """A fifth placeholder here ships as literal braces in the one message that must not lie.
+def test_the_privacy_notice_takes_exactly_the_six_kwargs_the_handler_passes() -> None:
+    """A seventh placeholder here ships as literal braces in the one message that must not lie.
 
-    ``handlers.commands.handle_privacy`` renders this key with exactly four keyword
-    arguments, read off the retention policy. ``translate`` degrades a missing parameter
+    ``handlers.common.privacy_text`` renders this key with exactly six keyword arguments, read
+    off the retention policy — the four song periods, and since M1.2 the media periods the
+    versioned Privacy Notice quotes, the legal hold among them (IMAGE_VIDEO_SPEC §2.1, Appendix
+    A.2). ``translate`` degrades a missing parameter
     rather than raising — deliberately, so a template typo cannot take the bot down — which
     means a catalogue that grows a ``{contact_profile_days}`` does not fail anywhere: it
     sends a data-protection notice with ``{contact_profile_days}`` printed in it, to the
     customer who cared enough to ask what is kept about them.
 
-    Frozen at four rather than merely "the same in all four catalogues", because
+    Frozen at seven rather than merely "the same in all four catalogues", because
     ``test_catalogue_uses_the_same_placeholders_as_the_reference`` already covers agreement
     and would stay green if somebody added the fifth to the English reference and dutifully
     translated it. The number is a fact about the CALL SITE, so it is asserted as one.
@@ -284,6 +286,9 @@ def test_the_privacy_notice_takes_exactly_the_four_kwargs_the_handler_passes() -
             "brief_text_days",
             "paid_audio_days",
             "abandoned_draft_days",
+            "media_input_hours",
+            "media_output_days",
+            "media_legal_hold_hours",
         }
     )
 

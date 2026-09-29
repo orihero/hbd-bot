@@ -76,6 +76,7 @@ from bayram.admin.routers.assets import (
     ASSET_STREAM_PATH,
     ASSET_TEXT_PATH,
     ASSETS_PATH,
+    MEDIA_OUTPUT_STREAM_PATH,
 )
 from bayram.admin.routers.audit import AUDIT_PATH, VERIFY_PATH
 from bayram.admin.routers.billing import (
@@ -125,6 +126,13 @@ from bayram.admin.routers.dashboard import (
 )
 from bayram.admin.routers.generations import ATTEMPT_PATH, GENERATIONS_PATH
 from bayram.admin.routers.health import STATUS_OK
+from bayram.admin.routers.media_reviews import (
+    MEDIA_JOB_HOLD_PATH,
+    MEDIA_REVIEW_PATH,
+    MEDIA_REVIEW_REFUND_PATH,
+    MEDIA_REVIEW_RELEASE_PATH,
+    MEDIA_REVIEWS_PATH,
+)
 from bayram.admin.routers.orders import (
     ORDER_ASSETS_PATH,
     ORDER_ATTEMPTS_PATH,
@@ -345,6 +353,8 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         # has read. Both run on every request; neither is sufficient alone.
         ("GET", ASSET_STREAM_PATH, Permission.REVEAL_MEDIA_READ),
         ("GET", ASSET_TEXT_PATH, Permission.REVEAL_MEDIA_READ),
+        # The media output reveal (IMAGE_VIDEO_SPEC §8), the same split on the same router.
+        ("GET", MEDIA_OUTPUT_STREAM_PATH, Permission.REVEAL_MEDIA_READ),
         # The wizard-state projection is a second router precisely so it can carry a
         # different cell from the records around it (§12.2 row 5).
         ("GET", WIZARD_STATE_PATH, Permission.WIZARD_STATE_READ),
@@ -497,6 +507,14 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         # halves).
         ("POST", SUPPORT_GROUP_SELECT_PATH, Permission.SUPPORT_GROUP_WRITE),
         ("POST", SUPPORT_GROUP_CLEAR_PATH, Permission.SUPPORT_GROUP_WRITE),
+        # The media review queue (IMAGE_VIDEO_SPEC §6.6, §8), all five on MEDIA_MODERATE — the
+        # role half. The refund's ``W+S`` is MODERATION_DECIDE's cell, enforced in the handler
+        # on the review id, which is the split every step-up write above takes.
+        ("GET", MEDIA_REVIEWS_PATH, Permission.MEDIA_MODERATE),
+        ("GET", MEDIA_REVIEW_PATH, Permission.MEDIA_MODERATE),
+        ("POST", MEDIA_JOB_HOLD_PATH, Permission.MEDIA_MODERATE),
+        ("POST", MEDIA_REVIEW_RELEASE_PATH, Permission.MEDIA_MODERATE),
+        ("POST", MEDIA_REVIEW_REFUND_PATH, Permission.MEDIA_MODERATE),
     }
 )
 
@@ -563,6 +581,12 @@ MUTATIONS: Final[frozenset[tuple[str, str]]] = frozenset(
         # POST is also what puts each behind the CSRF check inside ``get_current_admin``.
         ("POST", SUPPORT_GROUP_SELECT_PATH),
         ("POST", SUPPORT_GROUP_CLEAR_PATH),
+        # The review queue's three writes. Each records its decision and its audit row in the
+        # request's own transaction; release and refund COMMIT and only then ask the worker to
+        # carry the decision out, for ``routers/support_groups.py``'s reason.
+        ("POST", MEDIA_JOB_HOLD_PATH),
+        ("POST", MEDIA_REVIEW_RELEASE_PATH),
+        ("POST", MEDIA_REVIEW_REFUND_PATH),
     }
 )
 
@@ -990,6 +1014,11 @@ _MUTATION_BODIES: Final[dict[str, dict[str, Any]]] = {
     # Clear takes no body at all. ``{}`` is sent for the same reason ``/auth/logout`` sends
     # it: the probe needs a request with a JSON content type, not a request with fields.
     SUPPORT_GROUP_CLEAR_PATH: {},
+    # The review queue's writes: a reason code and nothing else. The CSRF and origin checks
+    # run before the body is validated and before any review or job is read.
+    MEDIA_JOB_HOLD_PATH: {"reasonCode": AuditReasonCode.ABUSE_REPORT.value},
+    MEDIA_REVIEW_RELEASE_PATH: {"reasonCode": AuditReasonCode.ROUTINE_OPS.value},
+    MEDIA_REVIEW_REFUND_PATH: {"reasonCode": AuditReasonCode.ABUSE_REPORT.value},
 }
 
 #: Path parameters for the two CSRF sweeps. :data:`MUTATIONS` now carries templates, and a
@@ -1001,6 +1030,9 @@ MUTATION_IDENTIFIERS: Final[dict[str, object]] = {
     "broadcast_id": UUID(int=4),
     "intent_id": UUID(int=6),
     "ticket_id": UUID(int=8),
+    "review_id": UUID(int=10),
+    "job_id": UUID(int=11),
+    "output_id": UUID(int=12),
 }
 
 
@@ -1170,6 +1202,10 @@ async def test_no_get_route_changes_domain_state(
         # nothing — and the board is the route on this surface most likely to grow a "seen"
         # write, which is exactly why it is swept here.
         "ticket_id": UUID(int=9),
+        # Nor a review: the queue answers an empty list and the detail a 404.
+        "review_id": UUID(int=12),
+        # Nor a media output: the reveal stream answers 404 before any grant is asked for.
+        "output_id": UUID(int=13),
     }
     await create_account(container, role=AdminRole.OWNER)
     assert (await sign_in(client)).status_code == 200
@@ -1200,6 +1236,9 @@ _PROBE_IDENTIFIERS: Final[dict[str, object]] = {
     "broadcast_id": UUID(int=4),
     "intent_id": UUID(int=6),
     "ticket_id": UUID(int=8),
+    "review_id": UUID(int=10),
+    "job_id": UUID(int=11),
+    "output_id": UUID(int=12),
 }
 
 

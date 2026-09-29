@@ -7,7 +7,7 @@ rather than crashing a handler.
 
 The draft is frozen. Every step returns a NEW draft via :meth:`WizardDraft.updated`.
 
-FSM data holds NINE keys, and they are listed here because this is where "what may live in
+FSM data holds TEN keys, and they are listed here because this is where "what may live in
 that dict" is documented and because the list has been wrong in a comment before — it went
 wrong three times while the checkout was landing, at five, then six, then eight, which is the
 whole argument for keeping the list in one place and counting it out loud:
@@ -24,6 +24,10 @@ whole argument for keeping the list in one place and counting it out loud:
   for each lives. The last two are one marker in two keys and are always written together:
   a timestamp found without a product beside it is read as "assume this press is a double
   tap", so splitting the write would refuse the other button for five seconds;
+* ``MEDIA_DRAFT_KEY`` (``bot.media_draft``) — an image request being composed (IMAGE_VIDEO_SPEC
+  §2.3.1): the prompt, the photos' Telegram ids and the tray message, never bytes. It is
+  dropped by every clear like the song draft, and the frozen ``media_jobs`` row — not this
+  key — is what the post-freeze buttons read;
 * :data:`UI_LANGUAGE_KEY` and :data:`ONBOARDED_KEY` — the two caches below, and the only
   two that survive ``handlers.common.clear_keeping_identity``.
 

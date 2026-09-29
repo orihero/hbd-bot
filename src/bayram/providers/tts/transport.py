@@ -37,6 +37,7 @@ from bayram.logging import get_logger
 
 __all__ = [
     "MAX_ERROR_BODY_CHARS",
+    "RETRY_AFTER_CONTEXT_KEY",
     "classify_http_failure",
     "health_from_error",
     "http_status_of",
@@ -50,6 +51,9 @@ _LOG = get_logger(__name__)
 
 #: Vendor error bodies are echoed into logs; cap them so a stack trace cannot flood.
 MAX_ERROR_BODY_CHARS: Final[int] = 500
+
+#: The error-context key carrying a failed response's ``Retry-After`` header, verbatim.
+RETRY_AFTER_CONTEXT_KEY: Final[str] = "retry_after"
 
 _STATUS_UNAUTHORIZED: Final[int] = 401
 _STATUS_PAYMENT_REQUIRED: Final[int] = 402
@@ -259,11 +263,18 @@ async def send_request(
         )
 
     if response.status_code >= _STATUS_CLIENT_ERROR_FLOOR:
+        # A key pool cools a rate-limited key for as long as the vendor asked (IMAGE_VIDEO_SPEC
+        # §5.2), and only the response knows how long that is.
+        retry_after = response.headers.get("retry-after")
         error = classify_http_failure(
             provider=provider,
             status_code=response.status_code,
             body=_excerpt(response),
-            context=call_context,
+            context=(
+                {**call_context, RETRY_AFTER_CONTEXT_KEY: retry_after}
+                if retry_after
+                else call_context
+            ),
         )
         _LOG.warning("speech vendor call failed", extra=error.to_log_dict())
         return err(error)

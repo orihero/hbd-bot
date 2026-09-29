@@ -34,8 +34,14 @@ from arq.worker import Retry
 from bayram.bot.i18n import translate
 from bayram.contracts import Kit, Ok, Order, Result, err, ok
 from bayram.entitlements import SettlementOutcome
-from bayram.errors import PipelineError, ProviderTimeoutError, StorageError
+from bayram.errors import (
+    ModerationUnavailableError,
+    PipelineError,
+    ProviderTimeoutError,
+    StorageError,
+)
 from bayram.payments import PIPELINE_ACTOR
+from bayram.pipeline.moderation import UNREVIEWED_USER_MESSAGE_KEY
 from bayram.runtime.jobs import generate_and_deliver
 from tests.test_bot.conftest import CHAT_ID, RecordingSession
 from tests.test_runtime.conftest import RecordingEntitlementStore
@@ -125,6 +131,34 @@ async def test_a_terminally_failed_run_refunds_the_credit_the_progress_frame_pro
     assert summary["is_delivered"] is False
     assert store.kinds_for(order.id) == ["debit", "refund"]
     assert store.credits == 3
+    assert await _in_flight(store, order.telegram_user_id) == 0
+
+
+async def test_a_moderation_outage_refunds_the_credit_and_says_the_service_was_down(
+    order: Order, bot: Bot, tmp_path: Path
+) -> None:
+    """IMAGE_VIDEO_SPEC §6.8: songs are sold before moderation, so fail-closed is a refund.
+
+    The error is built exactly as ``LlmModerator`` builds it after its retries: terminal,
+    so it is settled on the first attempt rather than queued for backoff.
+    """
+    # Arrange
+    store = RecordingEntitlementStore()
+    await _charged(store, order)
+    failure = ModerationUnavailableError(
+        "moderation returned no verdict",
+        user_message_key=UNREVIEWED_USER_MESSAGE_KEY,
+        context={"needs_review": True},
+    )
+    container = _Container(order=order, outcome=err(failure), root=tmp_path, credits=store)
+
+    # Act
+    summary = await generate_and_deliver(_ctx(container, bot), str(order.id), CHAT_ID, MESSAGE_ID)
+
+    # Assert
+    assert summary["is_delivered"] is False
+    assert summary["user_message_key"] == UNREVIEWED_USER_MESSAGE_KEY
+    assert store.kinds_for(order.id) == ["debit", "refund"]
     assert await _in_flight(store, order.telegram_user_id) == 0
 
 

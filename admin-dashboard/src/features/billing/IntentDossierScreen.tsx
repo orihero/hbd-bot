@@ -465,6 +465,10 @@ export function IntentDossierScreen(): JSX.Element {
                 <p className="m-0 max-w-[80ch] text-[12px] leading-[16.392px] text-ink-500">
                   {t("billing.dossier.chainStopSingle")}
                 </p>
+              ) : data.chainStop.kind === "media" ? (
+                <p className="m-0 max-w-[80ch] text-[12px] leading-[16.392px] text-ink-500">
+                  {t("billing.dossier.chainStopMedia")}
+                </p>
               ) : data.chainStop.songsUsed === null || data.chainStop.songsIncluded === null ? (
                 <p className="m-0 max-w-[80ch] text-[12px] leading-[16.392px] text-ink-500">
                   {t("billing.dossier.chainStopPlanUnknown")}

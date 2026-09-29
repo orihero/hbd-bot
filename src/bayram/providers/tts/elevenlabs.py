@@ -44,6 +44,7 @@ from bayram.contracts import (
     Err,
     HealthState,
     Language,
+    NarrationRequest,
     ProviderHealth,
     RenderedAudio,
     Result,
@@ -51,9 +52,11 @@ from bayram.contracts import (
     Vendor,
     VendorOperation,
     VoiceDescriptor,
+    VoiceGender,
+    err,
     ok,
 )
-from bayram.errors import BayramError
+from bayram.errors import BayramError, ConfigError
 from bayram.logging import get_logger
 from bayram.providers.tts.elevenlabs_api import (
     API_KEY_HEADER,
@@ -81,6 +84,7 @@ __all__ = [
     "SPEECH_PATH_TEMPLATE",
     "DEFAULT_OUTPUT_FORMAT",
     "DEFAULT_VOICE_SETTINGS",
+    "DEFAULT_NARRATION_VOICES",
     "health_usage",
     "mime_for_output_format",
 ]
@@ -110,6 +114,14 @@ DEFAULT_VOICE_SETTINGS: Final[Mapping[str, Any]] = {
     "similarity_boost": 0.75,
     "style": 0.35,
     "use_speaker_boost": True,
+}
+
+#: The two house voices a video line falls back to when the Gemini pool cannot speak it
+#: (IMAGE_VIDEO_SPEC §5.2): the registry's warm female (Charlotte) and its narrator (Brian).
+#: Replaced with the owner's picks through the constructor, never edited per call.
+DEFAULT_NARRATION_VOICES: Final[Mapping[VoiceGender, str]] = {
+    VoiceGender.FEMALE: "XB0fDUnXU5powFXDhCwa",
+    VoiceGender.MALE: "nPczCjzI2devNBz1zQrb",
 }
 
 #: Some accounts return a billed-character count on the response. When absent we count the
@@ -242,8 +254,10 @@ class ElevenLabsTts:
         client: httpx.AsyncClient | None = None,
         clock: Callable[[], datetime] = utc_now,
         usage: UsageSink = LOGGING_USAGE_SINK,
+        narration_voices: Mapping[VoiceGender, str] | None = None,
     ) -> None:
         self._api_key = api_key
+        self._narration_voices = dict(narration_voices or DEFAULT_NARRATION_VOICES)
         self._base_url = base_url.rstrip("/")
         self._model_id = model_id
         self._output_format = output_format
@@ -347,6 +361,85 @@ class ElevenLabsTts:
                 persona_id=speech.entry.persona_id,
                 is_mood_applied=is_mood_applied,
                 is_name_applied=speech.is_name_applied,
+            )
+        )
+
+    # -- NarrationProvider (IMAGE_VIDEO_SPEC §5.2: the fallback leg) -----------
+    async def narrate(
+        self, request: NarrationRequest, *, idempotency_key: str, timeout_s: float
+    ) -> Result[RenderedAudio]:
+        """A video line in a house voice. No persona, no name substitution — just the line.
+
+        The delivery style is sent only when it is a v3 audio tag; anything else is dropped,
+        because an unrecognised bracket is read aloud.
+        """
+        voice_id = self._narration_voices.get(request.gender)
+        if voice_id is None:
+            return err(
+                ConfigError(
+                    f"no ElevenLabs narration voice for {request.gender.value}",
+                    context={"provider": self.name, "gender": request.gender.value},
+                )
+            )
+        submitted, _ = self._with_mood(request.text, request.style)
+        started = perf_counter()
+        response = await send_request(
+            self._client,
+            provider=self.name,
+            method="POST",
+            url=self._base_url + SPEECH_PATH_TEMPLATE.format(voice_id=voice_id),
+            timeout_s=timeout_s,
+            headers={
+                API_KEY_HEADER: self._api_key,
+                IDEMPOTENCY_HEADER: idempotency_key,
+                "accept": "audio/mpeg",
+            },
+            params={"output_format": self._output_format},
+            json_body=self._body(submitted, language=request.language),
+            context={"operation": "narrate", "language": request.language.value},
+        )
+        if isinstance(response, Err):
+            await self._record_failure(response.error, latency_ms=_elapsed_ms(started))
+            return response
+        audio = read_audio_body(response.value, provider=self.name)
+        if isinstance(audio, Err):
+            await self._record_failure(
+                audio.error,
+                latency_ms=_elapsed_ms(started),
+                http_status=response.value.status_code,
+                response_bytes=len(response.value.content),
+            )
+            return audio
+        data = audio.value
+        billed = _billed_characters(response.value.headers, submitted=submitted)
+        cost_usd, cost_source = self._pricing.cost_for(
+            billed.count, is_vendor_counted=billed.is_vendor_counted
+        )
+        await self._usage.record(
+            VendorUsage(
+                vendor=Vendor.ELEVENLABS,
+                operation=VendorOperation.SPEECH_SYNTHESIS,
+                provider=self.name,
+                is_success=True,
+                model_id=self._model_id,
+                http_status=response.value.status_code,
+                latency_ms=_elapsed_ms(started),
+                billed_characters=billed.count,
+                response_bytes=len(data),
+                cost_usd=cost_usd,
+                cost_source=cost_source,
+            )
+        )
+        return ok(
+            RenderedAudio(
+                data=data,
+                mime=mime_for_output_format(self._output_format),
+                duration_s=estimate_speech_duration_s(
+                    request.text, chars_per_second=self._chars_per_second
+                ),
+                remote_id=_first_header(response.value.headers, _REQUEST_ID_HEADERS),
+                cost_usd=cost_usd if cost_usd is not None else _UNPRICED_RENDERED_COST_USD,
+                cost_source=cost_source if cost_source is not None else CostSource.ESTIMATED,
             )
         )
 

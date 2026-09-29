@@ -24,6 +24,7 @@ from bayram.bot.handlers.common import (
     COMMAND_PREFIX,
     error_text,
     expire,
+    is_first_of_album,
     is_menu_label,
     read_draft,
     say,
@@ -90,8 +91,10 @@ async def handle_name_typed(message: Message, state: FSMContext, deps: BotDeps) 
     await show_step(message, state, draft.updated(recipient=recipient), WizardStep.NAME_CONFIRM)
 
 
-async def handle_name_not_typed(message: Message, state: FSMContext) -> None:
+async def handle_name_not_typed(message: Message, state: FSMContext, deps: BotDeps) -> None:
     """A voice note, a photo, a sticker. We need letters, so we ask for letters."""
+    if not is_first_of_album(message, deps):
+        return  # One answer per album (IMAGE_VIDEO_SPEC §2.2).
     draft = await read_draft(state)
     if draft is None:
         await expire(message, state)

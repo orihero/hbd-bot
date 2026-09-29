@@ -65,6 +65,7 @@ from bayram.logging import get_logger
 __all__ = [
     # Vocabulary
     "Product",
+    "MEDIA_PRODUCTS",
     "Plan",
     # Values
     "PurchaseRequest",
@@ -99,6 +100,20 @@ class Product(StrEnum):
 
     SINGLE = "single"
     STARTER = "starter"
+    #: The media SKUs (IMAGE_VIDEO_SPEC §7.1, D25), value for value with
+    #: ``bayram.db.enums.MediaSku``. They are sold down the redirect rail only, never by the
+    #: song checkout's two buttons, and every site that branched SINGLE-else-PLAN is an
+    #: exhaustive ``match`` that fails closed on them (§7.3).
+    IMAGE = "image"
+    VIDEO_STANDARD = "video_standard"
+    VIDEO_FAST = "video_fast"
+
+
+#: The media half of :class:`Product` (IMAGE_VIDEO_SPEC §7.1). A purchase of one of these writes a
+#: ``media_purchases`` receipt and moves a ``media_jobs`` row; it never grants a song credit.
+MEDIA_PRODUCTS: Final[frozenset[Product]] = frozenset(
+    {Product.IMAGE, Product.VIDEO_STANDARD, Product.VIDEO_FAST}
+)
 
 
 class Plan(StrEnum):
@@ -155,6 +170,11 @@ class PurchaseRequest:
     #: the one-method shape of that protocol is far more load-bearing than this dataclass's
     #: field list.
     resume_order_id: UUID | None = None
+    #: The ``media_jobs`` row this money buys, for a media SKU only (IMAGE_VIDEO_SPEC §7.2):
+    #: the settlement's media arm moves THAT row to ``paid`` in the money commit and starts it.
+    #: The sibling of ``resume_order_id`` and on the same footing — a property of the purchase,
+    #: not of a rail — and ``None`` for every song product.
+    resume_media_job_id: UUID | None = None
 
 
 class Purchase(BaseModel):
@@ -591,6 +611,10 @@ class PaymentIntent:
     #: a field here would invite a read-then-write where a claim belongs — which is precisely
     #: the at-most-once property the column was added to provide.
     resume_order_id: UUID | None = None
+    #: The ``media_jobs`` row a media SKU's intent pays for (IMAGE_VIDEO_SPEC §7.2), or ``None``
+    #: for a song product. Its start latch is the job row's own conditional state move, so
+    #: ``resumed_at`` is audit only for these (§3.3 ``media_start``).
+    resume_media_job_id: UUID | None = None
 
 
 @runtime_checkable
@@ -634,6 +658,7 @@ class PaymentIntentOpener(Protocol):
         plan_songs: int | None = None,
         plan_days: int | None = None,
         resume_order_id: UUID | None = None,
+        resume_media_job_id: UUID | None = None,
     ) -> Result[PaymentIntent]:
         """Open — or re-open — the intent for ``idempotency_key``. **Never raises.**
 
@@ -660,6 +685,10 @@ class PaymentIntentOpener(Protocol):
         first press's ``resume_order_id`` and not this call's: the winner's marker is the one
         that was paid for, and a second press whose draft has moved is declined at settlement
         rather than silently overwriting it here.
+
+        ``resume_media_job_id`` is the media SKUs' marker on the same terms (IMAGE_VIDEO_SPEC
+        §7.2): the ``media_jobs`` row the settlement moves to ``paid``. Its key is
+        ``{sku}:{tg}:{job_id}``, so one job has one intent and a replay carries the same row.
 
         Returns ``Result`` and never raises, like every seam in this codebase: a store that
         could not write the row has told the caller something it must handle, and "the button

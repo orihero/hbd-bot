@@ -135,6 +135,10 @@ class VendorUsageRow(Base):
     #: ``NULL`` is a true answer, not a missing one: the wizard's lyric preview runs before
     #: any order exists.
     order_id: Mapped[UUID | None] = mapped_column(sa.Uuid, nullable=True, index=True)
+    #: Which media job the spend belongs to (revision 0031, IMAGE_VIDEO_SPEC §3.2.2) — the
+    #: media products' ``order_id``, since a media job is not an order. No foreign key, for
+    #: ``order_id``'s reason; indexed because "what did this job cost" is the same question.
+    media_job_id: Mapped[UUID | None] = mapped_column(sa.Uuid, nullable=True, index=True)
     #: The request's correlation id, so one line of the log and one row here can be joined.
     #: ``NULL`` when nothing was bound — the unbound ``"-"`` is never stored as a value.
     correlation_id: Mapped[str | None] = mapped_column(sa.String(64), nullable=True)

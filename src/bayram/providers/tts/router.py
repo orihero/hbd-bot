@@ -21,6 +21,8 @@ from bayram.contracts import (
     Err,
     HealthState,
     Language,
+    NarrationProvider,
+    NarrationRequest,
     ProviderHealth,
     RenderedAudio,
     Result,
@@ -30,13 +32,18 @@ from bayram.contracts import (
     err,
     ok,
 )
-from bayram.errors import ConfigError
+from bayram.errors import ConfigError, ErrorCode
 from bayram.logging import get_logger
 from bayram.providers.tts.elevenlabs import PROVIDER_NAME as ELEVENLABS_PROVIDER_NAME
 from bayram.providers.tts.transport import utc_now
 
 __all__ = [
     "LanguageRoutingTts",
+    "NarrationRouter",
+    "DEFAULT_NARRATION_ROUTES",
+    "DEFAULT_NARRATION_FALLBACK",
+    "NARRATION_ROUTER_NAME",
+    "build_narration_router",
     "DEFAULT_TTS_ROUTES",
     "ROUTER_NAME",
     "build_router",
@@ -58,6 +65,19 @@ DEFAULT_TTS_ROUTES: Final[Mapping[Language, str]] = {
     Language.RU: ELEVENLABS_PROVIDER_NAME,
     Language.EN: ELEVENLABS_PROVIDER_NAME,
 }
+
+NARRATION_ROUTER_NAME: Final[str] = "narration_router"
+
+#: Video narration's own table (IMAGE_VIDEO_SPEC §5.1): every language to the Gemini pool,
+#: ElevenLabs behind it. Songs keep ``DEFAULT_TTS_ROUTES``; the two never share a table.
+#: Spelled rather than imported so this module does not depend on the Gemini adapter.
+DEFAULT_NARRATION_ROUTES: Final[Mapping[Language, str]] = {
+    Language.UZ_LATN: "gemini_tts",
+    Language.UZ_CYRL: "gemini_tts",
+    Language.RU: "gemini_tts",
+    Language.EN: "gemini_tts",
+}
+DEFAULT_NARRATION_FALLBACK: Final[str] = ELEVENLABS_PROVIDER_NAME
 
 #: Worst first: an aggregate must never read better than its unhealthiest member.
 _SEVERITY_ORDER: Final[tuple[HealthState, ...]] = (
@@ -270,3 +290,137 @@ def _worst(states: Iterable[HealthState]) -> HealthState:
     """Severity order covers every member, so a non-empty list always resolves."""
     present = frozenset(states)
     return next((state for state in _SEVERITY_ORDER if state in present), HealthState.UNKNOWN)
+
+
+# ---------------------------------------------------------------------------
+# Narration (IMAGE_VIDEO_SPEC §5.1, §5.2; D23)
+# ---------------------------------------------------------------------------
+def build_narration_router(
+    providers: Sequence[NarrationProvider],
+    *,
+    routes: Mapping[Language, str] = DEFAULT_NARRATION_ROUTES,
+    fallback: str | None = DEFAULT_NARRATION_FALLBACK,
+    clock: Callable[[], datetime] = utc_now,
+) -> Result[NarrationRouter]:
+    """Bind the narration table and its fallback, or say which binding is missing."""
+    by_name: dict[str, NarrationProvider] = {provider.name: provider for provider in providers}
+    if len(by_name) != len(providers):
+        return err(
+            ConfigError(
+                "two narration providers share a name",
+                context={"names": [provider.name for provider in providers]},
+            )
+        )
+    wanted = [*routes.values(), *([fallback] if fallback else [])]
+    missing = sorted({name for name in wanted if name not in by_name})
+    if missing:
+        return err(
+            ConfigError(
+                f"the narration table names unknown provider(s): {', '.join(missing)}",
+                context={"missing": missing, "available": sorted(by_name)},
+            )
+        )
+    if not routes:
+        return err(ConfigError("the narration route table is empty"))
+    bound = {language: by_name[name] for language, name in routes.items()}
+    return ok(NarrationRouter(bound, fallback=by_name[fallback] if fallback else None, clock=clock))
+
+
+class NarrationRouter:
+    """A ``NarrationProvider`` that routes by language and falls back on any vendor fault.
+
+    **A content refusal is final** (§5.1, §5.2): the line is not offered to a second vendor,
+    because a refused line that another vendor speaks is a moderation bypass, and the job
+    fails with a refund instead. Every other failure — the pool exhausted, a missing house
+    voice, a vendor outage — is the fallback's to answer. A failing fallback fails the job
+    (O13: paid for voice, voice failed).
+    """
+
+    name: str = NARRATION_ROUTER_NAME
+
+    def __init__(
+        self,
+        routes: Mapping[Language, NarrationProvider],
+        *,
+        fallback: NarrationProvider | None,
+        clock: Callable[[], datetime] = utc_now,
+    ) -> None:
+        if not routes:
+            raise ConfigError("a narration router needs at least one route")
+        self._routes = dict(routes)
+        self._fallback = fallback
+        self._clock = clock
+
+    def provider_for(self, language: Language) -> NarrationProvider | None:
+        return self._routes.get(language, self._fallback)
+
+    async def narrate(
+        self, request: NarrationRequest, *, idempotency_key: str, timeout_s: float
+    ) -> Result[RenderedAudio]:
+        primary = self._routes.get(request.language)
+        if primary is None:
+            if self._fallback is None:
+                return err(
+                    ConfigError(
+                        f"no narration provider is routed for {request.language.value}",
+                        context={"language": request.language.value},
+                    )
+                )
+            primary = self._fallback
+        result = await primary.narrate(
+            request, idempotency_key=idempotency_key, timeout_s=timeout_s
+        )
+        if not isinstance(result, Err):
+            return result
+        fallback = self._fallback
+        if (
+            result.error.error_code is ErrorCode.CONTENT_REJECTED
+            or fallback is None
+            or fallback is primary
+        ):
+            return result
+        _LOG.warning(
+            "narration falling back",
+            extra={
+                "provider": primary.name,
+                "fallback": fallback.name,
+                "language": request.language.value,
+                "reason": result.error.error_code.value,
+                "pool_exhausted": result.error.context.get("pool_exhausted") is True,
+            },
+        )
+        return await fallback.narrate(request, idempotency_key=idempotency_key, timeout_s=timeout_s)
+
+    async def health(self) -> Result[ProviderHealth]:
+        """The leg is as healthy as its best path: a sick primary with a fallback degrades it."""
+        primaries: list[NarrationProvider] = []
+        for provider in self._routes.values():
+            if not any(provider is seen for seen in primaries):
+                primaries.append(provider)
+        primary_states: list[HealthState] = []
+        details: list[str] = []
+        for provider in primaries:
+            result = await provider.health()
+            if isinstance(result, Err):
+                primary_states.append(HealthState.UNAVAILABLE)
+                details.append(f"{provider.name}: {result.error.operator_message}")
+                continue
+            primary_states.append(result.value.state)
+            if result.value.detail:
+                details.append(f"{provider.name}: {result.value.detail}")
+        state = _worst(primary_states)
+        if state is not HealthState.HEALTHY and self._fallback is not None:
+            fallback = await self._fallback.health()
+            fallback_ok = (
+                not isinstance(fallback, Err) and fallback.value.state is HealthState.HEALTHY
+            )
+            details.append(f"fallback {self._fallback.name}: {'ok' if fallback_ok else 'down'}")
+            state = HealthState.DEGRADED if fallback_ok else HealthState.UNAVAILABLE
+        return ok(
+            ProviderHealth(
+                name=self.name,
+                state=state,
+                as_of=self._clock(),
+                detail="; ".join(details) or None,
+            )
+        )

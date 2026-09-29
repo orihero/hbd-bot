@@ -74,7 +74,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Final
+from typing import Final, assert_never
 from uuid import UUID
 
 from bayram.admin.schemas.actions import ReasonedRequest
@@ -961,6 +961,9 @@ class LifelineNote(StrEnum):
     BUYER_ERASED = "buyer_erased"
     #: A plan sale mints songs as they are used, so it writes no credit grant at purchase.
     PLAN_GRANTS_NOTHING = "plan_grants_nothing"
+    #: An image or video sale pays for one ``media_jobs`` row and grants no song credit at all
+    #: (IMAGE_VIDEO_SPEC §7.2) — structural, like the plan's, never a fault.
+    MEDIA_GRANTS_NOTHING = "media_grants_nothing"
     #: This payment never settled, so nothing downstream of it was ever going to happen.
     NOT_SETTLED = "not_settled"
     #: The confirmation went out, and ``at`` says when.
@@ -1027,7 +1030,7 @@ def build_lifeline(
         PaymentIntentState.CANCELLED.value,
         PaymentIntentState.EXPIRED.value,
     }
-    is_plan = intent.product == IntentProduct.STARTER.value
+    grants_nothing = _grants_nothing(intent.product)
     buyer_erased = intent.telegram_user_id is None
     by_operator = settle_source_of(intent.settle_note) is SettleSource.OPERATOR
     opened_at = min((row.payme_time for row in transactions), default=None)
@@ -1063,7 +1066,7 @@ def build_lifeline(
             ),
             _grant_step(
                 grants=grants,
-                is_plan=is_plan,
+                grants_nothing=grants_nothing,
                 is_paid=is_paid,
                 buyer_erased=buyer_erased,
                 is_terminal_unpaid=is_terminal_unpaid,
@@ -1165,28 +1168,52 @@ def _receipt_step(
     return _step(LifelineStep.RECEIPT, LifelineStatus.PENDING)
 
 
+def _grants_nothing(product: str) -> LifelineNote | None:
+    """Why this product's sale writes no credit grant at purchase, or ``None`` when it must.
+
+    An exhaustive ``match`` rather than "is it the plan?" (IMAGE_VIDEO_SPEC §7.3): with the media
+    SKUs in :class:`IntentProduct`, a binary test would read every media sale's absent grant as
+    ``missing``. A stored value this build does not know is treated as one that must grant, so
+    its absence shows as ``missing`` — loud, and the safe direction for an unknown sale.
+    """
+    try:
+        known = IntentProduct(product)
+    except ValueError:
+        return None
+    match known:
+        case IntentProduct.SINGLE:
+            return None
+        case IntentProduct.STARTER:
+            return LifelineNote.PLAN_GRANTS_NOTHING
+        case IntentProduct.IMAGE | IntentProduct.VIDEO_STANDARD | IntentProduct.VIDEO_FAST:
+            return LifelineNote.MEDIA_GRANTS_NOTHING
+        case _ as unreachable:
+            assert_never(unreachable)
+
+
 def _grant_step(
     *,
     grants: tuple[PaymentGrant, ...],
-    is_plan: bool,
+    grants_nothing: LifelineNote | None,
     is_paid: bool,
     buyer_erased: bool,
     is_terminal_unpaid: bool,
 ) -> LifelineStepView:
     """Was a credit granted?
 
-    **The plan branch comes first and is unconditional**, because it is structural rather than
-    circumstantial: a plan mints songs as they are used and grants nothing at purchase, in every
-    state, so a plan sale whose grant step read ``missing`` would be the panel reporting a
-    healthy sale as broken. That is the regression this function's test exists for.
+    **The no-grant branch comes first and is unconditional** — a plan, or a media SKU
+    (IMAGE_VIDEO_SPEC §7.3) — because it is structural rather than circumstantial: a plan mints
+    songs as they are used and a media sale pays for a job, so neither grants anything at
+    purchase, in any state, and a grant step reading ``missing`` for one would be the panel
+    reporting a healthy sale as broken. That is the regression this function's test exists for.
     """
     if grants:
         return _step(LifelineStep.CREDIT_GRANTED, LifelineStatus.DONE, at=grants[0].created_at)
-    if is_plan:
+    if grants_nothing is not None:
         return _step(
             LifelineStep.CREDIT_GRANTED,
             LifelineStatus.NOT_APPLICABLE,
-            note=LifelineNote.PLAN_GRANTS_NOTHING,
+            note=grants_nothing,
         )
     if is_paid and buyer_erased:
         return _step(
@@ -1254,6 +1281,8 @@ class ChainStopKind(StrEnum):
 
     SINGLE_SONG = "single_song"
     PLAN = "plan"
+    #: An image or video: the chain continues on the ``media_jobs`` row, not on a credit.
+    MEDIA = "media"
 
 
 class ChainStopView(ApiModel):
@@ -1277,6 +1306,10 @@ class ChainStopView(ApiModel):
 
 def to_chain_stop_view(detail: IntentDetail, *, receipt: PaymentReceipt | None) -> ChainStopView:
     """The consumption figures come from the RECEIPT, which is the row that counts them."""
+    if _grants_nothing(detail.product) is LifelineNote.MEDIA_GRANTS_NOTHING:
+        return ChainStopView(
+            kind=ChainStopKind.MEDIA, songs_used=None, songs_included=None, plan_ends_at=None
+        )
     if detail.product != IntentProduct.STARTER.value:
         return ChainStopView(
             kind=ChainStopKind.SINGLE_SONG,

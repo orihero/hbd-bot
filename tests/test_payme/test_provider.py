@@ -99,6 +99,7 @@ class FakeOpener:
         plan_songs: int | None = None,
         plan_days: int | None = None,
         resume_order_id: UUID | None = None,
+        resume_media_job_id: UUID | None = None,
     ) -> Result[PaymentIntent]:
         self.calls += 1
         self.seen.append(
@@ -114,6 +115,7 @@ class FakeOpener:
                 "plan_songs": plan_songs,
                 "plan_days": plan_days,
                 "resume_order_id": resume_order_id,
+                "resume_media_job_id": resume_media_job_id,
             }
         )
         if self.failure is not None:
@@ -141,6 +143,7 @@ class FakeOpener:
             # reaching here, which is the real store's behaviour and the property the resume
             # depends on when two presses in one run carry different drafts.
             resume_order_id=resume_order_id,
+            resume_media_job_id=resume_media_job_id,
         )
         self.stored[idempotency_key] = intent
         return ok(intent)
@@ -467,3 +470,43 @@ def test_an_encoded_blob_is_a_pure_function_of_the_reference() -> None:
 
     # Act / Assert
     assert encode_payload(payload) == encode_payload(payload)
+
+
+# ---------------------------------------------------------------------------
+# The media SKUs (IMAGE_VIDEO_SPEC §7.2, §7.3)
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("product", [Product.IMAGE, Product.VIDEO_STANDARD, Product.VIDEO_FAST])
+async def test_a_media_sku_carries_its_job_and_no_plan_or_song_marker(product: Product) -> None:
+    # Arrange — a request that (wrongly) also names a song render: only the job may travel.
+    opener = FakeOpener()
+    job_id = UUID(int=42)
+    request = PurchaseRequest(
+        telegram_user_id=8_589_934_592,
+        product=product,
+        amount_minor=500_000,
+        currency=_CURRENCY,
+        idempotency_key=f"{product.value}:8589934592:{job_id}",
+        resume_order_id=UUID(int=7),
+        resume_media_job_id=job_id,
+    )
+
+    # Act
+    result = await _provider(opener).charge(request)
+
+    # Assert
+    assert isinstance(result, Ok)
+    (seen,) = opener.seen
+    assert (seen["product"], seen["resume_media_job_id"]) == (product, job_id)
+    assert (seen["plan_songs"], seen["plan_days"], seen["resume_order_id"]) == (None, None, None)
+
+
+async def test_a_media_sku_that_names_no_job_opens_no_intent() -> None:
+    # Arrange
+    opener = FakeOpener()
+
+    # Act
+    result = await _provider(opener).charge(_request(product=Product.IMAGE))
+
+    # Assert — refused before the store is touched: a settlement would have no job to move.
+    assert isinstance(result, Err)
+    assert opener.calls == 0

@@ -70,6 +70,11 @@ dependencies = [
     # resampled copy could not be compared that way across Pillow versions. That test is
     # what stops the copy rotting the next time somebody redraws the artwork.
     "pillow>=10.4,<12",
+    # The CSAM legal hold (IMAGE_VIDEO_SPEC §6.7, `bayram.moderation.legal_hold`): held bytes
+    # are sealed to the escalation owner's X25519 public key (ephemeral ECDH + HKDF + AES-GCM),
+    # so this host can write them and never read them back. Primitives, not a hand-rolled
+    # cipher; it was already in the lock as a dev-only transitive dependency.
+    "cryptography>=43,<51",
     "typing-extensions>=4.12,<5",
 ]
 

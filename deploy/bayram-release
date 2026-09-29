@@ -1137,6 +1137,32 @@ PY
   done
 
   do_readiness_probe
+  do_media_doctor
+}
+
+# IMAGE_VIDEO_SPEC §9.1 item 4: every release asks the media gateway, through the tunnel,
+# whether it still answers, accepts our key and serves the allowlisted models — so a release
+# that broke reachability or auth is caught here, not by a customer's paid render.
+#
+# `--release` makes a red gateway fatal ONLY while an offered media SKU routes to it: with
+# media off (the default) the doctor's findings are printed as a warning and the release lands.
+# It runs with the bot/worker environment in a SUBSHELL, the `alembic_run` rule, so the rest
+# of this script never carries the gateway key. The doctor prints no key and no body.
+do_media_doctor() {
+  step "verify — the media gateway (python -m bayram.tools.media doctor --release)"
+  if (
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENVFILE"
+    set +a
+    exec "$VENV/bin/python" -m bayram.tools.media doctor --release
+  ); then
+    say "  media doctor: no failing check an offered SKU depends on"
+  else
+    fail_verify "the media doctor failed while a media SKU is offered on the local gateway:
+customers can pay for renders the gateway cannot make. Read the checks above, then fix the
+gateway or pause the SKU (python -m bayram.tools.media pause image) before re-running verify."
+  fi
 }
 
 # WHY THIS EXISTS, given everything above already passed. `systemctl is-active` says the
@@ -1300,7 +1326,8 @@ WHAT deploy WOULD DO, in order:
   4  pip install --force-reinstall --no-deps $M_WHEEL   &&   pip check
   5  restart, as four separate calls with an is-active after each:
        ${UNITS[0]} -> ${UNITS[1]} -> ${UNITS[2]} -> ${UNITS[3]}
-  6  verify: import the four units' modules, assert the revision, assert each unit is active
+  6  verify: import the four units' modules, assert the revision, assert each unit is active,
+     then the media gateway doctor (fatal only while a media SKU is offered on it)
 
 PLAN
   if [ "$M_ADDITIVE" = "true" ]; then

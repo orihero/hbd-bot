@@ -1,4 +1,5 @@
-"""The standing commands: ``/balance``, ``/help``, ``/privacy``, ``/support`` and ``/forget``.
+"""The standing commands: ``/balance``, ``/help``, ``/privacy``, ``/terms``, ``/support`` and
+``/forget``.
 
 The wizard asks for a third party's name and for private facts about them — an old joke, a
 hobby, the name only one person uses. Until this module existed the bot collected all of
@@ -46,7 +47,8 @@ from aiogram.types import BotCommand, Message
 
 from bayram.bot.deps import BotDeps
 from bayram.bot.handlers.balance import handle_balance
-from bayram.bot.handlers.common import error_text, privacy_text
+from bayram.bot.handlers.common import error_text, privacy_text, ui_language
+from bayram.bot.handlers.onboarding import load_identity, terms_standing
 from bayram.bot.handlers.submitting import (
     ORDER_ID_KEY,
     PROGRESS_MESSAGE_ID_KEY,
@@ -55,11 +57,14 @@ from bayram.bot.handlers.submitting import (
 from bayram.bot.handlers.support import open_ticket
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import start_over_keyboard
+from bayram.bot.menu_version import forget_menu_version
 from bayram.bot.middleware import resolve_language
+from bayram.bot.screens import terms_full_screen
 from bayram.bot.states import Wizard
 from bayram.contracts import Err, Language, Result, SupportTicketSource, ok
 from bayram.db.retention import DEFAULT_RETENTION_POLICY
 from bayram.logging import get_logger
+from bayram.terms import TermsStanding, forget_terms_cache
 
 __all__ = ["build_router", "BOT_COMMANDS", "COMMAND_ORDER", "commands_for"]
 
@@ -77,7 +82,7 @@ _LOG = get_logger(__name__)
 #: **There is deliberately no ``/settings`` entry**, and the decision is recorded here rather
 #: than left to be re-litigated: ⚙️ Sozlamalar is a button on the persistent reply keyboard,
 #: pinned under the text box on every screen, which is a more discoverable route than a
-#: command anybody would have to open this list to find. The list is already seven long — the
+#: command anybody would have to open this list to find. The list is already eight long — the
 #: point at which a menu stops being read — and a command whose only job is to render an
 #: inline screen would duplicate a button the customer is looking at while they scroll past
 #: it. Language, privacy and support all live behind that button, and ``/privacy`` and
@@ -88,6 +93,7 @@ COMMAND_ORDER: Final[tuple[str, ...]] = (
     "balance",
     "help",
     "privacy",
+    "terms",
     "support",
     "forget",
 )
@@ -116,7 +122,7 @@ async def handle_help(message: Message, state: FSMContext) -> None:
     await message.answer(translate("help.text", language))
 
 
-async def handle_privacy(message: Message, state: FSMContext) -> None:
+async def handle_privacy(message: Message, state: FSMContext, deps: BotDeps) -> None:
     """The retention schedule, rendered from the policy the purge job actually runs on.
 
     Reading the four periods here rather than writing them into the catalogues is what
@@ -138,7 +144,38 @@ async def handle_privacy(message: Message, state: FSMContext) -> None:
     no matching placeholder would be silently dropped by ``i18n._SafeParams``.
     """
     language = await resolve_language(state)
-    await message.answer(privacy_text(language, DEFAULT_RETENTION_POLICY))
+    await message.answer(
+        privacy_text(language, DEFAULT_RETENTION_POLICY, version=deps.settings.privacy_version)
+    )
+
+
+async def handle_terms(message: Message, state: FSMContext, deps: BotDeps) -> None:
+    """The whole Terms of Use (IMAGE_VIDEO_SPEC §2.1, Appendix A.1). New with M1.2.
+
+    ``/privacy`` is its sibling and was NOT given a second handler or a second notice: the
+    versioned Privacy Notice is the text ``privacy_text`` renders. This command is only the
+    Terms, and it carries ✅ when the gate is on and this account owes the pair in force — so a
+    customer the gate stopped can read the whole text and accept it from the same message.
+
+    Like every command here it leaves the FSM exactly where it was, and it is on the gate's
+    allowlist: somebody asked to accept a text must always be able to read it first.
+    """
+    user = message.from_user
+    telegram_user_id = user.id if user is not None else None
+    # ``load_identity`` rather than ``resolve_language`` alone: a customer the gate is about to
+    # ask should read the Terms in the language they chose, and this command sits above the
+    # onboarding router whose filter would otherwise have repaired the FSM's language cache.
+    identity = await load_identity(state, deps, telegram_user_id)
+    language = identity.ui_language or await ui_language(state, deps)
+    gate = deps.terms
+    standing = await terms_standing(deps, telegram_user_id)
+    screen = terms_full_screen(
+        language,
+        version=gate.versions.label if gate is not None else "",
+        stamp=gate.versions.stamp if gate is not None else "",
+        is_accept_offered=gate is not None and standing is not TermsStanding.ACCEPTED,
+    )
+    await message.answer(screen.text, reply_markup=screen.markup)
 
 
 async def handle_support(message: Message, state: FSMContext, deps: BotDeps) -> None:
@@ -206,6 +243,11 @@ async def handle_forget(message: Message, state: FSMContext, deps: BotDeps) -> N
     A complaint detached from the person who made it is a body nobody may read and an answer
     nobody can send. ``support_ticket_events.ticket_id`` is ``ON DELETE CASCADE``, so the
     timeline — every note and every reply written about them — goes in the same statement.
+
+    **And the Terms cache (IMAGE_VIDEO_SPEC §9.3).** The ``terms_acceptances`` rows lose their
+    account number inside the credit arm's transaction (``forget_account``); what that
+    transaction cannot reach is ``terms:ok:{tg}`` in Redis, and :func:`_forget_terms_cache`
+    deletes it, so the next message meets the Terms instead of a day-old cached "accepted".
 
     **And the credit record, which is on no schedule at all.** The entitlement layer added
     two tables that ``/privacy`` could not truthfully describe: ``credit_accounts`` is a
@@ -289,8 +331,17 @@ async def handle_forget(message: Message, state: FSMContext, deps: BotDeps) -> N
     forgotten = await _forget_profile(deps, telegram_user_id)
     erased = await _forget_credits(deps, telegram_user_id)
     torn_up = await _forget_tickets(deps, telegram_user_id)
+    unaccepted = await _forget_terms_cache(deps, telegram_user_id)
+    unmade = await _forget_media(deps, telegram_user_id)
+    # ``menu:v:{tg}`` names the account too (IMAGE_VIDEO_SPEC §2.2).
+    unversioned = await forget_menu_version(deps.media_kv, telegram_user_id)
     failure = next(
-        (result for result in (forgotten, erased, torn_up) if isinstance(result, Err)), None
+        (
+            result
+            for result in (forgotten, erased, torn_up, unaccepted, unmade, unversioned)
+            if isinstance(result, Err)
+        ),
+        None,
     )
     if isinstance(failure, Err):
         await message.answer(error_text(failure.error, language), reply_markup=keyboard)
@@ -366,10 +417,52 @@ async def _forget_tickets(deps: BotDeps, telegram_user_id: int | None) -> Result
     return ok(None)
 
 
+async def _forget_terms_cache(deps: BotDeps, telegram_user_id: int | None) -> Result[None]:
+    """Drop ``terms:ok:{tg}``, so the next message meets the Terms again (IMAGE_VIDEO_SPEC §9.3).
+
+    The ROWS are not this arm's: ``terms_acceptances`` is anonymised by the credit arm above,
+    inside ``forget_account``'s transaction, which is what ``_forget_credits`` calls. What that
+    transaction cannot reach is the Redis entry in front of it, and without this a forgotten
+    account would sail past the gate for up to a day on a cached acceptance whose row no longer
+    names them. The same shape as its neighbours: no sender succeeds, and a failure is
+    reported rather than papered over.
+
+    **Not conditional on the gate being on.** ``deps.terms_cache`` is wired whenever Redis is,
+    so the key goes even while the gate is switched off; an entry left from when it was on
+    would otherwise pass a forgotten account the day the owner switches it back.
+    """
+    if telegram_user_id is None:
+        return ok(None)
+    if deps.terms is not None:
+        forgotten = await deps.terms.forget(telegram_user_id)
+        if isinstance(forgotten, Err) or deps.terms_cache is None:
+            return forgotten
+    if deps.terms_cache is not None:
+        return await forget_terms_cache(deps.terms_cache, telegram_user_id)
+    return ok(None)
+
+
+async def _forget_media(deps: BotDeps, telegram_user_id: int | None) -> Result[None]:
+    """Erase the photos, voice notes, images, videos and prompts (IMAGE_VIDEO_SPEC §9.3).
+
+    The same shape as its neighbours: an unwired eraser and an unknown sender both succeed,
+    and a failure is reported rather than papered over. Rows under legal hold (§6.7) are the
+    one thing this deliberately leaves; they go on their own ≤72-hour clock.
+    """
+    eraser = deps.media_erasure
+    if eraser is None or telegram_user_id is None:
+        return ok(None)
+    erased = await eraser.forget_media(telegram_user_id)
+    if isinstance(erased, Err):
+        _LOG.error("the media record could not be erased", extra=erased.error.to_log_dict())
+        return erased
+    return ok(None)
+
+
 def build_router() -> Router:
     """A fresh router. Registered FIRST, so a command is never mistaken for an answer.
 
-    No handler here filters on state: these five have to work mid-wizard, and the note step
+    No handler here filters on state: these six have to work mid-wizard, and the note step
     accepts any text, so a command that fell through to it would be sung.
 
     ``/balance`` is registered here rather than in its own router for the same reason it is
@@ -381,6 +474,7 @@ def build_router() -> Router:
     router.message.register(handle_balance, Command("balance"))
     router.message.register(handle_help, Command("help"))
     router.message.register(handle_privacy, Command("privacy"))
+    router.message.register(handle_terms, Command("terms"))
     router.message.register(handle_support, Command("support"))
     router.message.register(handle_forget, Command("forget"))
     return router

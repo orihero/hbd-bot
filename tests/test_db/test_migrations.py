@@ -154,6 +154,34 @@ _BOT_CHATS_TABLE: Final[str] = "bot_chats"
 #: because that test compares NAMES in one direction only.
 _SELECTED_SUPPORT_GROUP_INDEX: Final[str] = "ix_bot_chats_selected_support_group"
 
+#: The table revision ``0030`` adds: the Terms + Privacy acceptance record
+#: (IMAGE_VIDEO_SPEC §3.2.1). Named by hand for the reason stated on ``_EXPECTED_TABLES``.
+_TERMS_ACCEPTANCES_TABLE: Final[str] = "terms_acceptances"
+
+#: The seven tables revision ``0031`` adds (IMAGE_VIDEO_SPEC §3.2.2), named by hand for the
+#: reason stated on ``_EXPECTED_TABLES``, and the three partial unique indexes that carry its
+#: invariants — one open request per (account, kind), one refund and one spend per job.
+_MEDIA_TABLES: Final[frozenset[str]] = frozenset(
+    {
+        "media_jobs",
+        "media_inputs",
+        "media_outputs",
+        "media_attempts",
+        "media_purchases",
+        "media_credit_ledger",
+        "media_credit_balances",
+        # Revision 0032 (IMAGE_VIDEO_SPEC §6.6): the review queue, and its one-pending-per-job
+        # latch below.
+        "moderation_reviews",
+    }
+)
+_MEDIA_PARTIAL_INDEXES: Final[tuple[tuple[str, str], ...]] = (
+    ("media_jobs", "ix_media_jobs_one_open_request"),
+    ("media_credit_ledger", "ix_media_credit_ledger_one_refund_per_job"),
+    ("media_credit_ledger", "ix_media_credit_ledger_one_spend_per_job"),
+    ("moderation_reviews", "ix_moderation_reviews_one_pending_per_job"),
+)
+
 #: The revision that adds the lyric the customer approves in the wizard, and the one it
 #: builds on. Named here because both halves of the product depend on this column existing
 #: before the wizard ships: without it the worker silently sings a lyric nobody approved.
@@ -525,6 +553,77 @@ def test_the_bot_chats_table_is_registered_as_well_as_migrated() -> None:
         f"{_BOT_CHATS_TABLE} is created by revision 0028 but no model declares it; "
         "import BotChatRow in src/bayram/db/models/__init__.py"
     )
+
+
+def test_the_terms_acceptances_table_is_registered_as_well_as_migrated() -> None:
+    """Revision 0030 creates ``terms_acceptances``; a model has to declare it too.
+
+    The same blind spot the tests above close. The stake here is the unique constraint that
+    makes an accept idempotent: it lives in the model's ``__table_args__``, so every unit
+    test of the writer exercises it only if ``create_all`` sees the model.
+    """
+    # Arrange / Act
+    registered = set(Base.metadata.tables)
+
+    # Assert
+    assert _TERMS_ACCEPTANCES_TABLE in registered, (
+        f"{_TERMS_ACCEPTANCES_TABLE} is created by revision 0030 but no model declares it; "
+        "import TermsAcceptanceRow in src/bayram/db/models/__init__.py"
+    )
+
+
+def test_the_media_tables_are_registered_as_well_as_migrated() -> None:
+    """Revision 0031 creates seven tables; a model has to declare each of them too.
+
+    The stake is the partial unique indexes: they live in the models' ``__table_args__``, so
+    the unit tests of "one open request" and "one refund per job" exercise them only if
+    ``create_all`` sees the models.
+    """
+    # Arrange / Act
+    missing = _MEDIA_TABLES - set(Base.metadata.tables)
+
+    # Assert
+    assert missing == set(), (
+        f"{sorted(missing)} are created by revision 0031 but no model declares them; "
+        "import them in src/bayram/db/models/__init__.py"
+    )
+
+
+def test_the_media_invariant_indexes_are_unique_and_partial_in_the_chain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A total UNIQUE (telegram_user_id, kind) would allow one request per account EVER; a
+    total UNIQUE (job_id) on the ledger would refuse a spend beside a refund. Read out of
+    ``sqlite_master``, which is the only place the ``WHERE`` is visible."""
+    # Arrange
+    url = _sqlite_url(tmp_path, "media-indexes.db")
+    _upgrade(url, monkeypatch)
+
+    def _read_sql(connection: Connection) -> dict[str, str | None]:
+        return {
+            name: connection.execute(
+                text("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = :name"),
+                {"name": name},
+            ).scalar_one_or_none()
+            for _, name in _MEDIA_PARTIAL_INDEXES
+        }
+
+    async def _run() -> dict[str, str | None]:
+        engine = create_async_engine(url)
+        try:
+            async with engine.connect() as connection:
+                return await connection.run_sync(_read_sql)
+        finally:
+            await engine.dispose()
+
+    # Act
+    created = asyncio.run(_run())
+
+    # Assert
+    for table, name in _MEDIA_PARTIAL_INDEXES:
+        sql = created[name]
+        assert sql is not None, f"{name} was not created on {table}"
+        assert "UNIQUE" in sql.upper() and "WHERE" in sql.upper(), f"{name}: {sql!r}"
 
 
 def test_the_approved_lyrics_revision_is_reachable_from_head() -> None:

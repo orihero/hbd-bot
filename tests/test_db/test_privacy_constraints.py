@@ -176,6 +176,13 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
         "name_records",
         "admin_audit_log",
         "chat_messages",
+        # Revision 0031 (IMAGE_VIDEO_SPEC §3.2.4): the customer's own prompt, narration and
+        # voice transcript on ``text_expires_at``, and their photos, voice notes and the
+        # images and videos made from them on ``expires_at``. Legal-hold rows carry a second
+        # clock, ``legal_hold_expires_at``, read by its own purge arm.
+        "media_jobs",
+        "media_inputs",
+        "media_outputs",
     }
     # ``vendor_usage`` (revision 0016) is deliberately in NEITHER set. It holds no personal
     # data to be clocked or erased: every column is a closed enum, an integer, a machine id
@@ -412,6 +419,22 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     # would also delete the one thing an operator needs when tickets stop arriving — the row
     # saying which group was selected and what the last verification said about it.
     #
+    # ``terms_acceptances`` (revision 0030, IMAGE_VIDEO_SPEC §3.2.1, §3.2.4) is deliberately in
+    # NEITHER set, by the THIRD ROUTE stated above for ``broadcast_recipients``. It carries a
+    # ``telegram_user_id`` and is about an identified person, but every other column is a
+    # version string the OWNER wrote, a closed enum (the language the text was shown in, the
+    # screen that took the tap) or a clock — nothing on it is text ABOUT a person. Identity
+    # leaves by ``bayram.db.credit_erasure.forget_account``'s anonymising ``UPDATE``
+    # (``bayram.db.terms.anonymise_terms_acceptances``); growth leaves by
+    # ``bayram.db.purge._purge_terms_acceptances``' 400-day cutoff, which is NARROWER than
+    # ``broadcast_recipients``': it reaches only rows ``/forget`` has already anonymised,
+    # because an identified acceptance is a live account's lawful-basis record and must not
+    # age out while the account still uses the bot. It is NOT in
+    # ``tables_erased_on_request``, because deleting the row on request would make the number
+    # of acceptances of a version shrink retroactively; it is NOT in
+    # ``tables_with_personal_data``, because it has no ``*_expires_at`` clock and must not
+    # acquire one — the proof of acceptance is kept for as long as the account is.
+    #
     #: Tables whose personal data is erased ON REQUEST rather than on a clock. The absence of
     #: a row IS the erasure record: ``/forget`` DELETEs it outright (PD-3, a full reset to
     #: first-contact state), so there is nothing for a sweep to find and no ``*_expires_at``
@@ -419,7 +442,25 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     #: documented erasure route and a silent exemption — and ``test_audit_retention.py``'s
     #: ``_clocks_in_the_schema`` keys off ``*_expires_at``, so it ignores this table by
     #: construction and needs no edit.
-    tables_erased_on_request = {"user_profiles"}
+    #:
+    #: ``media_credit_balances`` (revision 0031) is here rather than above, although
+    #: IMAGE_VIDEO_SPEC §3.2.4 lists it with the personal-data tables: it has no clock and must
+    #: not acquire one — a spendable balance does not age out — and ``/forget`` DELETEs the row
+    #: (``bayram.db.media_erasure.forget_media``), so the absence of the row is the erasure
+    #: record, exactly ``user_profiles``' route.
+    #:
+    #: ``media_purchases`` and ``media_credit_ledger`` (revision 0031) are in NEITHER set, by
+    #: the THIRD ROUTE ``terms_acceptances`` takes above: an id, a SKU, an amount, a closed
+    #: reason, a machine reference and a clock — nothing about a person but the id, which
+    #: ``/forget`` nulls, and a 400-day cutoff then bounds the anonymised remainder only.
+    #: ``media_attempts`` is in neither set on ``vendor_usage``' argument: no personal data at
+    #: all, a 400-day cutoff on ``created_at``.
+    #:
+    #: ``moderation_reviews`` (revision 0032, IMAGE_VIDEO_SPEC §6.6) is in neither set on the
+    #: same argument: a job id, closed category codes, an OPERATOR's username, a closed reason
+    #: code and clocks — no customer text and no Telegram id. It cascades with its
+    #: ``media_jobs`` row, and ``due_at`` is an SLA, deliberately not spelled ``*_expires_at``.
+    tables_erased_on_request = {"user_profiles", "media_credit_balances"}
 
     # Act
     missing = [

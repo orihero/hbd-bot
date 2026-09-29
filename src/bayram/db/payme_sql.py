@@ -69,8 +69,15 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bayram.db.credit_sql import insert_or_ignore, rowcount_of
-from bayram.db.enums import CreditEntryKind, IntentProduct, PaymentIntentState, PaymeState
+from bayram.db.enums import (
+    CreditEntryKind,
+    IntentProduct,
+    MediaPurchaseProvider,
+    PaymentIntentState,
+    PaymeState,
+)
 from bayram.db.models.credit_ledger import CreditLedgerRow
+from bayram.db.models.media_purchase import MediaPurchaseRow
 from bayram.db.models.payme_rpc_log import RPC_METHOD_LENGTH, PaymeRpcLogRow
 from bayram.db.models.payme_transaction import PaymeTransactionRow
 from bayram.db.models.payment_intent import PaymentIntentRow
@@ -101,6 +108,7 @@ __all__ = [
     "mark_cancelled",
     "mark_intent_notified",
     "claim_intent_resume",
+    "cancel_pending_intent",
     "anonymise_intents",
     "insert_rpc_log",
 ]
@@ -386,6 +394,19 @@ async def settlement_counts(
         .where(PlanPurchaseRow.idempotency_key.in_(settled_keys))
         .scalar_subquery()
     )
+    # The media SKUs' receipts (IMAGE_VIDEO_SPEC §7.2): one per performed media transaction,
+    # written in the same commit, so they belong on the receipts side of the identity. They
+    # grant no song credit, so the grants count is untouched — a media sale is, like a plan,
+    # a receipt with no grant beside it.
+    media = (
+        sa.select(sa.func.count())
+        .select_from(MediaPurchaseRow)
+        .where(
+            MediaPurchaseRow.provider == MediaPurchaseProvider.PAYME,
+            MediaPurchaseRow.idempotency_key.in_(settled_keys),
+        )
+        .scalar_subquery()
+    )
     grants = (
         sa.select(sa.func.count())
         .select_from(CreditLedgerRow)
@@ -395,7 +416,7 @@ async def settlement_counts(
         )
         .scalar_subquery()
     )
-    row = (await session.execute(sa.select(performed, topups + plans, grants))).one()
+    row = (await session.execute(sa.select(performed, topups + plans + media, grants))).one()
     return (int(row[0]), int(row[1]), int(row[2]))
 
 
@@ -421,6 +442,7 @@ async def insert_intent(
     valid_until: datetime,
     resume_order_id: UUID | None,
     now: datetime,
+    resume_media_job_id: UUID | None = None,
 ) -> bool:
     """Open one payment. ``True`` when THIS caller wrote it, ``False`` on a replayed key.
 
@@ -473,6 +495,8 @@ async def insert_intent(
             # the intent pointing at the second one's render while the first one's link is
             # what the customer is looking at.
             "resume_order_id": resume_order_id,
+            # The media sibling (IMAGE_VIDEO_SPEC §7.2), written once on the same terms.
+            "resume_media_job_id": resume_media_job_id,
             "resumed_at": None,
             "created_at": now,
             "updated_at": now,
@@ -679,6 +703,30 @@ async def expire_intent(session: AsyncSession, *, intent_id: UUID, now: datetime
             PaymentIntentRow.valid_until <= now,
         )
         .values(state=PaymentIntentState.EXPIRED, updated_at=now)
+    )
+    return rowcount_of(result) == 1
+
+
+async def cancel_pending_intent(session: AsyncSession, *, intent_id: UUID, now: datetime) -> bool:
+    """The customer withdrew an unpaid media request: ``pending -> cancelled``. ``False`` means
+    a rail-side transaction holds the intent (money in flight) or it has already ended.
+
+    IMAGE_VIDEO_SPEC §2.6. The same ``state = 'pending'`` term :func:`hold_intent` matches on,
+    so this and a racing ``CreateTransaction`` are one mutex: exactly one of them moves the
+    row. If this wins, the rail's hold loses and the customer is refused on the payment page
+    (``-31052``); if the hold wins, the cancel answers "too late" and the payment proceeds.
+
+    **Subtractive, which is why the bot may make it.** The bot's port over intents is
+    additive-only (``bayram.checkout.PaymentIntentOpener``) because settling or releasing one
+    moves money; ending an intent nobody has started paying moves nothing and grants nothing.
+    """
+    result = await session.execute(
+        sa.update(PaymentIntentRow)
+        .where(
+            PaymentIntentRow.id == intent_id,
+            PaymentIntentRow.state == PaymentIntentState.PENDING,
+        )
+        .values(state=PaymentIntentState.CANCELLED, updated_at=now)
     )
     return rowcount_of(result) == 1
 

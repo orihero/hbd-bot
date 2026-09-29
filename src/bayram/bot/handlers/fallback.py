@@ -31,7 +31,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from bayram.bot.deps import BotDeps
-from bayram.bot.handlers.common import present, say, ui_language
+from bayram.bot.handlers.common import is_first_of_album, present, say, ui_language
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import start_over_keyboard
 from bayram.bot.middleware import resolve_language
@@ -95,6 +95,9 @@ async def handle_stray_message(message: Message, state: FSMContext, deps: BotDep
     docstring above records what the second one stopped being when the onboarding router
     landed: it is no longer first contact and must no longer be answered with a wizard.
     """
+    if not is_first_of_album(message, deps):
+        # IMAGE_VIDEO_SPEC §2.2: an album is ten messages; it is answered once, not ten times.
+        return
     current = await state.get_state()
     _LOG.info("unmatched message", extra={"content_type": message.content_type, "state": current})
     if current is None:

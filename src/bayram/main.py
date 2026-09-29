@@ -51,9 +51,16 @@ from bayram.bot.ports import OrderSubmitter, SupportTicketEraser
 from bayram.bot.pricing import Pricing
 from bayram.checkout import STUB_PROVIDER_NAME
 from bayram.config import FOREIGN_SECRET_ENV_VARS, Settings, env_file, load_settings
+from bayram.contracts import Err
+from bayram.db.media_erasure import SqlMediaEraser
 from bayram.db.support_tickets import SqlSupportTickets
+from bayram.db.terms import SqlTermsLedger
 from bayram.errors import BayramError, ConfigError
 from bayram.logging import configure_logging, get_logger
+from bayram.media.boot import refuse_unsafe_media_config
+from bayram.media.desk import SqlMediaDesk
+from bayram.media.payment import SqlMediaCharge
+from bayram.moderation.strikes import RedisStrikeStore
 from bayram.payme.pause import is_paused
 from bayram.pipeline.content import LlmContentWriter
 from bayram.runtime.container import AppContainer, build_container
@@ -66,6 +73,7 @@ from bayram.runtime.jobs import (
 from bayram.runtime.startup import verify_host
 from bayram.runtime.submitter import ArqOrderSubmitter, InProcessOrderSubmitter
 from bayram.support import resolve_support_quota
+from bayram.terms import InMemoryTermsCache, TermsCache, TermsGate, TermsVersions
 
 __all__ = [
     "main",
@@ -115,7 +123,7 @@ def _reachable_foreign_secrets() -> tuple[str, ...]:
 
 
 def refuse_an_unsafe_checkout_rail(settings: Settings) -> None:
-    """Three boot refusals about money. Raises ``ConfigError``; returns ``None`` when safe.
+    """Boot refusals about money. Raises ``ConfigError``; returns ``None`` when safe.
 
     Called before anything is built, because each of these is a statement about configuration
     alone and none of them needs a database, a Redis or a vendor. A process that is going to
@@ -125,7 +133,8 @@ def refuse_an_unsafe_checkout_rail(settings: Settings) -> None:
     was right for a stub that reports every purchase paid and takes nothing. It is not right
     for a rail that takes real money: with ``credits_enforced`` false the worker covers a
     short balance with an ``UNENFORCED_RENDER`` grant and renders anyway, so the customer is
-    charged 7 000 UZS and would have got the song for nothing. The failure is silent, it is
+    charged the song price (``single_song_price_minor``) and would have got the song for
+    nothing. The failure is silent, it is
     on the money path, and nothing else in the process would ever notice it — the bot-side
     paywall deliberately does not read that flag. So the two settings must move in the same
     edit, and this refusal is what makes that mandatory rather than remembered. The warning
@@ -220,6 +229,11 @@ def refuse_an_unsafe_checkout_rail(settings: Settings) -> None:
                 "wizard_state_ttl_s": draft_ttl_s,
             },
         )
+
+    # **5. Media on an unsafe rail or backend** (IMAGE_VIDEO_SPEC §4.5, §7.4): a SKU offered on
+    # a free rail with no beta, a fake moderator or backend, a SKU with no price or no margin,
+    # a gateway model off the allowlist. The worker runs the same check at startup.
+    refuse_unsafe_media_config(settings)
 
 
 def _fsm_storage(settings: Settings) -> BaseStorage:
@@ -348,6 +362,39 @@ def support_eraser(store: object | None) -> SupportTicketEraser | None:
     return None
 
 
+def build_terms_gate(
+    settings: Settings,
+    container: AppContainer,
+    cache: TermsCache | None,
+) -> TermsGate | None:
+    """The Terms + Privacy gate (IMAGE_VIDEO_SPEC §2.1, D26), or ``None`` for no gate.
+
+    ``None`` — the shipped default — whenever no version pair is configured: the versions ARE
+    the flag, and until counsel signs the draft off (M1.3) nothing should ask anybody to accept
+    it. ``None`` also, LOUDLY, when a pair is configured but there is no database to record an
+    acceptance in: a gate whose ✅ records nothing would be a lawful-basis record that does not
+    exist, so the bot runs ungated and says why at boot rather than pretending.
+
+    ``cache`` is the queue pool this process already holds, which is Redis; ``None`` on the
+    demo path, where an in-process cache stands in because nothing there outlives the process.
+    """
+    if not settings.is_terms_gate_enabled:
+        return None
+    if container.session_factory is None:
+        _LOG.warning(
+            "BAYRAM_TERMS_VERSION is set but no database is wired; the terms gate is OFF "
+            "because an acceptance could not be recorded",
+            extra={"terms_version": settings.terms_version},
+        )
+        return None
+    return TermsGate(
+        SqlTermsLedger(container.session_factory),
+        TermsVersions(terms=settings.terms_version, privacy=settings.privacy_version),
+        cache=cache if cache is not None else InMemoryTermsCache(),
+        url=settings.terms_url,
+    )
+
+
 async def run(settings: Settings, *, data_root: Path | None = None) -> None:
     """Build everything, poll until interrupted, then release it all."""
     # Before anything is built: three statements about configuration alone, each of which
@@ -374,6 +421,20 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         if container.session_factory is not None
         else None
     )
+    # THE TERMS GATE (IMAGE_VIDEO_SPEC §2.1), probed before the bot answers anyone. The gate
+    # fails OPEN on an unreadable ledger so a blip never silences the bot; the probe is what
+    # stops that posture from hiding a gate that can NEVER read — a missing revision 0030, a
+    # role without grants — which would leave every account ungated for ever (D20, D26).
+    terms_gate = build_terms_gate(settings, container, pool)
+    if terms_gate is not None:
+        probed = await terms_gate.probe()
+        if isinstance(probed, Err):
+            await _shutdown(container, bot, closeable)
+            raise ConfigError(
+                "BAYRAM_TERMS_VERSION is set but terms_acceptances cannot be read; apply the "
+                "migrations and grants, or unset the version pair",
+                cause=probed.error,
+            )
     deps = BotDeps(
         settings=settings,
         submitter=submitter,
@@ -464,6 +525,46 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         # ``my_chat_member`` and reads the selection on every group update, and the worker reads
         # the selection for a card sync and is the only process that can prove the bot may post.
         bot_chats=container.bot_chats,
+        # THE TERMS GATE (IMAGE_VIDEO_SPEC §2.1). ``None`` unless a version pair is configured,
+        # which is the default until counsel's sign-off — see :func:`build_terms_gate`. The
+        # cache rides on the queue pool: the one Redis connection this process already opened.
+        terms=terms_gate,
+        # The same cache on its own, so /forget drops ``terms:ok:{tg}`` with the gate OFF too
+        # (IMAGE_VIDEO_SPEC §9.3). ``None`` on the demo path, which has no Redis.
+        terms_cache=pool,
+        # The media arm of /forget (IMAGE_VIDEO_SPEC §9.3): rows in one transaction, then the
+        # objects, from the SAME storage the archive and the avatars use.
+        media_erasure=(
+            SqlMediaEraser(container.session_factory, storage=container.storage, queue=pool)
+            if container.session_factory is not None
+            else None
+        ),
+        # ✨ Create's image compose (IMAGE_VIDEO_SPEC §2.2, §2.3): rows through the database,
+        # stages through the SAME queue pool the song submitter uses. ``None`` — media offered
+        # to nobody, ✨ straight to the song — with no database or no pool (the demo path,
+        # which has no worker to run a stage).
+        media=(
+            SqlMediaDesk(container.session_factory, queue=pool, settings=settings)
+            if container.session_factory is not None and pool is not None
+            else None
+        ),
+        # The live-paid half of a media 💳 (IMAGE_VIDEO_SPEC §7.2): the SAME checkout the song
+        # buttons use, so the pause switch and the link builder apply. It is only ever called
+        # through ``offering.guarded_media_charge``, which keeps it off the stub and sandbox.
+        media_charge=(
+            SqlMediaCharge(
+                container.session_factory,
+                checkout=container.checkout,
+                settings=settings,
+                switches=pool,
+            )
+            if container.session_factory is not None
+            else None
+        ),
+        # The operator switches and ``menu:v:{tg}`` (§2.2, §4.5), on that same pool.
+        media_kv=pool,
+        # The suspension the compose screens read before a freeze (§6.4 L0), same pool.
+        media_strikes=RedisStrikeStore(pool) if pool is not None else None,
     )
     # The lock that makes a state filter a real gate. Built from the same Redis as the
     # storage, so it holds across every process that could handle this chat.

@@ -708,8 +708,9 @@ def test_everything_the_admin_package_imports_from_storage_is_public_api() -> No
             if isinstance(node, ast.ImportFrom) and node.module == storage_module.__name__:
                 imported.update(alias.name for alias in node.names)
 
-    # Assert — a concrete class at wiring time, and the shared key spelling. Nothing else.
-    assert imported <= {"LocalFileStorage", "archive_key"}
+    # Assert — a concrete class at wiring time, and the shared key spellings (the song
+    # archive's and the media outputs', IMAGE_VIDEO_SPEC §3.6). Nothing else.
+    assert imported <= {"LocalFileStorage", "archive_key", "media_key"}
     assert imported <= set(storage_module.__all__)
 
 
@@ -834,6 +835,10 @@ async def test_no_mounted_route_answers_with_a_text_plain_body(panel: Panel) -> 
         # the ticket namespace is the one that publishes a customer's free text in a body — so
         # it is exactly where a future ``text/plain`` would most plausibly appear.
         "ticket_id": uuid4(),
+        # The media review queue answers an empty list and a 404 for an unseeded review.
+        "review_id": uuid4(),
+        # The media output reveal answers a 404 for an unseeded output.
+        "output_id": uuid4(),
     }
 
     # Act / Assert

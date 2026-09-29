@@ -20,15 +20,24 @@ verbatim to a music vendor, and it *is* the delivered product. Because a denylis
 now come from three places, the error carries ``hit_in`` so an operator triaging a false
 positive can tell a name from a note from a whole song without guessing.
 
-Fail-open on *transport* failure is deliberate, and it is now conditional. If the LLM
-cannot be reached on a brief whose text is only the note, we do not hold a paying customer
-hostage to a moderation outage: the note is short, the local list already ran, the note is
-never rendered verbatim, and the downstream vendors moderate their own inputs. None of
-those four reasons survives when the customer wrote the lyric — up to three thousand
-characters that go to the music vendor unaltered and come back as the product. So a brief
-carrying an approved lyric fails CLOSED on a transport failure. The error is retryable, so
-the worker's ladder gets another attempt at the model rather than the order dying on one
-timeout. If the LLM answers and says no, that is a decision, and it is honoured either way.
+Nothing fails open any more (IMAGE_VIDEO_SPEC §6.8). This gate used to let a note-only
+brief through when the model could not be reached, on the argument that the note is short
+and the vendors moderate their own inputs. Two things undid that argument. The verdict
+schema defaulted ``is_allowed`` to true and ignored unknown keys, so a model that answered
+``{"allowed": false}`` — a refusal in the wrong key — parsed as an approval; and a parse
+failure travelled the same ``Err`` road as a timeout, so "the model said something we
+could not read" was also waved through. A gate whose silence means yes is not a gate.
+
+So the verdict is now strict (no default, unknown keys forbidden, a real boolean or
+nothing), and any failure to get one is retried twice here, then refused. Songs are sold
+before this stage runs, so "closed" does not mean silence: the refusal is terminal, the
+worker settles the order FAILED, which refunds the credit, and the failure is a
+``ModerationUnavailableError`` (``MODERATION_UNAVAILABLE``, not ``CONTENT_REJECTED``) that
+carries ``needs_review`` into ``orders.failed_reason``, so an operator can tell an outage
+refusal from a real one. The customer is told the service was unavailable, not that their
+words were unacceptable — nobody judged them. If the LLM answers and says no, that is a
+decision, and it is honoured either way; so is the reviewer vendor's own safety filter
+blocking the prompt, which is a judgement too and is neither retried nor marked for review.
 """
 
 from __future__ import annotations
@@ -40,11 +49,23 @@ from pydantic import BaseModel, ConfigDict
 
 from bayram.config import Settings
 from bayram.contracts import Brief, Err, LlmProvider, LlmRequest, Result, err, ok
-from bayram.errors import BayramError, ModerationRejectedError
+from bayram.errors import (
+    BayramError,
+    ModerationRejectedError,
+    ModerationUnavailableError,
+    ProviderRejectedContentError,
+)
 from bayram.logging import get_logger
 from bayram.pipeline.prompts import moderation_system_prompt, moderation_user_prompt
 
-__all__ = ["ModerationPayload", "LlmModerator", "AllowAllModerator", "LOCAL_DENY_PATTERNS"]
+__all__ = [
+    "ModerationPayload",
+    "LlmModerator",
+    "AllowAllModerator",
+    "LOCAL_DENY_PATTERNS",
+    "MODERATION_ATTEMPTS",
+    "UNREVIEWED_USER_MESSAGE_KEY",
+]
 
 _LOGGER = get_logger(__name__)
 
@@ -61,12 +82,34 @@ LOCAL_DENY_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
 REJECTED_NOTE_LOG_CHARS: Final[int] = 200
 
 
+#: Attempts at the model before the brief is refused unreviewed: the first call plus the
+#: two retries IMAGE_VIDEO_SPEC §6.8 asks for. Back-to-back, deliberately: the transport
+#: already retries its own 429s and 5xx with backoff, so these three are about a flaky
+#: answer (an unparseable verdict, one timeout), not about waiting out an outage.
+MODERATION_ATTEMPTS: Final[int] = 3
+
+#: The customer-facing key for an unreviewed refusal. Not ``error.content_not_allowed``:
+#: nothing judged the words, and telling someone to reword a harmless note because our
+#: model was down would send them off to fix a problem they do not have.
+UNREVIEWED_USER_MESSAGE_KEY: Final[str] = "error.service_unavailable"
+
+
+#: Strict: anything but an explicit ``is_allowed`` is no verdict. No default on
+#: ``is_allowed`` and ``extra="forbid"`` (IMAGE_VIDEO_SPEC §6.8): with a ``True`` default and
+#: ignored extras, ``{"allowed": false}`` parsed as an approval. ``strict=True`` for the same
+#: reason one step further — lax mode would read the string ``"yes"`` or the integer ``1``
+#: as true. An answer this model rejects fails to parse, and a parse failure is refused like
+#: any other missing verdict.
+#:
+#: The rationale lives here and not in the class docstring because the docstring is not
+#: private: the schema converters copy it into the response schema's ``description``, so it
+#: is sent to the reviewer model on every call. It stays one neutral, model-facing sentence.
 class ModerationPayload(BaseModel):
-    """The model's verdict. Tolerant of extra keys, strict about the two that matter."""
+    """The reviewer's verdict: whether the brief is allowed, and a short reason."""
 
-    model_config = ConfigDict(extra="ignore", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
-    is_allowed: bool = True
+    is_allowed: bool
     reason: str = ""
 
 
@@ -139,15 +182,11 @@ class LlmModerator:
             temperature=0.0,
             max_output_tokens=self._settings.llm_max_output_tokens,
         )
-        result = await self._llm.generate_json(
-            request, ModerationPayload, timeout_s=self._settings.llm_timeout_s
-        )
-        if isinstance(result, Err):
-            return self._on_transport_failure(
-                result.error, has_approved_lyrics=approved is not None
-            )
-
-        verdict = result.value
+        verdict = await self._verdict(request)
+        if isinstance(verdict, ProviderRejectedContentError):
+            return self._refuse_vendor_blocked(verdict, note=brief.note)
+        if isinstance(verdict, BayramError):
+            return self._refuse_unreviewed(verdict, has_approved_lyrics=approved is not None)
         if verdict.is_allowed:
             return ok(None)
         return err(
@@ -160,32 +199,81 @@ class LlmModerator:
             )
         )
 
-    @staticmethod
-    def _on_transport_failure(error: BayramError, *, has_approved_lyrics: bool) -> Result[None]:
-        """What an unreachable moderation model means, which depends on who wrote the words.
+    async def _verdict(self, request: LlmRequest) -> ModerationPayload | BayramError:
+        """A parsed verdict, or the last failure after :data:`MODERATION_ATTEMPTS` tries.
 
-        A note-only brief is allowed through on the local verdict alone — see the module
-        docstring for why that trade is still the right one. A brief carrying a lyric the
-        customer supplied is not: those words are sent to the music vendor unaltered and
-        handed back as the product, so an outage must not become the route by which they
-        skip the gate. Marked retryable, because the failure is the transport and not the
-        brief: the worker's ladder tries the model again rather than killing the order on
-        one timeout.
+        A vendor's own safety block comes back at once, unretried. It is a judgement, not
+        an outage: at temperature 0 the same prompt is blocked the same way every time, so
+        retrying it only pays for two more identical refusals.
         """
-        if not has_approved_lyrics:
+        attempt = 1
+        result = await self._ask(request)
+        while isinstance(result, Err):
+            if isinstance(result.error, ProviderRejectedContentError):
+                return result.error
             _LOGGER.warning(
-                "moderation call failed; allowing the note-only brief on the local verdict alone",
-                extra=error.to_log_dict(),
+                "moderation call failed; attempt %d of %d",
+                attempt,
+                MODERATION_ATTEMPTS,
+                extra=result.error.to_log_dict(),
             )
-            return ok(None)
-        _LOGGER.error(
-            "moderation call failed on a customer-written lyric; refusing to fail open",
-            extra=error.to_log_dict(),
+            if attempt >= MODERATION_ATTEMPTS:
+                return result.error
+            attempt += 1
+            result = await self._ask(request)
+        return result.value
+
+    async def _ask(self, request: LlmRequest) -> Result[ModerationPayload]:
+        return await self._llm.generate_json(
+            request, ModerationPayload, timeout_s=self._settings.llm_timeout_s
         )
+
+    @staticmethod
+    def _refuse_vendor_blocked(error: ProviderRejectedContentError, *, note: str) -> Result[None]:
+        """The reviewer model's vendor blocked the brief itself: an ordinary content refusal.
+
+        Somebody's filter did judge these words, so this is a decision like a ``false``
+        verdict — the default ``error.content_not_allowed`` key and no ``needs_review`` —
+        not the unreviewed refusal an outage earns.
+        """
         return err(
             ModerationRejectedError(
-                "moderation could not review a customer-written lyric",
-                is_retryable=True,
-                context={"failure": error.error_code.value},
+                "brief blocked by the moderation vendor's own safety filter",
+                context={
+                    "reason": "vendor_safety_block",
+                    "failure": error.error_code.value,
+                    "note": note[:REJECTED_NOTE_LOG_CHARS],
+                },
+                cause=error,
+            )
+        )
+
+    @staticmethod
+    def _refuse_unreviewed(error: BayramError, *, has_approved_lyrics: bool) -> Result[None]:
+        """No verdict after every attempt: refuse, terminally, and flag it for a human.
+
+        Terminal rather than retryable because the retries already happened here; handing
+        the worker a retryable error would re-queue a paid order for minutes of backoff
+        while the customer watches a progress bar. The worker settles a terminal failure
+        as FAILED, which is the existing refund path (IMAGE_VIDEO_SPEC §6.8: songs are
+        post-payment, so fail-closed means refund, not silence). ``needs_review`` and
+        ``failure`` are allowlisted into ``orders.failed_reason``; the note is not.
+        """
+        _LOGGER.error(
+            "moderation returned no verdict after %d attempts; refusing the brief unreviewed",
+            MODERATION_ATTEMPTS,
+            extra={**error.to_log_dict(), "has_approved_lyrics": has_approved_lyrics},
+        )
+        return err(
+            ModerationUnavailableError(
+                "moderation returned no verdict; the brief was refused unreviewed",
+                user_message_key=UNREVIEWED_USER_MESSAGE_KEY,
+                context={
+                    "failure": error.error_code.value,
+                    "attempts": MODERATION_ATTEMPTS,
+                    "needs_review": True,
+                    "has_approved_lyrics": has_approved_lyrics,
+                },
+                cause=error,
             )
         )

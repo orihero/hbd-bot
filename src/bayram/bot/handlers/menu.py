@@ -1,7 +1,9 @@
 """The persistent menu and the settings submenu behind ⚙️.
 
 **Four buttons, and each one earns its slot on a keyboard the customer cannot dismiss.**
-🎵 Make a song is the product. 🎫 My balance is the question a returning customer asks most
+✨ Create is the product — the song, and for the accounts media is offered to, images
+(IMAGE_VIDEO_SPEC §2.2; it was 🎵 Make a song, whose label still routes here).
+🎫 My balance is the question a returning customer asks most
 often and the one they used to have to know a command to ask. ⚙️ Settings is where the
 interface language lives now that it is no longer the first screen of every wizard run. ❓ Help
 is the thing a stuck person reaches for before they abandon a chat.
@@ -44,14 +46,14 @@ from bayram.bot.handlers.common import (
     present,
     privacy_text,
     read_draft,
-    reset_to_welcome,
     say,
     support_text,
     ui_language,
     write_draft,
 )
+from bayram.bot.handlers.media.compose import open_create
 from bayram.bot.i18n import SUPPORTED_LANGUAGES, translate
-from bayram.bot.keyboards import MENU_BUTTON_KEYS, MENU_LABELS
+from bayram.bot.keyboards import MENU_BUTTON_KEYS, MENU_LABELS, MENU_LEGACY_LABEL_KEYS
 from bayram.bot.screens import menu_screen, settings_language_screen, settings_screen
 from bayram.bot.states import Wizard
 from bayram.contracts import Err
@@ -76,8 +78,20 @@ _LOG = get_logger(__name__)
 #: button to dispatch to. The set is built from ``MENU_BUTTON_KEYS``, which is the same tuple
 #: ``main_menu_keyboard`` draws from and ``MENU_LABELS`` is computed over, so the keyboard,
 #: the router filter and this map cannot disagree about what the menu is.
+#:
+#: The legacy labels are merged in AFTER the live ones and mapped to the key they now mean
+#: (IMAGE_VIDEO_SPEC §2.2): a 🎵 pressed on a keyboard pinned before ✨ Create existed is ✨.
 _KEY_BY_LABEL: Final[Mapping[str, str]] = {
-    translate(key, language): key for key in MENU_BUTTON_KEYS for language in SUPPORTED_LANGUAGES
+    **{
+        translate(key, language): key
+        for key in MENU_BUTTON_KEYS
+        for language in SUPPORTED_LANGUAGES
+    },
+    **{
+        translate(legacy, language): key
+        for legacy, key in MENU_LEGACY_LABEL_KEYS.items()
+        for language in SUPPORTED_LANGUAGES
+    },
 }
 
 
@@ -88,8 +102,9 @@ async def handle_menu_label(message: Message, state: FSMContext, deps: BotDeps) 
     labels are catalogue strings: four registrations would be sixteen filters, and a locale
     edit would silently unregister one of them.
 
-    **Each arm delegates to the existing implementation rather than re-implementing it.** 🎵 is
-    ``common.reset_to_welcome``, which is also what the ↩️ Start-over button and 🎂 Make another
+    **Each arm delegates to the existing implementation rather than re-implementing it.** ✨ is
+    ``media.compose.open_create``, which is ``common.reset_to_welcome`` for an account offered
+    no media — which is also what the ↩️ Start-over button and 🎂 Make another
     call; 🎫 is ``handlers.balance.handle_balance``, which ``/balance`` calls; ❓ renders the
     same ``help.text`` ``commands.handle_help`` renders. A button and a command that describe
     the same thing must not become two implementations of it — the rule ``common.support_text``
@@ -105,7 +120,9 @@ async def handle_menu_label(message: Message, state: FSMContext, deps: BotDeps) 
     _LOG.info("a menu button was pressed", extra={"key": key})
     match key:
         case "menu.generate":
-            await reset_to_welcome(message, state, deps)
+            # ✨ Create (IMAGE_VIDEO_SPEC §2.2): the picker when media is offered to this
+            # account, and straight into the song — ``reset_to_welcome`` — when it is not.
+            await open_create(message, state, deps)
         case "menu.balance":
             await handle_balance(message, state, deps)
         case "menu.help":
@@ -138,7 +155,10 @@ async def handle_show_privacy(callback: CallbackQuery, state: FSMContext, deps: 
     """
     await callback.answer()
     language = await ui_language(state, deps)
-    await say(callback, privacy_text(language, DEFAULT_RETENTION_POLICY))
+    await say(
+        callback,
+        privacy_text(language, DEFAULT_RETENTION_POLICY, version=deps.settings.privacy_version),
+    )
 
 
 async def handle_show_support(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:

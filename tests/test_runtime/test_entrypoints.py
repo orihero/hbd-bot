@@ -19,6 +19,23 @@ from aiogram.fsm.storage.memory import MemoryStorage
 import bayram.main as main_module
 from bayram.config import Settings
 from bayram.errors import ConfigError
+from bayram.media.stages import (
+    MEDIA_CLEANUP_JOB,
+    MEDIA_DELIVER_JOB,
+    MEDIA_FETCH_JOB,
+    MEDIA_MUX_JOB,
+    MEDIA_OUTPUT_SCREEN_JOB,
+    MEDIA_POLL_JOB,
+    MEDIA_PRESCREEN_JOB,
+    MEDIA_REVIEW_JOB,
+    MEDIA_SCREEN_JOB,
+    MEDIA_SCRIPT_JOB,
+    MEDIA_START_JOB,
+    MEDIA_SUBMIT_JOB,
+    MEDIA_SWEEP_JOB,
+    MEDIA_TTS_JOB,
+    MEDIA_VOICE_PREPARE_JOB,
+)
 from bayram.runtime.container import build_container
 from bayram.runtime.jobs import (
     ACTIVITY_SNAPSHOT_JOB_NAME,
@@ -36,6 +53,7 @@ from bayram.runtime.jobs import (
     SUPPORT_VERIFY_JOB_NAME,
     TEST_SEND_JOB_NAME,
     VENDOR_BALANCE_JOB_NAME,
+    WORKSPACE_SWEEP_JOB_NAME,
     build_kit_worker_settings,
     generate_and_deliver,
 )
@@ -205,9 +223,13 @@ async def test_the_worker_registers_the_job_the_submitter_enqueues(settings: Set
     # — and ``bayram.admin.queue`` names these jobs as STRINGS it restates rather than imports.
     # A rename that compiled on both sides of that gap would silently stop every campaign,
     # which is exactly what reading this list by name prevents.
+    #
+    # The workspace sweep (IMAGE_VIDEO_SPEC §3.3) is the retention sweep's counterpart for
+    # the render scratch that the archive-rooted purge cannot reach.
     assert [_registered_name(fn) for fn in worker_settings.functions] == [
         KIT_JOB_NAME,
         RETENTION_JOB_NAME,
+        WORKSPACE_SWEEP_JOB_NAME,
         VENDOR_BALANCE_JOB_NAME,
         ACTIVITY_SNAPSHOT_JOB_NAME,
         PAYME_NOTIFY_JOB_NAME,
@@ -234,6 +256,27 @@ async def test_the_worker_registers_the_job_the_submitter_enqueues(settings: Set
         # bot was already sitting in; a rename that silently unregistered this job would leave
         # every such selection on "checking…" for ever.
         SUPPORT_VERIFY_JOB_NAME,
+        # The media stage chain (IMAGE_VIDEO_SPEC §3.3). The BOT enqueues the first two and
+        # the Payme settlement will enqueue ``media_start`` (M5), each by the name
+        # ``bayram.media.stages`` spells — so a rename here strands a paid request.
+        MEDIA_PRESCREEN_JOB,
+        MEDIA_SCREEN_JOB,
+        MEDIA_START_JOB,
+        MEDIA_SUBMIT_JOB,
+        MEDIA_POLL_JOB,
+        MEDIA_FETCH_JOB,
+        MEDIA_OUTPUT_SCREEN_JOB,
+        MEDIA_DELIVER_JOB,
+        MEDIA_CLEANUP_JOB,
+        # The review queue's apply job (IMAGE_VIDEO_SPEC §6.6): the ADMIN panel enqueues it by
+        # the string ``bayram.admin.queue`` restates, so a rename strands a decided review.
+        MEDIA_REVIEW_JOB,
+        # The video's own stages (M4.3): the BOT enqueues the script writer by this name.
+        MEDIA_SCRIPT_JOB,
+        MEDIA_TTS_JOB,
+        MEDIA_VOICE_PREPARE_JOB,
+        MEDIA_MUX_JOB,
+        MEDIA_SWEEP_JOB,
     ]
     assert worker_settings.max_jobs == settings.worker_concurrency
     assert worker_settings.job_timeout == settings.queue_job_timeout_s

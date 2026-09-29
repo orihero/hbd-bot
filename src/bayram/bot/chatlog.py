@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any, Final
 
 from aiogram import BaseMiddleware, Bot
@@ -27,6 +28,7 @@ from aiogram.methods.base import Response, TelegramType
 from aiogram.types import CallbackQuery, Message, TelegramObject
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from bayram.bot.albums import AlbumMemory
 from bayram.db.admin.chats import ChatLineDraft, record_chat_batch
 from bayram.db.enums import ChatDirection, ChatMessageKind
 from bayram.logging import get_logger
@@ -152,8 +154,11 @@ class ChatRecorder:
 class ChatLogInboundMiddleware(BaseMiddleware):
     """Inbound middleware logging customer messages and callbacks to the recorder."""
 
-    def __init__(self, recorder: ChatRecorder | None) -> None:
+    def __init__(self, recorder: ChatRecorder | None, albums: AlbumMemory | None = None) -> None:
         self._recorder = recorder
+        #: An album is ten messages and one gesture: it is logged as ONE line (IMAGE_VIDEO_SPEC
+        #: §2.3.2). The seen-set is the gate's and the handlers', under its own purpose.
+        self._albums = albums if albums is not None else AlbumMemory()
 
     async def __call__(
         self,
@@ -180,6 +185,10 @@ class ChatLogInboundMiddleware(BaseMiddleware):
             user = event.from_user
             if user is None:
                 return
+            if not self._albums.first(
+                user.id, event.media_group_id, purpose="chatlog", now=datetime.now(UTC)
+            ):
+                return
 
             kind = ChatMessageKind.TEXT
             body = event.text or ""
@@ -192,6 +201,13 @@ class ChatLogInboundMiddleware(BaseMiddleware):
             elif event.photo is not None:
                 kind = ChatMessageKind.SCREEN
                 body = event.caption or "[Photo]"
+            elif event.document is not None:
+                # A photo sent as a file is an image-compose input (IMAGE_VIDEO_SPEC §2.3.2).
+                # The file name is the customer's and is not copied into the log.
+                kind = ChatMessageKind.SCREEN
+                body = event.caption or "[Document]"
+            if event.media_group_id is not None:
+                body = event.caption or "[Album]"
 
             draft = ChatLineDraft(
                 telegram_user_id=user.id,

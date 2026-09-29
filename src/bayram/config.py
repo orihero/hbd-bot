@@ -61,6 +61,8 @@ __all__ = [
     "get_settings",
     "LogLevel",
     "CheckoutRail",
+    "MediaBackendName",
+    "MediaModeratorName",
     "VENDOR_SECRET_FIELDS",
     "REQUIRED_VENDOR_SECRET_FIELDS",
     "FOREIGN_SECRET_ENV_VARS",
@@ -124,6 +126,16 @@ type LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 #: duplication is pinned rather than merely noticed.
 type CheckoutRail = Literal["stub", "payme"]
 
+#: Which generation backend renders a media SKU (IMAGE_VIDEO_SPEC §4.5, O18). Closed for the
+#: same reason as :data:`CheckoutRail`: a typo is a boot failure naming the variable, not a
+#: silent fall-through. The spellings equal ``bayram.db.enums.MediaBackend``'s values, which
+#: is what ``media_jobs.backend`` stores; ``tests/test_media/test_settings.py`` pins the two.
+type MediaBackendName = Literal["local", "higgsfield", "fal", "fake"]
+
+#: Who screens media (IMAGE_VIDEO_SPEC §6). ``fake`` refuses to boot with any SKU offered
+#: outside the test suite (§4.5, §7.4).
+type MediaModeratorName = Literal["gateway", "fake"]
+
 #: The credentials the admin process must never hold (ADMIN_PANEL_PLAN §4.2, D10). The admin
 #: lifespan derives ``FORBIDDEN_ENV_VARS`` from this tuple, so a credential missing here is a
 #: credential a prod admin host may hold with neither a refusal nor a warning. Every field on
@@ -136,6 +148,22 @@ VENDOR_SECRET_FIELDS: Final[tuple[str, ...]] = (
     "llm_api_key",
     "llm_fallback_api_key",
     "openrouter_management_key",
+    # The local generation gateway's key (IMAGE_VIDEO_SPEC §9.5). Optional — media is off by
+    # default — so it is here and not in REQUIRED_VENDOR_SECRET_FIELDS.
+    "genai_api_key",
+    # The Cloudflare Access service token in front of that gateway (IMAGE_VIDEO_SPEC §9.1
+    # item 2). The client id is not secret-shaped; the secret is.
+    "genai_access_client_secret",
+    # A hosted guard endpoint's own credentials (IMAGE_VIDEO_SPEC §6.2, the D24 fallback):
+    # the gateway's key and Access token are never sent to a host that is not the gateway.
+    "media_moderator_api_key",
+    "media_moderator_access_client_secret",
+    # The Gemini TTS key pool (IMAGE_VIDEO_SPEC §5.2, §9.5; D23). Optional: an empty pool
+    # narrates through ElevenLabs.
+    "gemini_tts_api_keys",
+    # Higgsfield's REST secret (IMAGE_VIDEO_SPEC §4.3, §9.5; M6). The key id beside it is not
+    # secret-shaped and is not listed; the pair is useless without this half.
+    "higgsfield_api_secret",
 )
 
 #: The subset the bot and the worker cannot run without — the ones
@@ -744,6 +772,227 @@ class Settings(BaseSettings):
         ),
     )
 
+    # -- terms of use + privacy notice (IMAGE_VIDEO_SPEC §2.1, D26) ---------
+    #: The version pair every customer must have accepted, and THE FLAG for the whole gate.
+    #: Both empty — the default — means no gate: nothing asks, nothing blocks, and the bot runs
+    #: exactly as it did before M1.2. The spec's default until counsel signs the draft text off
+    #: (IMAGE_VIDEO_SPEC Q6, M1.3). Setting a pair turns the gate on; changing either value
+    #: re-prompts every account, because acceptance is recorded per exact pair
+    #: (``terms_acceptances``' UNIQUE). Owner-written, typically a date such as ``2026-10-01``;
+    #: 32 characters because that is the column.
+    terms_version: str = Field(default="", max_length=32)
+    privacy_version: str = Field(default="", max_length=32, validate_default=True)
+    #: Optional link to the full text on the web, drawn under the terms screen. Empty: no link.
+    terms_url: str = Field(default="", max_length=255)
+
+    # -- media: offering and rail (IMAGE_VIDEO_SPEC §4.5, §7.1, §7.4) ---------
+    #: Whether each media SKU is part of the catalogue at all. All three ship **False**: with
+    #: them off the ✨ button routes straight to songs and nothing below is read. Turning one
+    #: on is checked at boot by ``bayram.media.boot`` — a free rail needs the beta flag and
+    #: a non-empty allowlist, an offered SKU needs a price and a margin (§7.4).
+    is_image_offered: bool = Field(default=False)
+    is_video_standard_offered: bool = Field(default=False)
+    #: The Higgsfield tier (O2, D22). Off until M6.
+    is_video_fast_offered: bool = Field(default=False)
+    #: The free beta (O9, O12): on a rail that is not live-paid, media is offered to the
+    #: allowlist only, as 🎁, and recorded ``paid_via='beta'``. No effect on a live-paid rail
+    #: beyond a boot warning — beta ends at live-paid (§2.5).
+    media_beta_enabled: bool = Field(default=False)
+    #: Telegram ids, comma-separated. Admins are listed explicitly; the bot does not know
+    #: panel roles (§2.5).
+    media_beta_allowlist: Annotated[tuple[int, ...], NoDecode] = Field(default=())
+    #: The env backend per SKU. A Redis override (``media:backend:<sku>``) wins for new
+    #: submits; the effective backend is stamped on ``media_jobs.backend`` (§4.5).
+    image_backend: MediaBackendName = Field(default="local")
+    video_standard_backend: MediaBackendName = Field(default="local")
+    video_fast_backend: MediaBackendName = Field(default="higgsfield")
+    #: Where a SKU's job moves when its backend refuses a submit BEFORE anything was created
+    #: there — unavailable, quota, rate-limited, a 502 with no job id — and nothing of the
+    #: job was ever posted (IMAGE_VIDEO_SPEC §3.3, §4.1). Never after an ambiguous submit.
+    #: Empty (the default) = no fallback: the job retries on its own backend. A configured
+    #: fallback for an offered SKU is held to the same boot checks as its backend (§4.5).
+    image_fallback_backend: MediaBackendName | None = Field(default=None)
+    video_standard_fallback_backend: MediaBackendName | None = Field(default=None)
+    video_fast_fallback_backend: MediaBackendName | None = Field(default=None)
+    #: Prices in minor units (UZS tiyin), hand-set per currency, no FX (§7.1). ``None`` —
+    #: an empty variable — means "not sellable", and an offered SKU with no price refuses to
+    #: boot. 500_000 == 5 000 soʻm for ONE request yielding two images (O5).
+    image_price_minor: int | None = Field(default=500_000, gt=0)
+    #: 2_500_000 == 25 000 soʻm (owner, 2026-09-24): ~17.5 GPU-minutes and a long wait,
+    #: priced above the song.
+    video_standard_price_minor: int | None = Field(default=2_500_000, gt=0)
+    #: Unset until M6; 35 000–45 000 soʻm recommended (§7.1).
+    video_fast_price_minor: int | None = Field(default=None, gt=0)
+    #: The per-request cash cost of a backend may be at most this share of the SKU's price
+    #: net of the Payme fee, or the SKU is not offered on it (§4.3 margin check).
+    media_max_cost_share: float = Field(default=0.5, gt=0.0, le=1.0)
+    #: UZS per USD, for the margin check only. **Unset is safe for the local backend**, whose
+    #: cash cost is zero; a SKU on a backend that costs money refuses to boot without it,
+    #: because a margin cannot be proved in two currencies with no rate between them. The
+    #: admin panel's ``BAYRAM_ADMIN_UZS_PER_USD`` lives in another process's dotenv (D19).
+    media_uzs_per_usd: float | None = Field(default=None, gt=0, le=1_000_000)
+    #: Photos a customer may attach to one request (§1.3). A 1-ref backend gets a collage,
+    #: whose layouts stop at four (§4.4, ``media.composite.MAX_COLLAGE_PHOTOS``).
+    media_max_reference_images: int = Field(default=4, ge=0, le=4)
+    #: ``gateway`` screens on the owner's 5090 (D24, M3); ``fake`` allows everything and is
+    #: for tests — boot refuses it with any SKU offered unless ``use_fake_providers`` (§4.5).
+    media_moderator: MediaModeratorName = Field(default="gateway")
+    #: DEVELOPMENT ONLY. Lets a developer render on the REAL gateway before the guards are
+    #: installed: permits ``media_moderator=fake`` beside a real backend, and a plain-HTTP
+    #: gateway address. Boot refuses it unless ``environment`` is exactly ``dev``, and logs a
+    #: warning every start (``media.boot``). Added 2026-09-26 for the owner's live review.
+    media_dev_unscreened: bool = Field(default=False)
+    #: Where the guards (G1–G3, G8) answer. Empty means ``genai_base_url``: they run on the
+    #: same 5090. A hosted endpoint serving the same contract is the D24 fallback (§6.2).
+    #: On the gateway's own host the gateway's key and Access token are used; on any OTHER
+    #: host only the three ``media_moderator_*`` credentials below are, so the 5090's key is
+    #: never handed to a third party (``moderation.factory.guard_credentials``).
+    media_moderator_base_url: str = Field(default="", max_length=255)
+    #: The hosted guard endpoint's key, sent as the same header. Required (boot) when
+    #: ``media_moderator_base_url`` is on another host than ``genai_base_url``. Secret.
+    media_moderator_api_key: str = Field(default="")
+    #: An optional Cloudflare Access service token in front of that endpoint; both or neither.
+    media_moderator_access_client_id: str = Field(default="", max_length=128)
+    media_moderator_access_client_secret: str = Field(default="")
+    #: How G1 is reached (§6.5): ``moderate`` is the dedicated ``POST /v1/moderate/text``;
+    #: ``chat`` is the interim — Qwen3Guard exposed on ``/v1/chat/completions`` and its
+    #: ``Safety: … / Categories: …`` text parsed strictly by us.
+    media_guard_text_route: Literal["moderate", "chat"] = Field(default="moderate")
+    #: One guard call. G7 asks for ≤ 10 s p95 while Wan renders; past this it is
+    #: ``unavailable`` — ``media.busy`` before payment (§6.4).
+    media_guard_timeout_s: float = Field(default=15.0, gt=0.0, le=120.0)
+    #: Zero-tolerance nudity (§6.4): ShieldGemma's ``sexually_explicit`` at or above this on
+    #: ANY image blocks, whatever else is known. Low and fixed until M3.3 recalibrates it.
+    media_sexual_image_block_p: float = Field(default=0.2, gt=0.0, lt=1.0)
+    #: Screenings one account may run per UTC day (§6.4 L0): a guard that answers without
+    #: limit is an oracle for probing the policy. Over it the request is refused unscreened.
+    media_screen_daily_budget: int = Field(default=10, ge=1, le=1_000)
+    #: PAID requests (Payme, 🎟 credit or 🎁 beta) one account may start per UTC day, per kind
+    #: (§7.6). Counted from ``media_jobs.paid_at``, so a restart cannot reset it; checked
+    #: before a quote is drawn and again at every pay/credit/beta press.
+    media_daily_cap_image: int = Field(default=10, ge=1, le=1_000)
+    media_daily_cap_video: int = Field(default=3, ge=1, le=1_000)
+    #: The escalation owner's X25519 PUBLIC key, base64 (§6.7). CSAM-class bytes are sealed
+    #: to it; only the matching private key — held by the owner, never by this host — opens
+    #: them (``python -m bayram.tools.legal_hold``). Not a secret. Required with media offered.
+    media_legal_hold_recipient: str = Field(default="", max_length=64)
+
+    # -- media: the stage chain (IMAGE_VIDEO_SPEC §3.3–§3.5) ------------------
+    #: How long a frozen, unpaid request (``drafting``/``screening``/``quoted``) lives before
+    #: ``media_sweep`` abandons it and ``media_cleanup`` deletes its uploads (§2.6, §3.5).
+    media_quote_ttl_s: int = Field(default=86_400, ge=600, le=7 * 86_400)
+    #: Paid → delivered, per SKU (§3.5). Past it the job fails and, if it was paid for, one
+    #: SKU-scoped credit is granted. Every ETA shown at quote must fit inside it (NFR-20).
+    media_image_deadline_s: int = Field(default=2_700, ge=300, le=86_400)
+    media_video_standard_deadline_s: int = Field(default=14_400, ge=600, le=86_400)
+    media_video_fast_deadline_s: int = Field(default=1_800, ge=300, le=86_400)
+    #: Generation attempts per variant on the same backend (§3.3 "Retries"). An ambiguous
+    #: attempt counts as one, so a second ``unknown`` ends the variant (§4.2).
+    media_max_attempts: int = Field(default=2, ge=1, le=5)
+    #: Counted from the gateway reporting ``running`` only — queue time is not render time
+    #: (§3.5). Past it the attempt is ``failed`` and the retry policy decides.
+    media_image_render_timeout_s: int = Field(default=300, ge=30, le=3_600)
+    media_video_render_timeout_s: int = Field(default=2_400, ge=60, le=7_200)
+    #: Sampler steps sent to the gateway; always explicit (§4.2). 25 is the step count the
+    #: 31–43 s flux2 measurement was taken at.
+    media_image_steps: int = Field(default=25, ge=1, le=100)
+    media_video_steps: int = Field(default=20, ge=1, le=100)
+    #: img2img strength for a request with photos (§1.3): 0.5–0.7 keeps the subject.
+    media_image_denoise: float = Field(default=0.6, gt=0.0, le=1.0)
+    #: Days a delivered image or video (and its ``tg_file_id``) is kept, and the words of a
+    #: finished request (§3.2.4, §9.3). Open question Q2, so tunable; ``/forget`` ends it
+    #: sooner. Read through ``bayram.db.retention.resolve_retention_policy``.
+    retention_media_output_days: int = Field(default=30, ge=1, le=3_650)
+
+    # -- media: video narration (IMAGE_VIDEO_SPEC §2.4.2, §5.3, §5.4; O14, D23) -------
+    #: The clip length, and so the longest narration: text we accept before payment must be
+    #: speakable in it, and an own voice note longer than it (+0.25 s, §5.4) is refused.
+    narration_max_seconds: int = Field(default=5, ge=1, le=10)
+    #: Per-language word and character budgets under the owner's ~12-word ceiling (O14).
+    #: Starting points, calibrated in the M4.4 listening test. Uzbek covers both scripts.
+    narration_max_words_uz: int = Field(default=8, ge=1, le=12)
+    narration_max_words_ru: int = Field(default=10, ge=1, le=12)
+    narration_max_words_en: int = Field(default=12, ge=1, le=12)
+    #: ``media_jobs.narration_text`` is varchar(160); a budget cannot exceed its column.
+    narration_max_chars_uz: int = Field(default=60, ge=10, le=160)
+    narration_max_chars_ru: int = Field(default=70, ge=10, le=160)
+    narration_max_chars_en: int = Field(default=80, ge=10, le=160)
+    #: 🔄 regenerations of an LLM-written line per draft (§2.4.2); each costs a screening.
+    media_script_max_regens: int = Field(default=2, ge=0, le=5)
+
+    # -- media: narration voice (IMAGE_VIDEO_SPEC §5.1, §5.2; O8, D23) ------------------
+    #: Off sends every line to the fallback (ElevenLabs) without touching the pool.
+    gemini_tts_enabled: bool = Field(default=True)
+    #: The owner's key pool, comma-separated. Secret — see VENDOR_SECRET_FIELDS. Keys are
+    #: named everywhere by ``sha256(key)[:8]`` and never logged. No paid-tier gate (Q17):
+    #: free-tier keys serve every job. Empty narrates through the fallback. A plain string
+    #: rather than a tuple so it reads like every other secret (``""`` is unset); split it
+    #: with :attr:`gemini_tts_key_list`.
+    gemini_tts_api_keys: str = Field(default="")
+    gemini_tts_model: str = Field(default="gemini-3.8-flash-tts", min_length=1, max_length=64)
+    #: Two of the 30 prebuilt voices, chosen in the M4 listening test (Q14). A gender with
+    #: no voice here is spoken by the fallback.
+    gemini_tts_voice_female: str = Field(default="", max_length=32)
+    gemini_tts_voice_male: str = Field(default="", max_length=32)
+    #: The narration route table in ``parse_routes`` form; empty is every language to
+    #: ``gemini_tts``. Separate from ``tts_routes``: songs keep theirs.
+    narration_routes: str = Field(default="")
+    #: What speaks when the routed provider cannot (pool exhausted, no voice, outage). A
+    #: content refusal is never offered to it (§5.2).
+    narration_fallback: str = Field(default="elevenlabs_tts", max_length=32)
+
+    # -- the local generation gateway (IMAGE_VIDEO_SPEC §4.2, §9.1) ----------
+    #: HTTPS through the tunnel (§9.1). Empty with a SKU offered on ``local`` refuses to boot.
+    genai_base_url: str = Field(default="", max_length=255)
+    #: Sent as a header only, never ``?api_key=`` (§4.2). Secret — see VENDOR_SECRET_FIELDS.
+    genai_api_key: str = Field(default="")
+    #: The Cloudflare Access service token for the tunnel in front of the gateway (§9.1 item 2),
+    #: sent as ``CF-Access-Client-Id`` / ``CF-Access-Client-Secret`` headers. Both or neither:
+    #: boot refuses one without the other. Empty is a gateway with no Access policy, which
+    #: ``python -m bayram.tools.media doctor`` reports as a warning (12-media-gateway §2.4).
+    genai_access_client_id: str = Field(default="", max_length=128)
+    genai_access_client_secret: str = Field(default="")
+    #: Must be members of ``LOCAL_MODEL_ALLOWLIST`` (flux2, wan); boot refuses anything else,
+    #: so ``zootopia``, ``storybook`` and ``hunyuan`` are unreachable from bayram (§1.2).
+    genai_image_model: str = Field(default="flux2", min_length=1, max_length=32)
+    genai_video_model: str = Field(default="wan", min_length=1, max_length=32)
+    #: The model the 🤖 "AI writes" line is asked of on the gateway's
+    #: ``/v1/chat/completions`` (IMAGE_VIDEO_SPEC §5.5). A local model only: a ``:cloud`` tag
+    #: would send the customer's prompt off the box, so it is refused here.
+    genai_script_model: str = Field(default="qwen3.8:27b-q4_K_M", min_length=1, max_length=64)
+    #: How long the gateway may take to write a line before the D5 LLM stack is asked
+    #: instead (§5.5: "unavailable or busy > 20 s"). A Wan render holds the GPU for minutes.
+    genai_script_timeout_s: float = Field(default=20.0, gt=0.0, le=120.0)
+
+    # -- Higgsfield: the Fast tier and D21's paid image fallback (IMAGE_VIDEO_SPEC §4.3) ----
+    #: The REST platform. Only this host ever receives the ``Authorization`` header.
+    higgsfield_base_url: str = Field(default="https://platform.higgsfield.ai", max_length=255)
+    #: ``Authorization: Key <id>:<secret>``. The id is not secret; the secret is (see
+    #: VENDOR_SECRET_FIELDS). Both are required, at boot, for a SKU offered on ``higgsfield``.
+    higgsfield_api_key_id: str = Field(default="", max_length=128)
+    higgsfield_api_secret: str = Field(default="")
+    #: Keys of ``providers.media.higgsfield.HIGGSFIELD_MODELS``; boot refuses anything else.
+    #: Kling 3.0 standard is the Fast tier's default (§4.3).
+    higgsfield_image_model: str = Field(default="soul_standard", min_length=1, max_length=32)
+    higgsfield_video_model: str = Field(default="kling3_0_std", min_length=1, max_length=32)
+    #: USD per Higgsfield credit, for an ``/estimate`` that answers in credits. Unset, such an
+    #: estimate is "unknown" and the submit is refused — never read as free.
+    higgsfield_usd_per_credit: float | None = Field(default=None, gt=0.0, le=10.0)
+    #: The static per-output figures the boot margin check reads (§4.3 "from ``/estimate`` or
+    #: the static table"): boot does no IO, so the operator records the measured
+    #: ``/estimate`` here. Unset, a SKU on ``higgsfield`` refuses to boot — no known cost.
+    higgsfield_image_usd_per_output: float | None = Field(default=None, gt=0.0, le=100.0)
+    higgsfield_video_usd_per_output: float | None = Field(default=None, gt=0.0, le=100.0)
+    #: Per-REQUEST hard ceilings covering every variant and every retry (§4.3): the image
+    #: figure is both images × all attempts. The stage chain sums each attempt's estimate
+    #: against it before the POST; an attempt that would cross it is never posted.
+    image_max_cost_usd: float = Field(default=0.20, gt=0.0, le=100.0)
+    video_fast_max_cost_usd: float = Field(default=1.00, gt=0.0, le=100.0)
+    #: Standard is a GPU tier and has no paid ceiling unless one is set here: unset, boot
+    #: refuses a Standard route onto a paid backend, and a runtime override onto one is
+    #: quoted ``busy`` and never posted (§4.3).
+    video_standard_max_cost_usd: float | None = Field(default=None, gt=0.0, le=100.0)
+
     # -- languages ----------------------------------------------------------
     default_ui_language: Language = Field(default=Language.UZ_LATN)
     supported_languages: Annotated[tuple[Language, ...], NoDecode] = Field(
@@ -945,6 +1194,15 @@ class Settings(BaseSettings):
             raise ValueError(f"duplicate strategies in name_candidate_order: {value}")
         return value
 
+    @field_validator("genai_script_model")
+    @classmethod
+    def _script_model_must_be_local(cls, value: str) -> str:
+        # IMAGE_VIDEO_SPEC §5.5: the script model sits in its own local-only allowlist; a
+        # ``:cloud`` model is served by a third party and would carry the prompt with it.
+        if value.strip().lower().endswith(":cloud"):
+            raise ValueError("genai_script_model must be a local model, not a ':cloud' one")
+        return value.strip()
+
     @field_validator("supported_languages")
     @classmethod
     def _languages_must_be_unique(cls, value: tuple[Language, ...]) -> tuple[Language, ...]:
@@ -976,6 +1234,77 @@ class Settings(BaseSettings):
             )
         return value
 
+    @field_validator("terms_version")
+    @classmethod
+    def _terms_version_is_stripped(cls, value: str) -> str:
+        """``"2026-10-01 "`` is ``"2026-10-01"``: a trailing space from a hand-edited ``.env``
+        would otherwise be recorded on every acceptance and compared on every read."""
+        return value.strip()
+
+    @field_validator("privacy_version")
+    @classmethod
+    def _terms_versions_come_as_a_pair(cls, value: str, info: Any) -> str:
+        """Both versions or neither. One alone is a half-switched gate.
+
+        A Terms version with no Privacy version would record acceptances of a pair with an
+        empty half — a lawful-basis record that names no notice — and the reverse would gate on
+        a document nobody versioned. Refused at boot, where the mistake is still attributable.
+        """
+        terms = str(info.data.get("terms_version") or "").strip()
+        if bool(terms) != bool(value.strip()):
+            raise ValueError(
+                "BAYRAM_TERMS_VERSION and BAYRAM_PRIVACY_VERSION are set together or not at all"
+            )
+        return value.strip()
+
+    @property
+    def is_terms_gate_enabled(self) -> bool:
+        """Whether the Terms + Privacy gate asks anyone anything (IMAGE_VIDEO_SPEC §2.1)."""
+        return bool(self.terms_version.strip())
+
+    @field_validator(
+        "image_price_minor",
+        "video_standard_price_minor",
+        "video_fast_price_minor",
+        "image_fallback_backend",
+        "video_standard_fallback_backend",
+        "video_fast_fallback_backend",
+        "media_uzs_per_usd",
+        "higgsfield_usd_per_credit",
+        "higgsfield_image_usd_per_output",
+        "higgsfield_video_usd_per_output",
+        "video_standard_max_cost_usd",
+        mode="before",
+    )
+    @classmethod
+    def _blank_is_unset(cls, value: Any) -> Any:
+        """``BAYRAM_VIDEO_FAST_PRICE_MINOR=`` means "not sellable", as ``.env.example`` ships it.
+
+        pydantic would otherwise try to parse the empty string as a number and refuse to
+        boot on the documented spelling of "unset".
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("media_beta_allowlist", mode="before")
+    @classmethod
+    def _allowlist_from_csv(cls, value: Any) -> Any:
+        return _split_csv(value)
+
+    @field_validator("media_beta_allowlist")
+    @classmethod
+    def _allowlist_holds_telegram_ids(cls, value: tuple[int, ...]) -> tuple[int, ...]:
+        """Positive ids, de-duplicated in order. A 0 or a negative id is a typo, refused here."""
+        if any(item <= 0 for item in value):
+            raise ValueError("must list positive Telegram user ids")
+        return tuple(dict.fromkeys(value))
+
+    @property
+    def is_any_media_offered(self) -> bool:
+        """Whether any media SKU is in the catalogue (IMAGE_VIDEO_SPEC §4.5)."""
+        return self.is_image_offered or self.is_video_standard_offered or self.is_video_fast_offered
+
     @field_validator("greeting_max_duration_s")
     @classmethod
     def _greeting_window_must_be_ordered(cls, value: float, info: Any) -> float:
@@ -985,6 +1314,11 @@ class Settings(BaseSettings):
                 f"greeting_max_duration_s ({value}) must exceed greeting_min_duration_s ({minimum})"
             )
         return value
+
+    @property
+    def gemini_tts_key_list(self) -> tuple[str, ...]:
+        """The pool, split and de-duplicated (IMAGE_VIDEO_SPEC §5.2). Never log the result."""
+        return tuple(dict.fromkeys(item for item in _split_csv(self.gemini_tts_api_keys) if item))
 
     @property
     def is_production(self) -> bool:

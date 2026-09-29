@@ -379,7 +379,8 @@ async def test_a_data_subject_command_is_metered_on_its_own_generous_budget(
     said = texts(session)
     assert sum(1 for text in said if text in TOO_FAST_TEXTS) == 1
     assert not BLOCKED_TEXTS & set(said)
-    assert sum(1 for text in said if text.startswith("🔒")) == 2
+    # ``in`` rather than ``startswith``: the notice is headed by the draft banner until M1.3.
+    assert sum(1 for text in said if "🔒" in text) == 2
 
 
 async def test_a_blocked_account_s_erasure_request_is_never_refused_by_the_block_gate(

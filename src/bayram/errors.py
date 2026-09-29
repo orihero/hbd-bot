@@ -27,6 +27,7 @@ __all__ = [
     "ValidationError",
     "NotFoundError",
     "ModerationRejectedError",
+    "ModerationUnavailableError",
     "ProviderError",
     "ProviderTimeoutError",
     "ProviderRateLimitedError",
@@ -34,6 +35,7 @@ __all__ = [
     "ProviderQuotaExhaustedError",
     "ProviderRejectedContentError",
     "ProviderInvalidResponseError",
+    "ProviderAmbiguousError",
     "LlmParseError",
     "PipelineError",
     "NameVerificationExhaustedError",
@@ -62,6 +64,10 @@ class ErrorCode(StrEnum):
     INVALID_INPUT = "INVALID_INPUT"
     NOT_FOUND = "NOT_FOUND"
     CONTENT_REJECTED = "CONTENT_REJECTED"
+    # Not CONTENT_REJECTED: nothing judged the brief. The moderation model gave no verdict,
+    # so the brief was refused unreviewed (IMAGE_VIDEO_SPEC §6.8) — an outage, which an
+    # operator must be able to count apart from genuine refusals.
+    MODERATION_UNAVAILABLE = "MODERATION_UNAVAILABLE"
 
     # Provider transport
     RATE_LIMITED = "RATE_LIMITED"
@@ -70,6 +76,11 @@ class ErrorCode(StrEnum):
     QUOTA_EXHAUSTED = "QUOTA_EXHAUSTED"
     ARTIST_NAME_IN_STYLE = "ARTIST_NAME_IN_STYLE"
     UPSTREAM_MALFORMED = "UPSTREAM_MALFORMED"
+    # A submit whose outcome we cannot know: the POST left, and no job id came back (a read
+    # timeout, a dropped connection, a 5xx after the body was sent). The job may be running.
+    # Never retried automatically — a second POST is a second GPU job or a second vendor bill
+    # (IMAGE_VIDEO_SPEC §4.1, §4.2).
+    UPSTREAM_AMBIGUOUS = "UPSTREAM_AMBIGUOUS"
     PARSE_FAILED = "PARSE_FAILED"
 
     # Pipeline
@@ -226,6 +237,20 @@ class ModerationRejectedError(BayramError):
     default_is_retryable = False
 
 
+class ModerationUnavailableError(BayramError):
+    """No moderation verdict could be obtained, so the brief was refused unreviewed.
+
+    Its own code rather than a ``ModerationRejectedError`` because a ``LIKE
+    'CONTENT_REJECTED%'`` count of refused briefs must not silently include outages
+    (IMAGE_VIDEO_SPEC §6.8 asks for them to be marked for review). Terminal: the moderator
+    already retried, and the worker's refund path is the right place for a paid order.
+    """
+
+    code = ErrorCode.MODERATION_UNAVAILABLE
+    default_user_message_key = "error.service_unavailable"
+    default_is_retryable = False
+
+
 # ---------------------------------------------------------------------------
 # Providers
 # ---------------------------------------------------------------------------
@@ -307,6 +332,20 @@ class ProviderInvalidResponseError(ProviderError):
     code = ErrorCode.UPSTREAM_MALFORMED
     default_user_message_key = "error.provider_generic"
     default_is_retryable = True
+
+
+class ProviderAmbiguousError(ProviderError):
+    """The request may or may not have created a job at the vendor. Terminal for the CALLER.
+
+    Not retryable by design, and that is the whole point of the class: the generation
+    backends have no idempotency key (IMAGE_VIDEO_SPEC §4.2, §4.3), so repeating the POST can
+    render — or bill — twice. The attempt is marked ``ambiguous`` and reconciled (the local
+    gateway's ``GET /queue``; an admin hold for a paid vendor), never re-posted blindly.
+    """
+
+    code = ErrorCode.UPSTREAM_AMBIGUOUS
+    default_user_message_key = "error.provider_generic"
+    default_is_retryable = False
 
 
 class LlmParseError(ProviderError):

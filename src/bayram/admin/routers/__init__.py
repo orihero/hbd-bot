@@ -37,6 +37,7 @@ from bayram.admin.routers.dashboard import (
 )
 from bayram.admin.routers.generations import build_generations_router
 from bayram.admin.routers.health import build_health_router
+from bayram.admin.routers.media_reviews import build_media_reviews_router
 from bayram.admin.routers.orders import build_orders_router
 from bayram.admin.routers.retention import build_retention_router
 from bayram.admin.routers.reveal import build_reveal_router
@@ -78,6 +79,7 @@ __all__ = [
     "build_generations_router",
     "build_health_router",
     "build_login_router",
+    "build_media_reviews_router",
     "build_orders_router",
     "build_payment_notify_router",
     "build_rail_control_router",

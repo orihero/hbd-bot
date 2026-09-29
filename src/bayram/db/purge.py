@@ -25,7 +25,28 @@ Bot membership events   ``bot_membership_events``, deleted outright     13 month
 Payment RPC journal     ``payme_rpc_log``, deleted outright             90 days
 Terminal unpaid intents ``payment_intents`` not ``paid``, deleted       13 months
 Broadcast delivery log  ``broadcast_recipients``, deleted outright     13 months
+Anonymised acceptances  ``terms_acceptances`` with no account, deleted 13 months
+Media uploads           ``media_inputs`` past ``expires_at``, deleted   24 h †
+Media outputs           ``media_outputs`` past ``expires_at``, deleted  30 days
+Media legal holds       ``legal_hold`` objects past their own clock     72 h
+Media prompts           ``media_jobs`` text columns, nulled in place    30 days
+Unpaid media requests   ``media_jobs`` rejected/cancelled/abandoned     30 days
+Media attempts          ``media_attempts``, deleted outright            13 months
+Media receipts          anonymised ``media_purchases``, deleted         13 months
+Media credit ledger     anonymised ``media_credit_ledger``, deleted     13 months
 ======================  ==============================================  ==========
+
+The media rows arrived with revision 0031 (IMAGE_VIDEO_SPEC §3.2.4). † An upload's clock is
+a BACKSTOP — ``media_cleanup`` deletes it at delivery or failure (O16) — reset on payment to
+the SKU's deadline plus the review SLA. Every media sweep that deletes bytes skips
+``retention_class = 'legal_hold'`` except the legal-hold arm, which reads only
+``legal_hold_expires_at`` (§6.7), deletes the held OBJECT but keeps its row (the hash and
+metadata, ``deleted_at`` set), skips a job whose escalation owner decided ``handover``, and
+logs every object it removes at WARNING with its hash, because a deletion of held material
+is the one purge an escalation owner must be able to reconstruct. An unpaid
+request row goes whole only once its text clock has run out and nothing under it is held; a
+paid one keeps its row, text-less, as the record of a sale. The two receipt tables are swept
+only once ``/forget`` has anonymised them — the ``terms_acceptances`` narrowing.
 
 The last six rows are not customer data. ``purge_runs`` is this job's own audit trail,
 swept by the same run so the bookkeeping cannot outgrow the thing it books; ``vendor_usage``
@@ -47,7 +68,12 @@ broadcast tables (revision 0024) and is ``bot_membership_events``' shape exactly
 ``broadcast_recipients`` carries a ``telegram_user_id``, so the identity comes off it
 through ``/forget``'s anonymisation arm rather than on any schedule, and this cutoff
 bounds how long an account id sits there as defence in depth beside that arm, never as a
-substitute for it (see :data:`BROADCAST_RECIPIENT_RETENTION_DAYS`).
+substitute for it (see :data:`BROADCAST_RECIPIENT_RETENTION_DAYS`). The last row arrived
+with the Terms gate (revision 0030, IMAGE_VIDEO_SPEC §3.2.1) and takes the same route with
+one narrowing: only ``terms_acceptances`` rows ``/forget`` has ALREADY anonymised are swept,
+because an identified acceptance is a live account's lawful-basis record and must not age
+out while the account still uses the bot, and the 13 months count from the ``/forget``
+(``anonymised_at``), not from the acceptance (see :data:`TERMS_ACCEPTANCE_RETENTION_DAYS`).
 
 **THREE TABLES ADDED BY THE DASHBOARD WORK ARE DELIBERATELY UNSWEPT, and their absence from
 the table above is a decision rather than an oversight** — the same standing instruction the
@@ -155,7 +181,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bayram.contracts import OrderState, Result
 from bayram.db.credits import settle_stale_debits
-from bayram.db.enums import PaymentIntentState
+from bayram.db.enums import (
+    MEDIA_UNPAID_TERMINAL_STATES,
+    MediaLegalHoldDecision,
+    PaymentIntentState,
+)
 from bayram.db.guard import run_guarded
 from bayram.db.models.admin_audit import AdminAuditRow
 from bayram.db.models.admin_session import AdminSessionRow
@@ -165,11 +195,17 @@ from bayram.db.models.brief import BriefRow
 from bayram.db.models.broadcast_recipient import BroadcastRecipientRow
 from bayram.db.models.chat_message import ChatMessageRow
 from bayram.db.models.generation_attempt import GenerationAttemptRow
+from bayram.db.models.media_attempt import MediaAttemptRow
+from bayram.db.models.media_credit import MediaCreditLedgerRow
+from bayram.db.models.media_input import MediaInputRow, MediaOutputRow
+from bayram.db.models.media_job import CSAM_BLOCKED_ERROR_CODE, MediaJobRow
+from bayram.db.models.media_purchase import MediaPurchaseRow
 from bayram.db.models.name_record import NameRecordRow
 from bayram.db.models.order import OrderRow
 from bayram.db.models.payme_rpc_log import PaymeRpcLogRow
 from bayram.db.models.payment_intent import PaymentIntentRow
 from bayram.db.models.purge_run import PurgeRunRow
+from bayram.db.models.terms_acceptance import TermsAcceptanceRow
 from bayram.db.models.vendor_usage import VendorUsageRow
 from bayram.db.purge_admin import (
     admin_sessions_due,
@@ -180,7 +216,7 @@ from bayram.db.purge_admin import (
     purge_audit_log,
     purge_audit_reasons,
 )
-from bayram.db.retention import DEFAULT_RETENTION_POLICY, RetentionPolicy
+from bayram.db.retention import DEFAULT_RETENTION_POLICY, RetentionClass, RetentionPolicy
 from bayram.entitlements import DEFAULT_ENTITLEMENT_POLICY, EntitlementPolicy
 from bayram.logging import get_logger
 from bayram.storage import archive_key
@@ -195,6 +231,8 @@ __all__ = [
     "PAYME_RPC_LOG_RETENTION_DAYS",
     "PAYMENT_INTENT_RETENTION_DAYS",
     "BROADCAST_RECIPIENT_RETENTION_DAYS",
+    "TERMS_ACCEPTANCE_RETENTION_DAYS",
+    "MEDIA_TELEMETRY_RETENTION_DAYS",
     "rows_past_expiry_statements",
 ]
 
@@ -312,6 +350,31 @@ PAYMENT_INTENT_RETENTION_DAYS: Final[int] = 400
 #: the row so a completed campaign's arithmetic does not change retroactively.
 BROADCAST_RECIPIENT_RETENTION_DAYS: Final[int] = 400
 
+#: How long an ANONYMISED ``terms_acceptances`` row is kept, counted from ``anonymised_at``
+#: (IMAGE_VIDEO_SPEC §3.2.1, §3.2.4). Thirteen months, matching the cutoffs above.
+#:
+#: **The predicate is narrow on purpose, as :data:`PAYMENT_INTENT_RETENTION_DAYS`' is.** It
+#: sweeps rows whose ``telegram_user_id`` is already NULL and nothing else. An IDENTIFIED row
+#: is never swept: it is the proof that a live account accepted the text its uploads are
+#: screened under, and a cutoff that deleted it would re-prompt a customer for terms they
+#: already accepted and leave us unable to show they did. Identity leaves by ``/forget``'s
+#: anonymisation arm (:mod:`bayram.db.credit_erasure`); this cutoff then bounds how long the
+#: anonymous remainder is kept.
+#:
+#: On ``anonymised_at`` — the instant ``/forget`` ran — and NOT on ``accepted_at``: §3.2.1
+#: bounds the record at "400 days after account deletion", so an acceptance two years old that
+#: is forgotten today is kept another thirteen months, not swept on the next run. A CUTOFF, not
+#: a per-row clock, which is why no column on that table is named ``*_expires_at``.
+TERMS_ACCEPTANCE_RETENTION_DAYS: Final[int] = 400
+
+#: How long ``media_attempts`` rows, and ANONYMISED ``media_purchases`` and
+#: ``media_credit_ledger`` rows, are kept (IMAGE_VIDEO_SPEC §3.2.4). Thirteen months, matching
+#: the cutoffs above. Attempts hold no personal data (``vendor_usage``' footing); the two
+#: receipt tables are swept only where ``/forget`` has already taken the account off them
+#: (``terms_acceptances``' narrowing), because an identified receipt is a live account's
+#: record of what it paid for. A CUTOFF on ``created_at``, not a clock.
+MEDIA_TELEMETRY_RETENTION_DAYS: Final[int] = 400
+
 
 class PurgeReport(BaseModel):
     """What one purge run did. Logged, and returned so a scheduler can alert on it."""
@@ -361,6 +424,22 @@ class PurgeReport(BaseModel):
     #: account per campaign, so a sweep that quietly stops keeping up shows here as a small
     #: number beside a large backlog long before it shows anywhere else.
     broadcast_recipients_deleted: int = Field(default=0, ge=0)
+    #: ANONYMISED ``terms_acceptances`` past the 400-day cutoff. An identified acceptance is
+    #: never counted here, because it is never swept.
+    terms_acceptances_deleted: int = Field(default=0, ge=0)
+    #: The media sweeps (revision 0031, IMAGE_VIDEO_SPEC §3.2.4). Uploads and outputs past
+    #: their clocks hand their object keys to ``storage_keys`` above, as assets do.
+    media_inputs_deleted: int = Field(default=0, ge=0)
+    media_outputs_deleted: int = Field(default=0, ge=0)
+    #: Legal-hold rows past their own ≤72 h clock (§6.7). Counted apart from the two above
+    #: because a deletion of held material is a different fact from an upload aging out.
+    media_input_holds_deleted: int = Field(default=0, ge=0)
+    media_output_holds_deleted: int = Field(default=0, ge=0)
+    media_job_texts_purged: int = Field(default=0, ge=0)
+    media_jobs_deleted: int = Field(default=0, ge=0)
+    media_attempts_deleted: int = Field(default=0, ge=0)
+    media_purchases_deleted: int = Field(default=0, ge=0)
+    media_credit_entries_deleted: int = Field(default=0, ge=0)
     #: Open credit debits the sweep closed — refunded, or consumed when the kit was already
     #: rendered. Not a retention clock and not personal data; it rides this run because this
     #: is the transaction the worker already schedules. Deliberately NOT added to
@@ -391,6 +470,16 @@ class PurgeReport(BaseModel):
             self.payme_rpc_rows_deleted,
             self.payment_intents_deleted,
             self.broadcast_recipients_deleted,
+            self.terms_acceptances_deleted,
+            self.media_inputs_deleted,
+            self.media_outputs_deleted,
+            self.media_input_holds_deleted,
+            self.media_output_holds_deleted,
+            self.media_job_texts_purged,
+            self.media_jobs_deleted,
+            self.media_attempts_deleted,
+            self.media_purchases_deleted,
+            self.media_credit_entries_deleted,
             self.stale_debits_settled,
         )
 
@@ -506,6 +595,53 @@ async def _purge(
             cutoff=now - timedelta(days=BROADCAST_RECIPIENT_RETENTION_DAYS),
             limit=batch_size,
         )
+        acceptances = await _purge_terms_acceptances(
+            session,
+            cutoff=now - timedelta(days=TERMS_ACCEPTANCE_RETENTION_DAYS),
+            limit=batch_size,
+        )
+        # The media sweeps (IMAGE_VIDEO_SPEC §3.2.4). Held rows first, so the ordinary arms
+        # below never see a row whose hold has just lapsed as anything but gone.
+        input_hold_keys, input_holds = await _purge_media_holds(
+            session, MediaInputRow, now=now, limit=batch_size
+        )
+        output_hold_keys, output_holds = await _purge_media_holds(
+            session, MediaOutputRow, now=now, limit=batch_size
+        )
+        input_keys, media_inputs = await _purge_media_inputs(session, now=now, limit=batch_size)
+        output_keys, media_outputs = await _purge_media_outputs(session, now=now, limit=batch_size)
+        media_texts = await _purge_media_job_texts(session, now=now, limit=batch_size)
+        job_keys, media_jobs = await _purge_unpaid_media_jobs(session, now=now, limit=batch_size)
+        media_cutoff = now - timedelta(days=MEDIA_TELEMETRY_RETENTION_DAYS)
+        media_attempts = await _purge_by_id(
+            session,
+            MediaAttemptRow,
+            _media_attempts_due(media_cutoff),
+            order_by=MediaAttemptRow.created_at,
+            limit=batch_size,
+        )
+        media_purchases = await _purge_by_id(
+            session,
+            MediaPurchaseRow,
+            _media_purchases_due(media_cutoff),
+            order_by=MediaPurchaseRow.created_at,
+            limit=batch_size,
+        )
+        media_credit_entries = await _purge_by_id(
+            session,
+            MediaCreditLedgerRow,
+            _media_credit_entries_due(media_cutoff),
+            order_by=MediaCreditLedgerRow.created_at,
+            limit=batch_size,
+        )
+        storage_keys = (
+            *storage_keys,
+            *input_hold_keys,
+            *output_hold_keys,
+            *input_keys,
+            *output_keys,
+            *job_keys,
+        )
         # Last, and inside the same transaction: it writes ledger rows rather than deleting
         # anything, so a purge that fails half way must take these back with it.
         debits = await settle_stale_debits(session, now=now, limit=batch_size, policy=entitlements)
@@ -532,6 +668,16 @@ async def _purge(
         payme_rpc_rows_deleted=payme_rpc_rows,
         payment_intents_deleted=intents,
         broadcast_recipients_deleted=recipients,
+        terms_acceptances_deleted=acceptances,
+        media_inputs_deleted=media_inputs,
+        media_outputs_deleted=media_outputs,
+        media_input_holds_deleted=input_holds,
+        media_output_holds_deleted=output_holds,
+        media_job_texts_purged=media_texts,
+        media_jobs_deleted=media_jobs,
+        media_attempts_deleted=media_attempts,
+        media_purchases_deleted=media_purchases,
+        media_credit_entries_deleted=media_credit_entries,
         stale_debits_settled=debits,
     )
     # A purge that runs and does nothing is as important to see as one that deletes 40k
@@ -681,6 +827,117 @@ def _broadcast_recipients_due(cutoff: datetime) -> sa.ColumnElement[bool]:
     return BroadcastRecipientRow.created_at <= cutoff
 
 
+def _terms_acceptances_due(cutoff: datetime) -> sa.ColumnElement[bool]:
+    """Acceptances ANONYMISED before ``cutoff``.
+
+    The ``telegram_user_id IS NULL`` half is the whole decision — see
+    :data:`TERMS_ACCEPTANCE_RETENTION_DAYS`. Without it this would delete a live account's
+    proof of acceptance thirteen months after the tap.
+    """
+    return sa.and_(
+        TermsAcceptanceRow.telegram_user_id.is_(None),
+        TermsAcceptanceRow.anonymised_at <= cutoff,
+    )
+
+
+def _media_inputs_due(now: datetime) -> sa.ColumnElement[bool]:
+    """Uploads past their backstop that ``media_cleanup`` never reached. Never a held row."""
+    return sa.and_(
+        MediaInputRow.expires_at <= now,
+        MediaInputRow.deleted_at.is_(None),
+        MediaInputRow.retention_class != RetentionClass.LEGAL_HOLD,
+    )
+
+
+def _media_outputs_due(now: datetime) -> sa.ColumnElement[bool]:
+    """Outputs and intermediates past their clock. Never a held row."""
+    return sa.and_(
+        MediaOutputRow.expires_at <= now,
+        MediaOutputRow.retention_class != RetentionClass.LEGAL_HOLD,
+    )
+
+
+def _media_holds_due(
+    model: type[MediaInputRow] | type[MediaOutputRow], now: datetime
+) -> sa.ColumnElement[bool]:
+    """Held objects past THEIR clock (§6.7) — ``expires_at`` is irrelevant to them — whose
+    bytes are still there, unless the escalation owner decided to hand them to the
+    authorities (``media_jobs.legal_hold_decision = 'handover'``)."""
+    return sa.and_(
+        model.retention_class == RetentionClass.LEGAL_HOLD,
+        model.legal_hold_expires_at <= now,
+        model.deleted_at.is_(None),
+        ~sa.exists().where(
+            MediaJobRow.id == model.job_id,
+            MediaJobRow.legal_hold_decision == MediaLegalHoldDecision.HANDOVER,
+        ),
+    )
+
+
+def _media_job_texts_due(now: datetime) -> sa.ColumnElement[bool]:
+    return sa.and_(
+        MediaJobRow.text_expires_at <= now,
+        MediaJobRow.text_purged_at.is_(None),
+        sa.or_(
+            MediaJobRow.prompt.is_not(None),
+            MediaJobRow.narration_text.is_not(None),
+            MediaJobRow.voice_transcript.is_not(None),
+        ),
+    )
+
+
+def _unpaid_media_jobs_due(now: datetime) -> sa.ColumnElement[bool]:
+    """Requests no money reached, whose text clock has run out, with nothing held under them.
+
+    On ``text_expires_at``, which a terminal move sets to terminal + 30 d, so "30 days after
+    the request ended" is one indexed predicate. The ``NOT EXISTS`` pair is the decision: a
+    request rejected for CSAM-class content is exactly an unpaid terminal row, and deleting it
+    would cascade away the held evidence — whose rows outlive even the bytes, as the hash
+    and metadata record (§6.7). A CSAM-class row with no held media (a text-only request)
+    stays while its suspension stands (``csam_cleared_at`` NULL, §6.4): it IS the suspension.
+    """
+    return sa.and_(
+        MediaJobRow.state.in_(tuple(MEDIA_UNPAID_TERMINAL_STATES)),
+        MediaJobRow.paid_at.is_(None),
+        MediaJobRow.text_expires_at <= now,
+        # Spelled as an OR, not ``NOT (a AND b)``: ``error_code`` is NULL on most rows, and
+        # NOT (NULL AND …) is NULL, which would keep every ordinary row for ever.
+        sa.or_(
+            MediaJobRow.error_code.is_(None),
+            MediaJobRow.error_code != CSAM_BLOCKED_ERROR_CODE,
+            MediaJobRow.csam_cleared_at.is_not(None),
+        ),
+        ~sa.exists().where(
+            MediaInputRow.job_id == MediaJobRow.id,
+            MediaInputRow.retention_class == RetentionClass.LEGAL_HOLD,
+        ),
+        ~sa.exists().where(
+            MediaOutputRow.job_id == MediaJobRow.id,
+            MediaOutputRow.retention_class == RetentionClass.LEGAL_HOLD,
+        ),
+    )
+
+
+def _media_attempts_due(cutoff: datetime) -> sa.ColumnElement[bool]:
+    return MediaAttemptRow.created_at <= cutoff
+
+
+def _media_purchases_due(cutoff: datetime) -> sa.ColumnElement[bool]:
+    """ANONYMISED receipts only — see :data:`MEDIA_TELEMETRY_RETENTION_DAYS`."""
+    return sa.and_(
+        MediaPurchaseRow.telegram_user_id.is_(None), MediaPurchaseRow.created_at <= cutoff
+    )
+
+
+def _media_credit_entries_due(cutoff: datetime) -> sa.ColumnElement[bool]:
+    """ANONYMISED ledger rows only. An identified account's ledger is what its balance is
+    reconciled against (``balance = SUM(delta)``), so it must not thin out underneath it."""
+    return sa.and_(
+        MediaCreditLedgerRow.telegram_user_id.is_(None),
+        MediaCreditLedgerRow.created_at <= cutoff,
+    )
+
+
 def _chat_bodies_due(now: datetime) -> sa.ColumnElement[bool]:
     return sa.and_(
         ChatMessageRow.text_expires_at <= now,
@@ -707,6 +964,7 @@ def rows_past_expiry_statements(
     The keys are ``PurgeReport`` field names so a caller can line the backlog up against
     the last run's counts without a translation table in between.
     """
+    media_cutoff = now - timedelta(days=MEDIA_TELEMETRY_RETENTION_DAYS)
     return (
         ("assets_deleted", _count_of(AssetRow, _assets_due(now))),
         ("brief_notes_purged", _count_of(BriefRow, _brief_notes_due(now))),
@@ -773,6 +1031,37 @@ def rows_past_expiry_statements(
                 BroadcastRecipientRow,
                 _broadcast_recipients_due(now - timedelta(days=BROADCAST_RECIPIENT_RETENTION_DAYS)),
             ),
+        ),
+        (
+            "terms_acceptances_deleted",
+            _count_of(
+                TermsAcceptanceRow,
+                _terms_acceptances_due(now - timedelta(days=TERMS_ACCEPTANCE_RETENTION_DAYS)),
+            ),
+        ),
+        ("media_inputs_deleted", _count_of(MediaInputRow, _media_inputs_due(now))),
+        ("media_outputs_deleted", _count_of(MediaOutputRow, _media_outputs_due(now))),
+        (
+            "media_input_holds_deleted",
+            _count_of(MediaInputRow, _media_holds_due(MediaInputRow, now)),
+        ),
+        (
+            "media_output_holds_deleted",
+            _count_of(MediaOutputRow, _media_holds_due(MediaOutputRow, now)),
+        ),
+        ("media_job_texts_purged", _count_of(MediaJobRow, _media_job_texts_due(now))),
+        ("media_jobs_deleted", _count_of(MediaJobRow, _unpaid_media_jobs_due(now))),
+        (
+            "media_attempts_deleted",
+            _count_of(MediaAttemptRow, _media_attempts_due(media_cutoff)),
+        ),
+        (
+            "media_purchases_deleted",
+            _count_of(MediaPurchaseRow, _media_purchases_due(media_cutoff)),
+        ),
+        (
+            "media_credit_entries_deleted",
+            _count_of(MediaCreditLedgerRow, _media_credit_entries_due(media_cutoff)),
         ),
     )
 
@@ -1193,6 +1482,26 @@ async def _purge_broadcast_recipients(
     return len(due)
 
 
+async def _purge_terms_acceptances(session: AsyncSession, *, cutoff: datetime, limit: int) -> int:
+    """Delete acceptances anonymised before ``cutoff``. Bounded growth, not a legal clock.
+
+    Only rows ``/forget`` has already stripped of their account are reachable — see
+    :func:`_terms_acceptances_due` — so this can never take away a live account's proof that
+    it accepted the Terms.
+    """
+    due = await _ids_due(
+        session,
+        sa.select(TermsAcceptanceRow.id)
+        .where(_terms_acceptances_due(cutoff))
+        .order_by(TermsAcceptanceRow.anonymised_at)
+        .limit(limit),
+    )
+    if not due:
+        return 0
+    await session.execute(sa.delete(TermsAcceptanceRow).where(TermsAcceptanceRow.id.in_(due)))
+    return len(due)
+
+
 async def _purge_chat_bodies(session: AsyncSession, *, now: datetime, limit: int) -> int:
     """Null personal text on chat lines past text_expires_at, stamping body_purged_at."""
     due = await _ids_due(
@@ -1225,4 +1534,161 @@ async def _purge_chat_messages(session: AsyncSession, *, now: datetime, limit: i
     if not due:
         return 0
     await session.execute(sa.delete(ChatMessageRow).where(ChatMessageRow.id.in_(due)))
+    return len(due)
+
+
+# ---------------------------------------------------------------------------
+# Media (IMAGE_VIDEO_SPEC §3.2.4)
+# ---------------------------------------------------------------------------
+async def _delete_media_rows(
+    session: AsyncSession,
+    model: type[MediaInputRow] | type[MediaOutputRow],
+    predicate: sa.ColumnElement[bool],
+    *,
+    limit: int,
+) -> tuple[tuple[str, ...], list[tuple[UUID, UUID, str | None]]]:
+    """Delete up to ``limit`` rows matching ``predicate``; their keys, and what was deleted."""
+    rows = [
+        (row_id, job_id, key)
+        for row_id, job_id, key in (
+            await session.execute(
+                sa.select(model.id, model.job_id, model.storage_key)
+                .where(predicate)
+                .order_by(model.expires_at)
+                .limit(limit)
+            )
+        ).all()
+    ]
+    if not rows:
+        return (), []
+    await session.execute(sa.delete(model).where(model.id.in_([row_id for row_id, _, _ in rows])))
+    return tuple(key for _, _, key in rows if key is not None), rows
+
+
+async def _purge_media_inputs(
+    session: AsyncSession, *, now: datetime, limit: int
+) -> tuple[tuple[str, ...], int]:
+    """Uploads ``media_cleanup`` never reached, past their backstop: row and object."""
+    keys, rows = await _delete_media_rows(
+        session, MediaInputRow, _media_inputs_due(now), limit=limit
+    )
+    return keys, len(rows)
+
+
+async def _purge_media_outputs(
+    session: AsyncSession, *, now: datetime, limit: int
+) -> tuple[tuple[str, ...], int]:
+    """Outputs and intermediates past their clock: row, object and ``tg_file_id`` with it."""
+    keys, rows = await _delete_media_rows(
+        session, MediaOutputRow, _media_outputs_due(now), limit=limit
+    )
+    return keys, len(rows)
+
+
+async def _purge_media_holds(
+    session: AsyncSession,
+    model: type[MediaInputRow] | type[MediaOutputRow],
+    *,
+    now: datetime,
+    limit: int,
+) -> tuple[tuple[str, ...], int]:
+    """Held objects whose ≤72 h clock ran out (§6.7): the BYTES are deleted, the row is kept.
+
+    "At expiry the bytes are deleted (hash + metadata kept)": the row stays ``legal_hold``
+    with ``deleted_at`` set, so its ``sha256``, size and times — what a report quotes — and
+    the job row above it survive. A ``handover`` decision keeps the bytes too
+    (:func:`_media_holds_due`). The WARNING line is the audit record — table, row, job and
+    the hash, never the bytes or anything the customer wrote — so an escalation owner can
+    reconstruct what left and when.
+    """
+    rows = (
+        await session.execute(
+            sa.select(model.id, model.job_id, model.storage_key, model.sha256)
+            .where(_media_holds_due(model, now))
+            .order_by(model.legal_hold_expires_at)
+            .limit(limit)
+        )
+    ).all()
+    if not rows:
+        return (), 0
+    await session.execute(
+        sa.update(model).where(model.id.in_([row[0] for row in rows])).values(deleted_at=now)
+    )
+    for row_id, job_id, _, sha256 in rows:
+        _log.warning(
+            "legal hold expired; held bytes deleted, hash and metadata kept",
+            extra={
+                "table": model.__tablename__,
+                "row_id": str(row_id),
+                "job_id": str(job_id),
+                "sha256": sha256,
+            },
+        )
+    return tuple(key for _, _, key, _ in rows if key is not None), len(rows)
+
+
+async def _purge_media_job_texts(session: AsyncSession, *, now: datetime, limit: int) -> int:
+    """Null a request's prompt, narration and transcript past ``text_expires_at``."""
+    due = await _ids_due(
+        session,
+        sa.select(MediaJobRow.id)
+        .where(_media_job_texts_due(now))
+        .order_by(MediaJobRow.text_expires_at)
+        .limit(limit),
+    )
+    if not due:
+        return 0
+    await session.execute(
+        sa.update(MediaJobRow)
+        .where(MediaJobRow.id.in_(due))
+        .values(prompt=None, narration_text=None, voice_transcript=None, text_purged_at=now)
+    )
+    return len(due)
+
+
+async def _purge_unpaid_media_jobs(
+    session: AsyncSession, *, now: datetime, limit: int
+) -> tuple[tuple[str, ...], int]:
+    """Delete unpaid terminal requests whole, children first (the cascade is inert on SQLite).
+
+    Attempts are detached rather than deleted — they are telemetry on their own cutoff.
+    """
+    due = await _ids_due(
+        session,
+        sa.select(MediaJobRow.id)
+        .where(_unpaid_media_jobs_due(now))
+        .order_by(MediaJobRow.text_expires_at)
+        .limit(limit),
+    )
+    if not due:
+        return (), 0
+    keys: list[str] = []
+    for model in (MediaInputRow, MediaOutputRow):
+        found = (
+            await session.execute(sa.select(model.storage_key).where(model.job_id.in_(due)))
+        ).scalars()
+        keys.extend(key for key in found if key is not None)
+        await session.execute(sa.delete(model).where(model.job_id.in_(due)))
+    await session.execute(
+        sa.update(MediaAttemptRow).where(MediaAttemptRow.job_id.in_(due)).values(job_id=None)
+    )
+    await session.execute(sa.delete(MediaJobRow).where(MediaJobRow.id.in_(due)))
+    return tuple(keys), len(due)
+
+
+async def _purge_by_id(
+    session: AsyncSession,
+    model: type[MediaAttemptRow] | type[MediaPurchaseRow] | type[MediaCreditLedgerRow],
+    predicate: sa.ColumnElement[bool],
+    *,
+    order_by: sa.ColumnElement[Any] | Any,
+    limit: int,
+) -> int:
+    """Delete up to ``limit`` whole rows of a cutoff-bounded media table."""
+    due = await _ids_due(
+        session, sa.select(model.id).where(predicate).order_by(order_by).limit(limit)
+    )
+    if not due:
+        return 0
+    await session.execute(sa.delete(model).where(model.id.in_(due)))
     return len(due)

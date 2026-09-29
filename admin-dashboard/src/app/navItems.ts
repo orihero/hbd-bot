@@ -1,7 +1,7 @@
 /**
  * The rail's contents, as data.
  *
- * Nine sections are listed, and every one of them is routed. Audit and Admins were the last
+ * Ten sections are listed, and every one of them is routed. Audit and Admins were the last
  * two to arrive and the prediction this file made about them held: the item did not move when
  * the screen shipped, because it had been sitting in its final place since before there was
  * anything behind it. That is the whole argument, and it is the same one
@@ -48,6 +48,7 @@ import {
   Megaphone,
   MessageSquare,
   ScrollText,
+  ShieldAlert,
   Sparkles,
   UserCog,
   Users,
@@ -183,6 +184,21 @@ export const PRIMARY_NAV: readonly NavItem[] = [
     labelKey: "nav.items.support",
     href: PATH.support,
     icon: LifeBuoy,
+  },
+  {
+    /*
+     * The media review queue (IMAGE_VIDEO_SPEC §6.6, §8). After Support: it is the other
+     * section whose rows are somebody waiting — a paid image held for a person to look at,
+     * with a 24-hour SLA after which it is refunded without anyone deciding.
+     *
+     * Shown to every role on this file's rule, although the route is ADMIN and OWNER only
+     * (`media.moderate`): the screen renders the server's 403 as a denial, and a rail that
+     * differed by role would break the promise the module docstring rests on.
+     */
+    key: "mediaReviews",
+    labelKey: "nav.items.mediaReviews",
+    href: PATH.mediaReviews,
+    icon: ShieldAlert,
   },
 ];
 

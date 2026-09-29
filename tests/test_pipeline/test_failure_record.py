@@ -17,9 +17,11 @@ from bayram.db.models.order import FAILED_REASON_LENGTH
 from bayram.errors import (
     ErrorCode,
     ModerationRejectedError,
+    ProviderUnavailableError,
     StorageError,
 )
 from bayram.pipeline.events import PipelineStage
+from bayram.pipeline.moderation import MODERATION_ATTEMPTS
 from bayram.pipeline.outcome import PipelineOutcome
 from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_order, recipient_of
 from tests.test_pipeline.conftest import Studio, value_of
@@ -127,6 +129,31 @@ async def test_a_denylist_rejection_records_which_field_tripped_it_not_what_was_
     # Assert
     assert "hit_in=note" in reason
     assert "kill" not in reason.casefold()
+
+
+async def test_a_moderation_outage_is_marked_for_review_and_not_filed_as_a_refusal(
+    studio: Studio,
+) -> None:
+    """IMAGE_VIDEO_SPEC §6.8: an outage refusal is terminal and marked for review.
+
+    Through the real ``LlmModerator`` over a fake LLM that never answers, so the row is what
+    the allowlist actually lets through — and its code keeps it out of a ``LIKE
+    'CONTENT_REJECTED%'`` count of genuine refusals.
+    """
+    # Arrange
+    for _ in range(MODERATION_ATTEMPTS):
+        studio.llm.fail_next("ModerationPayload", ProviderUnavailableError("down", provider="fake"))
+    order = studio.enrol(make_order(brief=make_brief(note=INCIDENT_NOTE)))
+
+    # Act
+    reason = await _failed_reason_of(studio, order)
+
+    # Assert
+    assert reason.startswith("MODERATION_UNAVAILABLE: ModerationUnavailableError at moderating")
+    assert "retryable=false" in reason
+    assert "needs_review=True" in reason
+    assert not reason.startswith(ErrorCode.CONTENT_REJECTED.value)
+    assert studio.music.compose_calls == []
 
 
 async def test_a_failure_after_the_song_names_the_stage_it_actually_died_in(

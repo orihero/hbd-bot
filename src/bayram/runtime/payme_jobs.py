@@ -70,7 +70,7 @@ import time
 from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Final
+from typing import Any, Final, assert_never
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
@@ -80,14 +80,23 @@ from arq.worker import Retry
 from bayram.bot.delivery import is_blocked_by_customer
 from bayram.bot.i18n import parse_language, translate
 from bayram.bot.keyboards import paid_late_keyboard, start_over_keyboard
-from bayram.checkout import PaymentIntent, PaymentIntentState, PlanState, Product
+from bayram.checkout import MEDIA_PRODUCTS, PaymentIntent, PaymentIntentState, PlanState, Product
 from bayram.config import Settings
 from bayram.contracts import Language, Result, is_err
 from bayram.db.base import utc_now
 from bayram.db.credit_sql import verify_balances
+from bayram.db.enums import (
+    MediaCreditReason,
+    MediaJobState,
+    MediaKind,
+    MediaPaidVia,
+    MediaRefundState,
+)
+from bayram.db.media import grant_refund, load_job
 from bayram.db.payme import SqlPaymeLedger
 from bayram.errors import PipelineError
 from bayram.logging import get_logger
+from bayram.media.service import enqueue_start
 from bayram.payme.ports import PaymeLedger, SettlementCounts
 from bayram.payme.protocol import PaymeState
 from bayram.payme.rules import DEFAULT_TRANSACTION_TIMEOUT_MS
@@ -113,6 +122,9 @@ __all__ = [
     "PAID_LATE_SINGLE_KEY",
     "PAID_LATE_PLAN_KEY",
     "PAID_LATE_RESUMING_KEY",
+    "PAID_MEDIA_KEY",
+    "PAID_MEDIA_LATE_KEY",
+    "PAID_MEDIA_UNMATCHED_KEY",
     "SweepReport",
 ]
 
@@ -190,6 +202,13 @@ PAID_LATE_PLAN_KEY: Final[str] = "checkout.paid_late_plan"
 #: song ready and spending it in the same breath is the support ticket ``_announcement``'s
 #: docstring warns about. The keyboard under it is ``None``; see :func:`_announcement_keyboard`.
 PAID_LATE_RESUMING_KEY: Final[str] = "checkout.paid_late_resuming"
+
+#: The media SKUs' three cold sentences (IMAGE_VIDEO_SPEC §7.2 step 4, §2.6): the job is paid
+#: and being made; the money arrived for a request already closed and one credit of its SKU
+#: was granted instead; or the money matches no request we can credit, and support is named.
+PAID_MEDIA_KEY: Final[str] = "media.paid"
+PAID_MEDIA_LATE_KEY: Final[str] = "media.paid_late_credit"
+PAID_MEDIA_UNMATCHED_KEY: Final[str] = "media.paid_unmatched"
 
 
 def payme_notify_job_id(public_ref: str) -> str:
@@ -356,9 +375,22 @@ async def _announcement(
     ``None`` means the meter could not be read at all, which is a transient database
     condition and therefore a retry rather than a wrong number sent confidently.
     """
-    if intent.product is Product.SINGLE:
-        return await _single_song_sentence(container, telegram_user_id, language=language)
-    return await _plan_sentence(container, intent, telegram_user_id, language=language)
+    match intent.product:
+        case Product.SINGLE:
+            return await _single_song_sentence(container, telegram_user_id, language=language)
+        case Product.STARTER:
+            return await _plan_sentence(container, intent, telegram_user_id, language=language)
+        case Product.IMAGE | Product.VIDEO_STANDARD | Product.VIDEO_FAST:
+            # Unreachable: a media intent is announced by :func:`_notify_media` before this is
+            # ever asked (IMAGE_VIDEO_SPEC §7.3). ``None`` is the fail-closed answer — a retry,
+            # never a song sentence about a credit nobody was granted.
+            _LOG.error(
+                "a media intent reached the song announcement",
+                extra={"public_ref": intent.public_ref, "product": intent.product.value},
+            )
+            return None
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 async def _single_song_sentence(
@@ -509,6 +541,21 @@ async def notify_payment_settled(ctx: Mapping[str, Any], public_ref: str) -> Non
         return
 
     language = parse_language(intent.language)
+    if intent.product in MEDIA_PRODUCTS or intent.resume_media_job_id is not None:
+        # **BEFORE ``plan_resume``, and that ordering is the point** (IMAGE_VIDEO_SPEC §7.2
+        # step 4, §7.3): a media intent carries no ``resume_order_id``, so ``plan_resume``
+        # would answer ``no_marker`` and hang the song 🎬 keyboard under a media receipt for
+        # any song draft this customer happens to have parked.
+        await _notify_media(
+            ctx,
+            container,
+            bot,
+            ledger,
+            intent=intent,
+            telegram_user_id=telegram_user_id,
+            language=language,
+        )
+        return
     # A PURE READ, and it runs before the sentence is chosen precisely so the sentence can be
     # chosen from it: a customer whose song is about to start must not be told they have one
     # song ready, and a customer whose render was declined must not be handed a button that
@@ -582,6 +629,128 @@ async def notify_payment_settled(ctx: Mapping[str, Any], public_ref: str) -> Non
             # whole answer to "the customer paid and no song started; why?".
             "reason": decision.reason,
             "order_id": decision.order_id or "",
+        },
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class _MediaSettlement:
+    """What a settled media intent turned out to pay for, read from the job row."""
+
+    #: The Perform arm moved the job to ``paid`` (``paid_via='payme'``): announce and start.
+    is_paid_here: bool
+    #: Still ``paid`` — ``media_start`` has not latched it yet.
+    is_startable: bool
+    #: A late settlement that holds its one ``late_settlement`` credit.
+    is_credited: bool
+    kind: MediaKind | None
+
+
+async def _settle_media(container: AppContainer, intent: PaymentIntent) -> _MediaSettlement | None:
+    """Read the job the intent paid for and, for a LATE settlement, grant its one credit.
+
+    The Perform arm moves the job ``awaiting_payment → paid`` in the money commit and never
+    touches any other state (IMAGE_VIDEO_SPEC §7.2 step 3). So ``paid_via='payme'`` on the row
+    means this money paid for it — one job, one intent, by the ``{sku}:{tg}:{job_id}`` key —
+    and anything else is money that arrived for a request already cancelled or abandoned:
+    the receipt committed, and the credit is granted here, OUTSIDE the money commit (§2.6).
+    ``grant_refund``'s claim on ``refund_state`` makes a redelivery grant nothing twice.
+
+    ``None`` when the database could not be read: the caller retries, like the song meter.
+    """
+    job_id = intent.resume_media_job_id
+    if job_id is None:
+        return _MediaSettlement(False, False, False, None)
+    try:
+        async with container.require_session_factory().begin() as session:
+            job = await load_job(session, job_id)
+            if job is None:
+                return _MediaSettlement(False, False, False, None)
+            if job.paid_via is MediaPaidVia.PAYME:
+                return _MediaSettlement(True, job.state is MediaJobState.PAID, False, job.kind)
+            already = job.refund_state is MediaRefundState.GRANTED
+            granted = await grant_refund(
+                session, job_id, reason=MediaCreditReason.LATE_SETTLEMENT, now=utc_now()
+            )
+            return _MediaSettlement(False, False, already or granted, job.kind)
+    except Exception as exc:
+        _LOG.warning(
+            "a settled media intent's job could not be read",
+            extra={"public_ref": intent.public_ref, "failure": repr(exc)},
+        )
+        return None
+
+
+def _media_sentence(settlement: _MediaSettlement, language: Language) -> str:
+    kind = (
+        translate(f"media.kind.{settlement.kind.value}", language)
+        if settlement.kind is not None
+        else ""
+    )
+    if settlement.is_paid_here:
+        return translate(PAID_MEDIA_KEY, language, kind=kind)
+    if settlement.is_credited:
+        return translate(PAID_MEDIA_LATE_KEY, language, kind=kind)
+    return translate(PAID_MEDIA_UNMATCHED_KEY, language)
+
+
+async def _notify_media(
+    ctx: Mapping[str, Any],
+    container: AppContainer,
+    bot: Bot,
+    ledger: PaymeLedger,
+    *,
+    intent: PaymentIntent,
+    telegram_user_id: int,
+    language: Language,
+) -> None:
+    """The media arm of the settlement job (IMAGE_VIDEO_SPEC §7.2 step 4).
+
+    Grant a late credit if one is due, tell the customer, stamp, then start the job. The start
+    is an enqueue of ``media_start`` whose LATCH is the job row's own ``paid → queued`` move —
+    not ``payment_intents.resumed_at``, which is claimed here for the audit trail only and never
+    read as a gate. So a burned claim, a failed enqueue, a blocked chat or a redelivery that
+    returned at ``notified_at`` cannot strand a paid job: ``media_sweep`` re-enqueues
+    ``media_start`` for any row still ``paid`` after two minutes (§3.3). Not gated by
+    ``BAYRAM_AUTO_RENDER_ON_PAYMENT`` (§3.5): a paid media job has no manual start.
+    """
+    public_ref = intent.public_ref
+    settlement = await _settle_media(container, intent)
+    if settlement is None:
+        _retry_or_give_up(ctx, public_ref=public_ref, reason="media_job_unreadable")
+        return
+    if not settlement.is_paid_here and not settlement.is_credited:
+        _LOG.error(
+            "a settled media payment matches no job it could pay for or credit; support named",
+            extra={"public_ref": public_ref, "product": intent.product.value},
+        )
+    is_sent = await _send(
+        bot,
+        ledger,
+        ctx,
+        chat_id=telegram_user_id,
+        text=_media_sentence(settlement, language),
+        public_ref=public_ref,
+        markup=None,
+    )
+    if not is_sent:
+        return
+    stamped = await ledger.mark_notified(public_ref=public_ref, now=utc_now())
+    if is_err(stamped):
+        _LOG.error("the notification was sent but not stamped", extra=stamped.error.to_log_dict())
+    if not settlement.is_startable or intent.resume_media_job_id is None:
+        return
+    # Audit only (§7.2 step 4): the rowcount is deliberately not read.
+    await ledger.claim_resume(public_ref=public_ref, now=utc_now())
+    queue = ctx.get(REDIS_CTX_KEY)
+    is_queued = queue is not None and await enqueue_start(queue, intent.resume_media_job_id)
+    _LOG.info(
+        "a settled media payment's job was started",
+        extra={
+            "public_ref": public_ref,
+            "media_job_id": str(intent.resume_media_job_id),
+            # False is not stranded: ``media_sweep`` starts a ``paid`` row after two minutes.
+            "is_queued": is_queued,
         },
     )
 

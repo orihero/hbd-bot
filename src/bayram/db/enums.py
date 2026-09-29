@@ -15,6 +15,7 @@ the unit suite to notice.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Final
 
 __all__ = [
     "NameSource",
@@ -35,6 +36,31 @@ __all__ = [
     # --- chat logging (ADMIN_PANEL_PLAN §5.7) ----------------------------------
     "ChatDirection",
     "ChatMessageKind",
+    # --- terms gate (IMAGE_VIDEO_SPEC §2.1) ------------------------------------
+    "TermsAcceptanceSource",
+    # --- image and video products (IMAGE_VIDEO_SPEC §3.2) ----------------------
+    "MediaKind",
+    "MediaTier",
+    "MediaSku",
+    "MediaJobState",
+    "MediaAspect",
+    "MediaBackend",
+    "MediaVoiceMode",
+    "MediaVoiceGender",
+    "MediaScreenDecision",
+    "MediaPaidVia",
+    "MediaRefundState",
+    "MediaInputRole",
+    "MediaOutputRole",
+    "MediaAttemptStage",
+    "MediaAttemptStatus",
+    "MediaPurchaseProvider",
+    "MediaCreditReason",
+    "MEDIA_OPEN_STATES",
+    "MEDIA_PREPAY_STATES",
+    "MEDIA_IN_FLIGHT_STATES",
+    "MEDIA_TERMINAL_STATES",
+    "MEDIA_UNPAID_TERMINAL_STATES",
 ]
 
 
@@ -256,10 +282,19 @@ class IntentProduct(StrEnum):
     **A second product needs NO migration.** ``bayram.db.base.enum_type`` renders a plain
     ``VARCHAR(32)`` with ``create_constraint`` off, so a member is Python validation and no
     DDL — the same property revision 0015 relies on for ``CreditReason``.
+
+    **The three media SKUs are members too** (IMAGE_VIDEO_SPEC §7.1, §7.3), value for value
+    with :class:`MediaSku`: their receipt is ``media_purchases`` and their settlement moves a
+    ``media_jobs`` row. :class:`TopupKind` deliberately does NOT gain them — it names the rows
+    of ``topup_purchases``, and a media sale is never one. The longest, ``video_standard``, is
+    14 characters.
     """
 
     SINGLE = "single"
     STARTER = "starter"
+    IMAGE = "image"
+    VIDEO_STANDARD = "video_standard"
+    VIDEO_FAST = "video_fast"
 
 
 class PaymentIntentState(StrEnum):
@@ -389,6 +424,16 @@ class AuditAction(StrEnum):
     USER_PURGE_FAILED = "user.purge.fail"
     MODERATION_APPROVE = "moderation.approve"
     MODERATION_REJECT = "moderation.reject"
+    #: The media review queue (IMAGE_VIDEO_SPEC §6.6, §8). A release is ``moderation.approve``
+    #: against ``subject_type="media_job"``. ``moderation.hold`` is an operator stopping a
+    #: screened output on its way out. A refund is TWO rows, per D14/D25: the INTENT
+    #: (``moderation.refund``) written in the transaction that records the decision, and the
+    #: OUTCOME (``moderation.refund.outcome``) written after the worker was asked to carry it
+    #: out — ``ok``, or ``error`` when the enqueue failed and ``media_sweep`` will. Longest is
+    #: 25 characters, inside ``ENUM_LENGTH`` (32).
+    MODERATION_HOLD = "moderation.hold"
+    MODERATION_REFUND = "moderation.refund"
+    MODERATION_REFUND_OUTCOME = "moderation.refund.outcome"
     CONFIG_VALIDATE = "config.validate"
     CONFIG_COMMIT = "config.commit"
     CONFIG_ROLLBACK = "config.rollback"
@@ -513,3 +558,289 @@ class ChatMessageKind(StrEnum):
     TOAST = "toast"
     ACTION = "action"
 
+
+class TermsAcceptanceSource(StrEnum):
+    """Which screen a ``terms_acceptances`` row was accepted on (IMAGE_VIDEO_SPEC §2.1, §3.2.1).
+
+    ``ONBOARDING`` is the ``Onboarding.terms`` step a new account passes through between the
+    language picker and the contact screen; ``GATE`` is the inbound gate that stops an
+    account already onboarded until it accepts the current versions. The column is
+    ``VARCHAR(16)`` with no CHECK, so a third screen is Python validation and no DDL.
+    """
+
+    ONBOARDING = "onboarding"
+    GATE = "gate"
+
+
+# ---------------------------------------------------------------------------
+# Image and video products (IMAGE_VIDEO_SPEC §3.2, D20–D25)
+# ---------------------------------------------------------------------------
+# Every column below is ``VARCHAR`` with no CHECK (``enum_type``), so a new member is Python
+# validation and no DDL — the same footing as every other enum in this module.
+
+
+class MediaKind(StrEnum):
+    """What a ``media_jobs`` row produces. One open request per (account, kind) (§7.6)."""
+
+    IMAGE = "image"
+    VIDEO = "video"
+
+
+class MediaTier(StrEnum):
+    """The video tier (D22, O2). ``STANDARD`` is the local Wan render; ``FAST`` is Higgsfield."""
+
+    STANDARD = "standard"
+    FAST = "fast"
+
+
+class MediaSku(StrEnum):
+    """What is sold, and the scope a refund credit is spendable in (§7.1, D25).
+
+    A media credit is SKU-scoped: a failed video refunds a video, never an image and never a
+    song, which is why ``media_credit_balances`` is keyed on (account, sku).
+    """
+
+    IMAGE = "image"
+    VIDEO_STANDARD = "video_standard"
+    VIDEO_FAST = "video_fast"
+
+
+class MediaJobState(StrEnum):
+    """The job state machine (IMAGE_VIDEO_SPEC §3.3). ``DRAFTING`` is video-only (§2.4.1).
+
+    Forward-only. Every move after ``PAID`` is a conditional ``UPDATE … WHERE state IN
+    (expected)``, and no path moves a terminal row back into :data:`MEDIA_OPEN_STATES` — the
+    partial unique index over those states could otherwise fire inside the Payme money
+    commit (§3.2.2, §7.2). The one backward move is pre-pay and between open states: a video
+    whose own voice note ffprobe finds over the clip goes ``screening → drafting`` for 🎙
+    record again (§5.4, M4.1).
+    """
+
+    DRAFTING = "drafting"
+    SCREENING = "screening"
+    QUOTED = "quoted"
+    AWAITING_PAYMENT = "awaiting_payment"
+    PAID = "paid"
+    QUEUED = "queued"
+    GENERATING = "generating"
+    POST = "post"
+    HELD = "held"
+    DELIVERING = "delivering"
+    DELIVERED = "delivered"
+    FAILED = "failed"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+    ABANDONED = "abandoned"
+
+
+#: Nothing has been paid for yet: ``/forget`` cancels these, and freezing a new draft cancels
+#: an earlier one (§2.3.1, §9.3).
+MEDIA_PREPAY_STATES: Final[frozenset[MediaJobState]] = frozenset(
+    {
+        MediaJobState.DRAFTING,
+        MediaJobState.SCREENING,
+        MediaJobState.QUOTED,
+        MediaJobState.AWAITING_PAYMENT,
+    }
+)
+
+#: Paid and not finished: ``/forget`` stamps ``forget_requested_at`` and the next stage
+#: boundary purges instead of delivering (§9.3).
+MEDIA_IN_FLIGHT_STATES: Final[frozenset[MediaJobState]] = frozenset(
+    {
+        MediaJobState.PAID,
+        MediaJobState.QUEUED,
+        MediaJobState.GENERATING,
+        MediaJobState.POST,
+        MediaJobState.HELD,
+        MediaJobState.DELIVERING,
+    }
+)
+
+#: The partial unique index's predicate set: one OPEN request per (account, kind) (§7.6).
+MEDIA_OPEN_STATES: Final[frozenset[MediaJobState]] = MEDIA_PREPAY_STATES | MEDIA_IN_FLIGHT_STATES
+
+#: Where a job ends. Setting any of these also moves ``text_expires_at`` to terminal + 30 d.
+MEDIA_TERMINAL_STATES: Final[frozenset[MediaJobState]] = frozenset(
+    {
+        MediaJobState.DELIVERED,
+        MediaJobState.FAILED,
+        MediaJobState.REJECTED,
+        MediaJobState.CANCELLED,
+        MediaJobState.ABANDONED,
+    }
+)
+
+#: Terminal rows no money ever reached. The purge deletes them whole after their text clock
+#: runs out (§3.2.4); a delivered or failed job is a paid job's record and keeps its row.
+MEDIA_UNPAID_TERMINAL_STATES: Final[frozenset[MediaJobState]] = frozenset(
+    {MediaJobState.REJECTED, MediaJobState.CANCELLED, MediaJobState.ABANDONED}
+)
+
+
+class MediaAspect(StrEnum):
+    """The customer's aspect pick (O15). Default ``PORTRAIT``; the value is the ratio itself."""
+
+    PORTRAIT = "9:16"
+    SQUARE = "1:1"
+    LANDSCAPE = "16:9"
+
+
+class MediaBackend(StrEnum):
+    """Which generation backend a job was submitted to, stamped at submit (O18, §4.5)."""
+
+    LOCAL = "local"
+    HIGGSFIELD = "higgsfield"
+    FAL = "fal"
+    FAKE = "fake"
+
+
+class MediaVoiceMode(StrEnum):
+    """Video narration (O3, D23): none, AI voice on the customer's text or on LLM text, or
+    the customer's own voice note muxed as-is. Never a clone."""
+
+    NONE = "none"
+    AI_USER = "ai_user"
+    AI_LLM = "ai_llm"
+    OWN = "own"
+
+
+class MediaVoiceGender(StrEnum):
+    """Which house voice an AI narration uses (§2.4.2, Q14)."""
+
+    FEMALE = "female"
+    MALE = "male"
+
+
+class MediaScreenDecision(StrEnum):
+    """A guard verdict as stored on the job (IMAGE_VIDEO_SPEC §6.3). Fail-closed: only
+    ``ALLOW`` lets a job proceed; ``UNAVAILABLE`` is a guard that did not answer."""
+
+    ALLOW = "allow"
+    REVIEW = "review"
+    BLOCK = "block"
+    UNAVAILABLE = "unavailable"
+
+
+class MediaPaidVia(StrEnum):
+    """How a job was paid for (§7.2). **There is no ``stub`` member**: a media SKU is never
+    charged on the stub rail — it is free beta (``BETA``) or it is not offered (§7.4)."""
+
+    PAYME = "payme"
+    CREDIT = "credit"
+    BETA = "beta"
+
+
+class MediaRefundState(StrEnum):
+    """The refund latch (§3.2.2). NULL → ``DUE`` is claimed by a conditional UPDATE before
+    the ledger row is written, so a job refunds at most once whatever the reason."""
+
+    DUE = "due"
+    GRANTED = "granted"
+
+
+class MediaInputRole(StrEnum):
+    """What an uploaded or derived input is. ``COLLAGE`` is built from the photos (§4.4)."""
+
+    PHOTO = "photo"
+    VOICE_NOTE = "voice_note"
+    COLLAGE = "collage"
+
+
+class MediaOutputRole(StrEnum):
+    """What a stored output is. ``VIDEO_RAW`` and ``NARRATION`` are intermediates with a
+    24-hour clock; ``IMAGE`` and ``VIDEO`` are what the customer receives (§3.2.4)."""
+
+    IMAGE = "image"
+    VIDEO_RAW = "video_raw"
+    NARRATION = "narration"
+    VIDEO = "video"
+
+
+class MediaAttemptStage(StrEnum):
+    """Which stage a ``media_attempts`` row measures (§3.2.2)."""
+
+    SCREEN = "screen"
+    SCRIPT = "script"
+    IMAGE = "image"
+    VIDEO = "video"
+    TTS = "tts"
+    STT = "stt"
+    MUX = "mux"
+    OUTPUT_SCREEN = "output_screen"
+
+
+class MediaAttemptStatus(StrEnum):
+    """One attempt's lifecycle (§3.3). ``SUBMITTING`` is written BEFORE the POST; a
+    ``SUBMITTING`` row with no ``remote_id`` found on re-entry is never re-POSTed but marked
+    ``AMBIGUOUS`` and reconciled (R7)."""
+
+    SUBMITTING = "submitting"
+    SUBMITTED = "submitted"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    REJECTED = "rejected"
+    AMBIGUOUS = "ambiguous"
+
+
+class MediaPurchaseProvider(StrEnum):
+    """The rail on a ``media_purchases`` receipt. No ``stub``, for :class:`MediaPaidVia`'s
+    reason."""
+
+    PAYME = "payme"
+    BETA = "beta"
+    CREDIT = "credit"
+
+
+class MediaCreditReason(StrEnum):
+    """Why a ``media_credit_ledger`` row moved a kind-scoped balance (§3.2.2, §7.5, O13).
+
+    Every reason but ``SPENT`` is a +1 refund; ``ADMIN_CORRECTION`` may go either way and is
+    the one refund reason outside the one-refund-per-job unique index.
+    """
+
+    GENERATION_FAILED = "generation_failed"
+    OUTPUT_BLOCKED = "output_blocked"
+    DEADLINE = "deadline"
+    LATE_SETTLEMENT = "late_settlement"
+    SPENT = "spent"
+    ADMIN_CORRECTION = "admin_correction"
+
+
+class MediaReviewSource(StrEnum):
+    """Why a ``moderation_reviews`` row was opened (IMAGE_VIDEO_SPEC §6.6).
+
+    ``OUTPUT_REVIEW`` is the L4 guard answering ``review``; ``GUARD_UNAVAILABLE`` is the L4
+    guard not answering for 30 minutes (§6.4); ``MANUAL`` is an operator's hold. Appeals and
+    the 2% sampled audit are later sources and need no DDL (``VARCHAR``, no CHECK).
+    """
+
+    OUTPUT_REVIEW = "output_review"
+    GUARD_UNAVAILABLE = "guard_unavailable"
+    MANUAL = "manual"
+
+
+class MediaReviewDecision(StrEnum):
+    """How a review ended. NULL on the row is *pending* (§6.6).
+
+    ``RELEASED`` delivers the held outputs; ``BLOCKED`` confirms the block — the job fails
+    and a paid one gets one SKU-scoped credit (§7.5, D25); ``EXPIRED`` is the 24 h SLA
+    running out with nobody deciding, which ends exactly like ``BLOCKED``.
+    """
+
+    RELEASED = "released"
+    BLOCKED = "blocked"
+    EXPIRED = "expired"
+
+
+class MediaLegalHoldDecision(StrEnum):
+    """The escalation owner's reporting decision on a CSAM-class hold (IMAGE_VIDEO_SPEC §6.7).
+
+    Recorded with ``python -m bayram.tools.media legal-hold``. ``HANDOVER`` — the bytes go to
+    the authorities — stops the legal-hold purge from deleting them at
+    ``legal_hold_expires_at``; ``DELETE`` brings that clock forward to now. Either way the
+    rows keep the hash and metadata. NULL is "not decided yet": the 72 h clock runs.
+    """
+
+    HANDOVER = "handover"
+    DELETE = "delete"

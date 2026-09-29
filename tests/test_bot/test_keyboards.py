@@ -24,6 +24,7 @@ covering one half.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from uuid import UUID
 
 import pytest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
@@ -40,12 +41,28 @@ from bayram.bot.keyboards import (
     checkout_link_keyboard,
     confirm_keyboard,
     contact_request_keyboard,
+    create_picker_keyboard,
     genre_keyboard,
     language_keyboard,
     lyrics_failed_keyboard,
     lyrics_keyboard,
     lyrics_writing_keyboard,
     main_menu_keyboard,
+    media_again_keyboard,
+    media_aspect_keyboard,
+    media_busy_keyboard,
+    media_open_request_keyboard,
+    media_pay_link_keyboard,
+    media_quote_keyboard,
+    media_refused_keyboard,
+    media_script_review_keyboard,
+    media_tier_keyboard,
+    media_tray_keyboard,
+    media_video_aspect_keyboard,
+    media_voice_gender_keyboard,
+    media_voice_pick_keyboard,
+    media_voice_step_keyboard,
+    media_voice_too_long_keyboard,
     name_confirm_keyboard,
     name_prompt_keyboard,
     note_keyboard,
@@ -55,6 +72,7 @@ from bayram.bot.keyboards import (
     post_delivery_keyboard,
     settings_keyboard,
     start_over_keyboard,
+    terms_keyboard,
     vocal_gender_keyboard,
 )
 from bayram.bot.pricing import CheckoutOffer, Pricing
@@ -101,6 +119,9 @@ SAMPLE_PRICING: Pricing = Pricing(
 #: ``bayram.payme.link``, because this module is imported at MODULE SCOPE by
 #: ``test_locale_contract.py`` and the keyboard register must not drag a payment package into
 #: the import graph of the catalogue tests.
+#: Any id will do: the media keyboards are measured for their labels, not their payloads.
+SAMPLE_MEDIA_JOB = UUID("0b8f4c3e-5a1d-4e2f-9c7b-3d6a8e1f2b4c")
+
 SAMPLE_CHECKOUT_URL = (
     "https://checkout.paycom.uz/bT01ODdmNzJjNzJjYWMwZDE2MmM3MjJhZTI7YWMub3JkZXJfaWQ9MTk3O2E9NTAw"
 )
@@ -189,6 +210,40 @@ def every_keyboard(language: Language) -> Iterator[tuple[str, InlineKeyboardMark
     yield "paid_late", paid_late_keyboard(language)
     yield "post_delivery", post_delivery_keyboard(language)
     yield "settings", settings_keyboard(language)
+    yield "terms", terms_keyboard(language)
+    yield "terms_under_the_full_text", terms_keyboard(language, is_read_full_offered=False)
+    yield (
+        "media_quote",
+        media_quote_keyboard(
+            language,
+            SAMPLE_MEDIA_JOB,
+            is_pay_offered=True,
+            is_credit_offered=True,
+            is_beta_offered=True,
+        ),
+    )
+    yield "media_refused", media_refused_keyboard(language, SAMPLE_MEDIA_JOB)
+    yield "media_busy", media_busy_keyboard(language, SAMPLE_MEDIA_JOB)
+    yield "media_again", media_again_keyboard(language, SAMPLE_MEDIA_JOB)
+    yield (
+        "create_picker",
+        create_picker_keyboard(language, is_image_offered=True, is_video_offered=True),
+    )
+    yield "media_tray", media_tray_keyboard(language, has_photos=True)
+    yield "media_tray_with_no_photos", media_tray_keyboard(language, has_photos=False)
+    yield "media_aspect", media_aspect_keyboard(language)
+    yield "media_open_request", media_open_request_keyboard(language, SAMPLE_MEDIA_JOB)
+    yield (
+        "media_pay_link",
+        media_pay_link_keyboard(language, SAMPLE_CHECKOUT_URL, SAMPLE_MEDIA_JOB),
+    )
+    yield "media_video_aspect", media_video_aspect_keyboard(language)
+    yield "media_tier", media_tier_keyboard(language)
+    yield "media_voice_pick", media_voice_pick_keyboard(language)
+    yield "media_voice_gender", media_voice_gender_keyboard(language)
+    yield "media_voice_step", media_voice_step_keyboard(language)
+    yield "media_script_review", media_script_review_keyboard(language, can_regenerate=True)
+    yield "media_voice_too_long", media_voice_too_long_keyboard(language, SAMPLE_MEDIA_JOB)
 
 
 def every_reply_keyboard(language: Language) -> Iterator[tuple[str, ReplyKeyboardMarkup]]:

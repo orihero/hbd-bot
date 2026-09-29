@@ -8,12 +8,14 @@ fixed clock.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Final
 
+from bayram.bot.albums import AlbumMemory
 from bayram.bot.chatlog import ChatRecorder
 from bayram.bot.payment import DEFAULT_CURRENCY, FREE_AMOUNT_MINOR, NoopPaymentProvider
-from bayram.bot.ports import Clock, OrderSubmitter, SupportTicketEraser, utc_now
+from bayram.bot.ports import Clock, MediaEraser, OrderSubmitter, SupportTicketEraser, utc_now
 from bayram.bot.pricing import Pricing
 from bayram.bot_chats import BotChatDirectory
 from bayram.checkout import (
@@ -24,11 +26,16 @@ from bayram.checkout import (
 )
 from bayram.churn import BotBlockRecorder
 from bayram.config import Settings
-from bayram.contracts import PaymentProvider
+from bayram.contracts import PaymentProvider, Result
 from bayram.entitlements import EntitlementStore
 from bayram.lyric_budget import LyricBudgetStore
+from bayram.media.desk import JobView, MediaDesk
+from bayram.media.overrides import MediaSwitchStore
+from bayram.media.payment import MediaPayLink
+from bayram.moderation.strikes import StrikeStore
 from bayram.pipeline.ports import ContentWriter
 from bayram.support import SupportTicketStore
+from bayram.terms import TermsCache, TermsGate
 from bayram.user_profiles import UserProfileStore
 
 __all__ = ["BotDeps", "DEPS_KEY"]
@@ -272,3 +279,54 @@ class BotDeps:
     #: half of the support feature is simply off — the ticket is still written, the customer is
     #: still answered and the panel board is still populated.
     bot_chats: BotChatDirectory | None = None
+    #: THE TERMS + PRIVACY GATE (IMAGE_VIDEO_SPEC §2.1, D26): the version pair in force, the
+    #: ``terms_acceptances`` ledger behind a ``Result`` seam, and the ``terms:ok:{tg}`` cache.
+    #:
+    #: A WRITE port, and the fifth on this container, so the rule ``entitlements`` states is
+    #: checked once more: it cannot express a charge, a grant or a refusal of an order. It
+    #: records that somebody accepted a text, and ``/forget`` drops its cache entry.
+    #:
+    #: ``None`` means NO GATE, and it is the shipped default: ``bayram.main`` builds one only
+    #: when ``BAYRAM_TERMS_VERSION`` and ``BAYRAM_PRIVACY_VERSION`` are set and a database is
+    #: wired. With it unset onboarding is the two screens it always was, the middleware is not
+    #: installed, and ``/terms`` shows the text with nothing to accept.
+    #:
+    #: TRAILING and DEFAULTED for the reason measured on ``profiles``: the whole bot suite
+    #: builds ``BotDeps`` by keyword, and a field inserted anywhere but the end, or without a
+    #: default, breaks every construction site at once.
+    terms: TermsGate | None = None
+    #: The ``terms:ok:{tg}`` cache on its own, wired WHETHER OR NOT a gate is (IMAGE_VIDEO_SPEC
+    #: §9.3). ``/forget`` deletes the key through it even with the gate switched off: an entry
+    #: written while the gate was on lives a day, and switching the gate back on inside that
+    #: day would otherwise pass a forgotten account on an acceptance its anonymised row no
+    #: longer names. ``None`` on the demo path, where the gate's own in-process cache is all
+    #: there is. Trailing and defaulted, for the reason ``terms`` gives.
+    terms_cache: TermsCache | None = None
+    #: The ``/forget`` arm for the media tables and their objects (IMAGE_VIDEO_SPEC §9.3).
+    #: ``None`` on a deployment with no database, which has never stored an upload. Trailing
+    #: and defaulted, for the reason ``terms`` gives.
+    media_erasure: MediaEraser | None = None
+    #: The image/video compose screens' door to the media tables and the stage queue
+    #: (IMAGE_VIDEO_SPEC §2.3). ``None`` — a deployment with no database, and the default the
+    #: whole song suite runs in — means media is offered to NOBODY: ✨ goes straight to the
+    #: song, exactly as 🎵 did (§2.2). Trailing and defaulted, for the reason ``terms`` gives.
+    media: MediaDesk | None = None
+    #: Redis, as far as media reads it from the bot: the operator switches (``media:paused:*``,
+    #: §4.5) and the per-account menu version ``menu:v:{tg}`` (§2.2). ``None`` reads as "not
+    #: paused" and "nothing to re-push". Trailing and defaulted, for the reason ``terms`` gives.
+    media_kv: MediaSwitchStore | None = None
+    #: The media strike store (IMAGE_VIDEO_SPEC §6.4), read by the compose screens so a
+    #: suspended account is refused before a row is frozen. ``None`` reads "not suspended";
+    #: the worker's screen gate is the backstop. Trailing and defaulted, as ``terms`` gives.
+    media_strikes: StrikeStore | None = None
+    #: The one-reply-per-album seen-set (IMAGE_VIDEO_SPEC §2.3.2), shared by the inbound gate
+    #: and the handlers so an album counts once and is answered once. In-process by design.
+    albums: AlbumMemory = field(default_factory=AlbumMemory)
+    #: The live-paid half of a media 💳 — ``CheckoutProvider.charge`` with
+    #: ``resume_media_job_id``, then ``quoted → awaiting_payment`` (IMAGE_VIDEO_SPEC §7.2,
+    #: :class:`bayram.media.payment.SqlMediaCharge`). ``None`` — a deployment with no database
+    #: — answers every 💳 as refused. It is only ever called through
+    #: ``offering.guarded_media_charge``, so on any rail that is not live-paid it is never
+    #: called at all (§10 M2.2); a seam, so a test can prove exactly that. Trailing and
+    #: defaulted, for the reason ``terms`` gives.
+    media_charge: Callable[[JobView], Awaitable[Result[MediaPayLink]]] | None = None

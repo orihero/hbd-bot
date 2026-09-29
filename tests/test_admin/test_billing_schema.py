@@ -177,6 +177,21 @@ def plan_receipt() -> PaymentReceipt:
     )
 
 
+def media_receipt() -> PaymentReceipt:
+    return PaymentReceipt(
+        source="media_purchases",
+        amount_minor=500_000,
+        currency="UZS",
+        provider="payme",
+        reference="65f0a1b2c3d4e5f601234567",
+        credits_granted=None,
+        songs_included=None,
+        songs_used=None,
+        plan_ends_at=None,
+        created_at=SETTLED_AT,
+    )
+
+
 def grant() -> PaymentGrant:
     return PaymentGrant(
         kind="grant", delta=1, reason="topup_purchase", actor="checkout", created_at=SETTLED_AT
@@ -563,6 +578,17 @@ def test_every_note_the_server_can_send_is_reachable_from_some_fixture() -> None
             receipt=single_receipt(),
             grants=(grant(),),
         ),
+        build_lifeline(
+            intent(
+                state=PaymentIntentState.PAID.value,
+                product=IntentProduct.IMAGE.value,
+                settled_at=SETTLED_AT,
+                settle_note="payme",
+            ),
+            transactions=(performed_transaction(),),
+            receipt=media_receipt(),
+            grants=(),
+        ),
     ]
 
     # Act
@@ -639,6 +665,36 @@ def test_the_chain_continues_past_the_receipt_for_a_plan() -> None:
     # Assert
     assert view.kind.value == "plan"
     assert (view.songs_used, view.songs_included) == (2, 5)
+
+
+@pytest.mark.parametrize(
+    "product", [IntentProduct.IMAGE, IntentProduct.VIDEO_STANDARD, IntentProduct.VIDEO_FAST]
+)
+def test_a_media_sale_grants_nothing_and_its_chain_stops_at_the_job(
+    product: IntentProduct,
+) -> None:
+    # Arrange — IMAGE_VIDEO_SPEC §7.3: the binary "is it the plan?" read every media sale's
+    # absent grant as missing and filed its chain under the single song.
+    paid = intent(
+        state=PaymentIntentState.PAID.value,
+        product=product.value,
+        settled_at=SETTLED_AT,
+        settle_note="payme",
+    )
+    lifeline = build_lifeline(
+        paid, transactions=(performed_transaction(),), receipt=media_receipt(), grants=()
+    )
+
+    # Act
+    step = steps_by_key(lifeline.steps)[LifelineStep.CREDIT_GRANTED]
+    view = to_chain_stop_view(paid, receipt=media_receipt())
+
+    # Assert
+    assert (step.status, step.note_code) == (
+        LifelineStatus.NOT_APPLICABLE,
+        LifelineNote.MEDIA_GRANTS_NOTHING,
+    )
+    assert view.kind.value == "media"
 
 
 def test_the_settle_command_carries_the_public_reference_and_nothing_else() -> None:

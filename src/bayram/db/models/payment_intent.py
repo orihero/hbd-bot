@@ -347,3 +347,11 @@ class PaymentIntentRow(Base, TimestampMixin):
     #: they have a song, one 🎬 press away. So the render claims first and acts second, and
     #: the failure it accepts is the behaviour that already ships.
     resumed_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    #: The media job this payment is for (revision 0031, IMAGE_VIDEO_SPEC §7.2): the
+    #: settlement's pointer from money to the ``media_jobs`` row it moves to ``paid``. Unlike
+    #: ``resume_order_id`` it is NOT a latch — the job row's own conditional state move is —
+    #: and ``resumed_at`` above is stamped for audit only. A plain uuid minted by us, not a
+    #: digest of anything the customer wrote, so ``/forget`` leaves it: a late settlement on a
+    #: forgotten account must still find the job it paid for. No foreign key (0006/0015/0020/
+    #: 0023 precedent): the receipt outlives the job row's purge.
+    resume_media_job_id: Mapped[UUID | None] = mapped_column(sa.Uuid, nullable=True)

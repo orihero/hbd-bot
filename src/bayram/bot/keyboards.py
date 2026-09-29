@@ -41,15 +41,23 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bayram.bot.callbacks import (
+    AspectPick,
+    CreatePick,
     GenreCB,
     LanguageCB,
     LanguageSlot,
+    MediaAction,
+    MediaCB,
     NavAction,
     NavCB,
     OccasionCB,
+    ScriptPick,
     SupportAction,
     SupportCB,
+    TermsAction,
+    TermsCB,
     VocalGenderCB,
+    pack_job_ref,
     pack_reference,
 )
 from bayram.bot.i18n import (
@@ -62,6 +70,7 @@ from bayram.bot.i18n import (
 )
 from bayram.bot.pricing import CheckoutOffer
 from bayram.contracts import Genre, Language, Occasion, VoiceGender
+from bayram.db.enums import MediaTier, MediaVoiceGender, MediaVoiceMode
 
 __all__ = [
     "language_keyboard",
@@ -84,6 +93,23 @@ __all__ = [
     "main_menu_keyboard",
     "contact_request_keyboard",
     "settings_keyboard",
+    "terms_keyboard",
+    "media_quote_keyboard",
+    "media_refused_keyboard",
+    "media_busy_keyboard",
+    "media_again_keyboard",
+    "create_picker_keyboard",
+    "media_tray_keyboard",
+    "media_aspect_keyboard",
+    "media_open_request_keyboard",
+    "media_pay_link_keyboard",
+    "media_video_aspect_keyboard",
+    "media_tier_keyboard",
+    "media_voice_pick_keyboard",
+    "media_voice_gender_keyboard",
+    "media_voice_step_keyboard",
+    "media_script_review_keyboard",
+    "media_voice_too_long_keyboard",
     "LANGUAGE_COLUMNS",
     "GENRE_COLUMNS",
     "OCCASION_COLUMNS",
@@ -93,6 +119,9 @@ __all__ = [
     "MAX_ROW_LABEL_CHARS",
     "MAX_REPLY_ROW_LABEL_CHARS",
     "MENU_BUTTON_KEYS",
+    "MENU_LEGACY_LABEL_KEYS",
+    "MENU_GENERATE_LEGACY_LABEL_KEY",
+    "MENU_VERSION",
     "MENU_LABELS",
     "MENU_GENERATE_LABEL_KEY",
     "MENU_BALANCE_LABEL_KEY",
@@ -209,8 +238,24 @@ MENU_BUTTON_KEYS: Final[tuple[str, ...]] = (
 #: language still has yesterday's labels pinned and will press one. A set built per-request
 #: from the current language would route those presses to the fallback handler and answer
 #: "that session expired" to a button the bot itself drew.
+#: Labels the menu no longer DRAWS but still ANSWERS, each mapped to the key it now means
+#: (IMAGE_VIDEO_SPEC §2.2, D20). 🎵 became ✨ Create; every chat that has not been re-pushed a
+#: keyboard still has the 🎵 one pinned, and its press must keep working. Kept apart from
+#: :data:`MENU_BUTTON_KEYS` because that tuple is what :func:`main_menu_keyboard` draws — a
+#: legacy key there would be a fifth button.
+MENU_LEGACY_LABEL_KEYS: Final[Mapping[str, str]] = {"menu.generate_legacy": "menu.generate"}
+#: Named so the locale contract's key scan sees it (see ``MENU_GENERATE_LABEL_KEY``).
+MENU_GENERATE_LEGACY_LABEL_KEY: Final[str] = "menu.generate_legacy"
+
+#: The reply keyboard's version (IMAGE_VIDEO_SPEC §2.2). Bumped whenever a label changes, so
+#: ``bot.menu_version`` re-sends the keyboard once to every chat still holding the old one.
+#: 1 was the 🎵 menu; 2 is ✨ Create.
+MENU_VERSION: Final[int] = 2
+
 MENU_LABELS: Final[frozenset[str]] = frozenset(
-    translate(key, language) for key in MENU_BUTTON_KEYS for language in SUPPORTED_LANGUAGES
+    translate(key, language)
+    for key in (*MENU_BUTTON_KEYS, *MENU_LEGACY_LABEL_KEYS)
+    for language in SUPPORTED_LANGUAGES
 )
 
 #: Label keys that do NOT follow the ``button.{action.value}`` convention, named here so
@@ -877,3 +922,311 @@ def settings_keyboard(language: Language) -> InlineKeyboardMarkup:
     ):
         builder.row(_nav_button(action, language))
     return builder.as_markup()
+
+
+def terms_keyboard(
+    language: Language, *, stamp: str = "", is_read_full_offered: bool = True
+) -> InlineKeyboardMarkup:
+    """✅ I accept, and 📄 Read in full under it (IMAGE_VIDEO_SPEC §2.1).
+
+    No decline button, deliberately: declining is just not accepting, and a ❌ would need a
+    screen of its own that says the same as this one. No Back and no Cancel either — there is
+    nothing behind the gate to go back to. One button per row, so neither label is measured
+    against the other's width.
+
+    ``is_read_full_offered`` is false under the full text itself, where 📄 would redraw the
+    screen the customer is already reading. ``stamp`` is ``TermsVersions.stamp`` for the pair
+    on screen, carried by ✅ so a tap after a version bump is recognised as stale.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text=translate("button.terms.accept", language),
+            callback_data=TermsCB(action=TermsAction.ACCEPT, v=stamp).pack(),
+        )
+    )
+    if is_read_full_offered:
+        builder.row(
+            InlineKeyboardButton(
+                text=translate("button.terms.read_full", language),
+                callback_data=TermsCB(action=TermsAction.READ_FULL).pack(),
+            )
+        )
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Media (IMAGE_VIDEO_SPEC §2.3.3). Drawn by the WORKER onto the tray it edits (§3.3); the
+# handlers are the bot's media router. One button per row: the labels are sentences, and a
+# row of two would be measured against each other's width on a 360dp phone.
+# ---------------------------------------------------------------------------
+def _media_button(
+    language: Language, key: str, action: MediaAction, job_id: UUID
+) -> list[InlineKeyboardButton]:
+    return [
+        InlineKeyboardButton(
+            text=translate(key, language),
+            callback_data=MediaCB(action=action, job=pack_job_ref(job_id)).pack(),
+        )
+    ]
+
+
+def media_quote_keyboard(
+    language: Language,
+    job_id: UUID,
+    *,
+    is_pay_offered: bool,
+    is_credit_offered: bool,
+    is_beta_offered: bool,
+) -> InlineKeyboardMarkup:
+    """The quote (§2.3.3): 💳 only on a live-paid rail, 🎁 only off one and only for the
+    allowlist, 🎟 when the customer holds a credit of this SKU; ✏️ and ✖️ always.
+
+    Which of the three the worker draws is decided from the row and the rail at render time,
+    and the bot re-checks all of it at press time (§2.5): a drawn button is never proof of
+    entitlement.
+    """
+    rows: list[list[InlineKeyboardButton]] = []
+    if is_pay_offered:
+        rows.append(_media_button(language, "button.media.pay", MediaAction.PAY, job_id))
+    if is_credit_offered:
+        rows.append(_media_button(language, "button.media.use_credit", MediaAction.CREDIT, job_id))
+    if is_beta_offered:
+        rows.append(_media_button(language, "button.media.beta_free", MediaAction.BETA, job_id))
+    rows.append(_media_button(language, "button.media.edit", MediaAction.EDIT, job_id))
+    rows.append(_media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def media_refused_keyboard(language: Language, job_id: UUID) -> InlineKeyboardMarkup:
+    """``media.refused``: change the words or the photos, or stop (§2.3.3)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            _media_button(language, "button.media.edit", MediaAction.EDIT, job_id),
+            _media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id),
+        ]
+    )
+
+
+def media_busy_keyboard(language: Language, job_id: UUID) -> InlineKeyboardMarkup:
+    """``media.busy``: 🔁 re-runs the check on the SAME frozen row; nothing was charged."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            _media_button(language, "button.media.retry_later", MediaAction.RETRY, job_id),
+            _media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id),
+        ]
+    )
+
+
+def media_again_keyboard(language: Language, job_id: UUID) -> InlineKeyboardMarkup:
+    """Under a delivery or a failure: 🔁 a fresh compose with the prompt and aspect pre-filled,
+    and ✨ the picker, for something else entirely (§2.3.3).
+
+    After a refunded failure the bot's handler pre-selects the credit at the quote, so one
+    button serves both the "again" and the "use your credit" readings of §2.3.3.
+    """
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            _media_button(language, "button.media.again", MediaAction.AGAIN, job_id),
+            _media_button(language, "button.create.more", MediaAction.MORE, job_id),
+        ]
+    )
+
+
+def _pre_freeze_button(
+    language: Language, key: str, action: MediaAction, arg: str = ""
+) -> list[InlineKeyboardButton]:
+    return [
+        InlineKeyboardButton(
+            text=translate(key, language), callback_data=MediaCB(action=action, arg=arg).pack()
+        )
+    ]
+
+
+def create_picker_keyboard(
+    language: Language, *, is_image_offered: bool, is_video_offered: bool
+) -> InlineKeyboardMarkup:
+    """``create.pick`` (§2.2): 🎵 always; 🖼 and 🎬 only when offered to THIS account (§2.5).
+
+    Drawn from the menu, which carries no state, so these three are the one pre-freeze family
+    registered without a state filter.
+    """
+    rows = [_pre_freeze_button(language, "button.create.song", MediaAction.PICK, CreatePick.SONG)]
+    if is_image_offered:
+        rows.append(
+            _pre_freeze_button(language, "button.create.image", MediaAction.PICK, CreatePick.IMAGE)
+        )
+    if is_video_offered:
+        rows.append(
+            _pre_freeze_button(language, "button.create.video", MediaAction.PICK, CreatePick.VIDEO)
+        )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def media_tray_keyboard(language: Language, *, has_photos: bool) -> InlineKeyboardMarkup:
+    """The compose tray (§2.3.3): ✅ Done, 🗑 Clear photos when there are any, ✖️ Cancel."""
+    rows = [_pre_freeze_button(language, "button.media.done", MediaAction.DONE)]
+    if has_photos:
+        rows.append(_pre_freeze_button(language, "button.media.clear_photos", MediaAction.CLEAR))
+    rows.append(_pre_freeze_button(language, "button.media.cancel", MediaAction.DROP))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+#: The aspect buttons in the order they are drawn: the default (9:16, O15) first.
+_ASPECT_LABEL_KEYS: Final[tuple[tuple[AspectPick, str], ...]] = (
+    (AspectPick.PORTRAIT, "button.media.aspect.portrait"),
+    (AspectPick.SQUARE, "button.media.aspect.square"),
+    (AspectPick.LANDSCAPE, "button.media.aspect.landscape"),
+)
+
+
+def media_aspect_keyboard(language: Language) -> InlineKeyboardMarkup:
+    """``media.aspect`` (§2.3.3): 📱 9:16 · ⏹ 1:1 · 🖥 16:9, and ✖️ — nothing is frozen yet."""
+    rows = [
+        _pre_freeze_button(language, key, MediaAction.ASPECT, pick)
+        for pick, key in _ASPECT_LABEL_KEYS
+    ]
+    rows.append(_pre_freeze_button(language, "button.media.cancel", MediaAction.DROP))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def media_open_request_keyboard(language: Language, job_id: UUID) -> InlineKeyboardMarkup:
+    """``media.open_request`` for a request whose pay link is out (§2.3.1): 💳 · ✖️ on THAT row."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            _media_button(language, "button.media.pay", MediaAction.PAY, job_id),
+            _media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id),
+        ]
+    )
+
+
+def media_pay_link_keyboard(language: Language, url: str, job_id: UUID) -> InlineKeyboardMarkup:
+    """The media pay link (§7.2 step 2): 🔗 pay over there, or ✖️ cancel THIS row (§2.6).
+
+    ✖️ rather than 🏠, unlike :func:`checkout_link_keyboard`: a media request is a row, not a
+    wizard run, and cancelling it while no Payme transaction holds its intent marks the intent
+    cancelled too, so the link stops being payable. Once money is in flight the press answers
+    ``media.cancel_too_late``.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.row(InlineKeyboardButton(text=translate(PAY_NOW_LABEL_KEY, language), url=url))
+    builder.row(*_media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id))
+    return builder.as_markup()
+
+
+# ---------------------------------------------------------------------------
+# Video, after ✅ Done (IMAGE_VIDEO_SPEC §2.4). Every screen carries ⬅️ (the §2.4.1 back map)
+# and ✖️, both pre-freeze and state-filtered: the ✖️ here also cancels the ``drafting`` row.
+# ---------------------------------------------------------------------------
+def _back_and_cancel(language: Language) -> list[list[InlineKeyboardButton]]:
+    return [
+        _pre_freeze_button(language, "button.media.back", MediaAction.BACK),
+        _pre_freeze_button(language, "button.media.cancel", MediaAction.DROP),
+    ]
+
+
+def media_video_aspect_keyboard(language: Language) -> InlineKeyboardMarkup:
+    """``media.aspect`` for a video, drawn by ``media_prescreen``: the shapes, ⬅️ to compose."""
+    rows = [
+        _pre_freeze_button(language, key, MediaAction.ASPECT, pick)
+        for pick, key in _ASPECT_LABEL_KEYS
+    ]
+    rows.extend(_back_and_cancel(language))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+#: The tiers in the order drawn: Standard (the one that exists now, O2) first.
+_TIER_LABEL_KEYS: Final[tuple[tuple[MediaTier, str], ...]] = (
+    (MediaTier.STANDARD, "button.media.tier.standard"),
+    (MediaTier.FAST, "button.media.tier.fast"),
+)
+
+
+def media_tier_keyboard(
+    language: Language, tiers: frozenset[MediaTier] = frozenset(MediaTier)
+) -> InlineKeyboardMarkup:
+    """``media.video.tier`` (§2.4.2): 🐢 Standard · ⚡ Fast — drawn only with two offered."""
+    rows = [
+        _pre_freeze_button(language, key, MediaAction.TIER, tier)
+        for tier, key in _TIER_LABEL_KEYS
+        if tier in tiers
+    ]
+    rows.extend(_back_and_cancel(language))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+_VOICE_LABEL_KEYS: Final[tuple[tuple[MediaVoiceMode, str], ...]] = (
+    (MediaVoiceMode.NONE, "button.media.voice.none"),
+    (MediaVoiceMode.AI_USER, "button.media.voice.ai_mine"),
+    (MediaVoiceMode.AI_LLM, "button.media.voice.ai_llm"),
+    (MediaVoiceMode.OWN, "button.media.voice.own"),
+)
+
+
+def media_voice_pick_keyboard(
+    language: Language, modes: frozenset[MediaVoiceMode] = frozenset(MediaVoiceMode)
+) -> InlineKeyboardMarkup:
+    """``media.voice.pick`` (§2.4.2): 🔇 · 🗣 · 🤖 · 🎙, each only when ``modes`` has it."""
+    rows = [
+        _pre_freeze_button(language, key, MediaAction.VOICE, mode)
+        for mode, key in _VOICE_LABEL_KEYS
+        if mode in modes
+    ]
+    rows.extend(_back_and_cancel(language))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def media_voice_gender_keyboard(language: Language) -> InlineKeyboardMarkup:
+    """``media.voice.gender`` (§2.4.2): 👩 · 👨 — the two house voices."""
+    rows = [
+        _pre_freeze_button(
+            language, "button.media.voice.female", MediaAction.GENDER, MediaVoiceGender.FEMALE
+        ),
+        _pre_freeze_button(
+            language, "button.media.voice.male", MediaAction.GENDER, MediaVoiceGender.MALE
+        ),
+    ]
+    rows.extend(_back_and_cancel(language))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def media_voice_step_keyboard(language: Language) -> InlineKeyboardMarkup:
+    """Under ``media.voice.enter_text`` and ``media.voice.send_note``: ⬅️ · ✖️ (§2.4.2)."""
+    return InlineKeyboardMarkup(inline_keyboard=_back_and_cancel(language))
+
+
+def media_script_review_keyboard(
+    language: Language, *, can_regenerate: bool, can_use: bool = True
+) -> InlineKeyboardMarkup:
+    """``media.voice.script_review`` (§2.4.2): ✅ use · ✏️ edit · 🔄 another (while any of the
+    ``media_script_max_regens`` are left) · ⬅️ · ✖️. Drawn by the script writer
+    (``media_script``); under ``media.voice.script_failed`` there is no line, so no ✅."""
+    rows = []
+    if can_use:
+        rows.append(
+            _pre_freeze_button(
+                language, "button.media.voice.use", MediaAction.SCRIPT, ScriptPick.USE
+            )
+        )
+    rows.append(
+        _pre_freeze_button(language, "button.media.voice.edit", MediaAction.SCRIPT, ScriptPick.EDIT)
+    )
+    if can_regenerate:
+        rows.append(
+            _pre_freeze_button(
+                language, "button.media.voice.another", MediaAction.SCRIPT, ScriptPick.ANOTHER
+            )
+        )
+    rows.extend(_back_and_cancel(language))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def media_voice_too_long_keyboard(language: Language, job_id: UUID) -> InlineKeyboardMarkup:
+    """``media.voice_note.too_long`` from ``media_screen`` (§5.4): 🎙 record again · ✖️, on
+    THAT row — the worker draws it, so both carry the job id."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            _media_button(language, "button.media.voice.record_again", MediaAction.RECORD, job_id),
+            _media_button(language, "button.media.cancel", MediaAction.CANCEL, job_id),
+        ]
+    )

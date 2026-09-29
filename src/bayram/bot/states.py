@@ -46,6 +46,8 @@ __all__ = [
     "WizardStep",
     "Wizard",
     "Onboarding",
+    "ImageOrder",
+    "VideoOrder",
     "WIZARD_ORDER",
     "OWN_LYRICS_ORDER",
     "PARKED_ONLY_STEPS",
@@ -92,9 +94,14 @@ class Wizard(StatesGroup):
 
 
 class Onboarding(StatesGroup):
-    """First contact: which language to speak, and the phone number. NOT wizard steps.
+    """First contact: which language to speak, the Terms, and the phone number. NOT wizard steps.
 
-    These two screens are deliberately a separate :class:`StatesGroup` rather than two more
+    ``terms`` sits BETWEEN the other two (IMAGE_VIDEO_SPEC §2.1, D26): the Terms are shown in
+    the language just chosen, and are accepted before a phone number is asked for. It is only
+    ever entered while the gate is on (``Settings.is_terms_gate_enabled``); with the gate off
+    onboarding is the two screens it always was.
+
+    These screens are deliberately a separate :class:`StatesGroup` rather than two more
     members of :class:`Wizard`, and the reason is that everything in this module treats a
     ``Wizard`` member as a step of an order. :data:`_STATE_BY_STEP` maps a step to a state
     and :func:`state_for` reads it as an UNDEFAULTED dict lookup, so a state with no step
@@ -117,7 +124,49 @@ class Onboarding(StatesGroup):
     """
 
     language = State()
+    terms = State()
     contact = State()
+
+
+class ImageOrder(StatesGroup):
+    """The image request before it is paid for (IMAGE_VIDEO_SPEC §2.3.1). NOT wizard steps.
+
+    Its own group for :class:`Onboarding`'s reason: a ``Wizard`` member is a step of a SONG
+    order, and :func:`step_for_state` answering ``None`` for these is what keeps the song's
+    navigation from treating them as one.
+
+    ``compose`` collects the prompt and the photos on one tray message; ``aspect`` is the
+    shape; at the aspect pick the draft is frozen into a ``media_jobs`` row and the chat
+    parks in ``quote`` while the worker screens it and edits the tray into the quote. The
+    quote's own buttons carry the job id and need no state (§2 "Callbacks"): ``quote`` exists
+    so that a photo or a line of text sent there is answered, not swallowed by the fallback.
+    """
+
+    compose = State()
+    aspect = State()
+    quote = State()
+
+
+class VideoOrder(StatesGroup):
+    """The video request before it is paid for (IMAGE_VIDEO_SPEC §2.4.1). NOT wizard steps.
+
+    ``compose`` is the image's tray. At ✅ Done the draft is frozen into a ``drafting`` row and
+    the chat waits in ``aspect`` while ``media_prescreen`` screens the prompt and photos and
+    draws the shape screen. Then ``tier`` (only with two tiers offered), ``voice``, and per
+    voice: ``voice_gender`` → ``voice_text`` (typed words), ``voice_gender`` →
+    ``script_review`` (AI-written words), or ``voice_note`` (own voice). The last voice step
+    moves the row to ``screening`` and the chat parks in ``quote``, as an image does.
+    """
+
+    compose = State()
+    aspect = State()
+    tier = State()
+    voice = State()
+    voice_gender = State()
+    voice_text = State()
+    script_review = State()
+    voice_note = State()
+    quote = State()
 
 
 WIZARD_ORDER: Final[tuple[WizardStep, ...]] = (

@@ -30,11 +30,15 @@ output — and none of that is a document.
 
 ### `deployment/` — the operational tree
 
-**Twelve** numbered documents, `00`–`11`, indexed by
+**Thirteen** numbered documents, `00`–`12`, indexed by
 [`deployment/README.md`](deployment/README.md). Start there for anything to do with the running
-system: releasing a change, standing up a host, or a symptom you are looking at right now. `11`
-is the newest: [`deployment/11-ci-cd.md`](deployment/11-ci-cd.md), written 2026-09-16 with the CI
-workflow it describes and re-layered on 2026-09-19 — CI runs on every push, and continuous
+system: releasing a change, standing up a host, or a symptom you are looking at right now. `12`
+is the newest: [`deployment/12-media-gateway.md`](deployment/12-media-gateway.md), written
+2026-09-25 with IMAGE_VIDEO_SPEC M2.6 — hardening the owner's generation gateway, the G1–G8
+endpoints the owner installs on it, its sweeper and the `doctor` that proves it from the host;
+none of it has been run on the box yet. Before it came
+[`deployment/11-ci-cd.md`](deployment/11-ci-cd.md), written 2026-09-16 with the CI workflow it
+describes and re-layered on 2026-09-19 — CI runs on every push, and continuous
 *deployment* stops at the door deliberately, so a release is still one command a human runs on the
 host. `10` is the `hbd` → `bayram` rename cutover, which kept its own page because it was an
 all-or-nothing operation with its own rollback; that window has since closed.
@@ -221,7 +225,9 @@ all-or-nothing operation with its own rollback; that window has since closed.
   that need a human: who is in the support group, whether indefinite retention has a lawful
   basis, and who may answer a customer unreviewed.
 - [`IMAGE_VIDEO_SPEC.md`](product/IMAGE_VIDEO_SPEC.md) — the image and video products behind ✨
-  Create, written 2026-09-24 as a **plan; nothing in it is built**. §0 is the ground truth and the
+  Create, written 2026-09-24 as a plan; **its code is built** on `feat/media-products` (M0–M6 and a
+  FINAL review, 2026-09-25) and go-live is owner-pending — §10 opens with the per-item status and
+  commit ids. §0 is the ground truth and the
   owner's binding answers of that day; §2 the Terms gate and the image and video flows
   as state diagrams with their copy keys; §3 the `0029`/`0030` schema, retention and the stage-job
   chain; §4 the `MediaGenProvider` protocol, the local gateway's traps and the backend flags; §5

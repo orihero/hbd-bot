@@ -72,6 +72,7 @@ from bayram.bot.handlers.common import (
     clear_keeping_identity,
     error_text,
     expire,
+    is_first_of_album,
     is_menu_label,
     present,
     read_draft,
@@ -535,8 +536,10 @@ def _title_for(draft: WizardDraft, previous: LyricDraft | None) -> str:
     return translate("wizard.lyrics.untitled", draft.ui_language)
 
 
-async def handle_lyrics_not_typed(message: Message, state: FSMContext) -> None:
+async def handle_lyrics_not_typed(message: Message, state: FSMContext, deps: BotDeps) -> None:
     """A voice note or a photo. Lyrics are words, so we ask for words."""
+    if not is_first_of_album(message, deps):
+        return  # One answer per album (IMAGE_VIDEO_SPEC §2.2).
     draft = await read_draft(state)
     if draft is None:
         await expire(message, state)

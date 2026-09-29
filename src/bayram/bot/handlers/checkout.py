@@ -171,7 +171,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from enum import StrEnum
-from typing import Final
+from typing import Final, assert_never
 from uuid import UUID
 
 from aiogram import F, Router
@@ -187,6 +187,7 @@ from bayram.bot.handlers.common import error_text, expire, present, read_draft, 
 from bayram.bot.i18n import translate
 from bayram.bot.middleware import resolve_language
 from bayram.bot.order_id import order_id_for
+from bayram.bot.pricing import Pricing
 from bayram.bot.screens import checkout_link_screen, menu_screen
 from bayram.bot.states import Wizard
 from bayram.checkout import Product, PurchaseRequest
@@ -523,11 +524,19 @@ async def _settle(
         )
         await redraw()
         return SettleOutcome.NOTHING
+    amount_minor = _song_amount_minor(pricing, product)
+    if amount_minor is None:
+        # A media SKU reached the SONG checkout. Nothing draws that button, so this is a
+        # defect or a forged callback; it is refused before a key is minted or a rail
+        # contacted (IMAGE_VIDEO_SPEC §7.3: every SINGLE-else-PLAN site fails closed).
+        _LOG.error(
+            "a media product reached the song checkout; refused", extra={"product": product.value}
+        )
+        await say(callback, translate("checkout.failed", language))
+        await redraw()
+        return SettleOutcome.NOTHING
     seq = int(data.get(PURCHASE_SEQ_KEY, 0))
     key = _idempotency_key(user.id, scope, product=product, seq=seq)
-    amount_minor = (
-        pricing.single_amount_minor if product is Product.SINGLE else pricing.plan_amount_minor
-    )
     charged = await deps.checkout.charge(
         PurchaseRequest(
             telegram_user_id=user.id,
@@ -616,53 +625,62 @@ async def _settle(
         await say(callback, translate("checkout.failed", language))
         await redraw()
         return SettleOutcome.NOTHING
-    if product is Product.SINGLE:
-        single = await store.fulfil_single(
-            telegram_user_id=user.id, purchase=charged.value, idempotency_key=key
-        )
-        if isinstance(single, Err):
-            await _fulfilment_failed(callback, deps, language, single, redraw)
+    match product:
+        case Product.SINGLE:
+            single = await store.fulfil_single(
+                telegram_user_id=user.id, purchase=charged.value, idempotency_key=key
+            )
+            if isinstance(single, Err):
+                await _fulfilment_failed(callback, deps, language, single, redraw)
+                return SettleOutcome.NOTHING
+            await _remember(
+                state,
+                data,
+                seq=seq,
+                update_id=update_id,
+                now=deps.clock().timestamp(),
+                product=product,
+            )
+            await say(
+                callback,
+                translate("checkout.paid_single", language, credits=single.value.credits),
+            )
+        case Product.STARTER:
+            plan = await store.start_plan(
+                telegram_user_id=user.id,
+                purchase=charged.value,
+                songs=pricing.plan_songs,
+                days=pricing.plan_days,
+                idempotency_key=key,
+            )
+            if isinstance(plan, Err):
+                await _fulfilment_failed(callback, deps, language, plan, redraw)
+                return SettleOutcome.NOTHING
+            await _remember(
+                state,
+                data,
+                seq=seq,
+                update_id=update_id,
+                now=deps.clock().timestamp(),
+                product=product,
+            )
+            await say(
+                callback,
+                translate(
+                    "checkout.paid_plan",
+                    language,
+                    songs=plan.value.songs_left,
+                    ends_on=plan.value.ends_at.date().isoformat(),
+                ),
+            )
+        case Product.IMAGE | Product.VIDEO_STANDARD | Product.VIDEO_FAST:
+            # Unreachable past the amount guard above; kept as an arm so the ``match`` is
+            # exhaustive and a media SKU can never fall through to a song grant (§7.3).
+            await say(callback, translate("checkout.failed", language))
+            await redraw()
             return SettleOutcome.NOTHING
-        await _remember(
-            state,
-            data,
-            seq=seq,
-            update_id=update_id,
-            now=deps.clock().timestamp(),
-            product=product,
-        )
-        await say(
-            callback,
-            translate("checkout.paid_single", language, credits=single.value.credits),
-        )
-    else:
-        plan = await store.start_plan(
-            telegram_user_id=user.id,
-            purchase=charged.value,
-            songs=pricing.plan_songs,
-            days=pricing.plan_days,
-            idempotency_key=key,
-        )
-        if isinstance(plan, Err):
-            await _fulfilment_failed(callback, deps, language, plan, redraw)
-            return SettleOutcome.NOTHING
-        await _remember(
-            state,
-            data,
-            seq=seq,
-            update_id=update_id,
-            now=deps.clock().timestamp(),
-            product=product,
-        )
-        await say(
-            callback,
-            translate(
-                "checkout.paid_plan",
-                language,
-                songs=plan.value.songs_left,
-                ends_on=plan.value.ends_at.date().isoformat(),
-            ),
-        )
+        case _ as unreachable:
+            assert_never(unreachable)
     _LOG.info(
         "a purchase was fulfilled",
         extra={
@@ -902,8 +920,37 @@ def _idempotency_key(telegram_user_id: int, scope: str, *, product: Product, seq
     :data:`PURCHASE_SETTLED_UPDATES_KEY` and :data:`PURCHASE_SETTLED_AT_KEY` rather than
     here. Reading this function as the whole defence is how the gap got shipped.
     """
-    prefix = "topup" if product is Product.SINGLE else f"plan:{product.value}"
+    match product:
+        case Product.SINGLE:
+            prefix = "topup"
+        case Product.STARTER:
+            prefix = f"plan:{product.value}"
+        case Product.IMAGE | Product.VIDEO_STANDARD | Product.VIDEO_FAST:
+            # A media key is ``{sku}:{tg}:{job_id}`` and is minted by the media pay path
+            # (IMAGE_VIDEO_SPEC §7.2), never here. Raising is the fail-closed answer: a song
+            # key for a media SKU would dedupe against nothing it should.
+            raise ValueError(f"the song checkout mints no key for {product.value}")
+        case _ as unreachable:
+            assert_never(unreachable)
     return f"{prefix}:{telegram_user_id}:{scope}:{seq}"
+
+
+def _song_amount_minor(pricing: Pricing, product: Product) -> int | None:
+    """The price a song button charges, or ``None`` for a product this surface never sells.
+
+    An exhaustive ``match`` rather than SINGLE-else-PLAN (IMAGE_VIDEO_SPEC §7.3): with the media
+    SKUs in :class:`~bayram.checkout.Product`, an ``else`` would have charged a plan's price
+    for an image.
+    """
+    match product:
+        case Product.SINGLE:
+            return pricing.single_amount_minor
+        case Product.STARTER:
+            return pricing.plan_amount_minor
+        case Product.IMAGE | Product.VIDEO_STANDARD | Product.VIDEO_FAST:
+            return None
+        case _ as unreachable:
+            assert_never(unreachable)
 
 
 def build_router() -> Router:

@@ -96,6 +96,7 @@ export const uz: TranslationSchema = {
       billing: "Billing",
       broadcasts: "Xabarnomalar",
       support: "Qoʻllab-quvvatlash",
+      mediaReviews: "Media tekshiruvi",
       audit: "Audit",
       admins: "Administratorlar",
     },
@@ -2179,6 +2180,8 @@ export const uz: TranslationSchema = {
           "Xaridor oʻzini oʻchirishni soʻradi. Pul oʻtdi, lekin kredit beradigan ham, xabar beradigan ham qolmadi — bu holat, nomuvofiqlik emas.",
         planGrantsNothing:
           "Tarif qoʻshiqlarni ishlatilgani sari beradi, shuning uchun xarid paytida kredit bermaydi.",
+        mediaGrantsNothing:
+          "Rasm yoki video xaridi bitta media soʻrov uchun toʻlanadi, shuning uchun qoʻshiq krediti berilmaydi.",
         notSettled:
           "Bu toʻlov yakunlanmagan, shuning uchun undan keyingi hech narsa boʻlishi ham kerak emas edi.",
         alreadyTold: "Tasdiq yuborilgan.",
@@ -2207,6 +2210,8 @@ export const uz: TranslationSchema = {
         "Bu toʻlov kiruvchi jurnal saqlanadigan 90 kundan eski, shuning uchun uning chaqiruvlari muddati boʻyicha oʻchirilgan. Oʻchirilgan, yoʻq boʻlgan emas.",
       chainStopSingle:
         "Tizim tuzilishiga koʻra javob yoʻq. Kredit balansi — partiyalarsiz bitta son, shuning uchun hech bir soʻrov sotib olingan kredit qaysi qoʻshiqqa ketganini isbotlay olmaydi.",
+      chainStopMedia:
+        "Zanjir kredit orqali emas, bu toʻlov toʻlangan holatga oʻtkazgan media soʻrov orqali davom etadi.",
       chainStopPlan:
         "Tarif boʻyicha {included} tadan {used} ta qoʻshiq ishlatilgan.",
       chainStopPlanUnknown:
@@ -2651,6 +2656,65 @@ export const uz: TranslationSchema = {
         workerTitle: "Tanlandi, lekin tekshiradigan hech kim yoʻq",
         workerMessage:
           "Guruh oʻzgartirildi va oʻzgarish saqlandi. Vorker ishlamayapti, shuning uchun sinov xabari yuborilmadi — vorker paydo boʻlmaguncha bu chat tekshirilmagan qoladi.",
+      },
+    },
+  },
+
+  media: {
+    reviews: {
+      title: "Media tekshiruvi",
+      subtitle: "Toʻxtatilgan rasm va videolar qaror kutmoqda. 24 soat ichida qaror boʻlmasa, pul kredit sifatida qaytariladi.",
+      pending: "Kutilmoqda",
+      decided: "Hal qilingan",
+      loadFailed: "Tekshiruv navbatini yuklab boʻlmadi",
+      emptyPending: "Tekshiruv kutayotgan narsa yoʻq.",
+      emptyDecided: "Hali hech qanday qaror qabul qilinmagan.",
+      noCategories: "koʻrsatilmagan",
+      notApplied: "navbatda",
+      pendingLabel: "Saqlanmoqda…",
+      reasonLabel: "Sabab (ixtiyoriy)",
+      reasonHint: "Mijozning emas, oʻz soʻzlaringiz. Promptni hech qachon qoʻymang.",
+      conflictTitle: "Kimdir oldinroq qaror qildi",
+      conflictMessage: "Bu tekshiruv allaqachon hal qilingan yoki buyurtma endi toʻxtatilmagan. Hech narsa yozilmadi; roʻyxat qayta oʻqildi.",
+      failedTitle: "Qaror saqlanmadi",
+      columns: {
+        job: "Buyurtma",
+        sku: "Mahsulot",
+        source: "Toʻxtatilish sababi",
+        categories: "Toifalar",
+        dueAt: "Qaror boʻlmasa qaytariladi",
+        decidedAt: "Hal qilingan vaqt",
+        actions: "Amallar",
+        decision: "Qaror",
+      },
+      sku: {
+        image: "Rasm",
+        video_standard: "Video (standart)",
+        video_fast: "Video (tezkor)",
+      },
+      source: {
+        output_review: "Natija tekshiruvi koʻrib chiqishni soʻradi",
+        guard_unavailable: "Natija tekshiruvi javob bermadi",
+        manual: "Operator toʻxtatgan",
+      },
+      decision: {
+        released: "Chiqarildi",
+        blocked: "Bloklandi va qaytarildi",
+        expired: "Muddati tugadi va qaytarildi",
+      },
+      release: {
+        action: "Chiqarish",
+        title: "Chiqarish va yetkazish",
+        body: "{job} buyurtmasi mijozga boricha yuboriladi. Bu sababingiz bilan audit jurnaliga yoziladi.",
+        confirm: "{job} ni chiqarish",
+      },
+      refund: {
+        action: "Bloklash va qaytarish",
+        title: "Bloklash va qaytarish",
+        body: "{job} buyurtmasi yetkazilmaydi. Mijozga xabar beriladi va shu mahsulot uchun bitta kredit beriladi. Parolni qayta kiritish kerak.",
+        bodyBeta: "{job} buyurtmasi yetkazilmaydi. Bu bepul beta soʻrov edi, kredit berilmaydi.",
+        confirm: "{job} ni bloklash",
+        stepUpNote: "{job} buyurtmasi uchun qaytarish kredit beradi, shuning uchun bu tekshiruv uchun tasdiq kerak.",
       },
     },
   },

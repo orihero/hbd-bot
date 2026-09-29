@@ -27,6 +27,7 @@ from typing import Any
 from bayram.bot.app import build_bot, build_storage
 from bayram.config import Settings, load_settings
 from bayram.logging import configure_logging, get_logger
+from bayram.media.boot import refuse_unsafe_media_config
 from bayram.runtime.container import build_container
 from bayram.runtime.jobs import (
     BOT_CTX_KEY,
@@ -52,6 +53,9 @@ _SETTINGS = _settings()
 
 async def build_dependencies() -> Mapping[str, Any]:
     """Awaited once, at worker startup. Everything expensive is created here."""
+    # The worker renders and delivers media, so it refuses the same unsafe media
+    # configuration the bot does (IMAGE_VIDEO_SPEC §7.4), before it opens anything.
+    refuse_unsafe_media_config(_SETTINGS)
     verify_host(_SETTINGS)
     container = await build_container(_SETTINGS)
     _LOG.info(

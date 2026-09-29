@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Final
 
 from aiogram import F, Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
@@ -33,17 +33,22 @@ from bayram.bot.handlers.common import (
     say,
     ui_language,
 )
-from bayram.bot.handlers.onboarding import load_identity
+from bayram.bot.handlers.onboarding import load_identity, present_terms, terms_standing
 from bayram.bot.handlers.submitting import (
     STILL_IN_STUDIO_KEY,
     order_in_flight,
     say_still_working,
 )
 from bayram.bot.i18n import translate
+from bayram.bot.media_draft import load_media_draft
+from bayram.bot.menu_version import stamp_menu_version
 from bayram.bot.middleware import resolve_language
 from bayram.bot.screens import menu_screen, onboarding_contact_screen, onboarding_language_screen
 from bayram.bot.states import Onboarding
+from bayram.contracts import Err
 from bayram.logging import get_logger
+from bayram.media.desk import CancelOutcome
+from bayram.terms import TermsStanding
 
 __all__ = ["build_router", "handle_paid_return", "PAID_DEEP_LINK"]
 
@@ -51,6 +56,9 @@ _LOG = get_logger(__name__)
 
 #: Said when ``/cancel`` arrives after the order has already gone to the studio.
 _TOO_LATE_KEY: Final[str] = "wizard.cancel_too_late"
+#: ``/cancel`` against an open media request (IMAGE_VIDEO_SPEC §2.6).
+_MEDIA_CANCELLED_KEY: Final[str] = "media.cancelled"
+_MEDIA_TOO_LATE_KEY: Final[str] = "media.cancel_too_late"
 
 #: The deep-link payload the checkout rail sends a paying customer back with, as the tail of
 #: ``https://t.me/<bot>?start=paid``.
@@ -64,9 +72,87 @@ _TOO_LATE_KEY: Final[str] = "wizard.cancel_too_late"
 #: characters of ``A-Za-z0-9_-`` — and "paid" is inside every one of them.
 PAID_DEEP_LINK: Final[str] = "paid"
 
+#: Telegram's own rule for a ``/start`` payload: 1..64 characters of ``A-Za-z0-9_-``. It is
+#: restated here rather than imported from the bridge that builds the links, because this is
+#: the trust boundary — the payload is attacker-supplied text arriving over the wire, and a
+#: link built by hand, by a third party, or by a future campaign tool is not bound by what
+#: our own page happens to enforce client-side. A payload that does not match is DISCARDED
+#: rather than truncated: a truncated campaign label is a wrong answer wearing the shape of a
+#: right one, and "we do not know where this account came from" is the honest record.
+_MAX_ACQUISITION_SOURCE: Final[int] = 64
 
-async def handle_start(message: Message, state: FSMContext, deps: BotDeps) -> None:
-    """Three ways in, and which one is taken is decided by what we already know.
+
+def _is_payload_character(character: str) -> bool:
+    """One character of Telegram's ``A-Za-z0-9_-``, ASCII-only.
+
+    ``isalnum()`` alone is not that test: it is true for ``é``, for Cyrillic, and for Arabic
+    digits, none of which Telegram will carry in a ``start`` payload. The ``isascii()`` guard
+    is what makes this the platform's rule rather than Python's.
+    """
+    return character.isascii() and (character.isalnum() or character in "_-")
+
+
+def _acquisition_source(args: str | None) -> str | None:
+    """The deep-link payload, if it is one Telegram could have carried. Else ``None``.
+
+    ``CommandObject.args`` is whatever followed ``/start``, unparsed. Telegram bounds a real
+    deep-link payload at :data:`_MAX_ACQUISITION_SOURCE` characters of ``A-Za-z0-9_-``, so
+    anything outside that did not come from a ``t.me`` link at all — it was typed, pasted, or
+    constructed — and recording it would put arbitrary user text into a column an operator
+    reads as a campaign name. Discarding beats truncating: see :data:`_MAX_ACQUISITION_SOURCE`.
+
+    **``paid`` is refused HERE as well as by the filter, and the redundancy is the point.**
+    :func:`handle_paid_return` claims ``/start paid`` one registration earlier, so in the happy
+    path this branch is dead — but the filter compares ``F.args`` RAW while this function
+    compares it stripped, and ``str.split(maxsplit=1)`` keeps trailing whitespace. ``/start
+    paid`` with one trailing space therefore arrives as ``"paid "``, misses the filter, reaches
+    here, and without this line would be stripped back to ``"paid"`` and recorded — making the
+    checkout rail look like the best-performing campaign we run. Proven, not theorised:
+    ``Command.extract_command("/start paid ").args == "paid "``.
+    """
+    if args is None:
+        return None
+    candidate = args.strip()
+    if not candidate or len(candidate) > _MAX_ACQUISITION_SOURCE:
+        return None
+    if candidate == PAID_DEEP_LINK:
+        return None
+    if not all(_is_payload_character(character) for character in candidate):
+        return None
+    return candidate
+
+
+async def _record_arrival(deps: BotDeps, telegram_user_id: int, args: str | None) -> None:
+    """Record where this account came from, and never let that stop it arriving.
+
+    **The failure is swallowed on purpose, and this is the same posture as
+    :meth:`UserProfileStore.record_avatar`.** A customer who taps the Instagram bio link has
+    come to order a song; a database that cannot write an analytics label right now is not a
+    reason to answer them with an error. ``run_guarded`` has already logged whatever went
+    wrong, so the silence is in the flow and not in the record.
+
+    ``paid`` never reaches here — :func:`handle_paid_return` claims it with a filter — so a
+    customer returning from the payment page is not recorded as having been acquired by the
+    checkout rail. Every other payload is a campaign label or is discarded.
+
+    ``deps.profiles is None`` is a real deployment and not a defect: it is the unwired
+    configuration :attr:`BotDeps.profiles` documents, in which no profile row exists to stamp.
+    An arrival there is simply unrecorded, exactly as the language choice is.
+    """
+    source = _acquisition_source(args)
+    if source is None or deps.profiles is None:
+        return
+    await deps.profiles.record_acquisition(telegram_user_id, source=source)
+
+
+async def handle_start(
+    message: Message, state: FSMContext, deps: BotDeps, command: CommandObject
+) -> None:
+    """Four ways in, and which one is taken is decided by what we already know.
+
+    **The Terms (IMAGE_VIDEO_SPEC §2.1) are the third question, between language and contact**,
+    and an onboarded customer who owes the version in force is shown them instead of the menu.
+    With no gate wired neither branch is reachable.
 
     **A returning customer is never asked a question we already have the answer to.** This
     command used to re-ask the interface language on every single send, which made it the most
@@ -96,6 +182,8 @@ async def handle_start(message: Message, state: FSMContext, deps: BotDeps) -> No
     """
     user = message.from_user
     _LOG.info("wizard started", extra={"user_id": user.id if user is not None else None})
+    if user is not None:
+        await _record_arrival(deps, user.id, command.args)
     identity = await load_identity(state, deps, user.id if user is not None else None)
     # The identity's language when there is one, and the operator's configured default
     # otherwise: this is the one screen that must be drawn before anybody has chosen.
@@ -105,11 +193,28 @@ async def handle_start(message: Message, state: FSMContext, deps: BotDeps) -> No
         await present(message, onboarding_language_screen(language))
         return
     if not identity.is_onboarded:
+        if not identity.terms_ok:
+            # Language → TERMS → contact (IMAGE_VIDEO_SPEC §2.1): ``/start`` typed on the
+            # Terms step, or after the FSM expired there, brings the Terms back — never the
+            # contact screen, which would skip them.
+            await state.set_state(Onboarding.terms)
+            await present_terms(message, deps, language)
+            return
         await state.set_state(Onboarding.contact)
         await present(message, onboarding_contact_screen(language))
         return
     await clear_keeping_identity(state)
+    standing = await terms_standing(deps, user.id if user is not None else None)
+    if standing is not TermsStanding.ACCEPTED:
+        # An onboarded customer who owes the Terms in force gets them instead of the menu: the
+        # menu's every button would be stopped by ``TermsGateMiddleware`` anyway, and ``/start``
+        # is what somebody types when they are lost.
+        await present_terms(message, deps, await ui_language(state, deps), standing=standing)
+        return
     await present(message, menu_screen(await ui_language(state, deps)))
+    # This menu carries the current keyboard, so the re-push hook has nothing to add
+    # (IMAGE_VIDEO_SPEC §2.2).
+    await stamp_menu_version(deps.media_kv, user.id if user is not None else None)
 
 
 async def handle_paid_return(message: Message, state: FSMContext, deps: BotDeps) -> None:
@@ -144,7 +249,7 @@ async def handle_paid_return(message: Message, state: FSMContext, deps: BotDeps)
     await show_balance(message, state, deps)
 
 
-async def handle_cancel_command(message: Message, state: FSMContext) -> None:
+async def handle_cancel_command(message: Message, state: FSMContext, deps: BotDeps) -> None:
     """Stop the wizard — unless there is nothing left to stop.
 
     The same guard ``navigation.handle_cancel`` applies to the Cancel BUTTON, for the same
@@ -163,7 +268,38 @@ async def handle_cancel_command(message: Message, state: FSMContext) -> None:
             # declined to cancel and leave the next /cancel free to claim nothing was made.
             await say(message, translate(STILL_IN_STUDIO_KEY, await resolve_language(state)))
         return
+    if await _cancel_media(message, state, deps):
+        return
     await finish_with(message, state, "wizard.cancelled")
+
+
+async def _cancel_media(message: Message, state: FSMContext, deps: BotDeps) -> bool:
+    """``/cancel`` with an open media request (IMAGE_VIDEO_SPEC §2.6). True when it answered.
+
+    ``order_in_flight`` reads only the song's ``ORDER_ID_KEY``, which media never sets, so
+    without this a paid image would be answered "Cancelled — nothing was made" and then
+    arrive. A pre-pay request is cancelled (``media.cancelled``); one that is paid, or whose
+    pay link is out, is not (``media.cancel_too_late``). Either way the session goes.
+    A desk that cannot be read falls back to the song's answer, which cancels nothing.
+    """
+    user = message.from_user
+    if deps.media is None or user is None:
+        return False
+    outcome = await deps.media.cancel_open(user.id)
+    if isinstance(outcome, Err) or outcome.value is None:
+        if load_media_draft(await state.get_data()) is None:
+            return False
+        # A compose with nothing frozen: the draft goes, in the language it was being
+        # written in (``finish_with`` reads the SONG draft for that).
+        key = "wizard.cancelled"
+    elif outcome.value is CancelOutcome.CANCELLED:
+        key = _MEDIA_CANCELLED_KEY
+    else:
+        key = _MEDIA_TOO_LATE_KEY
+    language = await resolve_language(state)
+    await clear_keeping_identity(state)
+    await say(message, translate(key, language))
+    return True
 
 
 def build_router() -> Router:

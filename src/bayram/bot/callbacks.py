@@ -7,6 +7,8 @@ of raising inside one. That is the boundary validation for everything a button c
 
 from __future__ import annotations
 
+import base64
+import binascii
 from enum import StrEnum
 from typing import Final
 from uuid import UUID
@@ -25,6 +27,15 @@ __all__ = [
     "VocalGenderCB",
     "NavCB",
     "SupportCB",
+    "TermsAction",
+    "TermsCB",
+    "MediaAction",
+    "MediaCB",
+    "CreatePick",
+    "AspectPick",
+    "ScriptPick",
+    "pack_job_ref",
+    "read_job_ref",
     "NO_REFERENCE",
     "pack_reference",
     "read_reference",
@@ -191,6 +202,147 @@ class SupportCB(CallbackData, prefix="sup"):
 
     action: SupportAction
     ref: str
+
+
+class TermsAction(StrEnum):
+    """The two buttons under the Terms screen (IMAGE_VIDEO_SPEC §2.1)."""
+
+    #: ✅ I accept. Records the acceptance of the version pair in force, and ONLY when it is
+    #: the pair the button was drawn for (``TermsCB.v``): a ✅ drawn before a version bump is
+    #: answered with the current screen instead, so nobody is recorded as accepting a text
+    #: they were never shown.
+    ACCEPT = "ok"
+    #: 📄 Read in full. Draws the whole Terms of Use over the summary.
+    READ_FULL = "full"
+
+
+class TermsCB(CallbackData, prefix="trm"):
+    """Its own prefix so the terms screen depends on no other router (IMAGE_VIDEO_SPEC §2.1).
+
+    Both handlers are registered with NO state filter inside the onboarding router, above its
+    ``NotOnboarded`` catch-all — a not-yet-onboarded customer's ✅ would otherwise be claimed by
+    the catch-all and answered with the screen they were already looking at — and every
+    ``trm:*`` callback passes ``TermsGateMiddleware``.
+    """
+
+    action: TermsAction
+    #: The version pair the screen was drawn for, as ``TermsVersions.stamp``. Checked on
+    #: ACCEPT only; empty on 📄, which records nothing.
+    v: str = ""
+
+
+class MediaAction(StrEnum):
+    """The media buttons (IMAGE_VIDEO_SPEC §2, §2.2, §2.3.3). Short: packed into 64 bytes.
+
+    Two families share one prefix and are told apart by whether :attr:`MediaCB.job` is set.
+
+    **Post-freeze** (``PAY`` … ``MORE``) are drawn by the WORKER (the quote, refusal, busy and
+    failure screens are edits it makes to the tray, §3.3) or by the bot's open-request screen.
+    Every one carries the ``media_jobs.id`` and is registered WITHOUT a state filter: the FSM
+    may be cleared or days old, so the handler reads the row — owner and state — and answers
+    ``media.stale`` when the press no longer fits it.
+
+    **Pre-freeze** (``PICK`` … ``SCRIPT``) belong to the compose screens and, for a video, the
+    screens after ✅ Done; they carry no job and are registered WITH a state filter (``PICK``
+    excepted: the picker is drawn from the menu, which has no state). ``RECORD`` is
+    post-freeze: the worker draws it under a refused voice note.
+    """
+
+    #: 💳 Pay — only on a live-paid rail (§2.5).
+    PAY = "pay"
+    #: 🎟 Use a refund credit of this SKU.
+    CREDIT = "cred"
+    #: 🎁 Free beta — only off a live-paid rail, only for the allowlist, re-checked at press.
+    BETA = "beta"
+    #: ✏️ Edit: the row is cancelled and compose reopens from the draft (§2.3.1).
+    EDIT = "edit"
+    #: ✖️ Cancel the request.
+    CANCEL = "cancel"
+    #: 🔁 Try again on a busy tray: re-runs screening/capability on the SAME frozen row.
+    RETRY = "retry"
+    #: 🔁 Again after delivery or a failure: a fresh compose pre-filled with the prompt and
+    #: aspect (never the photos, O16).
+    AGAIN = "again"
+    #: ✨ Create something else, under a delivery: the ✨ picker again.
+    MORE = "more"
+    #: A choice on the ✨ picker; :attr:`MediaCB.arg` is a :class:`CreatePick` value.
+    PICK = "pick"
+    #: ✅ Done on the compose tray.
+    DONE = "done"
+    #: 🗑 Clear photos on the compose tray.
+    CLEAR = "clear"
+    #: ✖️ on a screen before anything was frozen: the draft is dropped, no row exists.
+    DROP = "drop"
+    #: An aspect on the aspect screen; :attr:`MediaCB.arg` is a :class:`AspectPick` value.
+    ASPECT = "asp"
+    #: ⬅️ on a video screen after ✅ Done: one step back along the §2.4.1 back map.
+    BACK = "back"
+    #: A video tier; :attr:`MediaCB.arg` is a ``MediaTier`` value (§2.4.1).
+    TIER = "tier"
+    #: A voice mode on ``media.voice.pick``; :attr:`MediaCB.arg` is a ``MediaVoiceMode``.
+    VOICE = "voice"
+    #: A house voice; :attr:`MediaCB.arg` is a ``MediaVoiceGender`` value.
+    GENDER = "gnd"
+    #: A button on an AI-written line; :attr:`MediaCB.arg` is a :class:`ScriptPick` value.
+    SCRIPT = "scr"
+    #: 🎙 Record again, under a voice note ffprobe found too long (§5.4). Post-freeze: it
+    #: carries the job id and is registered without a state filter.
+    RECORD = "rec"
+
+
+class CreatePick(StrEnum):
+    """The three rows of the ✨ picker (§2.2)."""
+
+    SONG = "song"
+    IMAGE = "image"
+    VIDEO = "video"
+
+
+class AspectPick(StrEnum):
+    """The aspect buttons, by name — the ratio itself contains the ``:`` the payload is split
+    on. ``bayram.db.enums.MediaAspect`` holds the ratio."""
+
+    PORTRAIT = "portrait"
+    SQUARE = "square"
+    LANDSCAPE = "landscape"
+
+
+class ScriptPick(StrEnum):
+    """The buttons under an AI-written line (§2.4.2)."""
+
+    USE = "use"
+    EDIT = "edit"
+    ANOTHER = "another"
+
+
+class MediaCB(CallbackData, prefix="med"):
+    """``med:<action>:<22-char job ref>:<arg>`` — at most 46 of the 64 bytes (§2 "Callbacks").
+
+    ``job`` is empty on a pre-freeze button and ``arg`` on every button but ``PICK`` and
+    ``ASPECT``.
+    """
+
+    action: MediaAction
+    #: :func:`pack_job_ref` of the ``media_jobs.id``; empty before anything is frozen.
+    job: str = ""
+    arg: str = ""
+
+
+def pack_job_ref(job_id: UUID) -> str:
+    """A ``media_jobs.id`` as 22 characters of unpadded base64url (§2 "Callbacks")."""
+    return base64.urlsafe_b64encode(job_id.bytes).rstrip(b"=").decode("ascii")
+
+
+def read_job_ref(value: str) -> UUID | None:
+    """The id back out of :attr:`MediaCB.job`; ``None`` for anything that is not one. Never
+    raises, for :func:`read_reference`'s reason."""
+    if len(value) != 22:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(value + "==")
+    except (binascii.Error, ValueError):
+        return None
+    return UUID(bytes=raw) if len(raw) == 16 else None
 
 
 def pack_reference(value: UUID | None) -> str:

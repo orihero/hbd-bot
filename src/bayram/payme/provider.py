@@ -57,11 +57,12 @@ go-live sequence that makes it reachable.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from typing import Final
+from typing import Final, assert_never
+from uuid import UUID
 
 from bayram.checkout import PaymentIntentOpener, Product, Purchase, PurchaseRequest
 from bayram.contracts import Language, Result, err, is_err, ok
-from bayram.errors import CheckoutPausedError
+from bayram.errors import CheckoutError, CheckoutPausedError
 from bayram.logging import get_logger
 from bayram.payme.link import build_checkout_link
 from bayram.payme.ports import PAYME_PROVIDER_NAME
@@ -198,7 +199,40 @@ class PaymeCheckoutProvider:
         # duration nor a song count, and the intent's own CHECK constraint spells that out
         # (``product <> 'starter' OR (plan_songs IS NOT NULL AND plan_days IS NOT NULL)``), so
         # sending numbers for a single would be sending numbers nothing may read back.
-        is_plan = request.product is Product.STARTER
+        #
+        # An exhaustive ``match`` and not an ``if``, because a SKU that fell through to the
+        # plan branch would open a twelve-song intent for an image (IMAGE_VIDEO_SPEC §7.3). Each
+        # product carries exactly its own marker: a song the render it buys, a media SKU the
+        # ``media_jobs`` row — and a media purchase that names no row is refused, because the
+        # settlement would have no job to move and would take the money for nothing.
+        plan_songs: int | None = None
+        plan_days: int | None = None
+        resume_order_id: UUID | None = None
+        resume_media_job_id: UUID | None = None
+        match request.product:
+            case Product.SINGLE:
+                # Straight through, and this rail forms no opinion about it: the bot decided
+                # what render — if any — this money buys, because the bot is the only process
+                # holding the draft. ``None`` here is ordinary and common: it is every purchase
+                # made from ``/balance`` and every draft that could not produce a render.
+                resume_order_id = request.resume_order_id
+            case Product.STARTER:
+                plan_songs, plan_days = self._plan_songs, self._plan_days
+                resume_order_id = request.resume_order_id
+            case Product.IMAGE | Product.VIDEO_STANDARD | Product.VIDEO_FAST:
+                if request.resume_media_job_id is None:
+                    return err(
+                        CheckoutError(
+                            "a media purchase names no media job; no intent was opened",
+                            context={
+                                "product": request.product.value,
+                                "idempotency_key": request.idempotency_key,
+                            },
+                        )
+                    )
+                resume_media_job_id = request.resume_media_job_id
+            case _ as unreachable:
+                assert_never(unreachable)
         opened = await self._opener.open_intent(
             telegram_user_id=request.telegram_user_id,
             product=request.product,
@@ -208,13 +242,10 @@ class PaymeCheckoutProvider:
             language=language.value,
             merchant_id=self._merchant_id,
             is_sandbox=self._is_sandbox,
-            plan_songs=self._plan_songs if is_plan else None,
-            plan_days=self._plan_days if is_plan else None,
-            # Straight through, and this rail forms no opinion about it: the bot decided what
-            # render — if any — this money buys, because the bot is the only process holding
-            # the draft. ``None`` here is ordinary and common: it is every purchase made from
-            # ``/balance`` and every draft that could not produce a render.
-            resume_order_id=request.resume_order_id,
+            plan_songs=plan_songs,
+            plan_days=plan_days,
+            resume_order_id=resume_order_id,
+            resume_media_job_id=resume_media_job_id,
         )
         if is_err(opened):
             # Straight through, unwrapped. The store already said what went wrong in the

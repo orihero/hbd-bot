@@ -129,6 +129,14 @@ export const AUDIT_ACTION_VALUES = [
   "user.purge.fail",
   "moderation.approve",
   "moderation.reject",
+  /*
+   * The media review queue (IMAGE_VIDEO_SPEC §6.6): an operator holding a screened output, and
+   * a refund's two rows — the INTENT in the decision's transaction and the OUTCOME after the
+   * worker was asked to carry it out (D14/D25). A release is `moderation.approve`.
+   */
+  "moderation.hold",
+  "moderation.refund",
+  "moderation.refund.outcome",
   "config.validate",
   "config.commit",
   "config.rollback",
@@ -274,6 +282,8 @@ export const AUDIT_SUBJECT_TYPE_VALUES = [
    * string.
    */
   "bot_chat",
+  /* ONE media request, by `media_jobs.id` — the subject of every review-queue row. */
+  "media_job",
 ] as const;
 export const auditSubjectTypeSchema = z.enum(AUDIT_SUBJECT_TYPE_VALUES);
 export type AuditSubjectType = z.infer<typeof auditSubjectTypeSchema>;

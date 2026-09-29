@@ -25,7 +25,9 @@ number in the one place this design refuses them.
 
 from __future__ import annotations
 
+import io
 import json
+import wave
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -35,6 +37,7 @@ from bayram.contracts import (
     CostSource,
     HealthState,
     Language,
+    NarrationRequest,
     ProviderHealth,
     RenderedAudio,
     Result,
@@ -60,6 +63,9 @@ from bayram.usage import LOGGING_USAGE_SINK, UsageSink, VendorUsage
 __all__ = [
     "FAKE_AUDIO_MAGIC",
     "FakeAudioPayload",
+    "FakeNarrationProvider",
+    "NarrationCall",
+    "silent_wav",
     "FakeSttProvider",
     "FakeTtsProvider",
     "SynthesisCall",
@@ -313,6 +319,95 @@ class FakeTtsProvider:
         return ok(ProviderHealth(name=self.name, state=HealthState.HEALTHY, as_of=self._clock()))
 
     # -- internals ----------------------------------------------------------
+    async def _record(
+        self,
+        *,
+        is_success: bool,
+        error: BayramError | None = None,
+        response_bytes: int | None = None,
+    ) -> None:
+        await self._usage.record(
+            _fake_usage(
+                operation=VendorOperation.SPEECH_SYNTHESIS,
+                provider=self.name,
+                is_success=is_success,
+                error=error,
+                response_bytes=response_bytes,
+            )
+        )
+
+
+_WAV_RATE_HZ: Final[int] = 24_000
+
+
+def silent_wav(duration_s: float, *, rate_hz: int = _WAV_RATE_HZ) -> bytes:
+    """A real 16-bit mono WAV of silence — the shape Gemini TTS returns (IMAGE_VIDEO_SPEC §5.1)."""
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as writer:
+        writer.setnchannels(1)
+        writer.setsampwidth(2)
+        writer.setframerate(rate_hz)
+        writer.writeframes(b"\x00\x00" * max(int(duration_s * rate_hz), 1))
+    return buffer.getvalue()
+
+
+@dataclass(frozen=True, slots=True)
+class NarrationCall:
+    """One recorded ``narrate`` invocation."""
+
+    request: NarrationRequest
+    idempotency_key: str
+    timeout_s: float
+
+
+class FakeNarrationProvider:
+    """A ``NarrationProvider`` that answers with silent WAV and records what it was asked."""
+
+    def __init__(
+        self,
+        *,
+        name: str = "fake_narration",
+        error: BayramError | None = None,
+        is_persistent_failure: bool = True,
+        clock: Callable[[], datetime] = utc_now,
+        usage: UsageSink = LOGGING_USAGE_SINK,
+    ) -> None:
+        self.name = name
+        self._failures = _Failing(error, is_persistent=is_persistent_failure)
+        self._clock = clock
+        self._usage = usage
+        self._calls: list[NarrationCall] = []
+
+    @property
+    def calls(self) -> tuple[NarrationCall, ...]:
+        return tuple(self._calls)
+
+    async def narrate(
+        self, request: NarrationRequest, *, idempotency_key: str, timeout_s: float
+    ) -> Result[RenderedAudio]:
+        self._calls.append(
+            NarrationCall(request=request, idempotency_key=idempotency_key, timeout_s=timeout_s)
+        )
+        failure = self._failures.next_error()
+        if failure is not None:
+            await self._record(is_success=False, error=failure)
+            return err(failure)
+        duration_s = estimate_speech_duration_s(request.text)
+        data = silent_wav(duration_s)
+        await self._record(is_success=True, response_bytes=len(data))
+        return ok(
+            RenderedAudio(
+                data=data,
+                mime="audio/wav",
+                duration_s=duration_s,
+                cost_usd=0.0,
+                cost_source=CostSource.ESTIMATED,
+            )
+        )
+
+    async def health(self) -> Result[ProviderHealth]:
+        return ok(ProviderHealth(name=self.name, state=HealthState.HEALTHY, as_of=self._clock()))
+
     async def _record(
         self,
         *,

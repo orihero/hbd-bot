@@ -57,6 +57,7 @@ __all__ = [
     "SUPPORT_CARD_JOB_NAME",
     "SUPPORT_RELAY_JOB_NAME",
     "VERIFY_GROUP_JOB_NAME",
+    "MEDIA_REVIEW_JOB_NAME",
     "AdminQueue",
     "ArqAdminQueue",
     "NullAdminQueue",
@@ -65,6 +66,7 @@ __all__ = [
     "job_id_for_send",
     "job_id_for_test_send",
     "job_id_for_payment_notification",
+    "job_id_for_media_review",
     "job_id_for_support_card",
     "job_id_for_support_relay",
     "job_id_for_support_group_verification",
@@ -128,6 +130,11 @@ SUPPORT_RELAY_JOB_NAME: Final[str] = "relay_support_reply"
 #: unverified selection looks identical to a verified one until a customer's complaint fails to
 #: arrive. The colon lives in the job id; see :func:`job_id_for_support_group_verification`.
 VERIFY_GROUP_JOB_NAME: Final[str] = "verify_support_group"
+
+#: The eighth: carry out a review decision on a held media job (IMAGE_VIDEO_SPEC §6.6).
+#: Restated from ``bayram.media.stages.MEDIA_REVIEW_JOB`` for the reason every name above is,
+#: and held to it by ``tests/test_admin/test_queue.py``.
+MEDIA_REVIEW_JOB_NAME: Final[str] = "media_review_apply"
 
 #: Every job id this seam mints starts here, so one ``SCAN`` shows an operator every broadcast
 #: job in flight without knowing which of the three it is looking for.
@@ -238,6 +245,19 @@ def job_id_for_support_relay(event_id: UUID) -> str:
     return f"{_SUPPORT_JOB_ID_PREFIX}:relay:{event_id}"
 
 
+def job_id_for_media_review(review_id: UUID) -> str:
+    """Deterministic, keyed on the REVIEW, and byte-for-byte ``bayram.media.stages.review_job_id``.
+
+    :func:`job_id_for_payment_notification`'s case: two callers — this panel, the moment a
+    decision is committed, and ``media_sweep``, which re-drives a decision nobody applied —
+    must collapse onto ONE job, or a customer could be told twice. The job is idempotent anyway
+    (it stamps ``applied_at`` and every job move it makes is conditional on ``held``), so the
+    collapse is tidiness on top of a guarantee, not the guarantee. A review id is a UUID this
+    system minted and names no person.
+    """
+    return f"media:review:{review_id}"
+
+
 def job_id_for_support_group_verification(chat_id: int) -> str:
     """Unique per call, and a deterministic id here would make the feature unusable.
 
@@ -264,7 +284,7 @@ def job_id_for_support_group_verification(chat_id: int) -> str:
 
 
 class AdminQueue(Protocol):
-    """The seven things the panel may ask the worker to do, and no eighth.
+    """The eight things the panel may ask the worker to do, and no ninth.
 
     A protocol rather than a concrete client so a test never needs a Redis, and so the
     surface stays a list somebody has to extend on purpose. Every method returns a
@@ -327,6 +347,11 @@ class AdminQueue(Protocol):
     posted, checked or edited, the rows it would examine are the ones this request has already
     written, and a job that told the worker "there is now no support group" would be news rather
     than work — :meth:`enqueue_send`'s "there is no ``enqueue_cancel``" rule, a third time.
+
+    **The eighth is the media review queue's** (IMAGE_VIDEO_SPEC §6.6): an operator releases or
+    refunds a held job, and what follows — the images sent, or the customer told and credited —
+    is Telegram work this process is forbidden. The HOLD enqueues nothing: stopping a delivery
+    is a row the worker already reads, :meth:`enqueue_send`'s rule a fourth time.
     """
 
     async def enqueue_expand(self, broadcast_id: UUID, *, now: datetime) -> Result[str]:
@@ -431,6 +456,12 @@ class AdminQueue(Protocol):
         """
         ...
 
+    async def enqueue_media_review(self, review_id: UUID) -> Result[str]:
+        """Carry out the decision just recorded on this review. After the COMMIT, never before:
+        the worker reads the decision off the row. A duplicate is success — the job is keyed on
+        the review and ``media_sweep`` enqueues the same id for a decision nobody applied."""
+        ...
+
     async def aclose(self) -> None:
         """Release whatever the implementation holds. Called once, by the container."""
         ...
@@ -517,6 +548,11 @@ class ArqAdminQueue:
             VERIFY_GROUP_JOB_NAME,
             str(chat_id),
             job_id=job_id_for_support_group_verification(chat_id),
+        )
+
+    async def enqueue_media_review(self, review_id: UUID) -> Result[str]:
+        return await self._enqueue(
+            MEDIA_REVIEW_JOB_NAME, str(review_id), job_id=job_id_for_media_review(review_id)
         )
 
     async def aclose(self) -> None:
@@ -606,6 +642,8 @@ class RecordedEnqueue:
     #: is the reason this is worth saying — a chat id truncated to 32 bits is a different chat
     #: and an equal-looking prefix.
     chat_id: int | None = None
+    #: The review, for the media review job — a new family, so a new field (see above).
+    review_id: UUID | None = None
 
 
 class NullAdminQueue:
@@ -704,6 +742,23 @@ class NullAdminQueue:
             job_id_for_support_group_verification(chat_id),
             (str(chat_id),),
         )
+
+    async def enqueue_media_review(self, review_id: UUID) -> Result[str]:
+        entry = RecordedEnqueue(
+            job=MEDIA_REVIEW_JOB_NAME,
+            job_id=job_id_for_media_review(review_id),
+            arguments=(str(review_id),),
+            review_id=review_id,
+        )
+        self.calls.append(entry)
+        if self._refusing:
+            return err(
+                StorageError(
+                    "this deployment has no ARQ worker, so the review cannot be applied",
+                    context={"job": entry.job, "review_id": str(review_id)},
+                )
+            )
+        return ok(entry.job_id)
 
     async def aclose(self) -> None:
         """Nothing is held, so nothing is released. Present because the protocol has it."""

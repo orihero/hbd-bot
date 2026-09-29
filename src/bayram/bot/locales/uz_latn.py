@@ -259,7 +259,8 @@ CATALOGUE: Final[dict[str, str]] = {
     # ``keyboards.MENU_BUTTON_KEYS`` ichida ataylab yoʻq: izoh bosqichida tasodifan "Nima
     # qilamiz?" deb yozilgan izoh hech qanday tugmasi yoʻq dispetcherga tushmasligi kerak.
     "menu.prompt": "Nima qilamiz?",
-    "menu.generate": "🎵 Qoʻshiq yasash",
+    "menu.generate": "✨ Yaratish",
+    "menu.generate_legacy": "🎵 Qoʻshiq yasash",
     "menu.balance": "🎫 Limitim",
     "menu.settings": "⚙️ Sozlamalar",
     "menu.help": "❓ Yordam",
@@ -561,25 +562,103 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     "gap.greeting_missing": "Ovozli tabriklardan biri chiqmadi, shuning uchun u bu yerda yoʻq.",
     # -- commands ----------------------------------------------------------
-    "command.start": "Bir odamga qoʻshiq yasash",
+    "command.start": "Menyuni ochish",
     "command.cancel": "Toʻxtatib, qaytadan boshlash",
     "command.balance": "Nechta qoʻshigʻingiz qolgan",
     "command.help": "Bu qanday ishlaydi",
     "command.privacy": "Nima saqlanadi, nima yoʻq",
+    "command.terms": "Foydalanish shartlari",
     "command.support": "Tirik odamga yozish",
     "command.forget": "Siz haqingizdagi hammasini oʻchirish",
+    # -- terms of use + privacy notice (IMAGE_VIDEO_SPEC §2.1, D26) ------------
+    # DRAFT TEXT (IMAGE_VIDEO_SPEC Appendix A), not approved; see en.py for the rules.
+    "button.terms.accept": "✅ Qabul qilaman",
+    "button.terms.read_full": "📄 Toʻliq oʻqish",
+    "terms.draft_banner": (
+        "⚠️ <b>QORALAMA</b> — bu matn hali yuristlarimiz tomonidan tasdiqlanmagan va kuchga "
+        "kirishidan oldin oʻzgarishi mumkin."
+    ),
+    "terms.gate": (
+        "📜 Boshlashdan oldin Foydalanish shartlari va Maxfiylik bildirishnomasini oʻqib, qabul "
+        "qiling.\n"
+        "\n"
+        "Qisqacha: rasm, video va ovoz — faqat kattalar (18+) uchun; yoshroq odam qoʻshiqni "
+        "faqat ota-onasining ruxsati bilan buyurtma qilishi mumkin. Yuklagan narsangiz uchun "
+        "oʻzingiz javobgarsiz — faqat foydalanishga haqingiz bor surat va ovozlarni, faqat "
+        "rozi boʻlgan odamlarnikini yuklang. Har bir soʻrovni avtomatik tekshiramiz, "
+        "yuklaganlaringizni esa yetkazib bergach oʻchiramiz."
+    ),
+    "terms.updated": (
+        "📜 Shartlar yangilandi ({version}). Davom etish uchun ularni koʻrib chiqing va qabul "
+        "qiling."
+    ),
+    "terms.required": "Botdan foydalanish uchun shartlarni qabul qiling.",
+    "terms.links": "📄 Toʻliq matn: /terms · 🔒 Maxfiylik bildirishnomasi: /privacy",
+    "terms.url_line": "🔗 {url}",
+    "terms.version_line": "<i>Versiya: {version}</i>",
+    "terms.accepted": "✅ Rahmat — qabul qilindi.",
+    "terms.full": (
+        "📜 <b>Foydalanish shartlari</b>\n"
+        "\n"
+        "1. <b>Biz kimmiz.</b> Ushbu bot operatori. [Yuridik nomi, roʻyxatdan oʻtgani va "
+        "manzili qoʻshiladi.] Aloqa: /support.\n"
+        "2. <b>Xizmat.</b> Telegram ichida sunʼiy intellekt yasaydigan qoʻshiq, rasm va "
+        "videolar. Ularni avtomatik tizimlar yasaydi, natija notoʻgʻri yoki kutilmagan "
+        "chiqishi mumkin.\n"
+        "3. <b>Kim foydalana oladi.</b> Rasm, video va ovoz — 18 yosh va undan kattalar uchun. "
+        "Yoshroq odam qoʻshiqni faqat ota-onasi yoki vasiysining ruxsati bilan buyurtma "
+        "qilishi mumkin. Qabul qilib, buni tasdiqlaysiz.\n"
+        "4. <b>Sizning kontentingiz.</b> Sizniki boʻlgan narsa sizniki boʻlib qoladi. "
+        "Soʻrovlaringiz, suratlaringiz va ovozli xabarlaringizni faqat buyurtmangizni bajarish "
+        "uchun qayta ishlashimizga ruxsat berasiz. Ularni yuklashga haqingiz borligini va "
+        "ularda tanib boʻladigan har bir odam rozi ekanini tasdiqlaysiz.\n"
+        "5. <b>Mumkin emas:</b> 18 yoshga toʻlmaganlar ishtirokidagi jinsiy kontent (qonun "
+        "talab qilgan joyda xabar beramiz); real odamlarning jinsiy yoki yalangʻoch "
+        "tasvirlari; real odamni, jumladan mansabdor shaxsni haqorat qiladigan, unga tuhmat "
+        "qiladigan yoki uning nomidan chiqadigan kontent; ekstremistik, terroristik yoki "
+        "nafrat uygʻotadigan kontent; qonunga zid ravishda dinni yoki davlat ramzlarini "
+        "haqorat qiladigan kontent; noqonuniy tovarlar; boshqalarning mualliflik huquqlari, "
+        "tovar belgilari yoki personajlaridan foydalanish; xavfsizlik tekshiruvlarimizni "
+        "chetlab oʻtishga urinish.\n"
+        "6. <b>Xavfsizlik tekshiruvi.</b> Har bir soʻrov va har bir natija avtomatik "
+        "tekshiriladi. Aniq sababini aytmasdan rad etishimiz, toʻxtatib turishimiz yoki "
+        "natijani bermasligimiz mumkin. Qayta-qayta buzish kirishni toʻxtatadi; /support "
+        "orqali eʼtiroz bildirishingiz mumkin.\n"
+        "7. <b>Sunʼiy intellekt natijasi.</b> Natijalar sunʼiy intellekt yasagani deb "
+        "belgilanadi va mualliflik huquqi bilan himoyalanmasligi mumkin. Oʻxshashlik, "
+        "oʻqiladigan matn yoki biror maqsadga yaroqlilikni vaʼda qilmaymiz. Natijadan aldash "
+        "uchun foydalanmang — masalan, yasalgan rasmni haqiqiy surat deb koʻrsatish uchun.\n"
+        "8. <b>Toʻlov.</b> Narxlar toʻlovdan oldin soʻmda koʻrsatiladi, toʻlov Payme orqali; "
+        "soʻrov taklifda yozilganini beradi (masalan, 2 ta rasm). Toʻlangan soʻrov bajarilmasa "
+        "yoki tekshiruvimiz natijani toʻxtatsa, xuddi shu mahsulot uchun kredit olasiz; natija "
+        "yoqmagani — nosozlik emas. Pulni qaytarish soʻrov boʻyicha Payme tartibida. Bepul "
+        "beta kirish istalgan payt tugashi mumkin.\n"
+        "9. <b>Boshqa provayderlar.</b> GPU hamkori, nutq xizmatlari, toʻlov provayderi va "
+        "ixtiyoriy bulutli generatsiya xizmatlaridan foydalanamiz; ularning shartlari ham "
+        "qoʻllanishi mumkin.\n"
+        "10. <b>Mavjudlik.</b> Uzluksiz ishlash kafolatlanmaydi; kutish vaqtlari taxminiy; "
+        "funksiyalarni toʻxtatib turishimiz mumkin.\n"
+        "11. <b>Javobgarlik.</b> Qonun ruxsat bergan darajada tegishli soʻrov uchun "
+        "toʻlaganingiz bilan cheklanadi.\n"
+        "12. <b>Oʻzgarishlar.</b> Yangi versiyalar shu yerda koʻrsatiladi va davom etish uchun "
+        "qabul qilinishi kerak.\n"
+        "13. <b>Qonun.</b> Oʻzbekiston Respublikasi qonunchiligi qoʻllaniladi; isteʼmolchi "
+        "sifatidagi huquqlaringiz saqlanadi."
+    ),
     "help.text": (
-        "🎂 Men bitta odam uchun bitta qoʻshiq yozaman va kuylayman — ismi toʻgʻri "
-        "talaffuz bilan.\n\n"
-        "🎬 /start — qoʻshiq yasash\n"
+        "🎂 Men bitta odam uchun qoʻshiq yozaman va kuylayman — ismi toʻgʻri "
+        "talaffuz bilan. Menyudagi ✨ Yaratish tugmasidan boshlang.\n\n"
+        "🎬 /start — menyuni ochish\n"
         "❌ /cancel — tayyorlanayotganini toʻxtatish\n"
         "📄 /help — shu roʻyxat\n"
         "🎵 /balance — limitingizda nechta qoʻshiq qolgani\n"
         "🔒 /privacy — nimani va qancha saqlayman\n"
+        "📜 /terms — Foydalanish shartlari\n"
         "✉️ /support — nimadir notoʻgʻri ketganini aytish\n"
-        "🗑️ /forget — siz uchun saqlab turgan qoʻshigʻimni oʻchirish\n\n"
-        "Olgan qoʻshigʻingizda muammo bormi? Uning yakuniy xabaridagi buyurtma raqami "
-        "bilan /support yuboring."
+        "🗑️ /forget — siz haqingizda saqlaganlarimni oʻchirish\n"
+        "\n"
+        "Olgan qoʻshigʻingizda muammo bormi? Uning yakuniy xabaridagi buyurtma raqami bilan "
+        "/support yuboring."
     ),
     # Roʻyxatning birinchi qatorida ataylab muddat yoʻq. Odam OʻZI HAQIDA aytgan narsaning
     # soati yoʻq: ``/forget`` yozuvni oʻchiradi va yozuvning yoʻqligining oʻzi oʻchirilgan
@@ -597,32 +676,64 @@ CATALOGUE: Final[dict[str, str]] = {
     # katalogning plexolder toʻplamlarini ikki tomonlama solishtiradi, ustiga-ustak bu
     # yozuvda ataydigan tozalash muddatining oʻzi yoʻq.
     "privacy.text": (
-        "🔒 <b>Nimani va qancha saqlayman</b>\n\n"
-        "📱 Telefon raqamingiz, @username, ismingiz va profil suratingiz: hisobingiz "
-        "turgunicha\n"
+        "🔒 <b>Maxfiylik bildirishnomasi</b>\n"
+        "\n"
+        "<b>Kim:</b> maʼlumotlaringiz uchun ushbu bot operatori javob beradi. Bogʻlanish — "
+        "/support orqali.\n"
+        "\n"
+        "<b>Nimalarni yigʻaman:</b> Telegram id, ismingiz, tilingiz va telefon raqamingiz; "
+        "qoʻshiq uchun — u atalgan odam haqida aytganlaringiz; rasm va video uchun — "
+        "soʻrovlaringiz, suratlaringiz, ovozli xabarlaringiz va ulardan yasalgan narsa; nima "
+        "uchun toʻlaganingiz (karta maʼlumotlari Payme da qoladi); texnik jurnallar; va "
+        "shartlarimizni qabul qilganingiz.\n"
+        "\n"
+        "<b>Nima uchun:</b> buyurtmangizni bajarish, xavfsizligini tekshirish, toʻlov qabul "
+        "qilish, /support ga javob berish va suisteʼmolning oldini olish uchun — shartlarni "
+        "qabul qilgandagi roziligingiz va siz soʻragan xizmatni koʻrsatish asosida.\n"
+        "\n"
+        "<b>Yana kim qayta ishlaydi:</b> GPU serverimiz; nutq xizmatlari (Google, ElevenLabs); "
+        "ixtiyoriy bulutli generatsiya xizmatlari (Higgsfield, fal). Maʼlumotlaringiz "
+        "Oʻzbekistondan tashqariga chiqishi mumkin. Ovoz chiqarib oʻqishni soʻragan matningiz "
+        "Google ga yuboriladi va Google undan xizmatlarini yaxshilash uchun foydalanishi "
+        "mumkin — unga shaxsiy narsalarni yozmang.\n"
+        "\n"
+        "<b>Nimani va qancha saqlayman</b>\n"
+        "📱 Telefon raqamingiz, @username, ismingiz va profil suratingiz: hisobingiz turgunicha\n"
         "🎙️ Siz bergan ism: {recipient_identity_days} kun\n"
         "✍️ Siz yozgan izoh: {brief_text_days} kun\n"
         "🎵 Tayyor qoʻshiq va qoʻshiq matni: {paid_audio_days} kun\n"
         "🎬 Boshlangan, lekin tugallanmagan qoʻshiq: {abandoned_draft_days} kun\n"
+        "📷 Siz yuklagan surat va ovozli xabarlar: yetkazib berilgach darhol, soʻrov "
+        "bajarilmasa yoki tashlab ketilsa — {media_input_hours} soat ichida oʻchiriladi. "
+        "Bitta istisno: bolalarga nisbatan jinsiy zoʻravonlik gumoni bilan bogʻliq material "
+        "xabar berish-bermaslik hal qilinguncha {media_legal_hold_hours} soatgacha "
+        "saqlanishi mumkin\n"
+        "🖼️ Men yasagan rasm va videolar hamda soʻrovlaringiz: {media_output_days} kun\n"
         "🧾 Yasalgan qoʻshiqlar va sarflangan limit yozuvi: muddatsiz\n"
-        "💳 Nima uchun toʻlaganingiz, evaziga nima olganingiz va plan qachon tugashi: "
-        "muddatsiz\n"
-        "✍️ Bugun matn necha marta yozilgani sanogʻi: keyingi yozuvingizgacha\n\n"
+        "💳 Nima uchun toʻlaganingiz, evaziga nima olganingiz va plan qachon tugashi: muddatsiz\n"
+        "📜 Shartlarimizni qabul qilganingiz: muddatsiz\n"
+        "✍️ Bugun matn necha marta yozilgani sanogʻi: keyingi yozuvingizgacha\n"
+        "\n"
         "Muddati bor narsaning hammasi qoʻlda emas, jadval boʻyicha oʻchiriladi. Qoʻshiqlar "
-        "yozuvi bilan toʻlov yozuvi — ataylab qoldirilgan ikki istisno: oylar oʻtib ham "
-        "qoʻshiqlaringiz yoki ketgan pulingiz haqidagi savolga aynan shu ikkisi javob bera "
-        "oladi, shuning uchun /forget ikkalasidan ham hisob raqamingizni olib tashlaydi va "
-        "sanoq bilan summalarni qoldiradi, kvitansiyani oʻchirmaydi. Kunlik yozuv sanogʻida "
-        "hisob raqamingiz ham qoladi — aynan u bir odamning kun boʻyi yozishiga yoʻl "
-        "qoʻymaydi — "
-        "va keyingi safar yozganingizda ustiga yoziladi. Oʻzingiz haqingizda menga "
-        "aytganlaringiz — raqam, foydalanuvchi nomi, ism, surat — muddatsiz: bu yerda "
-        "hisobingiz turgan ekan, saqlab turaman, /forget esa hammasini bir yoʻla "
-        "oʻchiradi.\n\n"
-        "/forget yuborsangiz, hozir ustida ishlayotgan qoʻshigʻingiz raqamingiz, ismingiz "
-        "va suratingiz bilan birga darhol oʻchadi; studiyaga allaqachon yuborilganiga esa "
-        "yuqoridagi muddatlar qoladi. Keyingi safar tilingizni ham, raqamingizni ham "
-        "qaytadan soʻrayman.\n\n"
+        "yozuvi, toʻlov yozuvi va shartlarga roziligingiz — ataylab qoldirilgan istisnolar: "
+        "oylar oʻtib ham qoʻshiqlaringiz, pulingiz yoki nimaga rozi boʻlganingiz haqidagi "
+        "savolga aynan ular javob beradi, shuning uchun /forget ulardan hisob raqamingizni "
+        "olib tashlaydi va sanoqlarni qoldiradi, kvitansiyani oʻchirmaydi. Kunlik yozuv "
+        "sanogʻida ham hisob raqamingiz qoladi va keyingi safar yozganingizda ustiga yoziladi. "
+        "Oʻzingiz haqingizda aytganlaringizni — raqam, foydalanuvchi nomi, ism, surat — "
+        "hisobingiz turgunicha saqlayman, /forget esa hammasini bir yoʻla oʻchiradi.\n"
+        "\n"
+        "<b>Huquqlaringiz:</b> /support orqali nimani saqlashimni bilishingiz, tuzatishni "
+        "soʻrashingiz yoki roziligingizni qaytarib olishingiz (bu keyingi foydalanishni "
+        "toʻxtatadi) mumkin. /forget yuborsangiz, ustida ishlayotgan qoʻshigʻingiz "
+        "raqamingiz, ismingiz va suratingiz bilan birga darhol oʻchadi; studiyaga allaqachon "
+        "yuborilganiga yuqoridagi muddatlar qoladi. Keyingi safar tilingizni ham, raqamingizni "
+        "ham qaytadan soʻrayman.\n"
+        "\n"
+        "<b>Bolalar:</b> rasm, video va ovoz 18 yoshga toʻlmaganlar uchun emas.\n"
+        "<b>Oʻzgarishlar:</b> bildirishnomaning yangi versiyasi shu yerda koʻrsatiladi va uni "
+        "qaytadan qabul qilish kerak.\n"
+        "\n"
         "Qoʻshiq yasamoqchi boʻlsangiz, /start yuboring."
     ),
     # Oxirgi qator tugmani emas, /start ni aytadi: /forget dan keyin hisob yana birinchi
@@ -631,14 +742,23 @@ CATALOGUE: Final[dict[str, str]] = {
     # qaytadan boshlang" esa aynan shu oʻchirish olib qoʻygan qisqa yoʻlni vaʼda qilardi.
     "privacy.forgotten": (
         "✅ Oʻchirildi. Ustida ishlayotgan qoʻshigʻingiz — ism, izoh, soʻzlar — mening "
-        "tomonimda qolmadi, buni ortga qaytarib boʻlmaydi.\n\n"
-        "Telefon raqamingiz, foydalanuvchi nomingiz, ismingiz va suratingiz ham oʻchdi: "
-        "endi men siz haqingizda hech narsa bilmayman, keyingi safar qoʻshiq yasashdan "
-        "oldin qaysi tilda gaplashishimni ham, raqamingizni ham qaytadan soʻrayman.\n\n"
+        "tomonimda qolmadi, buni ortga qaytarib boʻlmaydi.\n"
+        "\n"
+        "Telefon raqamingiz, foydalanuvchi nomingiz, ismingiz va suratingiz ham oʻchdi: endi "
+        "men siz haqingizda hech narsa bilmayman, keyingi safar qoʻshiq yasashdan oldin qaysi "
+        "tilda gaplashishimni ham, raqamingizni ham qaytadan soʻrayman.\n"
+        "\n"
         "Yasalgan qoʻshiqlar yozuvi ham endi siz bilan bogʻliq emas: sanoq qoladi, hisob "
-        "raqamingiz esa yoʻq. Shu bilan birga joriy davrda qolgan qoʻshiqlar ham "
-        "kuyadi: keyingilari davr almashganda ochiladi.\n\n"
-        "Studiyaga allaqachon yuborilgan qoʻshiq /privacy dagi jadval boʻyicha oʻchiriladi.\n\n"
+        "raqamingiz esa yoʻq. Shu bilan birga joriy davrda qolgan qoʻshiqlar ham kuyadi: "
+        "keyingilari davr almashganda ochiladi. Qabul qilgan shartlaringiz yozuvi ham endi "
+        "sizni koʻrsatmaydi, shuning uchun shartlar amalda boʻlsa, ularni qaytadan qabul "
+        "qilish soʻraladi.\n"
+        "\n"
+        "Rasmlar uchun yuborgan tavsif va rasmlaringiz ham, siz uchun saqlab turgan "
+        "rasmlarim ham oʻchirildi.\n"
+        "\n"
+        "Studiyaga allaqachon yuborilgan qoʻshiq /privacy dagi jadval boʻyicha oʻchiriladi.\n"
+        "\n"
         "Yana qoʻshiq xohlaganingizda, /start yuboring."
     ),
     "support.no_contact": (
@@ -709,4 +829,182 @@ CATALOGUE: Final[dict[str, str]] = {
         "📨 <code>{ref}</code> murojaatiga qoʻshildi. Uni koʻrayotgan odamlar buni ham "
         "koʻradi, javob esa shu yerga keladi."
     ),
+    # -- media: the screens the WORKER draws (IMAGE_VIDEO_SPEC §2.3.3, §3.3) ----------
+    # The quote, refusal and busy trays are edits the worker makes to the compose tray;
+    # progress is one status message it edits; the delivery is a new message so it
+    # notifies. Prices are interpolated, never written here (bot/pricing.py).
+    "button.media.pay": "💳 Toʻlash",
+    "button.media.use_credit": "🎟️ Kreditdan foydalanish",
+    "button.media.beta_free": "🎁 Beta: bepul",
+    "button.media.edit": "✏️ Tahrirlash",
+    "button.media.cancel": "✖️ Bekor qilish",
+    "button.media.retry_later": "🔁 Qayta urinish",
+    "button.media.again": "🔁 Yana yaratish",
+    "media.image.quote": (
+        "🖼️ <b>2 ta rasm</b> · {aspect} · <b>{price} soʻm</b>\nTaxminan {eta} ichida tayyor boʻladi."
+    ),
+    "media.refused": "🚫 Buni yarata olmaymiz. Iltimos, tavsif yoki rasmlarni oʻzgartiring.",
+    "media.refused.suspended": (
+        "⛔ Hisobingiz uchun rasm va video yaratish toʻxtatilgan. Agar bu xato deb "
+        "hisoblasangiz, /support orqali yozing."
+    ),
+    "media.compose.unsupported": (
+        "⚠️ Fayllardan birini ishlatib boʻlmaydi. Oddiy rasm yuboring (JPEG, PNG yoki "
+        "WebP), animatsiya emas."
+    ),
+    "media.busy": (
+        "⏳ Studiyamiz hozir toʻla band. Keyinroq urinib koʻring — sizdan pul olinmadi."
+    ),
+    "media.progress.queued": "✅ Toʻlandi. Navbatda #{pos}-siz, taxminan {eta}.",
+    "media.progress.queued_free": "✅ Qabul qilindi. Navbatda #{pos}-siz, taxminan {eta}.",
+    "media.progress.rendering": "🎨 Yaratilmoqda… taxminan {minutes} daqiqa qoldi.",
+    "media.image.delivered": "@bayram_uzbot yordamida sunʼiy intellekt bilan yaratildi.",
+    "media.video.delivered": "@bayram_uzbot yordamida sunʼiy intellekt bilan yaratildi.",
+    "media.delivered.again": (
+        "✨ Yana bittasini xohlaysizmi? 🔁 tavsifni saqlaydi — rasmlarni qayta yuboring."
+    ),
+    "media.failed.refunded": (
+        "😔 Kechirasiz — bu safar amalga oshmadi. Balansingizga 1 ta kredit ({kind}) "
+        "qoʻshildi; istalgan vaqtda foydalaning."
+    ),
+    "media.failed.beta": (
+        "😔 Kechirasiz — bu safar amalga oshmadi. Bu bepul beta soʻrov edi; yana bepul "
+        "urinib koʻrishingiz mumkin."
+    ),
+    "media.failed": "😔 Kechirasiz — bu safar amalga oshmadi.",
+    "media.kind.image": "rasm",
+    "media.kind.video": "video",
+    "media.image.partial": "Ikki rasmdan birini yaratib boʻlmadi.",
+    "media.image.partial_refunded": (
+        "Ikki rasmdan birini yaratib boʻlmadi — balansingizga 1 ta kredit ({kind}) qoʻshildi."
+    ),
+    "media.eta.minutes": "{minutes} daqiqa",
+    # -- media: the compose screens the BOT draws (IMAGE_VIDEO_SPEC §2.2, §2.3.3) ----------
+    # The ✨ picker, the compose tray (edited in place, never a reply per photo), the
+    # aspect picker and the post-freeze answers. Nothing here is written by the worker.
+    "create.pick": "✨ Nima yaratamiz?",
+    "button.create.song": "🎵 Qoʻshiq",
+    "button.create.image": "🖼️ Rasm",
+    "button.create.video": "🎬 Video",
+    "button.create.more": "✨ Boshqa narsa",
+    "notice.menu_updated": (
+        "✨ Yangilik: tavsifingiz va rasmlaringiz asosida rasmlar — ✨ Yaratish tugmasini bosing."
+    ),
+    "media.image.compose": (
+        "🖼️ Qanday rasm xohlayotganingizni xabar qilib yozing. Xohlasangiz, {max} tagacha "
+        "rasm ham biriktirishingiz mumkin (ixtiyoriy)."
+    ),
+    "media.compose.photos_not_kept": (
+        "📎 Avvalgi rasmlar yetkazilgandan keyin oʻchirildi — kerak boʻlsa, ularni qayta "
+        "biriktiring."
+    ),
+    "media.tray": "Tavsif: {prompt_state}\nRasmlar: {n}/{max}",
+    "media.tray.no_prompt": "— hali yoʻq",
+    "media.tray.cap_reached": "Faqat birinchi {max} ta rasm ishlatiladi.",
+    "media.tray.got_photo": "✅ Rasm qabul qilindi ({n}/{max}).",
+    "media.tray.got_prompt": "✅ Tavsif saqlandi.",
+    "media.tray.ask_prompt.image": "Endi qanday rasm kerakligini yozib yuboring — tavsif majburiy.",
+    "media.tray.ask_prompt.video": (
+        "Endi qanday video kerakligini yozib yuboring — tavsif majburiy."
+    ),
+    "media.tray.more_or_done": (
+        "Yana rasm qoʻshishingiz yoki ✅ Tayyor tugmasini bosishingiz mumkin."
+    ),
+    "media.tray.press_done": "Davom etish uchun ✅ Tayyor tugmasini bosing.",
+    "media.need_prompt": "Avval tavsif yozing.",
+    "media.prompt.invalid": "Iltimos, {min}–{max} belgi oraligʻida tasvirlab bering.",
+    "media.compose.closed": (
+        "Rasmlarni ✅ Tayyor tugmasidan oldin qoʻshish mumkin — ✏️ Tahrirlash tugmasini bosing."
+    ),
+    "media.use_buttons": "Iltimos, yuqoridagi tugmalardan foydalaning.",
+    "media.aspect": "📐 Shaklni tanlang.",
+    "media.screening": "⏳ Soʻrovingiz tekshirilmoqda…",
+    "media.open_request": (
+        "📌 Sizda allaqachon ochiq soʻrov bor ({kind}) — avval uni toʻlang yoki bekor qiling."
+    ),
+    "media.open_request.paid": "📌 Soʻrovingiz ({kind}) tayyorlanmoqda — natija shu chatga keladi.",
+    "media.stale": "Bu tugma endi ishlamaydi.",
+    "media.daily_cap": (
+        "⏳ Bugungi soʻrovlar chegarasiga yetdingiz. Iltimos, ertaga qayta urinib koʻring."
+    ),
+    "media.cancelled": "✖️ Bekor qilindi — hech narsa yaratilmadi va pul olinmadi.",
+    "media.cancel_too_late": (
+        "⏳ Bu soʻrov allaqachon toʻlangan yoki toʻlovi koʻrib chiqilmoqda, shuning uchun "
+        "hozir bekor qilib boʻlmaydi. Natija shu yerga keladi."
+    ),
+    # -- media: Payme orqali toʻlov (IMAGE_VIDEO_SPEC §7.2, §2.6) ----------------------
+    "media.pay_link": (
+        "🔗 <b>Sal qoldi.</b>\n\n"
+        "Quyidagi tugmani bosing va <b>{amount} soʻm</b> toʻlang. Toʻlov oʻtmaguncha hech "
+        "narsa yaratilmaydi — u oʻtishi bilan shu yerda xabar beraman."
+    ),
+    "media.paid": "✅ Toʻlov qabul qilindi — {kind} yaratilmoqda. Natija shu yerga keladi.",
+    "media.paid_late_credit": (
+        "💳 Toʻlovingiz bu soʻrov yopilganidan keyin keldi, shuning uchun hech narsa "
+        "yaratilmadi. Balansingizga 1 ta kredit ({kind}) qoʻshildi; istalgan vaqtda foydalaning."
+    ),
+    "media.paid_unmatched": (
+        "💳 Toʻlovingizni oldik, lekin uni soʻrovga bogʻlay olmadik. /support ga yozing, "
+        "hammasini hal qilamiz."
+    ),
+    "button.media.done": "✅ Tayyor",
+    "button.media.clear_photos": "🗑️ Rasmlarni olib tashlash",
+    "button.media.aspect.portrait": "📱 Tik 9:16",
+    "button.media.aspect.square": "⏹️ Kvadrat 1:1",
+    "button.media.aspect.landscape": "🖥️ Yotiq 16:9",
+    # -- media: a video after ✅ Done (IMAGE_VIDEO_SPEC §2.4) --------------------------
+    # The tier, voice and voice-step screens the bot draws, the worker's video quote,
+    # and its answer to a voice note ffprobe found over the clip (§5.4).
+    "media.video.compose": (
+        "🎬 Videoni xabar qilib tasvirlab yozing — nima sodir boʻladi va qaysi uslubda. "
+        "Xohlasangiz, {max} tagacha rasm ham biriktiring — ulardan birinchi kadr yigʻiladi "
+        "(ixtiyoriy)."
+    ),
+    "media.video.tier": (
+        "Tezlikni tanlang:\n🐢 Standart — taxminan {eta_std}, {price_std}\n⚡ Tez — taxminan "
+        "{eta_fast}, {price_fast}"
+    ),
+    "media.voice.pick": (
+        "🔊 Ovoz qoʻshilsinmi? Video {seconds} soniya, shuning uchun taxminan {words} ta soʻz "
+        "sigʻadi."
+    ),
+    "media.voice.gender": "Qaysi ovoz?",
+    "media.voice.enter_text": "✍️ Ovoz nima deyishini yozing ({words} ta soʻzgacha).",
+    "media.voice.too_long": (
+        "Bu {seconds} soniyada aytish uchun juda uzun — iltimos, taxminan {words} ta soʻzga "
+        "sigʻdiring."
+    ),
+    "media.voice.script_wait": "✍️ Siz uchun jumla yozilmoqda…",
+    "media.voice.script_review": "Taklif qilingan jumla: «{script}»",
+    "media.voice.script_failed": (
+        "😔 Hozir jumla yozib boʻlmadi. ✏️ tugmasini bosib, oʻz soʻzlaringizni yozing."
+    ),
+    "media.voice.send_note": "🎙️ {seconds} soniyagacha ovozli xabar yozib, shu yerga yuboring.",
+    "media.voice_note.too_long": (
+        "Bu ovozli xabar {dur} soniya — iltimos, {seconds} soniyagacha yozing."
+    ),
+    "media.voice_note.wrong_type": "Iltimos, ovozli xabar yuboring (🎤 tugmasini bosib turing).",
+    "media.video.quote": (
+        "🎬 Video · {seconds} soniya · {aspect} · {tier} · ovoz: {voice}\n{price} · taxminan "
+        "{eta} da tayyor boʻladi."
+    ),
+    "media.tier_name.standard": "Standart",
+    "media.tier_name.fast": "Tez",
+    "media.voice_mode.none": "ovozsiz",
+    "media.voice_mode.ai_user": "SI, sizning soʻzlaringiz",
+    "media.voice_mode.ai_llm": "SI, biz yozgan matn",
+    "media.voice_mode.own": "oʻz ovozingiz",
+    "button.media.back": "⬅️ Orqaga",
+    "button.media.tier.standard": "🐢 Standart",
+    "button.media.tier.fast": "⚡ Tez",
+    "button.media.voice.none": "🔇 Ovozsiz",
+    "button.media.voice.ai_mine": "🗣️ SI ovozi, soʻzlar meniki",
+    "button.media.voice.ai_llm": "🤖 Soʻzlarni SI yozsin",
+    "button.media.voice.own": "🎙️ Oʻz ovozim",
+    "button.media.voice.female": "👩 Ayol ovozi",
+    "button.media.voice.male": "👨 Erkak ovozi",
+    "button.media.voice.use": "✅ Shu jumlani olish",
+    "button.media.voice.edit": "✏️ Soʻzlarni oʻzgartirish",
+    "button.media.voice.another": "🔄 Boshqa jumla",
+    "button.media.voice.record_again": "🎙️ Qayta yozish",
 }

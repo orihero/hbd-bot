@@ -52,9 +52,18 @@ from bayram.contracts import (
     Vendor,
     VendorOperation,
 )
-from bayram.db.enums import AdminRole, CreditEntryKind, CreditReason, PlanKind, TopupKind
+from bayram.db.enums import (
+    AdminRole,
+    CreditEntryKind,
+    CreditReason,
+    MediaPurchaseProvider,
+    MediaSku,
+    PlanKind,
+    TopupKind,
+)
 from bayram.db.models.bot_membership_event import BotMembershipEventRow
 from bayram.db.models.credit_ledger import CreditLedgerRow
+from bayram.db.models.media_purchase import MediaPurchaseRow
 from bayram.db.models.order import OrderRow
 from bayram.db.models.plan_purchase import PlanPurchaseRow
 from bayram.db.models.topup_purchase import TopupPurchaseRow
@@ -1438,3 +1447,99 @@ def test_a_bare_rate_and_an_unsourced_cost_are_not_constructible() -> None:
     for build in illegal:
         with pytest.raises(ValidationError):
             build()
+
+
+async def seed_media_sale(
+    session: AsyncSession,
+    *,
+    sku: MediaSku,
+    provider: MediaPurchaseProvider,
+    amount_minor: int,
+    key: str,
+    created_at: datetime = DAY_ONE,
+) -> None:
+    session.add(
+        MediaPurchaseRow(
+            id=uuid4(),
+            telegram_user_id=TELEGRAM_ID,
+            job_id=uuid4(),
+            sku=sku,
+            amount_minor=amount_minor,
+            currency="UZS",
+            provider=provider,
+            reference=RECEIPT_REFERENCE,
+            idempotency_key=key,
+            created_at=created_at,
+        )
+    )
+    await session.flush()
+
+
+async def test_media_revenue_is_read_from_its_receipts_by_sku_and_rail(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    # Arrange — IMAGE_VIDEO_SPEC §7.7: two Payme image sales, a Payme video sale, and a
+    # credit spend and a beta render, which are zero-amount volume and never revenue. No
+    # BAYRAM_ADMIN_* media price exists: the amount is on the receipt.
+    async with container.session_factory.begin() as session:
+        await seed_topup(session)
+        for key in ("image:1", "image:2"):
+            await seed_media_sale(
+                session,
+                sku=MediaSku.IMAGE,
+                provider=MediaPurchaseProvider.PAYME,
+                amount_minor=500_000,
+                key=key,
+            )
+        await seed_media_sale(
+            session,
+            sku=MediaSku.VIDEO_STANDARD,
+            provider=MediaPurchaseProvider.PAYME,
+            amount_minor=2_500_000,
+            key="video:1",
+        )
+        await seed_media_sale(
+            session,
+            sku=MediaSku.IMAGE,
+            provider=MediaPurchaseProvider.CREDIT,
+            amount_minor=0,
+            key="image:credit",
+        )
+        await seed_media_sale(
+            session,
+            sku=MediaSku.IMAGE,
+            provider=MediaPurchaseProvider.BETA,
+            amount_minor=0,
+            key="image:beta",
+        )
+    await signed_in(container, client)
+
+    # Act
+    finance = (await client.get(FINANCE_PATH)).json()
+    series = (
+        await client.get(SERIES_PATH, params=_window(DAY_ONE - timedelta(hours=9), DAY_THREE))
+    ).json()
+
+    # Assert — one row per (sku, rail), beside the song's own, never merged into it.
+    media = {
+        (row["product"], row["provider"]): (row["sales"], row["amountMinor"])
+        for row in finance["revenue"]
+        if row["source"] == "media"
+    }
+    assert media == {
+        ("image", "payme"): (2, 1_000_000),
+        ("video_standard", "payme"): (1, 2_500_000),
+        ("image", "credit"): (1, 0),
+        ("image", "beta"): (1, 0),
+    }
+    assert {row["source"] for row in finance["revenue"]} == {"topup", "media"}
+    assert {
+        (point["product"], point["provider"]): point["amountMinor"]
+        for point in series["revenue"]
+        if point["source"] == "media"
+    } == {
+        ("image", "payme"): 1_000_000,
+        ("video_standard", "payme"): 2_500_000,
+        ("image", "credit"): 0,
+        ("image", "beta"): 0,
+    }

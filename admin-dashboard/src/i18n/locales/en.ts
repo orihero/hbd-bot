@@ -96,6 +96,7 @@ export const en: TranslationSchema = {
       billing: "Billing",
       broadcasts: "Campaigns",
       support: "Support",
+      mediaReviews: "Media review",
       audit: "Audit",
       admins: "Admins",
     },
@@ -2154,6 +2155,8 @@ export const en: TranslationSchema = {
           "The buyer asked to be forgotten. The money moved and there is nobody left to grant to or tell — this is a state, not a discrepancy.",
         planGrantsNothing:
           "A plan mints songs as they are used, so it grants no credit at purchase.",
+        mediaGrantsNothing:
+          "An image or video sale pays for one media request, so it grants no song credit.",
         notSettled:
           "This payment never settled, so nothing after it was ever going to happen.",
         alreadyTold: "The confirmation went out.",
@@ -2182,6 +2185,8 @@ export const en: TranslationSchema = {
         "This payment is older than the 90 days the inbound journal is kept for, so its calls have aged out. Purged, not absent.",
       chainStopSingle:
         "Unanswerable, by design. A credit balance is a single number with no lots, so no query can prove which song a purchased credit rendered.",
+      chainStopMedia:
+        "The chain continues on the media request this payment moved to paid, not on a credit.",
       chainStopPlan: "{used} of {included} songs used on this plan.",
       chainStopPlanUnknown:
         "No plan receipt was recorded, so there is nothing counting songs against it.",
@@ -2622,6 +2627,65 @@ export const en: TranslationSchema = {
         workerTitle: "Selected, and nothing can check it",
         workerMessage:
           "The group was changed and the change is saved. No worker is running, so nothing posted a test message — this chat stays unchecked until one does.",
+      },
+    },
+  },
+
+  media: {
+    reviews: {
+      title: "Media review",
+      subtitle: "Held images and videos waiting for a decision. Unreviewed holds are refunded after 24 hours.",
+      pending: "Waiting",
+      decided: "Decided",
+      loadFailed: "The review queue could not be loaded",
+      emptyPending: "Nothing is waiting for review.",
+      emptyDecided: "No review has been decided yet.",
+      noCategories: "none reported",
+      notApplied: "queued",
+      pendingLabel: "Saving…",
+      reasonLabel: "Why (optional)",
+      reasonHint: "Your words, not the customer's. Never paste the prompt.",
+      conflictTitle: "Somebody decided first",
+      conflictMessage: "This review was already decided, or the job is no longer held. Nothing of yours was written; the list has been read again.",
+      failedTitle: "The decision was not saved",
+      columns: {
+        job: "Job",
+        sku: "Product",
+        source: "Held because",
+        categories: "Categories",
+        dueAt: "Refunded if undecided at",
+        decidedAt: "Decided at",
+        actions: "Actions",
+        decision: "Decision",
+      },
+      sku: {
+        image: "Image",
+        video_standard: "Video (standard)",
+        video_fast: "Video (fast)",
+      },
+      source: {
+        output_review: "Output check asked for review",
+        guard_unavailable: "Output check did not answer",
+        manual: "Held by an operator",
+      },
+      decision: {
+        released: "Released",
+        blocked: "Blocked and refunded",
+        expired: "Expired and refunded",
+      },
+      release: {
+        action: "Release",
+        title: "Release and deliver",
+        body: "Job {job} will be sent to the customer as it is. This is recorded on the audit log with your reason.",
+        confirm: "Release {job}",
+      },
+      refund: {
+        action: "Block and refund",
+        title: "Block and refund",
+        body: "Job {job} will not be delivered. The customer is told and gets one credit for the same product. This needs your password again.",
+        bodyBeta: "Job {job} will not be delivered. It was a free beta request, so no credit is issued.",
+        confirm: "Block {job}",
+        stepUpNote: "Refunding job {job} issues a credit, so it needs a grant scoped to this review.",
       },
     },
   },

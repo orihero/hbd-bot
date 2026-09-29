@@ -85,6 +85,7 @@ __all__ = [
     # Provider value objects
     "RenderedAudio",
     "SpeechRequest",
+    "NarrationRequest",
     "VoiceDescriptor",
     "LlmRequest",
     "Transcript",
@@ -99,6 +100,7 @@ __all__ = [
     # Protocols
     "MusicProvider",
     "TtsProvider",
+    "NarrationProvider",
     "LlmProvider",
     "SttProvider",
     "PaymentProvider",
@@ -305,6 +307,16 @@ class Vendor(StrEnum):
     GEMINI = "gemini"
     OPENAI_COMPATIBLE = "openai_compatible"
     FAKE = "fake"
+    # --- image and video products (IMAGE_VIDEO_SPEC §3.2.3) ---------------------------
+    #: The owner's own GPU gateway (flux2, Wan). Billed by nobody; recorded so GPU time is.
+    LOCAL_GENAI = "local_genai"
+    HIGGSFIELD = "higgsfield"
+    FAL = "fal"
+    #: Gemini speech, separate from ``GEMINI`` because the TTS key pool is its own set of
+    #: projects (D23, O8) and its own invoice.
+    GEMINI_TTS = "gemini_tts"
+    #: The guard models on the same gateway (D24, O10).
+    GATEWAY_GUARD = "gateway_guard"
 
 
 class VendorOperation(StrEnum):
@@ -327,6 +339,11 @@ class VendorOperation(StrEnum):
     TRANSCRIPTION = "transcription"
     CHAT_COMPLETION = "chat_completion"
     HEALTH = "health"
+    # --- image and video products (IMAGE_VIDEO_SPEC §3.2.3). Speech and transcription
+    # reuse the two members above.
+    IMAGE_GENERATE = "image_generate"
+    VIDEO_GENERATE = "video_generate"
+    SAFETY_CLASSIFY = "safety_classify"
 
 
 class UsageTask(StrEnum):
@@ -349,6 +366,14 @@ class UsageTask(StrEnum):
     SONG = "song"
     NAME_VERIFICATION = "name_verification"
     GREETING_SPEECH = "greeting_speech"
+    # --- image and video products (IMAGE_VIDEO_SPEC §3.2.3). A media call carries a
+    # ``vendor_usage.media_job_id`` rather than an ``order_id``.
+    MEDIA_SCREEN = "media_screen"
+    MEDIA_SCRIPT = "media_script"
+    MEDIA_IMAGE = "media_image"
+    MEDIA_VIDEO = "media_video"
+    MEDIA_TTS = "media_tts"
+    MEDIA_OUTPUT_SCREEN = "media_output_screen"
 
 
 class BalanceUnit(StrEnum):
@@ -1058,6 +1083,29 @@ class SpeechRequest(_Frozen):
     mood: str | None = None
 
 
+class NarrationRequest(_Frozen):
+    """One spoken line for a video (IMAGE_VIDEO_SPEC §5.1).
+
+    Not a :class:`SpeechRequest`: a narration has no persona and no recipient name, only a
+    house voice picked by ``gender``. ``style`` is a delivery direction ("warm", "brisk")
+    that an adapter sends out of band — **never in the text**, where it would be spoken.
+    ``text`` is already inside the per-language budget (§5.3), so the cap is the column's.
+    """
+
+    text: str = Field(min_length=1, max_length=160)
+    language: Language
+    gender: VoiceGender
+    style: str | None = Field(default=None, max_length=80)
+
+    @field_validator("gender")
+    @classmethod
+    def _house_voice_gender(cls, value: VoiceGender) -> VoiceGender:
+        # There are two house voices (§5.1); a duet or "any" has no voice to resolve to.
+        if value not in (VoiceGender.FEMALE, VoiceGender.MALE):
+            raise ValueError("a narration is spoken by the female or the male house voice")
+        return value
+
+
 class LlmRequest(_Frozen):
     """Every LLM call in this system returns JSON. There is no free-text path."""
 
@@ -1215,6 +1263,23 @@ class TtsProvider(Protocol):
 
 
 @runtime_checkable
+class NarrationProvider(Protocol):
+    """A video's voice line (IMAGE_VIDEO_SPEC §5.1). Synchronous by contract; never raises.
+
+    A vendor content refusal is ``Err(ProviderRejectedContentError)`` and is final: the job
+    fails with a refund and the line is not offered to another vendor (§5.2).
+    """
+
+    name: str
+
+    async def narrate(
+        self, request: NarrationRequest, *, idempotency_key: str, timeout_s: float
+    ) -> Result[RenderedAudio]: ...
+
+    async def health(self) -> Result[ProviderHealth]: ...
+
+
+@runtime_checkable
 class LlmProvider(Protocol):
     """Intake normalisation, lyric writing, name respelling.
 
@@ -1321,6 +1386,14 @@ class Storage(Protocol):
     """Object storage. Keys are unguessable and assigned by the caller."""
 
     async def put(self, key: str, data: bytes, *, content_type: str) -> Result[StoredObject]: ...
+
+    async def put_file(self, key: str, src: Path, *, content_type: str) -> Result[StoredObject]:
+        """Store the file at ``src`` without holding it in memory (IMAGE_VIDEO_SPEC §3.6).
+
+        Same key rules and same atomicity as :meth:`put`; the returned ``size_bytes`` and
+        ``sha256`` describe the bytes actually copied. ``src`` is not removed.
+        """
+        ...
 
     async def get(self, key: str) -> Result[bytes]: ...
 

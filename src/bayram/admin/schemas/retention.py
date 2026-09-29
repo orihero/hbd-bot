@@ -92,6 +92,20 @@ class SweepCounts(ApiModel):
     #: model, and worth watching more than any of them: the table takes a row per account per
     #: campaign, so this is where a sweep falling behind becomes visible first.
     broadcast_recipients_deleted: int = 0
+    #: ANONYMISED ``terms_acceptances`` past the 400-day cutoff (revision 0030). Defaulted
+    #: like the five above so a run stored before the Terms gate existed still projects.
+    terms_acceptances_deleted: int = 0
+    #: The media sweeps (revision 0031, IMAGE_VIDEO_SPEC §3.2.4). Defaulted like the six
+    #: above so a run stored before the media tables existed still projects.
+    media_inputs_deleted: int = 0
+    media_outputs_deleted: int = 0
+    media_input_holds_deleted: int = 0
+    media_output_holds_deleted: int = 0
+    media_job_texts_purged: int = 0
+    media_jobs_deleted: int = 0
+    media_attempts_deleted: int = 0
+    media_purchases_deleted: int = 0
+    media_credit_entries_deleted: int = 0
 
     @property
     def total(self) -> int:
@@ -232,6 +246,16 @@ def _counts(row: PurgeRunRow) -> SweepCounts:
         payme_rpc_rows_deleted=row.payme_rpc_rows_deleted,
         payment_intents_deleted=row.payment_intents_deleted,
         broadcast_recipients_deleted=row.broadcast_recipients_deleted,
+        terms_acceptances_deleted=row.terms_acceptances_deleted,
+        media_inputs_deleted=row.media_inputs_deleted,
+        media_outputs_deleted=row.media_outputs_deleted,
+        media_input_holds_deleted=row.media_input_holds_deleted,
+        media_output_holds_deleted=row.media_output_holds_deleted,
+        media_job_texts_purged=row.media_job_texts_purged,
+        media_jobs_deleted=row.media_jobs_deleted,
+        media_attempts_deleted=row.media_attempts_deleted,
+        media_purchases_deleted=row.media_purchases_deleted,
+        media_credit_entries_deleted=row.media_credit_entries_deleted,
     )
 
 

@@ -178,8 +178,8 @@ outstanding list it is blocked on nobody.
 
 ### 1.4 Amounts are tiyin and nothing multiplies by 100
 
-`single_song_price_minor` is `700_000` (`src/bayram/config.py:444`) and 700 000 tiyin is 7 000
-soʻm. That integer is already the number Payme is sent, is already what
+`single_song_price_minor` holds the price in tiyin — `1_500_000`, i.e. 15 000 soʻm, when this was
+last checked; read `Settings`, never this sentence, for the live figure. That integer is already the number Payme is sent, is already what
 `PaymentAuthorization.amount_minor` carries, and is compared as an integer against the stored
 `payment_intents.amount_minor` at every Payme method. A mismatch is a **refusal** (`-31001`),
 never a re-price from `Settings` at Perform time: re-pricing would let a config edit change
@@ -657,7 +657,7 @@ tracked in `09-payme-go-live.md`.
 
 `BAYRAM_CHECKOUT_PROVIDER=payme` and `BAYRAM_CREDITS_ENFORCED=true` move in the **same edit**.
 `src/bayram/main.py` refuses to boot on a live rail with a dark credit meter — a real rail taking
-real money into a meter nobody reads is a free song sold for 7 000 soʻm, and that must fail
+real money into a meter nobody reads is a free song sold at `single_song_price_minor`, and that must fail
 the boot rather than log a warning. Failing in that direction is the point.
 
 `BAYRAM_KIT_PRICE_AMOUNT_MINOR` **stays 0** (§1.1). It is the render gate's quote, not the
@@ -847,7 +847,7 @@ forever. That trap cost real time on 2026-09-09 and is written up in `09-payme-g
 **8.6.2 — The paywall stays in its stub state until the owner says otherwise. Decided
 2026-09-10 by the owner, asked directly.** State it plainly, because a euphemism here would be
 the dishonest kind: **customers today see a purchase flow that takes no money.** They are quoted
-7 000 soʻm, they tap, `StubCheckoutProvider` reports the purchase paid, the credit is granted and
+the song price (`single_song_price_minor`), they tap, `StubCheckoutProvider` reports the purchase paid, the credit is granted and
 the bot replies "Paid". `BAYRAM_CREDITS_ENFORCED` is false besides, so even a short balance is
 covered by an `UNENFORCED_RENDER` grant and the song is rendered regardless. Nothing is charged
 and nothing is owed. This is **not an oversight and not a bug to be filed**: the rail is built,

@@ -5,8 +5,14 @@ already taken on `feat/capture-start-payload` and lands with M0.4, so this spec'
 `0030`–`0032`. Cite this document by section —
 `IMAGE_VIDEO_SPEC §4.2` — never by path, so the citation survives the file moving.
 
-**Status, 2026-09-24 — plan only. Nothing here is built.** It specifies `DECISIONS.md` **D20–D26**
-and is the build plan for them. The research it rests on is
+**Status, 2026-09-25 — the code is built; go-live is owner-pending.** Every code item of M0–M6
+is on `feat/media-products` (one alembic head, `0033`), each milestone closed by a review commit
+(M0.R–M6.R) and the branch by a whole-flow review (FINAL). What is left needs the owner or
+counsel: the approved Terms text (M1.3), the gateway hardening and guard models on the 5090
+(M2.6's `doctor` green from the host, M3.3), the listening test (M4.4), Payme production and the
+go-live flags (M5.3), and counsel's view before Fast is switched on (M6.3). §10 opens with the
+per-item status and commit ids. It specifies `DECISIONS.md` **D20–D26**
+and is the build plan for them. *(Written 2026-09-24 as a plan, with nothing built.)* The research it rests on is
 `docs/research/RESEARCH-image-video-pipeline.md` (frozen, same date).
 
 **The owner's answers of 2026-09-24 are binding** (§0.2). The request they answer is quoted
@@ -242,6 +248,11 @@ existing user, accepted_version < terms_version ──┘   (accept → back to 
   media SKU is offered.
 - The terms screen replaces LR-54's "notice at first use" requirement for the whole bot (D26); the
   song flow's S3 recipient-data notice stays.
+- *As built (FINAL):* the gate's read **fails open** for the song flow when the ledger cannot be
+  read (a database blip must not silence the bot), so media cannot rest on it. Every media path
+  asks the fail-**closed** `TermsGate.require` instead — before a row is frozen (image shape pick,
+  video ✅ Done), at a video's last voice step (a voice note joins the row there) and at 💳 🎟 🎁 —
+  and an unconfirmed acceptance answers `media.busy` with nothing frozen or started.
 
 | Key | en | ru | uz_latn |
 | --- | --- | --- | --- |
@@ -338,10 +349,21 @@ is current, and `content_sha256` (hash of prompt + narration + every input `sha2
   (≤20 MB, the Bot API getFile ceiling); anything else → `media.compose.unsupported`.
 - Dedupe on `file_unique_id`; cap at `media_max_reference_images`; over the cap → one
   `media.tray.cap_reached` per `media_group_id`.
-- **One tray message per compose**, edited in place — never a reply per photo. **Every accepted
-  item that changes the count edits the tray** (at most `media_max_reference_images` edits per
-  compose), so a 4-photo album ends showing "Photos: 4/4". No `sleep` and no debounce task in the
-  handler (per-chat lock).
+- **One live tray per compose, answered under what was sent** — never a reply per photo. A
+  lone photo, a prompt, or a caption that changes the prompt is answered by sending the tray
+  anew **below** the customer's message and deleting the old tray (best effort: a tray already
+  gone or older than 48 h is left, and its buttons answer `media.stale`). The answer reads: what
+  was received (`media.tray.got_photo` "✅ Photo received (n/max)." or `media.tray.got_prompt`),
+  the tray, then the next step — `media.tray.ask_prompt.image|video` while there is no prompt
+  (the prompt is required), else `media.tray.more_or_done` while under the cap, else
+  `media.tray.press_done`. **An album moves the tray once**: its first item that changes the
+  tray sends the new tray (recorded as the draft's `tray_media_group_id`), and every later item
+  of that `media_group_id` edits that new tray in place, so a 4-photo album draws exactly one
+  reply that ends showing "Photos: 4/4". A duplicate (`file_unique_id`) draws nothing. The
+  tray's buttons (✅ 🗑 ✖️) still edit it in place. No `sleep` and no debounce task in the
+  handler (per-chat lock). *Changed 2026-09-26 after owner review: the tray used to be edited
+  in place for every photo, and an edit of a message scrolled above the photo read as no
+  answer at all.*
 - Photos or albums sent **after ✅ Done** (in `aspect`, `quote`, `VideoOrder.voice*`) get one reply
   per `media_group_id`: `media.compose.closed` ("Photos can be added before ✅ Done — tap ✏️ Edit").
 - A caption on any item sets/replaces the prompt.
@@ -414,6 +436,8 @@ enabled (now) it is skipped and the quote names the tier.
   refused at L1.
 - **GPU-reserved check** (§4.5) runs at ✅ Done (reserved → `media.busy`, no row created) and again
   when the quote is computed (reserved → the row goes to `cancelled`, tray → `media.busy`).
+  *As built (M4.R):* `media_screen` cancels a video row in that case, with no 🔁, and hands its
+  inputs to `media_cleanup`; an image keeps the §2.3.3 busy tray with 🔁.
 - **Back map** (⬅️ `media.back`): aspect → compose; tier → aspect; voice → tier, or aspect when the
   tier screen is skipped; voice_text / voice_note / voice_gender → voice; script_review → voice.
   Going back to compose from aspect sets the `drafting` row to `cancelled` (a later ✅ Done freezes a
@@ -455,6 +479,25 @@ enabled (now) it is skipped and the quote names the tier.
   pre-screened prompt: the handler enqueues and returns; the job edits the message. ≤2
   regenerations per draft (`media_script_max_regens`); each counts against the screening budget
   (§6.4 L0).
+
+*As built (M4.1):* ✅ Done freezes the `drafting` row (a placeholder 9:16 aspect, Standard SKU and
+price) and enqueues `media_prescreen`, which records `screen_decision='allow'` on the draft and draws
+the shape screen on the tray — or refuses it (`rejected`, struck as at the screen), or answers
+`media.busy` with 🔁 (the decision `unavailable`, so the sweep leaves it to the customer; a prescreen
+whose enqueue was lost has no decision and the sweep re-drives it). Every later choice stays in the FSM
+draft until the last voice step, which writes aspect, tier, SKU, price, `voice_mode`, `voice_gender`,
+`narration_text` and the voice note's Telegram ids onto the row **in the statement that moves it
+`drafting → screening`** (`MediaDesk.finalize_video`), and only for a draft the prescreen allowed; that
+statement clears the prescreen's verdict, so `media_screen` judges the whole request again. After a
+typed line or a voice note the "checking" message is a new one under it and becomes the row's tray.
+🤖 "AI writes" is built on the bot side (enqueue `media_script(job_id, n)`, `script_review` with ✅ / ✏️
+/ 🔄 ≤ `media_script_max_regens`, the keyboard the writer will draw) but **not drawn** until M4.3
+registers the writer (`BUILT_VOICE_MODES`). The tier screen shows each tier that is offered, priced and
+not paused; with Fast flagged off it is skipped. A voice note ffprobe measures above the clip + 0.25 s
+sends the row **back to `drafting`** (a pre-pay move; its prescreen verdict restored, the note's row and
+object deleted) with 🎙 record again, rather than refusing the whole request — the customer re-records
+without retyping the prompt. Budgets and the clip length are `BAYRAM_NARRATION_*`; the worker re-checks
+the budget as a backstop (`screen_caps`).
 
 ### 2.5 Who sees what (beta and flags)
 
@@ -524,7 +567,9 @@ The existing worker process hosts everything; no fifth systemd unit.
 Three revisions: **`0030` terms** (ships with M1), **`0031` media** (M2) and **`0032`
 moderation_reviews** (M3). **`0029` is already taken** by `add_acquisition_source` on
 `feat/capture-start-payload` (`down_revision="0028"`), which lands with M0.4; `0030` therefore
-has `down_revision="0029"`. All run as the owner role and are copied to the host by hand (§0.1).
+has `down_revision="0029"`. *As built:* a fourth, **`0033` media hold records** (M3.R), adds
+`media_outputs.deleted_at` and `media_jobs.legal_hold_decision`/`legal_hold_decided_at`/
+`csam_cleared_at` (§6.4, §6.7). All run as the owner role and are copied to the host by hand (§0.1).
 Every migration PR's acceptance includes **`alembic heads` returns exactly one head**.
 
 #### 3.2.1 `0030` — `terms_acceptances`
@@ -564,8 +609,8 @@ the lawful-basis record.
 | `outputs_requested` | smallint CHECK 1..4 | 2 for image, 1 for video |
 | `aspect` | varchar(8) | `9:16` \| `1:1` \| `16:9` |
 | `params` | jsonb | width, height, length, fps, steps, denoise, seed — **no text** |
-| `backend` | varchar(16) NULL | stamped at submit: `local` \| `higgsfield` \| `fal` \| `fake` |
-| `model_id` | varchar(64) NULL | stamped at submit |
+| `backend` | varchar(16) NULL | stamped by `media_start`'s latch, as the first submits are enqueued, so every variant renders on one backend: `local` \| `higgsfield` \| `fal` \| `fake` |
+| `model_id` | varchar(64) NULL | stamped with `backend` |
 | `language` | varchar(8) | |
 | `prompt` | varchar(800) NULL | nulled by purge / `/forget` |
 | `voice_mode` | varchar(16) | `none` \| `ai_user` \| `ai_llm` \| `own` |
@@ -702,12 +747,12 @@ re-enqueues itself actually runs again.
 | ARQ job | Trigger | Does | Idempotency |
 | --- | --- | --- | --- |
 | `media_prescreen(job_id)` | video ✅ Done (bot enqueues) | download photos, L0/L1 on the prompt, L2 (+G8) on photos; edit tray → aspect screen or refusal; row stays `drafting` | `media:{id}:prescreen` |
-| `media_screen(job_id)` | image: aspect pick; video: last voice step | download inputs (worker, `bot.get_file` + `download_file`, size checked before and after read, `avatar.py:149-200` pattern) to workspace → storage (`MEDIA_INPUT`), recording `sha256`; **decode every image with Pillow and reject multi-frame images** (animated WebP/APNG/GIF-as-document → `media.compose.unsupported`); collage if needed; L0–L3 (§6) on the **final** prompt, captions, narration and transcript; write `content_sha256`; compute quote & ETA; edit tray → quote \| refusal \| busy | `media:{id}:screen`; conditional `UPDATE … WHERE state='screening'` |
+| `media_screen(job_id)` | image: aspect pick; video: last voice step | download inputs (worker, `bot.get_file` + `download_file`, size checked before and after read, `avatar.py:149-200` pattern) to workspace → storage (`MEDIA_INPUT`), recording `sha256`; **decode every image with Pillow and reject multi-frame images** (animated WebP/APNG/GIF-as-document → `media.compose.unsupported`); collage if needed; L0–L3 (§6) on the **final** prompt, captions, narration and transcript; write `content_sha256`; compute quote & ETA; edit tray → quote \| refusal \| busy | `media:{id}:screen` (a 🔁 on a busy tray, or the sweep, re-screens the same row as `media:{id}:screen:{n}`); conditional `UPDATE … WHERE state='screening'` |
 | `media_script(job_id, n)` | "AI writes" | reads the `drafting` row's pre-screened prompt; gateway LLM (§5.5), L3 screen, edit message | `media:{id}:script:{n}` |
 | `media_start(job_id)` | settlement (§7.2), credit spend, beta free, `media_sweep` | re-checks `media_offered`, `content_sha256`, `screen_decision='allow'` and policy version; **latch = `UPDATE media_jobs SET state='queued' WHERE id=:id AND state='paid'`** (rowcount 0 → no-op); enqueue `media_submit` per variant (`attempt` fixed as a job argument) and, for AI voice, `media_tts` / for own voice, `media_voice_prepare`. `payment_intents.resumed_at` is stamped for audit only, never read as a gate | `media:{id}:start:{n}` (n from `media_sweep`) + the latch |
 | `media_submit(job_id, v, attempt)` | start / retry policy / lock freed | take GPU slot (§3.4) if local; **on entry, if an attempt row for (job, v, attempt) exists in `submitting` with no `remote_id`, never POST: mark it `ambiguous` and reconcile** (local: `GET /queue`; Higgsfield: admin hold). Otherwise insert `media_attempts(status='submitting')` **before** the POST; POST; store `remote_id`, `submitted`; extend the lock; enqueue poll. Not at the queue head → re-enqueue itself with `submit_seq+1`, `_defer_by=15 s` | `media:{id}:submit:{v}:{attempt}:w{submit_seq}` |
-| `media_poll(job_id, v)` | self, `_defer_by` 5 s (image) / 15 s (video) | poll status; running → re-enqueue (renews the lock, refreshes progress); succeeded → `media_fetch`; failed/rejected → retry policy; `unknown` → `ambiguous` (§4.2). Only the retry policy, after a **terminal** `failed`/`rejected` attempt, creates attempt N+1 | `media:{id}:poll:{v}:{tick}` |
-| `media_fetch(job_id, v)` | poll success | **always releases the GPU lock** (CAS on attempt id); if the job is already terminal → discard the result, stop. Else stream result to workspace with `max_bytes`, ffprobe, `put_file` to storage, `media_outputs` row; image: conditional fan-in (below); video: set `render_ready_at`, try fan-in | `media:{id}:fetch:{v}` |
+| `media_poll(job_id, v)` | self, `_defer_by` 5 s (image) / 15 s (video) | poll status; running → re-enqueue (renews the lock, refreshes progress); succeeded → `media_fetch`; failed/rejected → retry policy; `unknown` → `ambiguous` (§4.2). Only the retry policy, after a **terminal** `failed`/`rejected` attempt, creates attempt N+1 | `media:{id}:poll:{v}:{attempt}:{tick}` |
+| `media_fetch(job_id, v)` | poll success | **always releases the GPU lock** (CAS on attempt id); if the job is already terminal → discard the result, stop. Else stream result to workspace with `max_bytes`, ffprobe, `put_file` to storage, `media_outputs` row; image: conditional fan-in (below); video: set `render_ready_at`, try fan-in | `media:{id}:fetch:{v}:{attempt}` (the attempt is in the id: a fetch that failed hands the variant to attempt N+1, whose fetch must not be dropped as a duplicate) |
 | `media_tts(job_id)` / `media_voice_prepare(job_id)` | start (parallel to render) | §5; reads only the stored, screened input (never re-downloads by `file_id`); store `narration` output; set `audio_ready_at`; try fan-in | `media:{id}:tts` |
 | image fan-in | each variant reaching a terminal state (succeeded **or** failed after retries) | conditional UPDATE counting terminal variants; the one that brings the count to `outputs_requested` and finds ≥1 success moves `generating → post` and enqueues `media_output_screen`; 0 successes → `failed` + refund | the conditional UPDATE |
 | video fan-in | whichever of render/audio finishes second | `UPDATE … SET state='post' WHERE render_ready_at IS NOT NULL AND (voice_mode='none' OR audio_ready_at IS NOT NULL) AND state='generating'`; rowcount 1 → enqueue `media_mux` | the conditional UPDATE |
@@ -910,6 +955,13 @@ JPEG q90 as a `collage` input (also screened, L2). When
 The compose copy tells video users photos are combined into the opening frame (residual quality
 risk: Q10).
 
+*As built (M6.2):* the limit is per kind (`MediaCapabilities.reference_limits`, read through
+`max_references`): Higgsfield reports its configured models' limits — Kling 3.0 I2V 1, Soul 0,
+Seedance 2.0 R2V (`seedance_2_0_r2v`) 9 — so with a multi-ref video model the photos go natively
+as a list of uploaded URLs and no collage is made. `media_screen` builds and screens the collage
+whenever **any** backend on the SKU's route (primary, then fallback, §4.5) needs one, and
+`media_submit` sends the originals to a backend that takes that many and the collage otherwise.
+
 ### 4.5 Feature flags, overrides, kill switches
 
 | Setting (env, `BAYRAM_` prefix) | Type / default |
@@ -928,6 +980,18 @@ the `payme.pause` / `admin/rail_switch.py` pattern):
 | `media:backend:<sku>` | overrides the env backend for new submits (must be in the Literal; unknown → ignored + alert) |
 | `media:paused:<sku>` | kill switch: SKU hidden from the picker; open quotes answer `media.busy`; paid jobs continue |
 | `media:gpu:reserved_until` | ISO timestamp; while in the future, every SKU whose effective backend is `local` refuses at Done/quote with `media.busy` (O11); paid jobs already queued continue |
+
+*As built (M6.2):* an optional `IMAGE_FALLBACK_BACKEND`, `VIDEO_STANDARD_FALLBACK_BACKEND`,
+`VIDEO_FAST_FALLBACK_BACKEND` (same Literal, empty = none) is the backend a job moves to under
+§3.3's rule — a pre-submit `ProviderUnavailableError`, `ProviderQuotaExhaustedError`,
+`ProviderRateLimitedError` or gateway 502-without-job_id, never an ambiguous submit, never our own
+refusal of the request (a reference the model cannot take, the cost ceiling) — and only while
+**nothing of the job was ever posted** (no attempt with a remote id, in flight, ambiguous or
+finished), so one job renders on one backend and every poll asks the backend holding its id. The
+move re-stamps `backend` + `model_id` under the row lock the attempt insert also takes; the
+variant's next attempt (N+1) goes to the fallback, and the job leaves or joins the GPU queue with
+it. A fallback for an offered SKU is held to every boot check its backend is, margin included, at
+that SKU's price; a `fake` fallback is refused in production like a `fake` backend.
 
 The effective backend is stamped on `media_jobs.backend` + `model_id` at submit, so the admin panel
 reads the row and never mirrors the flag. **Boot refusals** (in `refuse_an_unsafe_checkout_rail`,
@@ -985,6 +1049,24 @@ tests cover both.
   2026-09-24; D23). The Privacy notice (Appendix A) discloses it.
 - Health: admin card lists key_ref, state, last OK, 24 h success/429 counts.
 
+*As built (M4.2):* narration is its own protocol, `NarrationProvider.narrate(NarrationRequest)`,
+not a route inside the song `LanguageRoutingTts`: `TtsProvider.synthesize` takes a
+`SpeechRequest`, which needs a persona and a name. `NarrationRouter` (in `providers/tts/router.py`
+beside the song router, same `parse_routes` table format) sends each language to its provider
+and hands **any** failure except a content refusal to the fallback. A content refusal is never
+passed to the fallback. `ElevenLabsTts.narrate` is the fallback, with two house voice ids by
+gender. The wire shape was checked against the speech-generation docs page on 2026-09-25:
+`input[0].content[0]` is the text part, and the style is a `speech_metadata` *annotation* on it.
+`response_format` asks for `audio/wav` at 24 kHz, `speech_config` is a list naming the voice,
+and the audio arrives base64 in `steps[].content[].data`. Google answers a bad key with
+**400 `API_KEY_INVALID`**, not 401, so that response also disables the key. A 400 or 200 that
+carries `SAFETY`/`PROHIBITED_CONTENT` is the refusal. `gemini_tts_api_keys` is a plain CSV string
+(`Settings.gemini_tts_key_list` splits it), so every secret field keeps `""` as its unset
+value. The secret-shape test now also matches `_keys`. When Redis is unreadable, the pool
+rotates with an in-process counter and treats every key as usable, which costs at most one
+extra 429. An unset house voice (Q14) sends that gender to ElevenLabs.
+`runtime.providers.build_narration_provider` assembles all of it. M4.3 consumes it.
+
 ### 5.3 Length cap
 
 `narration_max_seconds = 5` (clip length) and the per-language word/char budget (§2.4.2, ceiling
@@ -1010,6 +1092,14 @@ trim is counted per language so the M4.4 budgets can be tightened (Q11 note).
   - fewer than ~1 word per 1.5 s of voiced audio (by `silencedetect`) — music, moaning or other
     non-speech that whisper fills with filler text.
   M4.1 tests cover each case. Residual (§11 R11): tone and non-verbal sound are unscreened.
+- *As built (M4.1):* whisper is called with **no** language (a forced language is echoed back and
+  would make the language rule vacuous); `no_speech_prob` counts as high at ≥ 0.6 (whisper's own
+  threshold) when silencedetect (−35 dB, 0.3 s) finds ≥ 0.5 s of speech; the word-rate rule is
+  words < ⌊voiced s / 1.5⌋. An untrusted transcript refuses the request as `review` with
+  `error_code='voice_untrusted'` and no strike; so does one longer than `voice_transcript`'s 400
+  characters, which is never truncated, since its unscreened tail would still be delivered
+  (M4.R). A trusted one is stored in `voice_transcript` and screened by G1 as `transcript`. The note is stored as sent (OGG/Opus, `audio/ogg`) with its
+  ffprobe `duration_ms`.
 - At render time `media_voice_prepare` reads the screened storage copy (sha256-verified): ffmpeg
   decode → `loudnorm` I=−16 LUFS → mono 48 kHz → pad (or trim within tolerance) to clip length →
   AAC. The note is muxed as-is otherwise: **no cloning, no voice conversion**.
@@ -1026,6 +1116,26 @@ trim is counted per language so the M4.4 budgets can be tightened (Q11 note).
 - Gateway unavailable or busy > 20 s → fallback to the D5 LLM stack (`llm_provider`, Gemini 3.7
   Flash on the paid tier) through the existing client.
 
+*As built (M4.3):* `media_script(job_id, n)` acts only on a `drafting` video whose prescreen
+allowed it, and reads the prompt from the row. The user message is one `json.dumps` object
+`{video_description, language, max_words, max_chars}`; the system prompt names
+`video_description` as material, never instructions. The gateway client (`media/script_writer.py`)
+sends `genai_script_model` with the key in `X-API-Key` plus the Access pair and a strict
+`{script}` schema; a `:cloud` model is refused by `Settings` and again by the client. Any gateway
+error, or no answer within `BAYRAM_GENAI_SCRIPT_TIMEOUT_S` (20 s), asks the D5 `llm_provider` and
+then its documented fallback, each once; a line that fails D10 + the budget also moves on to the
+next provider. Each line counts once against the screening budget (`{job}:script:{n}`), and a
+job writes exactly one line. An L3 `block`/`review` line is never shown; like an unavailable
+guard, no writer at all, or a strike store that cannot be read, it leaves no line and draws
+`media.voice.script_failed` with ✏️ (and 🔄 while any are left), no ✅ and never `media.busy`.
+The next line is the customer's own 🔄, so a refused line costs a regeneration and a screening
+(§6.4 L3). *(M4.R: M4.3 wrote a second line inside the job, which spent neither.)* An L3 block
+is not a strike: the words are ours. Nor is a TTS refusal of an unedited 🤖 line
+(`voice_mode='ai_llm'`); words typed after ✏️ go to screening as `ai_user` and are the
+customer's. ⬅️ out of the 🤖 branch sets the draft back to `voice_mode='none'`, so a line still
+being written neither lands on the row nor redraws the tray. With the writer registered, 🤖 is
+drawn (`BUILT_VOICE_MODES` is all four modes).
+
 ### 5.6 Mux
 
 `media/mux.py`, subprocess via `asyncio.create_subprocess_exec` (ffmpeg is already a host
@@ -1038,6 +1148,38 @@ ffmpeg -i video_raw.mp4 -i narration.wav -map 0:v:0 -map 1:a:0 \
 
 Silent videos (`voice_mode=none`) skip the mux and are re-wrapped with `-movflags +faststart`.
 ffprobe verifies geometry and duration before output screening.
+
+*As built (M4.3), `media/mux.py` behind a `VideoTools` seam:*
+
+- **Fetch.** ffprobe must find a video stream with a geometry and a positive duration. H.264
+  `yuv420p` is re-wrapped `+faststart` with no audio track; anything else is re-encoded (libx264,
+  CRF 20). The result is the `video_raw` output (24 h), with `width`/`height`/`duration_ms`, and
+  sets `render_ready_at`. Each fetch run stores under its own object key, and a run whose row
+  loses deletes its object, so a racing re-drive never replaces the bytes the winning row hashes.
+- **Voice, beside the render.** `media_tts` speaks `narration_text` in the chosen house voice. A
+  take longer than clip × 1.15 is asked for once more with style `brisk`, and the shorter take is
+  kept (§5.3). The take is stored with the MIME the vendor answered with and a matching suffix
+  (the §5.2 ElevenLabs fallback is `audio/mpeg`, `.mp3`). A vendor content refusal fails the job
+  (`narration_refused`) with a refund and two strikes (§6.4 L5), except for an unedited 🤖 line
+  (§5.5). Any other failure is retried three times and then fails the job
+  (`narration_failed`) with a refund. `media_voice_prepare` reads the screened note (streamed from
+  storage, sha256-checked) and writes loudnorm I=−16 mono 48 kHz WAV. Both store a 24 h
+  `narration` output, set `audio_ready_at` and try the fan-in.
+- **Mux.** The voice is padded (`apad`), or sped up with `atempo` ≤ 1.15 (AI voice only), or
+  trimmed with a 250 ms fade. It is cut at the render's own ffprobe duration. Every `atempo` or
+  trim is logged with its language (Q11). The result must match the render's geometry and be
+  within 0.15 s of its length; otherwise, or when ffmpeg fails three times, the job fails
+  (`mux_failed`) with a refund.
+- **L4 and delivery.** L4 screens the first frame, one frame a second, and the last frame (≤ 8)
+  as `output_frame`. Delivery is `sendVideo` with `supports_streaming` and the row's
+  width/height/duration; above 50 MB it is `sendDocument`. The cloud Bot API caps a bot's upload
+  at 50 MB for both methods, so the document fallback only helps on a local Bot API server. A
+  5 s 720p clip is a few MB. An upload Telegram refuses as too large is final, not retried.
+- **Sweep.** It re-drives a stalled video's render and a voice that never arrived (after
+  `STALE_HEARTBEAT`). A voice run holds a lease (`media:{job}:voice:lease`, one stage timeout)
+  from when it starts, and the sweep leaves a leased voice alone, so a slow narration does not
+  get a second paid run beside it. A voice still queued behind a backlog has no lease yet and
+  can still be re-driven. It also re-drives the mux of a `post` video that has no clip yet.
 
 ---
 
@@ -1151,6 +1293,32 @@ upload, collage, output image or frame — is a block at a low fixed threshold
 L4/L5 block = 2; 3 strikes in 7 days → `media:suspended:{tg}` for 7 days
 (`media.refused.suspended`); a CSAM-class block → suspended until an admin clears it.
 
+*As built (M3.1):* a pre-pay `review` refuses but does not strike (nothing was judged unsafe);
+strikes are keyed by job + layer, so a redelivered stage adds none. The suspension check and
+the screening budget run first in `media_screen`, before any download; the budget counts a
+**job** once (a 🔁 on a busy tray is not a second screening), and a refusal for either is not a
+strike. A CSAM-class suspension is lifted only by `python -m bayram.tools.media unsuspend <tg>`.
+The hard rule is applied in `media_screen` and `media_output_screen` over the union of every
+guard's codes with the youth signal of the request's own words, so "schoolgirl" in the prompt
+and `sexual` on a photo meet even though no single guard saw both. G2's non-sexual thresholds
+(`moderation/policy.py`: `dangerous` and `violence` review 0.35 / block 0.6; the custom minor
+policy blocks at 0.1) are placeholders until M3.3's calibration.
+
+*As built (M3.R):* a length/word-cap failure is refused (`screen_caps`) and **not** struck —
+the bot's tray enforces the same 3–800 characters and ≤160 words, so it is only a backstop. The
+bot also reads the suspension at ✅ and at the shape pick, so a suspended account freezes no row;
+the denylist stays the worker's, where a hit spends the screening budget and strikes (answering
+it in the bot, free and unmetered, would be an oracle). Denylist stems that open ordinary words
+are written as closed forms (`trump`/`трамп(а|у|ом|е)` not *trumpet*/*трамплин*; `qatl` not
+*qatlama*; `marvel's`/`marvel studios`, not *marvelous*). A CSAM-class suspension is written
+before the strikes and before sealing, and is also **durable**: a `csam_blocked` job with
+`csam_cleared_at` NULL refuses the account at the screen gate even after Redis lost the key;
+`tools.media unsuspend` clears both. G1 receives the request's `lang_hint` (`uz`/`ru`/`en`),
+G3 keeps the worst segment's `compression_ratio` for M4's §5.4 check, and an output screen with
+no outputs is `unavailable`, never `allow`. A hosted guard endpoint gets its own
+`BAYRAM_MEDIA_MODERATOR_*` credentials; the gateway's key and Access token go only to the
+gateway's host.
+
 ### 6.5 Gateway-side work the owner does on the 5090
 
 | # | Endpoint / change | Contract |
@@ -1177,6 +1345,32 @@ reason_code)`, shipped in `0032` with M3. Sources: L4 `review` holds, customer a
 `media.refused` via `/support`, and a 2% sampled audit of allowed outputs. SLA 24 h; an unreviewed
 hold at 24 h → fail + refund credit. Optional: post a masked card to a `bot_chats` moderation group.
 
+*As built (M3.2):* `0032` adds `source`, `due_at` (created + 24 h), `actor_id` and `applied_at` to
+the columns above; a NULL `decision` is pending and a partial unique index allows one pending
+review per job. The worker opens the review in the same transaction as the move to `held` —
+source `output_review` for an L4 `review`, `guard_unavailable` for the 30-minute give-up. The
+panel (`/api/media/reviews`, `/api/media-jobs/{id}/hold`, all on `media.moderate`) only
+**records** a decision — `released` or `blocked` — and asks the worker to apply it
+(`media_review_apply`): a release marks the output allowed and delivers it; a block fails the job
+with one SKU-scoped credit attributed `admin:{name}` on the ledger (none for beta) and two strikes.
+The refund's step-up is `moderation.decide` scoped to the review id, with the INTENT audit row
+(`moderation.refund`) in the decision's transaction and the OUTCOME row
+(`moderation.refund.outcome`) after the enqueue; a release is `moderation.approve`, a hold
+`moderation.hold`, all against `subject_type="media_job"`. An operator may hold only a `post` job
+whose output screen allowed it. `media_sweep` decides a pending review `expired` at `due_at`
+(→ fail + one credit, no strike), re-drives a decision nobody applied after 2 minutes, and delivers
+a released job whose delivery enqueue was lost. Not built yet: the appeal and 2% sample sources,
+the moderation-group card, and output reveal for reviewers (M5's `media_outputs` reveal subject) —
+until then a reviewer decides from the category codes. A paid-backend `ambiguous_submit` hold
+(§4.3) opens no review; it is M6's reconcile path.
+
+*As built (M3.R):* releasing a `guard_unavailable` hold does **not** mark the output allowed —
+no guard and no human saw it — it moves the job back to `post` and runs the output screen again;
+only a guard's `allow` delivers, and a guard still down holds it again under a fresh review.
+Until M6, `media_sweep` fails a `held` job that no pending or unapplied review covers (an
+`ambiguous_submit` hold, or one from before `0032`) two hours after its last move, with one
+credit (§4.3's 2 h rule), so it cannot occupy the one-open-request index for ever.
+
 ### 6.7 CSAM and escalation
 
 Named escalation owner: the owner (SCOPE §6.9) until someone else is named (Q8). **Q8 is a blocker
@@ -1191,10 +1385,20 @@ On a CSAM-class block (hard rule, §6.4):
 - **Never revealable in the admin panel.** The admin sees job id, category codes, sha256 and time
   only; no reveal subject exists for held bytes and no step-up unlocks them.
 - Bytes are **encrypted at rest with a key held only by the named escalation owner** and are
-  accessed out of band.
+  accessed out of band. *As built (M3.1):* each held object is sealed in place to the owner's
+  X25519 public key (`BAYRAM_MEDIA_LEGAL_HOLD_RECIPIENT`; ephemeral ECDH + HKDF-SHA256 +
+  AES-256-GCM, `moderation/legal_hold.py`) right after the hold commits, and again by
+  `media_cleanup` if the stage died in between. The host holds the public key only; the owner
+  generates the pair and opens an object with `python -m bayram.tools.legal_hold`. The rows keep
+  the `sha256` of the original bytes. Boot refuses an offered SKU without a valid key.
 - **Deadline:** the escalation owner records a reporting decision within **72 h**
   (`legal_hold_expires_at`); at expiry the bytes are deleted (hash + metadata kept) unless the
-  decision was to hand them to the authorities, which is logged.
+  decision was to hand them to the authorities, which is logged. *As built (M3.R, `0033`):*
+  the decision is `python -m bayram.tools.media legal-hold <job_id> --handover|--delete`
+  (`media_jobs.legal_hold_decision`, logged at WARNING); `handover` makes the purge skip the
+  job's held objects, `delete` brings their clock forward. At expiry the purge deletes the
+  **object** and keeps the row (`deleted_at` set, `sha256`, size, times), logging the hash; the
+  job row stays with it.
 - The owner confirmed this exception to O16 on 2026-09-24 (Q16). Counsel may still advise
   delete-only (hash + metadata); that is the R12 switch. Risk: §11 R12.
 
@@ -1283,6 +1487,20 @@ still starts the job exactly once; a settled media intent never shows the song k
 | `admin/schemas/billing.py:1030, 1280`; `admin/routers/billing.py:871` | binary | `match`; media rows labelled by SKU |
 | `checkout.py:89-101` `Product`; `db/enums.py:201-262` `IntentProduct`/`TopupKind` | 2 members | add 3; a test asserts every member has an arm in each site |
 
+*As built (M5.1):* `Product` and `IntentProduct` gained `image`, `video_standard`, `video_fast`;
+**`TopupKind` did not** — it names `topup_purchases` rows and a media sale is never one. Every site
+above is an exhaustive `match` with `assert_never`; the song checkout refuses a media SKU before a key
+is minted. 💳 is `media.payment.SqlMediaCharge` (charge → `quoted`/`awaiting_payment` →
+`awaiting_payment` with `payment_intent_id`); ✖️ on the pay link or `/cancel` moves the intent
+`pending → cancelled` (the same row the rail's hold takes, so one of the two wins) and then the job,
+and answers `media.cancel_too_late` once a transaction holds it. Check/Create answer `-31052` for a
+job no longer awaiting payment and `-31050` for an intent naming no job. The settlement counts media
+receipts on the receipts side of the three-way invariant. The gateway reads no `Settings`, so the
+Perform arm resets the uploads' clock with the shipped deadlines (`DEFAULT_SKU_DEADLINES`). The §8
+reveal is `GET /api/media-outputs/{id}/stream` on the existing `reveal.media.read` + `reveal.media`
+pair (no separate `media.reveal` permission yet), subject type `media_output`, image/png, image/jpeg
+and video/mp4 in their own allowlist so the song route stays audio-only.
+
 ### 7.4 Boot refusal
 
 Extend `refuse_an_unsafe_checkout_rail` (`main.py:117`) and the worker's startup equivalent:
@@ -1302,7 +1520,11 @@ for each offered sku: price is not None or refuse to boot; margin check (§4.3) 
 On the stub rail (and the Payme sandbox) a non-beta user can never reach a quote, and no user sees
 💳; a beta job is recorded as `provider='beta'` — `stub` is not a valid value — so finance can
 exclude it. Boot tests: payme + sandbox + media offered with no beta allowlist refuses; fake
-moderator with media offered refuses. Default `DEFAULT_ENTITLEMENT_POLICY`
+moderator with media offered refuses. *As built (M5.3):* every offered SKU with an empty price refuses in
+both the bot and the worker, and media offered on a **live-paid** rail with the Terms + Privacy
+gate off (no `BAYRAM_TERMS_VERSION` pair) refuses too — once anyone can order, the acceptance is the
+whole real-person mitigation (O4, §11 R3); the beta may still run before M1.3. The owner's go-live
+checklist is runbook `12-media-gateway §8`; `.env.example` lists the go-live flag set. Default `DEFAULT_ENTITLEMENT_POLICY`
 is never used in media code (`resolve_entitlement_policy(settings)` only).
 
 ### 7.5 Refunds (O13)
@@ -1330,11 +1552,22 @@ One open request per user per kind (partial unique index, §3.2.2); `media_daily
 `media_daily_cap_video` = 3 paid requests per user per day (Redis counter). The song
 `max_orders_in_flight=1` (`entitlements.py:80`) is not applied to media.
 
+*As built (M5.2):* the daily caps are counted from `media_jobs.paid_at` (any rail: Payme, 🎟, 🎁)
+since UTC midnight, per **kind** (both video tiers share one cap), **not a Redis counter**: the
+Payme settlement that makes a job paid runs in a process with no Redis, and a counter a restart
+clears is not a cap. `media_screen` refuses at the cap before a byte is downloaded or a guard asked
+(`error_code='daily_cap'`, `media.daily_cap`, no strike); 💳, 🎟 and 🎁 re-check it at press time.
+
 ### 7.7 Finance
 
 Media revenue is read from `media_purchases` (`provider='payme'`) by SKU — no new
 `BAYRAM_ADMIN_*` price mirror (D19's drift problem). Beta and credit rows show as zero-amount
 volume.
+
+*As built (M5.2):* `RevenueSource` gains `media`; `/dashboard/finance` (revenue and run-rate) and
+`/dashboard/series` concatenate `media_purchases` grouped by `(sku, currency, provider)` beside the
+plan and top-up receipts. Operator corrections are `python -m bayram.tools.media credit <tg> <sku>
+--grant|--revoke --actor NAME` (`admin_correction`, runbook 12 §6).
 
 ---
 
@@ -1408,7 +1641,7 @@ BAYRAM_IMAGE_BACKEND=local              # local|higgsfield|fal|fake
 BAYRAM_VIDEO_STANDARD_BACKEND=local
 BAYRAM_VIDEO_FAST_BACKEND=higgsfield
 BAYRAM_IMAGE_PRICE_MINOR=500000
-BAYRAM_VIDEO_STANDARD_PRICE_MINOR=      # unset = not sellable
+BAYRAM_VIDEO_STANDARD_PRICE_MINOR=2500000   # §7.1 (owner, 2026-09-24); empty = not sellable
 BAYRAM_VIDEO_FAST_PRICE_MINOR=
 BAYRAM_MEDIA_MAX_REFERENCE_IMAGES=4
 BAYRAM_MEDIA_DAILY_CAP_IMAGE=10
@@ -1424,8 +1657,15 @@ BAYRAM_GENAI_VIDEO_MODEL=wan
 BAYRAM_GENAI_SCRIPT_MODEL=qwen3.8:27b-q4_K_M
 BAYRAM_MEDIA_MODERATOR=gateway          # gateway|fake (fake refuses to boot with media offered)
 BAYRAM_MEDIA_MODERATOR_BASE_URL=        # defaults to GENAI_BASE_URL; a hosted guard endpoint (D24 fallback)
+BAYRAM_MEDIA_MODERATOR_API_KEY=         # secret; that endpoint's own key — the gateway's never leaves its host
+BAYRAM_MEDIA_MODERATOR_ACCESS_CLIENT_ID=     # optional Access pair for that endpoint, both or neither
+BAYRAM_MEDIA_MODERATOR_ACCESS_CLIENT_SECRET= # secret
+BAYRAM_MEDIA_GUARD_TEXT_ROUTE=moderate  # moderate (G1 endpoint) | chat (interim Qwen3Guard on /v1/chat/completions)
+BAYRAM_MEDIA_GUARD_TIMEOUT_S=15
 BAYRAM_MEDIA_SEXUAL_IMAGE_BLOCK_P=0.2
+BAYRAM_MEDIA_LEGAL_HOLD_RECIPIENT=     # escalation owner's X25519 public key, base64 (§6.7); required with media offered
 BAYRAM_MEDIA_MAX_COST_SHARE=0.5
+BAYRAM_MEDIA_UZS_PER_USD=                # margin check only; needed once a SKU is on a backend that costs money
 # --- voice
 BAYRAM_GEMINI_TTS_API_KEYS=             # secret, comma-separated pool
 BAYRAM_GEMINI_TTS_MODEL=gemini-3.8-flash-tts
@@ -1445,6 +1685,7 @@ BAYRAM_HIGGSFIELD_API_KEY_ID=
 BAYRAM_HIGGSFIELD_API_SECRET=           # secret
 BAYRAM_IMAGE_MAX_COST_USD=0.20         # per request: both images, all attempts
 BAYRAM_VIDEO_FAST_MAX_COST_USD=1.00     # per request, all attempts
+BAYRAM_VIDEO_STANDARD_MAX_COST_USD=     # unset: Standard has no paid route (boot refuses one; M6.R)
 BAYRAM_FAL_API_KEY=                     # secret
 # --- terms (M1)
 BAYRAM_TERMS_VERSION=
@@ -1465,6 +1706,44 @@ Each item is one PR unless noted. Product tests live in `tests/`, use `FakeMedia
 `FakeModerator`, `FakeTts` and MemoryStorage — **no network in unit tests**. Gateway/Gemini
 contract checks are separate make targets.
 
+### Build status, 2026-09-25
+
+**Built** means the code, its tests and its docs are committed on `feat/media-products`; **owner**
+means only the owner (or counsel) can close it, and the code around it — flags, boot refusals,
+runbook steps — is already built. Commit ids are short hashes on that branch.
+
+| Item | Status | Commit(s) |
+| --- | --- | --- |
+| M0.1 zero-greeting replay | Built | `61f57d7` |
+| M0.2 song moderator fails closed | Built | `d1910b0` |
+| M0.3 workspace sweep, `put_file` | Built | `1926b74` |
+| M0.4 row-existence fix, `0029` | Built (merge) | `7bec7ea` |
+| M0.5 SCOPE amendment blocks | Built | `fc1b867` |
+| M0.6 stale price | Built | `5e6fd4d` (M0.R) |
+| M1.1 `0030 terms_acceptances` | Built | `bcb295c`, `2afdaf6` (M1.R) |
+| M1.2 Terms + Privacy gate | Built | `c99eaf5`, `2afdaf6` (M1.R) |
+| M1.3 approved Terms/Privacy text | **Owner** — counsel sign-off; the DRAFT copy ships and boot refuses media for everyone without a version pair | — |
+| M2.1 `0031` media tables | Built | `c3e14ab` |
+| M2.2 provider, gateway client, flags, boot | Built | `c73688d` |
+| M2.3 collage | Built | `5296038` |
+| M2.4 stage jobs, GPU lock, delivery | Built | `ae1f377` |
+| M2.5 ✨ picker, `ImageOrder`, tray | Built | `25a5306` |
+| M2.6 `doctor`, runbook `12-media-gateway` | Code built (`4caeb19`); **owner** — gateway hardening (§9.1) and `doctor` green from the production host | `4caeb19`, `a916bb1` (M2.R) |
+| M3.1 guard client, L0–L4, strikes, legal hold | Built | `d7b7d84` |
+| M3.2 `0032 moderation_reviews`, admin queue | Built (`0033` hold records added at M3.R) | `7472f06`, `9dd87a3` (M3.R) |
+| M3.3 guard models on the 5090, calibration sets | **Owner** | — |
+| M4.1 `VideoOrder`, voice screens, own-voice intake | Built | `9677f6e` |
+| M4.2 Gemini TTS, key pool, ElevenLabs fallback | Built | `3e97392` |
+| M4.3 script writer, mux, fan-in, video delivery | Built | `7db9aa2`, `4969051` (M4.R) |
+| M4.4 listening test, house voice | **Owner** | — |
+| M5.1 SKUs on Payme, §7.3 match sites, settle | Built | `3cded96` |
+| M5.2 credits, refunds, caps, finance | Built | `3ec74df` |
+| M5.3 go-live boot refusals and flag set | Code built (`a04e9c4`); **owner** — Payme production (PAYME_INTEGRATION §8.6), then the flags in runbook `12-media-gateway §8` | `a04e9c4`, `f0bcb19` (M5.R) |
+| M6.1 Higgsfield provider, ceilings | Built | `42e6f96` |
+| M6.2 tier screen, Fast, native multi-ref | Built | `5876694`, `4784dbb` (M6.R) |
+| M6.3 counsel on photos abroad (R6) | **Owner** — precondition in runbook `12-media-gateway §6.5`; Fast ships off with no price | — |
+| FINAL whole-branch review | Built — media paths read the Terms fail-closed (§2.1); paid image and each of the four video voice kinds walked from the quote to delivery on the live Payme rail | FINAL |
+
 ### M0 — prerequisites (no media code)
 
 | PR | Work | Acceptance / tests |
@@ -1472,8 +1751,9 @@ contract checks are separate make targets.
 | M0.1 | Zero-greeting `_replay` fix: `_build_kit` returns a kit with an empty greeting tuple | new `tests/test_db` case builds a `greetings_per_kit=0` kit; a redelivered job replays without a vendor call (fake counts = 1) |
 | M0.2 | Song moderator fail-open fix (§6.8) | the two tests in §6.8 |
 | M0.3 | `workspace_sweep` cron + `Storage.put_file` | sweep deletes terminal dirs > 24 h, keeps live ones; `put_file` streams (memory bounded, tested with a 50 MB temp file) |
-| M0.4 | Row-existence onboarding fix **and its migration `0029_add_acquisition_source`**, merged from `feat/capture-start-payload` | existing test on that branch passes here; `alembic heads` returns one head (`0029`) |
+| M0.4 | Row-existence onboarding fix **and its migration `0029_add_acquisition_source`**, merged from `feat/capture-start-payload` | existing test on that branch passes here; `alembic heads` returns one head (`0029`). **Landed** by merging `feat/capture-start-payload` into `feat/media-products` (merge commit `7bec7ea`), not as its own PR |
 | M0.5 | SCOPE_OF_WORK amendment blocks: "Amended by D20 (2026-09-24)" at §3.2, §2.2, FR-7, FR-96, LR-47, LR-51, LR-59; "Amended by D26" at LR-54 | doc-only; grep shows each carries its block |
+| M0.6 | Stale price (§0.3): `main.py`'s boot-refusal docstring and PAYME_INTEGRATION §1.4, §8.2, §8.6.2 stop stating 7 000 UZS and name `single_song_price_minor` instead. **Landed** with the M0 review fixes (M0.R) | doc/comment-only; nothing in `src/` or PAYME_INTEGRATION states 7 000 UZS as the live price (worked examples of a unit bug may still use it) |
 
 ### M1 — Terms gate (all users)
 
@@ -1526,7 +1806,7 @@ contract checks are separate make targets.
 | --- | --- | --- |
 | M6.1 | `HiggsfieldProvider` (upload, estimate, submit, poll, fetch, webhook trigger, ceiling) | ambiguous POST never repeated; 400 concurrency → rate-limited; 402/403 → quota; `sound:"off"` always sent; geometry normalised |
 | M6.2 | Tier screen, Fast price, multi-ref native path | with Fast enabled the tier screen shows both; >1 ref goes native, no collage |
-| M6.3 | Counsel view on sending photos abroad (R6) recorded before enabling | — |
+| M6.3 | Counsel view on sending photos abroad (R6) recorded before enabling | — (owner only: a precondition in runbook 12-media-gateway §6.5 and a boot warning; no code gate) |
 
 ---
 

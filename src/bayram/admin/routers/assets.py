@@ -58,6 +58,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Request
 from starlette.responses import Response, StreamingResponse
 
+from bayram.admin.container import AdminContainer
 from bayram.admin.deps import API_PREFIX, Admin, Container, Db, require_permission
 from bayram.admin.errors import AdminErrorCode, AdminProblem, ProblemError, problem, unwrap
 from bayram.admin.schemas.assets import AssetTextView
@@ -77,6 +78,13 @@ from bayram.admin.services.assets import (
     lyric_text,
     object_key,
     parse_range,
+)
+from bayram.admin.services.media_outputs import (
+    MEDIA_OUTPUT_FIELD_NAME,
+    MEDIA_OUTPUT_MIMES,
+    MEDIA_OUTPUT_SUBJECT_TYPE,
+    load_media_output,
+    media_output_key,
 )
 from bayram.admin.window import resolve_window
 from bayram.contracts import AssetKind
@@ -98,6 +106,7 @@ __all__ = [
     "ASSET_PATH",
     "ASSET_STREAM_PATH",
     "ASSET_TEXT_PATH",
+    "MEDIA_OUTPUT_STREAM_PATH",
     "build_assets_router",
     "build_asset_media_router",
 ]
@@ -112,6 +121,8 @@ ASSET_PATH: Final[str] = f"{ASSETS_PATH}/{{asset_id}}"
 #: match this, and both constants must stay exactly as they are.
 ASSET_STREAM_PATH: Final[str] = f"{ASSET_PATH}/stream"
 ASSET_TEXT_PATH: Final[str] = f"{ASSET_PATH}/text"
+#: The media output reveal (IMAGE_VIDEO_SPEC §8), under ``/api`` for the cache reason above.
+MEDIA_OUTPUT_STREAM_PATH: Final[str] = f"{API_PREFIX}/media-outputs/{{output_id}}/stream"
 
 
 def _not_found(asset_id: UUID) -> ProblemError:
@@ -216,6 +227,53 @@ def _unsupported(media: AssetMedia, expected: str) -> ProblemError:
     )
 
 
+async def _stream_object(
+    request: Request, container: AdminContainer, *, key: str, mime: str
+) -> Response:
+    """Serve one object, whole or by range, AFTER the caller has authorised the reveal.
+
+    Shared by the song stream and the media output stream (IMAGE_VIDEO_SPEC §8), so the range
+    arithmetic, the 416 shape and the bounded ``open_range`` chunks — nothing is held whole in
+    memory, which matters for a 200 MB video on a host with ~831 MiB free — are one copy.
+    """
+    # ``Storage.size`` and never ``AssetView.size_bytes``: that column is
+    # ``BigInteger NOT NULL DEFAULT 0`` and no writer in this repository has ever set it,
+    # so a ``Content-Range`` built from it would read ``bytes 0-99/0``.
+    total = unwrap(await container.storage.size(key))
+    wanted = parse_range(request.headers.get("range"), total=total)
+    if wanted.outcome is RangeOutcome.UNSATISFIABLE:
+        raise problem(
+            AdminErrorCode.RANGE_NOT_SATISFIABLE,
+            "that byte range is past the end of this object",
+            # RFC 9110 §15.5.17: a 416 says how long the object actually is, which is
+            # what lets a client re-ask for a range that exists.
+            headers={"Content-Range": f"bytes */{total}", "Accept-Ranges": "bytes"},
+        )
+    if wanted.outcome is RangeOutcome.ABSENT and total == 0:
+        # An empty object with no range asked for: a 200 with nothing in it. Not routed
+        # through ``open_range``, which refuses every range of an empty object.
+        return Response(
+            content=b"",
+            media_type=mime,
+            headers={"Accept-Ranges": "bytes", "Content-Length": "0"},
+        )
+    served = (
+        wanted
+        if wanted.outcome is RangeOutcome.SATISFIABLE
+        else parse_range(f"bytes=0-{total - 1}", total=total)
+    )
+    chunks = unwrap(await container.storage.open_range(key, start=served.start, end=served.last))
+    headers = {"Accept-Ranges": "bytes", "Content-Length": str(served.length)}
+    if wanted.outcome is RangeOutcome.SATISFIABLE:
+        headers["Content-Range"] = served.content_range(total=total)
+    return StreamingResponse(
+        chunks,
+        status_code=206 if wanted.outcome is RangeOutcome.SATISFIABLE else 200,
+        media_type=mime,
+        headers=headers,
+    )
+
+
 def build_asset_media_router() -> APIRouter:
     """The two audited media reveals. One permission on the router; the step-up in the handler.
 
@@ -261,44 +319,7 @@ def build_asset_media_router() -> APIRouter:
             now=now,
             window_s=ASSET_STREAM_WINDOW_S,
         )
-        # ``Storage.size`` and never ``AssetView.size_bytes``: that column is
-        # ``BigInteger NOT NULL DEFAULT 0`` and no writer in this repository has ever set it,
-        # so a ``Content-Range`` built from it would read ``bytes 0-99/0``.
-        total = unwrap(await container.storage.size(key))
-        wanted = parse_range(request.headers.get("range"), total=total)
-        if wanted.outcome is RangeOutcome.UNSATISFIABLE:
-            raise problem(
-                AdminErrorCode.RANGE_NOT_SATISFIABLE,
-                "that byte range is past the end of this object",
-                # RFC 9110 §15.5.17: a 416 says how long the object actually is, which is
-                # what lets a client re-ask for a range that exists.
-                headers={"Content-Range": f"bytes */{total}", "Accept-Ranges": "bytes"},
-            )
-        if wanted.outcome is RangeOutcome.ABSENT and total == 0:
-            # An empty object with no range asked for: a 200 with nothing in it. Not routed
-            # through ``open_range``, which refuses every range of an empty object.
-            return Response(
-                content=b"",
-                media_type=media.mime,
-                headers={"Accept-Ranges": "bytes", "Content-Length": "0"},
-            )
-        served = (
-            wanted
-            if wanted.outcome is RangeOutcome.SATISFIABLE
-            else parse_range(f"bytes=0-{total - 1}", total=total)
-        )
-        chunks = unwrap(
-            await container.storage.open_range(key, start=served.start, end=served.last)
-        )
-        headers = {"Accept-Ranges": "bytes", "Content-Length": str(served.length)}
-        if wanted.outcome is RangeOutcome.SATISFIABLE:
-            headers["Content-Range"] = served.content_range(total=total)
-        return StreamingResponse(
-            chunks,
-            status_code=206 if wanted.outcome is RangeOutcome.SATISFIABLE else 200,
-            media_type=media.mime,
-            headers=headers,
-        )
+        return await _stream_object(request, container, key=key, mime=media.mime)
 
     @router.get(ASSET_TEXT_PATH)
     async def read_asset_text(
@@ -331,4 +352,45 @@ def build_asset_media_router() -> APIRouter:
             raise _not_found(asset_id)
         return AssetTextView(asset_id=asset_id, text=text)
 
+    @router.get(MEDIA_OUTPUT_STREAM_PATH)
+    async def stream_media_output(
+        request: Request, admin: Admin, container: Container, db: Db, output_id: UUID
+    ) -> Response:
+        """A delivered image or video, range-capable, audited once per ten-minute window.
+
+        IMAGE_VIDEO_SPEC §8. The same order as the song stream — the row, the mime, then the
+        step-up on THIS output's id — and the same answers. Uploads, intermediates and
+        legal-hold items are 404 from the loader, whatever grant the operator holds (§6.7).
+        """
+        now = utc_now()
+        output = await load_media_output(db, output_id)
+        if output is None:
+            raise _no_output(output_id)
+        if output.mime not in MEDIA_OUTPUT_MIMES:
+            raise problem(
+                AdminErrorCode.UNSUPPORTED_MEDIA_TYPE,
+                f"this output is {output.mime}; this route serves images and mp4 video",
+                mime=output.mime,
+            )
+        key = media_output_key(output)
+        if key is None:
+            raise _no_output(output_id)
+        await authorise_media_reveal(
+            admin,
+            container,
+            action=AuditAction.ASSET_STREAM,
+            asset_id=output_id,
+            field_name=MEDIA_OUTPUT_FIELD_NAME,
+            now=now,
+            window_s=ASSET_STREAM_WINDOW_S,
+            subject_type=MEDIA_OUTPUT_SUBJECT_TYPE,
+        )
+        return await _stream_object(request, container, key=key, mime=output.mime)
+
     return router
+
+
+def _no_output(output_id: UUID) -> ProblemError:
+    return ProblemError(
+        AdminProblem(code=ErrorCode.NOT_FOUND, message=f"no revealable media output {output_id}")
+    )

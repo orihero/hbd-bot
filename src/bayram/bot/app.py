@@ -23,7 +23,9 @@ from bayram.bot.deps import DEPS_KEY, BotDeps
 from bayram.bot.gate import InboundGateMiddleware
 from bayram.bot.handlers import build_router
 from bayram.bot.handlers.commands import commands_for
+from bayram.bot.menu_version import MenuRepushMiddleware
 from bayram.bot.middleware import ErrorGuardMiddleware
+from bayram.bot.terms_gate import TermsGateMiddleware
 from bayram.config import Settings
 from bayram.contracts import Language
 from bayram.db.retention import DEFAULT_RETENTION_POLICY
@@ -36,6 +38,7 @@ __all__ = [
     "build_event_isolation",
     "build_dispatcher",
     "install_inbound_gate",
+    "install_terms_gate",
     "publish_commands",
     "run_polling",
     "WIZARD_STATE_TTL",
@@ -138,13 +141,18 @@ def build_dispatcher(
     guard = ErrorGuardMiddleware()
     dispatcher.message.middleware(guard)
     dispatcher.callback_query.middleware(guard)
+    # IMAGE_VIDEO_SPEC §2.2: after a handled private message, re-send the reply keyboard once
+    # to a chat still holding an older one. Inside the guard, so its own failure is contained
+    # twice over; it stands down with no ``deps.media_kv``.
+    dispatcher.message.middleware(MenuRepushMiddleware())
     if deps.chat_recorder is not None:
-        chat_inbound = ChatLogInboundMiddleware(deps.chat_recorder)
+        chat_inbound = ChatLogInboundMiddleware(deps.chat_recorder, albums=deps.albums)
         dispatcher.message.middleware(chat_inbound)
         dispatcher.callback_query.middleware(chat_inbound)
         dispatcher.startup.register(deps.chat_recorder.start)
         dispatcher.shutdown.register(deps.chat_recorder.aclose)
     install_inbound_gate(dispatcher, deps)
+    install_terms_gate(dispatcher, deps)
     dispatcher.include_router(build_router())
     return dispatcher
 
@@ -187,11 +195,31 @@ def install_inbound_gate(dispatcher: Dispatcher, deps: BotDeps) -> InboundGateMi
         entitlements=deps.entitlements,
         policy=resolve_inbound_policy(deps.settings),
         clock=deps.clock,
+        albums=deps.albums,
     )
     dispatcher.message.outer_middleware(gate)
     dispatcher.callback_query.outer_middleware(gate)
     dispatcher.startup.register(gate.start)
     dispatcher.shutdown.register(gate.aclose)
+    return gate
+
+
+def install_terms_gate(dispatcher: Dispatcher, deps: BotDeps) -> TermsGateMiddleware | None:
+    """Register the Terms gate (IMAGE_VIDEO_SPEC §2.1) — when there is one — AFTER the inbound gate.
+
+    Outer middlewares run in registration order, so calling this after
+    :func:`install_inbound_gate` is what puts a blocked or throttled account's refusal ahead of
+    a Terms screen: the spec's "after the inbound gate, before routers". ONE instance on both
+    observers, for the inbound gate's reason — the notice budget lives on it.
+
+    Not installed at all with ``deps.terms`` unset, which is the shipped default: no version
+    configured, no gate, and not even the cost of a middleware that would stand down.
+    """
+    if deps.terms is None:
+        return None
+    gate = TermsGateMiddleware(clock=deps.clock)
+    dispatcher.message.outer_middleware(gate)
+    dispatcher.callback_query.outer_middleware(gate)
     return gate
 
 

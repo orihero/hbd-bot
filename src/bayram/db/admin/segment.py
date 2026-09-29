@@ -1019,9 +1019,12 @@ _SPECS: Final[tuple[FieldSpec, ...]] = (
         lambda: _exists(UserProfileRow.user_id == UserRow.id),
         doc=(
             "Whether we hold a profile row at all. A fact about OUR RECORDS, not about the "
-            "customer, and one the list already publishes as ``isProfilePresent``. It is "
-            "also the honest way to ask 'who never finished onboarding' without touching a "
-            "single identity column."
+            "customer, and one the list already publishes as ``isProfilePresent``. PRESENCE "
+            "ONLY — it does NOT answer 'who never finished onboarding': a ``/start`` deep "
+            "link records its acquisition source by opening a profile row before onboarding "
+            "starts, so a campaign arrival who abandoned onboarding has a row. "
+            "``has_profile=false`` therefore leaves those arrivals out. A row existing is "
+            "not a choice the customer made."
         ),
         is_aggregate=True,
     ),
