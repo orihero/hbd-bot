@@ -276,16 +276,11 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.genre.prompt": "Qoʻshiq qanday yangrasin?",
     "wizard.vocal_gender.prompt": "Kim kuylasin?",
     "wizard.note.prompt": (
-        "Endi eng muhimi!\n"
-        "Janr ham, sabab ham bor — endi qoʻshiqni chinakam shaxsiy qilamiz 🎯\n\n"
-        "💬 Ilhom beradigan hamma narsani yozing:\n"
-        "— U qanday odam? Qanaqa qiziq odatlari bor?\n"
-        "— Kulgili voqealar yoki sevimli iboralari bormi?\n"
-        "— Bu trek nimani aytsin: sevgimi, hazilmi, minnatdorlikmi?\n\n"
-        "Bemalol yozing, {limit} belgigacha. Ismni keyingi qadamda alohida soʻrayman — "
-        "bu qadamni esa oʻtkazib yuborsa ham boʻladi."
+        "🎯 <b>Qoʻshiqni shaxsiy qilamiz!</b>\n\n"
+        "<b>Tafsilotlarni yozing</b> ({limit} belgigacha): "
+        "<b>oʻziga xos odatlari, qiziq voqealar, sevimli iboralari</b> yoki asosiy tilak (<b>mehr, hazil, minnatdorlik</b>)."
     ),
-    "wizard.note.privacy_line": ("<i>Izohni faqat qoʻshiqni yozib, yetkazguncha saqlayman.</i>"),
+    "wizard.note.privacy_line": "",
     "wizard.note.too_long": "Biroz uzun boʻldi. Iltimos, {limit} belgidan oshmasin.",
     "wizard.name.prompt": (
         "Endi ismini — oʻzingiz yozadigan koʻrinishda yozing. Qanday yozilsa, "

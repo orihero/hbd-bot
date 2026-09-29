@@ -307,17 +307,6 @@ def test_the_note_step_escapes_the_note_it_echoes() -> None:
     assert "&lt;script&gt;" in screen.text
 
 
-def test_the_note_step_says_how_long_the_note_is_kept() -> None:
-    # Arrange
-    draft = full_draft()
-
-    # Act
-    screen = render_step(WizardStep.NOTE, draft)
-
-    # Assert
-    assert translate("wizard.note.privacy_line", Language.EN) in screen.text
-
-
 def test_the_note_step_states_its_character_limit() -> None:
     """``screens.py`` always passed ``{limit}``; the template used to discard it silently."""
     # Arrange
@@ -330,21 +319,22 @@ def test_the_note_step_states_its_character_limit() -> None:
     assert str(MAX_NOTE_CHARS) in screen.text
 
 
-def test_russian_note_step_has_no_name_or_removal_notes() -> None:
-    # Arrange
-    draft = full_draft().model_copy(update={"ui_language": Language.RU})
-
-    # Act
-    screen = render_step(WizardStep.NOTE, draft)
-
-    # Assert — no notes about name or auto removal
-    assert "Имя" not in screen.text
-    assert "имя" not in screen.text
-    assert "храню" not in screen.text
-    assert "удалится" not in screen.text
-    assert "🔒" not in screen.text
-    assert "🎯 <b>Сделаем песню личной!</b>" in screen.text
-    assert str(MAX_NOTE_CHARS) in screen.text
+def test_the_note_step_has_no_retention_or_name_notes_across_all_languages() -> None:
+    # Arrange / Act / Assert
+    for lang in Language:
+        draft = full_draft().model_copy(update={"ui_language": lang})
+        screen = render_step(WizardStep.NOTE, draft)
+        assert "saqlayman" not in screen.text
+        assert "сақлайман" not in screen.text
+        assert "keep the note" not in screen.text
+        assert "храню" not in screen.text
+        assert "удалится" not in screen.text
+        assert "🔒" not in screen.text
+        assert "Ismni" not in screen.text
+        assert "Исмни" not in screen.text
+        assert "ask for the name" not in screen.text
+        assert "Имя" not in screen.text
+        assert str(MAX_NOTE_CHARS) in screen.text
 
 
 def test_the_name_step_shows_the_name_already_resolved() -> None:

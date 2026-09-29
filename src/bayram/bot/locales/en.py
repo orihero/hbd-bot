@@ -278,18 +278,11 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.genre.prompt": "What should it sound like?",
     "wizard.vocal_gender.prompt": "Whose voice should sing it?",
     "wizard.note.prompt": (
-        "Now for the part that matters most!\n"
-        "We have the genre and the occasion — let us make the song truly personal 🎯\n\n"
-        "💬 Write anything that could inspire it:\n"
-        "— What are they like? Any quirks worth singing about?\n"
-        "— Any funny stories or favourite catchphrases?\n"
-        "— What should this track say: love, mischief, gratitude?\n\n"
-        "Write as freely as you like, up to {limit} characters. I ask for the name separately "
-        "on the next step — and this one can be skipped."
+        "🎯 <b>Make the song personal!</b>\n\n"
+        "Share <b>details</b> (up to {limit} chars): "
+        "<b>quirks, funny stories, catchphrases</b>, or the main vibe (<b>love, humor, gratitude</b>)."
     ),
-    "wizard.note.privacy_line": (
-        "<i>I keep the note only long enough to write and deliver the song.</i>"
-    ),
+    "wizard.note.privacy_line": "",
     "wizard.note.too_long": "That is a bit long. Please keep it under {limit} characters.",
     "wizard.name.prompt": (
         "Now their name, spelled the way you would write it — the spelling is what decides "
