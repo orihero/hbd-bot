@@ -213,10 +213,8 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     # -- start -------------------------------------------------------------
     "start.welcome": (
-        "🎂 <b>Men bitta odam uchun bitta qoʻshiq yozaman — ismi aynan aytilishi kerak "
-        "boʻlgandek kuylanadi.</b>\n\n"
-        "Uslub va ovozni siz tanlaysiz, yozuvdan oldin esa soʻzlarni oʻzingiz oʻqib "
-        "chiqasiz. Qoʻshiq va qoʻshiq matni shu yerga keladi."
+        "🎂 <b>Bitta odam uchun maxsus qoʻshiq</b> — ismi toʻgʻri kuylanadi.\n\n"
+        "Uslub va soʻzlarni oʻzingiz tanlaysiz."
     ),
     # -- onboarding (hammasidan oldingi ikki ekran) -------------------------
     # Buni bu bot telefon raqamiga arziydimi-yoʻqmi degan qarorga hali kelmagan odam
@@ -228,8 +226,8 @@ CATALOGUE: Final[dict[str, str]] = {
     # matnni yozdirgan yagona narsani, yaʼni pastdagi tugmani bosish koʻrsatmasini,
     # olib yura olmasdi.
     "onboarding.language.prompt": (
-        "🌐 Assalomu alaykum. Avvalo — men siz bilan qaysi tilda gaplashay?\n\n"
-        "Buni keyin ⚙️ Sozlamalar orqali oʻzgartirsangiz boʻladi."
+        "🌐 <b>Qaysi tilda gaplashamiz?</b>\n\n"
+        "Keyin ⚙️ Sozlamalardan oʻzgartirish mumkin."
     ),
     "onboarding.contact.prompt": (
         "📱 Endi telefon raqamingizni qoldiring — quyidagi tugmani bosing.\n\n"

@@ -217,10 +217,8 @@ CATALOGUE: Final[dict[str, str]] = {
     ),
     # -- start -------------------------------------------------------------
     "start.welcome": (
-        "🎂 <b>I make one song, for one person, with their name sung the way it is "
-        "actually said.</b>\n\n"
-        "You pick the style and the voice, and you read the words before anything is "
-        "recorded. The song and the lyric sheet arrive right here."
+        "🎂 <b>A personal song for one person</b> — with their name sung properly.\n\n"
+        "You choose the style and words."
     ),
     # -- onboarding (the two screens that come before everything else) ------
     # Read by somebody who has not yet decided whether this bot is worth a phone number, so
@@ -231,7 +229,7 @@ CATALOGUE: Final[dict[str, str]] = {
     # under it — a refusal living there could never carry the one thing that makes this one
     # actionable, which is the instruction to press the button underneath it.
     "onboarding.language.prompt": (
-        "🌐 Hello. First — which language should I speak to you in?\n\n"
+        "🌐 <b>Which language should we speak?</b>\n\n"
         "You can change this later in ⚙️ Settings."
     ),
     "onboarding.contact.prompt": (
