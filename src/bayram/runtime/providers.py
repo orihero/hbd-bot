@@ -29,6 +29,7 @@ to resolve.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Final
 
@@ -85,7 +86,12 @@ class ProviderSet:
             await client.aclose()
 
 
-def build_provider_set(settings: Settings, *, usage: UsageSink = LOGGING_USAGE_SINK) -> ProviderSet:
+def build_provider_set(
+    settings: Settings,
+    *,
+    usage: UsageSink = LOGGING_USAGE_SINK,
+    music_provider_resolver: Callable[[], Awaitable[str]] | None = None,
+) -> ProviderSet:
     """Build the vendors. Raises ``ConfigError`` and nothing else.
 
     ``usage`` is where every vendor call this set makes will be recorded. It defaults to
@@ -94,7 +100,7 @@ def build_provider_set(settings: Settings, *, usage: UsageSink = LOGGING_USAGE_S
     """
     if settings.use_fake_providers:
         return _fake_set(settings, usage=usage)
-    return _live_set(settings, usage=usage)
+    return _live_set(settings, usage=usage, music_provider_resolver=music_provider_resolver)
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +134,12 @@ def _fake_set(settings: Settings, *, usage: UsageSink) -> ProviderSet:
 # ---------------------------------------------------------------------------
 # Live
 # ---------------------------------------------------------------------------
-def _live_set(settings: Settings, *, usage: UsageSink) -> ProviderSet:
+def _live_set(
+    settings: Settings,
+    *,
+    usage: UsageSink,
+    music_provider_resolver: Callable[[], Awaitable[str]] | None = None,
+) -> ProviderSet:
     registry = _registry(settings)
     elevenlabs = httpx.AsyncClient()
     llm_client = httpx.AsyncClient()
@@ -138,7 +149,13 @@ def _live_set(settings: Settings, *, usage: UsageSink) -> ProviderSet:
     # nothing while making "is everything writing to the same table?" a question.
     tts = _router(settings, registry=registry, elevenlabs=elevenlabs, usage=usage)
     return ProviderSet(
-        music=build_music_provider(settings, client=elevenlabs, usage=usage),
+        music=build_music_provider(
+            settings,
+            client=elevenlabs,
+            gemini_client=llm_client,
+            usage=usage,
+            provider_resolver=music_provider_resolver,
+        ),
         tts=tts,
         stt=ElevenLabsScribe(
             api_key=settings.elevenlabs_api_key,

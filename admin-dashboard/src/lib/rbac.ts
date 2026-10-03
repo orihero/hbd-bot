@@ -53,10 +53,12 @@ export type Permission =
   | "rail.control"
   | "payment.notify"
   | "support.write"
-  | "support.group.write";
+  | "support.group.write"
+  | "config.manage";
 
 const SUPPORT_UP: readonly AdminRole[] = ["support", "admin", "owner"];
 const OPERATOR_UP: readonly AdminRole[] = ["admin", "owner"];
+const OWNER_ONLY: readonly AdminRole[] = ["owner"];
 
 /** Which roles hold a cell. A role absent from the list has none, which is a denial. */
 export const RBAC_MATRIX: Readonly<Record<Permission, readonly AdminRole[]>> = {
@@ -68,6 +70,7 @@ export const RBAC_MATRIX: Readonly<Record<Permission, readonly AdminRole[]>> = {
   "payment.notify": SUPPORT_UP,
   "support.write": SUPPORT_UP,
   "support.group.write": OPERATOR_UP,
+  "config.manage": OWNER_ONLY,
 };
 
 /**
@@ -230,3 +233,17 @@ export function useCanWriteSupport(): boolean {
 export function useCanWriteSupportGroup(): boolean {
   return canWriteSupportGroup(useRole());
 }
+
+/**
+ * Whether this role may change runtime configuration (e.g. music provider).
+ *
+ * OWNER only. Router guard on POST /api/config/music-provider enforces Permission.CONFIG_MANAGE.
+ */
+export function canManageConfig(role: AdminRole | null): boolean {
+  return hasPermission(role, "config.manage");
+}
+
+export function useCanManageConfig(): boolean {
+  return canManageConfig(useRole());
+}
+

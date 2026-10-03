@@ -96,6 +96,16 @@ class NavAction(StrEnum):
     #: operator changed it; a price interpolated from ``Settings`` cannot.
     PAY = "pay"
     SUBSCRIBE = "subscribe"
+    PAY_PAYME = "pay_payme"
+    SUBSCRIBE_PAYME = "subscribe_payme"
+    #: The checkout.uz rail's two buttons (``DECISIONS.md D28``). Drawn only when that rail is
+    #: wired AND the owner's per-rail switch has it on, and never as the generic pair: the
+    #: generic 💳/🌟 always route to the FIRST wired rail, so a third rail needs its own
+    #: payload or a stale press could not say which rail it meant. ``nav:pay_checkoutuz`` and
+    #: ``nav:subscribe_checkoutuz`` are 18 and 24 of the 64 bytes; the labels follow the
+    #: ``button.{action.value}`` convention.
+    PAY_CHECKOUTUZ = "pay_checkoutuz"
+    SUBSCRIBE_CHECKOUTUZ = "subscribe_checkoutuz"
 
 
 class LanguageSlot(StrEnum):

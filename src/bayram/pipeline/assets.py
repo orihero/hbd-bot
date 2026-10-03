@@ -252,6 +252,7 @@ async def song_asset(
             sha256=sha256_of(final),
             name_candidate=name_candidate,
             loudness_lufs=loudness,
+            provider=audio.provider,
         )
     )
 

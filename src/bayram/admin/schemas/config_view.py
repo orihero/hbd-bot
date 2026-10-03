@@ -35,19 +35,35 @@ still be the answer to "what is the panel itself running with".
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date
 from urllib.parse import urlsplit
 
+from pydantic import field_validator
+
+from bayram.admin.schemas.actions import ReasonedRequest
 from bayram.admin.schemas.common import ApiModel
 from bayram.admin.settings import AdminEnvironment, AdminSettings
+from bayram.checkout_rails import SWITCHABLE_RAILS
 from bayram.config import LogLevel
+from bayram.providers.music.switch import ALLOWED_MUSIC_PROVIDERS, PROVIDER_ELEVENLABS
 
 __all__ = [
+    "CheckoutRailView",
+    "CheckoutRailsConfigView",
     "ConfigView",
     "Endpoint",
+    "MusicProviderConfigView",
+    "SetCheckoutRailRequest",
+    "SetMusicProviderRequest",
+    "TeachersDayConfigView",
+    "SetTeachersDayRequest",
     "endpoint_of",
+    "to_checkout_rails_config_view",
     "to_config_view",
+    "to_music_provider_config_view",
+    "to_teachers_day_config_view",
 ]
 
 
@@ -228,4 +244,142 @@ def to_config_view(settings: AdminSettings) -> ConfigView:
         redis_port=redis.port,
         is_audit_dsn_configured=bool(settings.admin_audit_dsn),
         is_probe_token_configured=bool(settings.admin_probe_token),
+    )
+
+
+class MusicProviderConfigView(ApiModel):
+    """The active music provider configuration."""
+
+    active_provider: str
+    default_provider: str
+    available_providers: list[str]
+
+
+class SetMusicProviderRequest(ReasonedRequest):
+    """``POST /api/config/music-provider``. Owner-only provider switch."""
+
+    provider: str
+
+    @field_validator("provider")
+    @classmethod
+    def _validate_provider(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in ALLOWED_MUSIC_PROVIDERS:
+            allowed = sorted(ALLOWED_MUSIC_PROVIDERS)
+            raise ValueError(f"Unknown music provider '{value}', must be one of {allowed}")
+        return normalized
+
+
+def to_music_provider_config_view(
+    *,
+    active_provider: str,
+    default_provider: str = PROVIDER_ELEVENLABS,
+    available_providers: Iterable[str] = ALLOWED_MUSIC_PROVIDERS,
+) -> MusicProviderConfigView:
+    return MusicProviderConfigView(
+        active_provider=active_provider,
+        default_provider=default_provider,
+        available_providers=sorted(available_providers),
+    )
+
+
+class TeachersDayConfigView(ApiModel):
+    """The Teachers' Day feature switch state."""
+
+    enabled: bool
+    discount_percent: int
+
+
+class SetTeachersDayRequest(ReasonedRequest):
+    """``POST /api/config/teachers-day``. Owner-only switch."""
+
+    enabled: bool
+
+
+def to_teachers_day_config_view(
+    *,
+    enabled: bool,
+    discount_percent: int = 30,
+) -> TeachersDayConfigView:
+    return TeachersDayConfigView(
+        enabled=enabled,
+        discount_percent=discount_percent,
+    )
+
+
+class CheckoutRailView(ApiModel):
+    """One checkout rail as the owner's switch panel sees it (``DECISIONS.md D28``).
+
+    ``enabled`` is the owner's switch and nothing else: it says whether the owner WANTS the
+    rail selling, not whether it is. A missing key and an unreadable Redis both read as
+    ``true`` here, because that is what every reader in the bot and the rails will conclude
+    from the same state, and a panel that showed "off" while the bot sold would be the worse
+    lie.
+
+    ``wired`` is whether the bot last booted with this rail in its env-wired list. ``null``
+    means the bot has not published that list (an older bot, a Redis that lost the key, an
+    unreadable Redis) and the panel must render "unknown", not "not live". The rail sells
+    only when it is wired AND enabled AND checkout is not globally paused; this view carries
+    the first two and deliberately does not compute the conjunction, because the pause is a
+    separate control with its own screen.
+    """
+
+    name: str
+    enabled: bool
+    wired: bool | None
+
+
+class CheckoutRailsConfigView(ApiModel):
+    """``GET``/``POST /api/config/checkout-rails`` — every switchable rail, in panel order.
+
+    ``wired_known`` is ``false`` exactly when every ``wired`` is ``null``; it is published
+    separately so the panel can render one "the bot has not reported its rails" note instead
+    of three per-row question marks.
+    """
+
+    rails: list[CheckoutRailView]
+    wired_known: bool
+
+
+class SetCheckoutRailRequest(ReasonedRequest):
+    """``POST /api/config/checkout-rails``. Owner-only per-rail sale switch.
+
+    The rail name is validated against ``SWITCHABLE_RAILS`` here, so an unknown rail is a 422
+    before anything is written; ``write_rail_enabled`` refuses one again on its own, which is
+    the layer that protects the bot's readers from a hand-written key.
+    """
+
+    rail: str
+    enabled: bool
+
+    @field_validator("rail")
+    @classmethod
+    def _validate_rail(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in SWITCHABLE_RAILS:
+            raise ValueError(
+                f"Unknown checkout rail '{value}', must be one of {list(SWITCHABLE_RAILS)}"
+            )
+        return normalized
+
+
+def to_checkout_rails_config_view(
+    *,
+    switches: dict[str, bool],
+    wired: tuple[str, ...] | None,
+) -> CheckoutRailsConfigView:
+    """One row per switchable rail, in ``SWITCHABLE_RAILS`` order, whatever order ``switches`` has.
+
+    A rail missing from ``switches`` reads as enabled, matching the fail-open read.
+    """
+    return CheckoutRailsConfigView(
+        rails=[
+            CheckoutRailView(
+                name=rail,
+                enabled=switches.get(rail, True),
+                wired=None if wired is None else rail in wired,
+            )
+            for rail in SWITCHABLE_RAILS
+        ],
+        wired_known=wired is not None,
     )

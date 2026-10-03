@@ -99,7 +99,7 @@ from bayram.db.models.payme_transaction import PaymeTransactionRow
 from bayram.db.models.payment_intent import PaymentIntentRow
 from bayram.db.models.plan_purchase import PlanPurchaseRow
 from bayram.db.models.topup_purchase import TopupPurchaseRow
-from bayram.db.payme_sql import settlement_counts
+from bayram.db.payme_sql import PAYME_INTENT_PROVIDER, settlement_counts
 from bayram.payme.ports import OPERATOR_SETTLE_PREFIX
 
 __all__ = [
@@ -409,6 +409,10 @@ async def settlement_snapshot(
         sa.select(sa.func.count())
         .select_from(PaymentIntentRow)
         .where(
+            # Payme's intents only, matching the receipt side of ``settlement_counts``: a
+            # Rahmat or checkout.uz intent settled by hand writes a receipt that function no
+            # longer counts, so counting it here would unbalance the identity the other way.
+            PaymentIntentRow.provider == PAYME_INTENT_PROVIDER,
             PaymentIntentRow.state == PaymentIntentState.PAID,
             PaymentIntentRow.settled_at >= since,
             PaymentIntentRow.settled_at <= until,

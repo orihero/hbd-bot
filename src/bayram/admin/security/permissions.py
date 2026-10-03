@@ -150,6 +150,8 @@ class Permission(StrEnum):
     #: Repointing where every future ticket card lands. ADMIN and OWNER, **not** SUPPORT, and
     #: a plain ``W`` with no step-up — see the matrix note, which argues both halves.
     SUPPORT_GROUP_WRITE = "support.group.write"
+    #: Managing runtime configuration (e.g. music generation provider switch). OWNER only.
+    CONFIG_MANAGE = "config.manage"
 
 
 class StepUpAction(StrEnum):
@@ -656,6 +658,9 @@ RBAC_MATRIX: Final[Mapping[Permission, Mapping[AdminRole, Grant]]] = MappingProx
         # ``SUPPORT_GROUP_SELECT`` step-up enforced in the handler on the chat id it has read,
         # with this row left on the router — and NEVER adding a step-up here.
         Permission.SUPPORT_GROUP_WRITE: _row(admin=_W, owner=_W),
+        # ── Runtime configuration management (e.g. music generation provider switch). ──
+        # OWNER only, and a plain W with no step-up so it is safe as a router-level guard.
+        Permission.CONFIG_MANAGE: _row(owner=_W),
     }
 )
 

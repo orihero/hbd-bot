@@ -102,16 +102,17 @@ from bayram.db.admin.segment import (
     SegmentError,
     sort_expression,
 )
+from bayram.db.admin.segment import SortSpec as SegmentSortSpec
 from bayram.db.admin.sql import (
     LIKE_ESCAPE_CHAR,
     MAX_SEARCH_CHARS,
     TimeWindow,
-    apply_search,
     apply_window,
     count_where,
     escape_like,
 )
 from bayram.db.admin.views import SegmentBreakdown, UserDetail, UserListItem
+from bayram.db.channel_attributions import get_user_channel
 from bayram.db.credit_sql import read_balance
 from bayram.db.models.credit_account import CreditAccountRow
 from bayram.db.models.order import OrderRow
@@ -189,7 +190,8 @@ class UserFilters:
 
     #: Exact ``telegram_user_id``.
     telegram_user_id: int | None = None
-    #: §6.6's ``q``, searching across Telegram user ID, username, phone number, first name, and last name.
+    #: §6.6's ``q``, searching across Telegram user ID, username, phone number, first name,
+    #: and last name.
     search: str | None = None
     is_blocked: bool | None = None
     #: "Has balance > 0", and its ``False`` is the exact complement of its ``True`` — which is
@@ -471,6 +473,7 @@ async def get_user_detail(
     projected = await read_balance(
         session, telegram_user_id=telegram_user_id, now=now, policy=policy
     )
+    acquisition_channel = await get_user_channel(session, telegram_user_id)
     return UserDetail(
         user=_list_item(user, profile, account, rollups.get(telegram_user_id)),
         orders_by_state=by_state,
@@ -478,6 +481,7 @@ async def get_user_detail(
         failed_order_count=counts.get(OrderState.FAILED, 0),
         credits_projected=projected.credits,
         in_flight_render_count=projected.in_flight,
+        acquisition_channel=acquisition_channel,
     )
 
 

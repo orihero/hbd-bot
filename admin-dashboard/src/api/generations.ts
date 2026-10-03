@@ -115,6 +115,7 @@ export type NameStrategy = z.infer<typeof nameStrategySchema>;
  */
 export const PROVIDER_VALUES = [
   "elevenlabs_music",
+  "gemini_music",
   "elevenlabs_tts",
   "elevenlabs_scribe",
   "openai-compat",

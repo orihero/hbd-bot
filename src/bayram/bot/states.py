@@ -48,6 +48,7 @@ __all__ = [
     "Onboarding",
     "WIZARD_ORDER",
     "OWN_LYRICS_ORDER",
+    "TEACHERS_DAY_ORDER",
     "PARKED_ONLY_STEPS",
     "order_for",
     "previous_step",
@@ -149,6 +150,18 @@ OWN_LYRICS_ORDER: Final[tuple[WizardStep, ...]] = (
     WizardStep.CONFIRM,
 )
 
+#: The Teachers' Day order. Omits recipient name & pronunciation confirmation questions,
+#: using the note step exclusively to ask who the song is from.
+TEACHERS_DAY_ORDER: Final[tuple[WizardStep, ...]] = (
+    WizardStep.OCCASION,
+    WizardStep.GENRE,
+    WizardStep.VOCAL_GENDER,
+    WizardStep.NOTE,
+    WizardStep.OUTPUT_LANGUAGE,
+    WizardStep.LYRICS,
+    WizardStep.CONFIRM,
+)
+
 #: Steps that no longer belong to either order but whose STATE must still resolve.
 #:
 #: There is exactly one, and it is :attr:`WizardStep.UI_LANGUAGE`. The interface language is
@@ -202,18 +215,26 @@ _STEP_BY_STATE_NAME: Final[dict[str, WizardStep]] = {
 }
 
 
-def order_for(*, is_own_lyrics: bool) -> tuple[WizardStep, ...]:
-    """Which of the two orders this draft is walking.
+def order_for(
+    *, is_own_lyrics: bool = False, is_teachers_day: bool = False
+) -> tuple[WizardStep, ...]:
+    """Which of the orders this draft is walking.
 
-    Takes a bool rather than the draft itself so this module keeps depending on nothing but
+    Takes bools rather than the draft itself so this module keeps depending on nothing but
     aiogram and its own enum — ``bayram.bot.draft`` imports the contracts and the i18n
     catalogue, and a step list that needed those could not be read by a test that only
     wanted to know what follows what.
     """
-    return OWN_LYRICS_ORDER if is_own_lyrics else WIZARD_ORDER
+    if is_own_lyrics:
+        return OWN_LYRICS_ORDER
+    if is_teachers_day:
+        return TEACHERS_DAY_ORDER
+    return WIZARD_ORDER
 
 
-def previous_step(step: WizardStep, *, is_own_lyrics: bool = False) -> WizardStep | None:
+def previous_step(
+    step: WizardStep, *, is_own_lyrics: bool = False, is_teachers_day: bool = False
+) -> WizardStep | None:
     """The step Back returns to, or ``None`` at the first screen.
 
     A step that is not in this draft's order has no predecessor in it, and answering with
@@ -221,16 +242,18 @@ def previous_step(step: WizardStep, *, is_own_lyrics: bool = False) -> WizardSte
     ``None`` is the honest answer, and callers already treat it as "stay here" — which is
     what Back on the first screen has always done.
     """
-    order = order_for(is_own_lyrics=is_own_lyrics)
+    order = order_for(is_own_lyrics=is_own_lyrics, is_teachers_day=is_teachers_day)
     if step not in order:
         return None
     index = order.index(step)
     return order[index - 1] if index > 0 else None
 
 
-def next_step(step: WizardStep, *, is_own_lyrics: bool = False) -> WizardStep | None:
+def next_step(
+    step: WizardStep, *, is_own_lyrics: bool = False, is_teachers_day: bool = False
+) -> WizardStep | None:
     """The step that follows, or ``None`` at the last screen (or off this path)."""
-    order = order_for(is_own_lyrics=is_own_lyrics)
+    order = order_for(is_own_lyrics=is_own_lyrics, is_teachers_day=is_teachers_day)
     if step not in order:
         return None
     index = order.index(step)

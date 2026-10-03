@@ -215,6 +215,18 @@ CATALOGUE: Final[dict[str, str]] = {
         "Payments are paused for a few minutes while we sort something out. Nothing was "
         "charged — please try again shortly."
     ),
+    # ``CheckoutRailDisabledError``: the owner switched ONE rail off while this screen was open.
+    # Not "paused" — the other payment buttons still work — so it points at them instead.
+    "checkout.rail_disabled": (
+        "This payment method is not available right now. Nothing was charged — please pick "
+        "another one."
+    ),
+    # The checkout.uz link screen. Its page lives one hour, not twelve like the other rails'.
+    "checkout.pending_hint_checkoutuz": (
+        "<i>Each button opens that payment method's own page. The link stays good for 1 hour. "
+        "If it runs out, press the price button again for a fresh one — you can close the page "
+        "and come back, nothing is lost.</i>"
+    ),
     # -- start -------------------------------------------------------------
     "start.welcome": (
         "🎂 <b>A personal song for one person</b> — with their name sung properly.\n\n"
@@ -229,8 +241,7 @@ CATALOGUE: Final[dict[str, str]] = {
     # under it — a refusal living there could never carry the one thing that makes this one
     # actionable, which is the instruction to press the button underneath it.
     "onboarding.language.prompt": (
-        "🌐 <b>Which language should we speak?</b>\n\n"
-        "You can change this later in ⚙️ Settings."
+        "🌐 <b>Which language should we speak?</b>\n\nYou can change this later in ⚙️ Settings."
     ),
     "onboarding.contact.prompt": (
         "📱 Now leave me your phone number — press the button below.\n\n"
@@ -263,6 +274,7 @@ CATALOGUE: Final[dict[str, str]] = {
     "menu.balance": "🎫 My balance",
     "menu.settings": "⚙️ Settings",
     "menu.help": "❓ Help",
+    "menu.teachers_day": "👩‍🏫 Teachers' Day (-30%)",
     # -- settings ------------------------------------------------------------
     # ``{language}`` is the only placeholder this whole change adds, and it is interpolated
     # with a ``language.*`` label — the endonym in its own script — never with the language
@@ -278,7 +290,13 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.note.prompt": (
         "🎯 <b>Make the song personal!</b>\n\n"
         "Share <b>details</b> (up to {limit} chars): "
-        "<b>quirks, funny stories, catchphrases</b>, or the main vibe (<b>love, humor, gratitude</b>)."
+        "<b>quirks, funny stories, catchphrases</b>, "
+        "or the main vibe (<b>love, humor, gratitude</b>)."
+    ),
+    "wizard.note.teachers_day_prompt": (
+        "👩‍🏫 <b>Who is this song from?</b>\n\n"
+        "For example: <i>Class 9-A, School #56</i> or <i>Class of 2013</i>.\n\n"
+        "Type as text (up to {limit} chars) or skip."
     ),
     "wizard.note.privacy_line": "",
     "wizard.note.too_long": "That is a bit long. Please keep it under {limit} characters.",
@@ -304,6 +322,9 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.output_language.prompt": "Which language should {name}'s song be in?",
     "wizard.output_language.prompt_noname": "Which language should the song be in?",
     "wizard.lyrics.writing": "✍️ Writing the words for {name}… it takes up to a minute.",
+    "wizard.lyrics.writing_teachers_day": (
+        "✍️ Writing lyrics for the teachers… this takes up to a minute."
+    ),
     "wizard.lyrics.preview": (
         "<b>{title}</b>\n\n"
         "<b>{lyrics}</b>\n\n"
@@ -377,6 +398,17 @@ CATALOGUE: Final[dict[str, str]] = {
         "Your words are set. Next I record them.\n\n"
         "Shall I start?"
     ),
+    "wizard.confirm.summary_teachers_day": (
+        "<b>👩‍🏫 Song for Teachers</b>\n"
+        "{occasion}\n"
+        "{genre}\n"
+        "{vocal_gender}\n"
+        "🌐 {output_language}\n"
+        "✍️ From: {sender}\n\n"
+        "Lyrics are ready. Now let's record the song.\n\n"
+        "Shall we start?"
+    ),
+    "wizard.confirm.no_sender": "—",
     "wizard.lyrics.untitled": "Your song",
     "wizard.expired": "That session has closed. We can pick it up from the top.",
     "wizard.cancelled": "Cancelled — nothing was made, and nothing was kept.",
@@ -418,7 +450,11 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.pay_payme": "📲 Pay via Payme: {amount} UZS",
     "button.subscribe": "🌟 {amount} UZS — {songs} songs",
     "button.subscribe_payme": "💎 Payme: {amount} UZS — {songs}",
-
+    # checkout.uz — a hosted page in front of Click and Payme (DECISIONS.md D28). Its own
+    # emojis because a paywall can draw all six price buttons at once and no two may share one.
+    # Measured at {amount} = "149 000" and {songs} = "12": 28 and 30, inside MAX_ROW_LABEL_CHARS.
+    "button.pay_checkoutuz": "💸 Click / Payme: {amount} UZS",
+    "button.subscribe_checkoutuz": "💰 Click/Payme {amount} UZS — {songs}",
     # The label on the product's first ``url=`` button — the one that hands the customer to
     # the payment rail's own page. 🔗 rather than 💳, which is ``button.pay`` one screen
     # earlier and would collide with it under
@@ -427,6 +463,8 @@ CATALOGUE: Final[dict[str, str]] = {
     # (``checkout.pending``), and a button that both leaves Telegram and quotes a number is one
     # a customer reads twice.
     "button.pay_now": "🔗 Pay now",
+    # The general checkout.uz page, drawn under the per-method buttons.
+    "button.checkoutuz_all_methods": "🌐 All payment methods",
     "button.name_ok": "✅ Yes, that is it",
     "button.retype": "✏️ Type it again",
     "button.lyrics_ok": "✅ Use these lyrics",
@@ -458,6 +496,7 @@ CATALOGUE: Final[dict[str, str]] = {
     "occasion.kids": "👶 For kids",
     "occasion.no_occasion": "🎶 No occasion",
     "occasion.custom": "✨ Something else",
+    "occasion.teachers_day": "👩‍🏫 Teacher's Day",
     "genre.pop": "🎤 Pop",
     "genre.retro_estrada": "📻 Retro estrada",
     "genre.hip_hop": "🎧 Hip-hop",

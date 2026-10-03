@@ -127,9 +127,11 @@ async def show_balance(event: Event, state: FSMContext, deps: BotDeps) -> None:
     language = await resolve_language(state)
     user = event.from_user
     balance = None if user is None else await _read(deps, user.id)
-    offer = build_offer(balance, deps)
+    offer = build_offer(balance, deps, enabled_rails=await _enabled_rails(deps))
     markup = None
-    if offer is not None and offer.is_paywalled:
+    if offer is not None and offer.is_paywalled and offer.rails:
+        # No rail may sell (every one switched off) means no keyboard at all rather than a
+        # keyboard with no price on it; the text says why (see :func:`_balance_text`).
         markup = checkout_keyboard(language, offer)
     await present(event, Screen(_balance_text(balance, deps, language, offer), markup))
 
@@ -153,17 +155,26 @@ async def show_confirm(event: Event, state: FSMContext, deps: BotDeps, draft: Wi
     """
     user = event.from_user
     balance = None if user is None else await _read(deps, user.id)
+    # Read the owner's rail switches BEFORE ``show_step``, once, so the screen is drawn from
+    # values and not from ports (see :class:`~bayram.bot.pricing.CheckoutOffer`).
+    enabled_rails = await _enabled_rails(deps)
     await show_step(
         event,
         state,
         draft,
         WizardStep.CONFIRM,
         credits_note=_confirm_note(balance, deps, draft.ui_language),
-        offer=build_offer(balance, deps),
+        offer=build_offer(balance, deps, draft=draft, enabled_rails=enabled_rails),
     )
 
 
-def build_offer(balance: Result[CreditBalance] | None, deps: BotDeps) -> CheckoutOffer | None:
+def build_offer(
+    balance: Result[CreditBalance] | None,
+    deps: BotDeps,
+    *,
+    draft: WizardDraft | None = None,
+    enabled_rails: tuple[str, ...] | None = None,
+) -> CheckoutOffer | None:
     """What this account may buy, or ``None`` for "draw the screen this bot drew yesterday".
 
     ``None`` means the checkout does not exist for this update, and there are three ways to
@@ -196,11 +207,19 @@ def build_offer(balance: Result[CreditBalance] | None, deps: BotDeps) -> Checkou
     ``is_blocked`` suppresses the paywall as well. A blocked account is not a customer who
     needs to pay; it is one an operator has stopped, and selling them a song they will then
     be refused is the one outcome worse than the refusal.
+
+    ``enabled_rails`` is what the owner's per-rail switch currently allows, read by the
+    caller with ``BotDeps.enabled_rails`` — this function stays synchronous so that
+    ``handlers.confirm``'s gate can call it with no switch read at all. ``None`` means "every
+    wired rail"; the offer's ``rails`` are the wired rails in wired order filtered by it, or
+    ``("stub",)`` on a deployment that wires none. An EMPTY result is a real answer — every
+    rail switched off — and the paywall then draws no price button (``DECISIONS.md D28``).
     """
     store = deps.purchases
     pricing = deps.pricing
     if store is None or pricing is None or balance is None or isinstance(balance, Err):
         return None
+    effective_pricing = pricing.for_draft(draft)
     state = balance.value
     ends_at = state.plan_ends_at
     return CheckoutOffer(
@@ -215,9 +234,41 @@ def build_offer(balance: Result[CreditBalance] | None, deps: BotDeps) -> Checkou
         # sell a second plan for, so the button that would take that money is not drawn
         # either way. A customer whose plan is still running keeps minting from it; nothing
         # here revokes what was already bought.
-        is_plan_offered=pricing.is_plan_sold and ends_at is None,
-        pricing=pricing,
+        is_plan_offered=effective_pricing.is_plan_sold and ends_at is None,
+        pricing=effective_pricing,
+        rails=_offered_rails(deps.checkout_rails, enabled_rails),
+        primary_rail=deps.checkout_rails[0] if deps.checkout_rails else _STUB_RAIL,
     )
+
+
+#: What ``CheckoutOffer.rails`` holds on a deployment that wires no real rail. Named, not
+#: matched on: no keyboard branch reads it, it only has to be non-empty and first.
+_STUB_RAIL: Final[str] = "stub"
+
+
+def _offered_rails(wired: tuple[str, ...], enabled: tuple[str, ...] | None) -> tuple[str, ...]:
+    """The wired rails, in wired order, that ``enabled`` allows. See :func:`build_offer`.
+
+    The stub is never filtered: it is not a rail the owner's switch knows about, and a stub
+    deployment with no price button would be a paywall nobody can pass.
+    """
+    if not wired:
+        return (_STUB_RAIL,)
+    if enabled is None:
+        return wired
+    return tuple(rail for rail in wired if rail in enabled)
+
+
+async def _enabled_rails(deps: BotDeps) -> tuple[str, ...] | None:
+    """The switch read, skipped where no price could be drawn anyway.
+
+    A deployment that does not sell, or wires no real rail, has nothing for the switch to
+    filter, so it costs no Redis round trip on every Confirm screen. ``BotDeps.enabled_rails``
+    never raises.
+    """
+    if deps.purchases is None or deps.pricing is None or not deps.checkout_rails:
+        return None
+    return await deps.enabled_rails()
 
 
 async def _read(deps: BotDeps, telegram_user_id: int) -> Result[CreditBalance] | None:
@@ -249,6 +300,10 @@ def _balance_text(
         return error_text(balance.error, language)
     state = None if balance is None else balance.value
     lines = [_count_line(state, deps, language, offer)]
+    if offer is not None and offer.is_paywalled and not offer.rails:
+        # Every rail is switched off by the owner. The count line has just said "buy one", so
+        # the next line has to say why there is nothing to press (``DECISIONS.md D28``).
+        lines.append(translate("checkout.unavailable", language))
     if offer is not None and offer.plan_ends_on is not None:
         lines.append(
             translate(

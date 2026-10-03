@@ -28,7 +28,7 @@ Three rules hold everywhere:
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Final
 from uuid import UUID
 
@@ -93,17 +93,22 @@ __all__ = [
     "MAX_ROW_LABEL_CHARS",
     "MAX_REPLY_ROW_LABEL_CHARS",
     "MENU_BUTTON_KEYS",
+    "ALL_MENU_BUTTON_KEYS",
     "MENU_LABELS",
     "MENU_GENERATE_LABEL_KEY",
     "MENU_BALANCE_LABEL_KEY",
     "MENU_SETTINGS_LABEL_KEY",
     "MENU_HELP_LABEL_KEY",
+    "MENU_TEACHERS_DAY_LABEL_KEY",
     "REGENERATE_LABEL_KEY",
     "OWN_LYRICS_LABEL_KEY",
     "SKIP_LABEL_KEY",
     "KEEP_NOTE_LABEL_KEY",
     "SHARE_CONTACT_LABEL_KEY",
     "PAY_NOW_LABEL_KEY",
+    "ALL_PAY_METHODS_LABEL_KEY",
+    "PAY_METHOD_LABELS",
+    "pay_method_label",
 ]
 
 #: Layout widths. Telegram truncates a row that is too wide on a narrow phone, and Uzbek
@@ -189,6 +194,7 @@ MENU_GENERATE_LABEL_KEY: Final[str] = "menu.generate"
 MENU_BALANCE_LABEL_KEY: Final[str] = "menu.balance"
 MENU_SETTINGS_LABEL_KEY: Final[str] = "menu.settings"
 MENU_HELP_LABEL_KEY: Final[str] = "menu.help"
+MENU_TEACHERS_DAY_LABEL_KEY: Final[str] = "menu.teachers_day"
 
 #: ``menu.prompt`` is a MESSAGE BODY and is deliberately absent. The menu router's filter is
 #: ``F.text.in_(MENU_LABELS)`` and ``common.is_menu_label`` reads the same set, so a customer
@@ -201,6 +207,10 @@ MENU_BUTTON_KEYS: Final[tuple[str, ...]] = (
     MENU_SETTINGS_LABEL_KEY,
     MENU_HELP_LABEL_KEY,
 )
+ALL_MENU_BUTTON_KEYS: Final[tuple[str, ...]] = (
+    *MENU_BUTTON_KEYS,
+    MENU_TEACHERS_DAY_LABEL_KEY,
+)
 
 #: Every menu label in every language, computed once at import.
 #:
@@ -210,7 +220,7 @@ MENU_BUTTON_KEYS: Final[tuple[str, ...]] = (
 #: from the current language would route those presses to the fallback handler and answer
 #: "that session expired" to a button the bot itself drew.
 MENU_LABELS: Final[frozenset[str]] = frozenset(
-    translate(key, language) for key in MENU_BUTTON_KEYS for language in SUPPORTED_LANGUAGES
+    translate(key, language) for key in ALL_MENU_BUTTON_KEYS for language in SUPPORTED_LANGUAGES
 )
 
 #: Label keys that do NOT follow the ``button.{action.value}`` convention, named here so
@@ -254,6 +264,31 @@ SKIP_LABEL_KEY: Final[str] = "button.skip"
 KEEP_NOTE_LABEL_KEY: Final[str] = "button.keep_note"
 SHARE_CONTACT_LABEL_KEY: Final[str] = "button.share_contact"
 PAY_NOW_LABEL_KEY: Final[str] = "button.pay_now"
+#: The row under the per-method buttons that opens the rail's general page. Same footing as
+#: ``PAY_NOW_LABEL_KEY``: a ``url=`` button, so no :class:`NavAction` to derive a key from.
+ALL_PAY_METHODS_LABEL_KEY: Final[str] = "button.checkoutuz_all_methods"
+
+#: The per-method buttons on checkout.uz's link screen, by ``_pay_via`` key. BRAND NAMES, so
+#: one spelling for every locale and no catalogue entry, and — the one exception to "every
+#: button leads with an emoji" — no emoji: a brand's name is how a customer recognises the
+#: way they pay, and seven invented pictographs for seven wallets would be noise.
+#: ``test_locale_contract``'s duplicate-emoji rule exempts exactly these labels (Payme, Plum
+#: and Paylov would otherwise collide on "P"). An unknown key is drawn as ``key.capitalize()``.
+PAY_METHOD_LABELS: Final[Mapping[str, str]] = {
+    "click": "Click",
+    "payme": "Payme",
+    "card": "Uzcard / Humo",
+    "plum": "Plum",
+    "paylov": "Paylov",
+    "xazna": "Xazna",
+    "oson": "OSON",
+}
+
+
+def pay_method_label(method: str) -> str:
+    """The button label for one ``_pay_via`` key: its brand name, or the key capitalised."""
+    return PAY_METHOD_LABELS.get(method, method.capitalize())
+
 
 #: The occasion the "I will write the words myself" button is drawn directly ABOVE.
 #:
@@ -403,7 +438,9 @@ def language_keyboard(
     return markup
 
 
-def occasion_keyboard(language: Language) -> InlineKeyboardMarkup:
+def occasion_keyboard(
+    language: Language, *, teachers_day_enabled: bool = False
+) -> InlineKeyboardMarkup:
     """The occasions, with the bring-your-own-lyrics offer sitting among them.
 
     That button is the one row here this module composes out of its own label rather than
@@ -429,6 +466,8 @@ def occasion_keyboard(language: Language) -> InlineKeyboardMarkup:
     sizes: list[int] = []
     pending = 0
     for value in Occasion:
+        if value is Occasion.TEACHERS_DAY and not teachers_day_enabled:
+            continue
         if value is OWN_LYRICS_SITS_ABOVE:
             if pending:
                 sizes.append(pending)
@@ -592,26 +631,56 @@ def checkout_keyboard(language: Language, offer: CheckoutOffer) -> InlineKeyboar
     ``is_plan_offered`` is decided by the caller and not here: a plan that is already
     running, spent or not, must not be sold a second time, and this module has no clock and
     no ledger with which to know. See :class:`~bayram.bot.pricing.CheckoutOffer`.
+
+    **One price button per product per rail that may sell**, read off ``offer.rails`` — the
+    wired rails the owner's per-rail switch has on — and never off ``Settings``: see
+    :func:`_rail_actions` for which button stands for which rail. With every rail switched
+    off there is no price row at all, only the way back (``DECISIONS.md D28``).
     """
     builder = InlineKeyboardBuilder()
-    builder.row(
-        _nav_button(NavAction.PAY, language, label_params={"amount": offer.pricing.single_amount})
-    )
+    single = {"amount": offer.pricing.single_amount}
+    plan = {"amount": offer.pricing.plan_amount, "songs": offer.pricing.plan_songs}
+    for action in _rail_actions(offer, generic=NavAction.PAY, named=_PAY_BY_RAIL):
+        builder.row(_nav_button(action, language, label_params=single))
     if offer.is_plan_offered:
-        builder.row(
-            _nav_button(
-                NavAction.SUBSCRIBE,
-                language,
-                label_params={
-                    "amount": offer.pricing.plan_amount,
-                    "songs": offer.pricing.plan_songs,
-                },
-            )
-        )
+        for action in _rail_actions(offer, generic=NavAction.SUBSCRIBE, named=_SUBSCRIBE_BY_RAIL):
+            builder.row(_nav_button(action, language, label_params=plan))
     return _with_nav(builder, language, is_back_enabled=True)
 
 
-def checkout_link_keyboard(language: Language, url: str) -> InlineKeyboardMarkup:
+#: The NAMED button each non-generic rail is drawn under. Rahmat has none: it is only ever
+#: wired first (``bayram.checkout_rails.wired_rails``), so it is only ever reached through
+#: the generic pair, and a switched-off Rahmat simply loses its buttons.
+_PAY_BY_RAIL: Final[dict[str, NavAction]] = {
+    "payme": NavAction.PAY_PAYME,
+    "checkoutuz": NavAction.PAY_CHECKOUTUZ,
+}
+_SUBSCRIBE_BY_RAIL: Final[dict[str, NavAction]] = {
+    "payme": NavAction.SUBSCRIBE_PAYME,
+    "checkoutuz": NavAction.SUBSCRIBE_CHECKOUTUZ,
+}
+
+
+def _rail_actions(
+    offer: CheckoutOffer, *, generic: NavAction, named: dict[str, NavAction]
+) -> list[NavAction]:
+    """One product's price buttons, one per rail that may sell, in ``offer.rails`` order.
+
+    The GENERIC button stands for the first wired rail and is drawn only while that rail is
+    on (:attr:`~bayram.bot.pricing.CheckoutOffer.generic_rail`); every other enabled rail gets
+    its NAMED button. So with Rahmat switched off under ``both`` + checkout.uz, the screen
+    shows the Payme and checkout.uz buttons and no 💳 — a 💳 would route to Rahmat, which
+    would only refuse. An empty ``offer.rails`` draws nothing (``DECISIONS.md D28``).
+    """
+    generic_rail = offer.generic_rail
+    actions = [] if generic_rail is None else [generic]
+    actions.extend(named[rail] for rail in offer.rails if rail != generic_rail and rail in named)
+    return actions
+
+
+def checkout_link_keyboard(
+    language: Language, url: str, *, options: Sequence[tuple[str, str]] = ()
+) -> InlineKeyboardMarkup:
     """The redirect rail's screen: pay over there, or go home. **The first ``url=`` button.**
 
     Every other button in this product carries ``NavCB`` data and comes back to this process.
@@ -658,9 +727,27 @@ def checkout_link_keyboard(language: Language, url: str) -> InlineKeyboardMarkup
     :func:`_nav_button` is untouched and is not used for the first row: it packs a ``NavCB``
     into ``callback_data``, and a button carrying both a URL and callback data is not a thing
     Telegram has.
+
+    **``options`` — one button per payment method, when the rail offers them.** checkout.uz
+    returns a page per enabled method (``_pay_via``: Click, Payme, Uzcard/Humo…), and opening
+    the method's own page saves the customer the general page's picker. They are drawn two
+    per row under their brand names (:data:`PAY_METHOD_LABELS`), then the general page as
+    🌐 "All payment methods" in place of 🔗, then 🏠. With no options — every other rail, or a
+    checkout.uz reply that carried none — the keyboard is exactly the two rows above.
     """
     builder = InlineKeyboardBuilder()
-    builder.row(InlineKeyboardButton(text=translate(PAY_NOW_LABEL_KEY, language), url=url))
+    if not options:
+        builder.row(InlineKeyboardButton(text=translate(PAY_NOW_LABEL_KEY, language), url=url))
+    else:
+        methods = [
+            InlineKeyboardButton(text=pay_method_label(method), url=page)
+            for method, page in options
+        ]
+        for start in range(0, len(methods), MAX_ROW_BUTTONS):
+            builder.row(*methods[start : start + MAX_ROW_BUTTONS])
+        builder.row(
+            InlineKeyboardButton(text=translate(ALL_PAY_METHODS_LABEL_KEY, language), url=url)
+        )
     builder.row(_nav_button(NavAction.TO_MENU, language))
     return builder.as_markup()
 
@@ -787,7 +874,9 @@ def _report_problem_button(language: Language, *, order_id: UUID | None) -> Inli
     )
 
 
-def main_menu_keyboard(language: Language) -> ReplyKeyboardMarkup:
+def main_menu_keyboard(
+    language: Language, *, teachers_day_enabled: bool = False
+) -> ReplyKeyboardMarkup:
     """The persistent menu. Two rows of two, and it is never taken away.
 
     ``is_persistent=True`` is what makes this a MENU rather than a prompt: the keyboard is
@@ -802,17 +891,23 @@ def main_menu_keyboard(language: Language) -> ReplyKeyboardMarkup:
 
     Generate and Balance share the first row and Settings and Help the second, so the two
     things a customer came to do are under the thumb and the two they came to read are not.
+    When Teachers' Day promo is active, it sits on its own row prominently at the top level.
     """
-    rows = [
+    rows: list[list[KeyboardButton]] = []
+    if teachers_day_enabled:
+        rows.append([KeyboardButton(text=translate(MENU_TEACHERS_DAY_LABEL_KEY, language))])
+    rows.extend(
         [
-            KeyboardButton(text=translate(MENU_GENERATE_LABEL_KEY, language)),
-            KeyboardButton(text=translate(MENU_BALANCE_LABEL_KEY, language)),
-        ],
-        [
-            KeyboardButton(text=translate(MENU_SETTINGS_LABEL_KEY, language)),
-            KeyboardButton(text=translate(MENU_HELP_LABEL_KEY, language)),
-        ],
-    ]
+            [
+                KeyboardButton(text=translate(MENU_GENERATE_LABEL_KEY, language)),
+                KeyboardButton(text=translate(MENU_BALANCE_LABEL_KEY, language)),
+            ],
+            [
+                KeyboardButton(text=translate(MENU_SETTINGS_LABEL_KEY, language)),
+                KeyboardButton(text=translate(MENU_HELP_LABEL_KEY, language)),
+            ],
+        ]
+    )
     return ReplyKeyboardMarkup(
         keyboard=rows, resize_keyboard=True, is_persistent=True, one_time_keyboard=False
     )

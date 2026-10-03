@@ -30,6 +30,7 @@ import type { JSX } from "react";
 import type { AudienceResponse } from "@/api/dashboard";
 import { Skeleton } from "@/components/Skeleton";
 import { adaptActiveAccounts, adaptLanguageMix } from "@/features/dashboard/adapt";
+import { ChannelsTable } from "@/features/dashboard/ChannelsTable";
 import { ActiveAccounts, LanguageMix } from "@/features/dashboard/charts";
 import { chartSpecsFor } from "@/features/dashboard/chartSpecs";
 import { useI18n } from "@/i18n";
@@ -112,6 +113,13 @@ export function AudienceSection({
               <LanguageMix {...adaptLanguageMix(audience)} />
             )}
           </div>
+
+          <GroupLabel>{t("dashboard.figures.channels.heading")}</GroupLabel>
+          <ChannelsTable
+            channels={audience?.channels ?? []}
+            isLoading={audience === undefined}
+            isPlaceholder={dim}
+          />
         </>
       )}
     </>

@@ -41,6 +41,9 @@ ALLOWED_MODULES: Final[frozenset[str]] = frozenset(
         "bayram.db.purge",
         "bayram.db.vendor_balances",
         "bayram.db.admin.vendor_usage",
+        # Gemini spend for the panel (DECISIONS.md D27). Filters ``is_fake`` and excludes
+        # HEALTH itself, the same two exclusions ``_narrow`` applies.
+        "bayram.db.gemini_spend",
     }
 )
 

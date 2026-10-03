@@ -46,9 +46,7 @@ _SHELL: Final[str] = (
 )
 
 #: The repository's own shell, the one ``vite build`` copies into the wheel verbatim.
-_SOURCE_INDEX: Final[Path] = (
-    Path(__file__).resolve().parents[2] / "admin-dashboard" / "index.html"
-)
+_SOURCE_INDEX: Final[Path] = Path(__file__).resolve().parents[2] / "admin-dashboard" / "index.html"
 
 _META_NONCE: Final[re.Pattern[str]] = re.compile(
     rf'<meta name="{CSP_NONCE_META_NAME}" content="([^"]*)"'

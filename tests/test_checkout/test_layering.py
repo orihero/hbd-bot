@@ -35,7 +35,7 @@ import bayram.checkout
 #: dependency has to be argued for here, in a file about layering, instead of arriving as a
 #: line at the top of a module nobody re-reads.
 _PERMITTED_FIRST_PARTY: Final[frozenset[str]] = frozenset(
-    {"bayram.contracts", "bayram.entitlements", "bayram.logging"}
+    {"bayram.contracts", "bayram.entitlements", "bayram.errors", "bayram.logging"}
 )
 
 #: The two that must never appear, spelled out so a failure names the rule it broke.

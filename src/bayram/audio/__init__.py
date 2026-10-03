@@ -40,6 +40,8 @@ from bayram.audio.lyric_sheet import (
 from bayram.audio.lyrics_image import (
     LYRICS_IMAGE_FILENAME,
     LYRICS_IMAGE_MIME,
+    is_google_music_provider,
+    localize_section_label,
     render_lyrics_image,
 )
 from bayram.audio.probe import parse_ffprobe_report
@@ -58,6 +60,8 @@ __all__ = [
     "COVER_SUFFIX",
     # lyrics image
     "render_lyrics_image",
+    "is_google_music_provider",
+    "localize_section_label",
     "LYRICS_IMAGE_FILENAME",
     "LYRICS_IMAGE_MIME",
     # lyric sheet
@@ -74,4 +78,3 @@ __all__ = [
     "LYRIC_SHEET_MIME",
     "LYRIC_SHEET_SUFFIX",
 ]
-

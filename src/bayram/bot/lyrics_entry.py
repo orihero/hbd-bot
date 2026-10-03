@@ -62,10 +62,10 @@ MIN_LYRIC_CHARS: Final[int] = 20
 
 #: Above this we are not looking at a song. That is all this bound does: it says what may
 #: be a lyric, and it does NOT keep the preview inside Telegram's per-message ceiling,
-#: because ``translate`` escapes the body on the way back out and 3000 pasted ampersands
-#: render as 15000 characters. ``screens.MAX_PREVIEW_LYRIC_CHARS`` owns the wire limit and
-#: measures the escaped string; the two numbers happen to match and are not the same rule.
-MAX_LYRIC_CHARS: Final[int] = 3_000
+#: because ``translate`` escapes the body on the way back out and 5000 pasted ampersands
+#: render as 25000 characters. ``screens.MAX_PREVIEW_LYRIC_CHARS`` owns the wire limit and
+#: measures the escaped string; the two numbers are not the same rule.
+MAX_LYRIC_CHARS: Final[int] = 5_000
 
 LYRICS_TOO_SHORT_KEY: Final[str] = "wizard.lyrics.too_short"
 LYRICS_TOO_LONG_KEY: Final[str] = "wizard.lyrics.too_long"
@@ -101,7 +101,7 @@ def parse_typed_lyrics(
     Watermark lines are dropped before anything else happens, INCLUDING before the length
     bounds. Two reasons, in this order. The bounds exist to describe the customer's own
     words, and a paste is not "too long" because the bot's own advertisement pushed it over
-    3000 — measuring the text we would actually sing is the only measurement that means
+    5000 — measuring the text we would actually sing is the only measurement that means
     anything. And a paste that is nothing but watermark then arrives at the ``too short``
     branch on its own, with no fourth rejection message to write or translate.
     """
@@ -119,8 +119,13 @@ def parse_typed_lyrics(
         if emptied_by_filter:
             reason = "pasted lyric was nothing but watermark"
         return _rejected(reason, key=LYRICS_TOO_SHORT_KEY, length=length)
-    if length > MAX_LYRIC_CHARS:
-        return _rejected("pasted lyric is too long", key=LYRICS_TOO_LONG_KEY, length=length)
+
+    # Whitespace and newlines are stripped before checking the upper bound so that
+    # formatting, spacing, and verse breaks do not penalize the customer's character budget.
+    chars_without_whitespace = re.sub(r"\s+", "", pasted)
+    non_ws_length = len(chars_without_whitespace)
+    if non_ws_length > MAX_LYRIC_CHARS:
+        return _rejected("pasted lyric is too long", key=LYRICS_TOO_LONG_KEY, length=non_ws_length)
 
     sections = _sections_from(pasted)
     if not sections:  # pragma: no cover - defensive; see below for why it cannot happen
@@ -140,7 +145,8 @@ def parse_typed_lyrics(
         "customer supplied their own lyric",
         extra={
             "sections": len(draft.sections),
-            "length": length,
+            "length": non_ws_length,
+            "raw_length": length,
             "watermark_lines": watermark_lines,
         },
     )

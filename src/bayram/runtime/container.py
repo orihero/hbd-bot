@@ -24,9 +24,18 @@ from bayram.bot_chats import BotChatDirectory
 from bayram.checkout import (
     STUB_PROVIDER_NAME,
     CheckoutProvider,
+    CompositeCheckoutProvider,
     PaymentIntentOpener,
     PurchaseFulfiller,
     StubCheckoutProvider,
+)
+from bayram.checkout_rails import wired_rails
+from bayram.checkoutuz.client import CheckoutUzClient
+from bayram.checkoutuz.ports import CHECKOUTUZ_PROVIDER_NAME
+from bayram.checkoutuz.provider import (
+    CHECKOUTUZ_MERCHANT_ID,
+    CheckoutUzCheckoutProvider,
+    SqlCheckoutUzPaymentStore,
 )
 from bayram.churn import BotBlockRecorder
 from bayram.config import ENV_PREFIX, Settings
@@ -54,6 +63,9 @@ from bayram.payments import CreditGatedPaymentProvider, NoopPaymentProvider
 from bayram.pipeline.events import ProgressSink
 from bayram.pipeline.moderation import AllowAllModerator
 from bayram.pipeline.orchestrator import KitPipeline
+from bayram.rhmt.client import RhmtClient
+from bayram.rhmt.provider import RhmtCheckoutProvider
+from bayram.rhmt.settings import build_rhmt_settings
 from bayram.runtime.providers import ProviderSet, build_provider_set
 from bayram.storage import LocalFileStorage
 from bayram.user_profiles import UserProfileStore
@@ -347,11 +359,159 @@ async def _never_paused() -> bool:
     return False
 
 
+def _build_rhmt_provider(
+    settings: Settings,
+    *,
+    ledger: PaymentIntentOpener,
+    paused: Callable[[], Awaitable[bool]] | None = None,
+) -> RhmtCheckoutProvider:
+    rhmt_settings = build_rhmt_settings()
+    app_id = (
+        rhmt_settings.rhmt_application_id or settings.rhmt_application_id or "placeholder_app_id"
+    )
+    secret = rhmt_settings.rhmt_secret.get_secret_value() or "placeholder_secret"
+    store_id = rhmt_settings.rhmt_store_id or settings.rhmt_store_id or 0
+    base_url = settings.rhmt_checkout_base_url or rhmt_settings.resolved_base_url
+    callback_url = settings.rhmt_callback_url or rhmt_settings.rhmt_callback_url
+    return_url = settings.rhmt_return_url or rhmt_settings.rhmt_return_url
+
+    client = RhmtClient(
+        application_id=app_id,
+        secret=secret,
+        base_url=base_url,
+        is_sandbox=settings.rhmt_is_sandbox,
+    )
+    return RhmtCheckoutProvider(
+        ledger,
+        client,
+        store_id=store_id,
+        callback_url=callback_url,
+        return_url=return_url,
+        is_sandbox=settings.rhmt_is_sandbox,
+        plan_songs=settings.starter_plan_songs,
+        plan_days=settings.starter_plan_days,
+        language_of=lambda: settings.default_ui_language,
+        paused=paused or _never_paused,
+    )
+
+
+def _gated(
+    paused: Callable[[], Awaitable[bool]] | None,
+    rail_enabled: Callable[[str], Awaitable[bool]] | None,
+    name: str,
+) -> Callable[[], Awaitable[bool]] | None:
+    """``paused`` OR "the owner switched ``name`` off", as the one callable a provider takes.
+
+    **Composed INTO the existing pause callable rather than wrapped around the provider**
+    (DECISIONS.md D28). The Rahmat and Payme providers already refuse a sale when their
+    ``paused`` answers true, and already fail OPEN when it raises; a ``Gated…Provider``
+    decorator would have re-implemented both and would have broken every test that pins
+    ``isinstance(container.checkout, PaymeCheckoutProvider)`` and reads its ``_opener``. The
+    price of the composition is the copy: a stale press on a switched-off Rahmat or Payme
+    button shows the "paused" sentence, which is true enough — the rail is not selling — and
+    the buttons themselves are no longer drawn once the switch is off.
+
+    ``rail_enabled is None`` hands ``paused`` back UNCHANGED, ``None`` included, so a
+    composition root that wires no switch reader builds byte-for-byte what it built before
+    this existed. :func:`bayram.checkout_rails.read_rail_enabled` never raises and answers
+    "enabled" on a Redis error, so this inherits the pause switch's direction: an unreadable
+    switch keeps selling.
+    """
+    if rail_enabled is None:
+        return paused
+    base = paused or _never_paused
+
+    async def gate() -> bool:
+        if await base():
+            return True
+        return not await rail_enabled(name)
+
+    return gate
+
+
+def _build_payme_provider(
+    settings: Settings,
+    *,
+    ledger: PaymentIntentOpener,
+    merchant_id: str,
+    paused: Callable[[], Awaitable[bool]] | None,
+) -> PaymeCheckoutProvider:
+    """The Payme rail, built in ONE place for ``payme`` alone and for ``both``.
+
+    ``merchant_id`` is passed already resolved: under ``payme`` a blank one has been refused by
+    :func:`build_checkout`, and under ``both`` it falls back to a placeholder exactly as the
+    composite did before this helper existed.
+    """
+    return PaymeCheckoutProvider(
+        ledger,
+        merchant_id=merchant_id,
+        base_url=resolve_base_url(
+            is_sandbox=settings.payme_is_sandbox,
+            override=settings.payme_checkout_base_url,
+        ),
+        account_field=settings.payme_account_field,
+        return_url=settings.payme_return_url,
+        is_sandbox=settings.payme_is_sandbox,
+        plan_songs=settings.starter_plan_songs,
+        plan_days=settings.starter_plan_days,
+        language_of=lambda: settings.default_ui_language,
+        paused=paused or _never_paused,
+    )
+
+
+def _build_checkoutuz_provider(
+    settings: Settings,
+    *,
+    ledger: PaymentIntentOpener,
+    session_factory: async_sessionmaker[AsyncSession],
+    paused: Callable[[], Awaitable[bool]] | None,
+    enabled: Callable[[], Awaitable[bool]] | None,
+) -> CheckoutUzCheckoutProvider:
+    """The checkout.uz rail (DECISIONS.md D28). Builds an HTTP client; opens no connection.
+
+    ``enabled`` is checkout.uz's OWN argument rather than a second term folded into
+    ``paused`` the way :func:`_gated` does for the other two rails: this provider was written
+    after the switch existed, so it can tell the customer the rail is switched off
+    (``CheckoutRailDisabledError``) instead of borrowing the pause sentence.
+
+    The intent port is the SAME ``SqlPaymeLedger`` every other rail opens intents through —
+    ``payment_intents`` is provider-agnostic and ``provider="checkoutuz"`` is stamped per row by
+    the provider itself — and the payment side table is reached through its own store over the
+    same session factory.
+
+    The HTTP client is never closed by the container, which is the Rahmat client's standing
+    arrangement: it lives exactly as long as the process does. The worker's poll and reconcile
+    jobs build their own client per run, so this one is the BOT's alone.
+    """
+    client = CheckoutUzClient(
+        api_key=settings.checkoutuz_api_key,
+        base_url=settings.checkoutuz_base_url,
+    )
+    return CheckoutUzCheckoutProvider(
+        ledger,
+        client,
+        SqlCheckoutUzPaymentStore(session_factory),
+        webhook_base_url=settings.checkoutuz_webhook_base_url,
+        return_url=settings.checkoutuz_return_url,
+        plan_songs=settings.starter_plan_songs,
+        plan_days=settings.starter_plan_days,
+        language_of=lambda: settings.default_ui_language,
+        paused=paused or _never_paused,
+        enabled=enabled or _always_enabled,
+    )
+
+
+async def _always_enabled() -> bool:
+    """checkout.uz's switch when no reader is wired: ON, for ``_never_paused``'s reason."""
+    return True
+
+
 def build_checkout(
     settings: Settings,
     *,
     session_factory: async_sessionmaker[AsyncSession],
     paused: Callable[[], Awaitable[bool]] | None = None,
+    rail_enabled: Callable[[str], Awaitable[bool]] | None = None,
 ) -> tuple[CheckoutProvider, PaymentIntentOpener | None]:
     """Which rail sells a credit, and the intent port that goes with it. Raises ``ConfigError``.
 
@@ -362,13 +522,26 @@ def build_checkout(
     local. Returning the pair from one function means the impossible combinations cannot be
     spelled.
 
-    **The refusal happens HERE, when the rail is actually built, and not at every boot.** That
+    **The rails come from ONE ordered list**, :func:`bayram.checkout_rails.wired_rails`, and the
+    bot draws its buttons from the very same list (``BotDeps.checkout_rails``, wired in
+    ``bayram.main``). ``checkout_provider`` contributes ``rhmt`` / ``payme`` / both, and
+    checkout.uz is appended when ``BAYRAM_CHECKOUTUZ_ENABLED`` is on with a key. An empty list
+    is the stub; one rail is that rail's provider, BARE, so the ``isinstance`` and ``_opener``
+    pins on the Payme deployment hold exactly as before; several are a
+    :class:`~bayram.checkout.CompositeCheckoutProvider` that routes on the button's exact rail
+    name and never falls through (DECISIONS.md D28). A stub never sits inside a composite, so a
+    press can never fall through to a free song.
+
+    **The refusals happen HERE, when the rail is actually built, and not at every boot.** That
     is the ``build_llm_provider`` precedent, and it is what lets a deployment on the stub — the
     default, and today's production — boot with no Payme configuration in its environment at
     all. A blank merchant id under ``checkout_provider="payme"`` is a ``ConfigError`` naming
     ``BAYRAM_PAYME_MERCHANT_ID``, because the alternative is a link whose ``m=`` parameter is
     empty: Payme's own checkout answers that with «Поставщик не найден», which is a sentence
-    about THEIR system that a customer would read as a sentence about ours.
+    about THEIR system that a customer would read as a sentence about ours. checkout.uz
+    switched on with a blank ``BAYRAM_CHECKOUTUZ_API_KEY`` is refused the same way: an operator
+    who turned the rail on meant to sell on it, and a boot that quietly left its button off
+    would be a go-live nobody could see had failed.
 
     ``paused`` is injected rather than constructed, so this function opens no Redis connection
     and stays synchronous, and so a test can pause the rail with three lines and no server.
@@ -379,6 +552,12 @@ def build_checkout(
     into that module directly would give this function a Redis dependency it does not otherwise
     have — for a feature that is off in every deployment that has not armed it.
 
+    ``rail_enabled`` is the owner's PER-RAIL switch (DECISIONS.md D28), injected for the same
+    reason and read the same way: ``rail_enabled("payme")`` over the queue pool in production,
+    ``None`` everywhere else. It is composed into Rahmat's and Payme's ``paused`` by
+    :func:`_gated` and handed to checkout.uz as its own ``enabled``. Only SALES read it;
+    settlement never does, so switching a rail off never strands a payment already started.
+
     Note what is NOT read from settings here: the transaction timeout and the duplicate-code
     override. Both are the GATEWAY's configuration, on ``bayram.payme.settings.PaymeSettings``,
     in the process that terminates Payme's inbound calls. The ledger built here is handed out
@@ -386,13 +565,26 @@ def build_checkout(
     the bot's guess at them would be passing a number nothing reads and inviting the two
     processes to disagree about one that matters.
     """
-    if settings.checkout_provider == STUB_PROVIDER_NAME:
-        # Byte-identical to what shipped before any of this landed, and deliberately the first
-        # branch: the stub is not a fallback for a misconfigured rail, it is the default rail.
+    if settings.checkout_provider not in (STUB_PROVIDER_NAME, "payme", "rhmt", "both"):
+        raise ConfigError(
+            f"unknown checkout rail: '{settings.checkout_provider}'",
+            context={"checkout_provider": settings.checkout_provider},
+        )
+    if settings.checkoutuz_enabled and not settings.checkoutuz_api_key.strip():
+        raise ConfigError(
+            f"{ENV_PREFIX}CHECKOUTUZ_ENABLED is on but {ENV_PREFIX}CHECKOUTUZ_API_KEY is empty; "
+            "checkout.uz cannot create a payment without the merchant's Bearer key. Set the key "
+            "in the bot's dotenv, or turn the rail off.",
+            context={"checkout_provider": settings.checkout_provider},
+        )
+
+    rails = wired_rails(settings)
+    if not rails:
+        # The default rail, and deliberately not a fallback for a misconfigured one.
         return StubCheckoutProvider(), None
 
     merchant_id = settings.payme_merchant_id.strip()
-    if not merchant_id:
+    if settings.checkout_provider == "payme" and not merchant_id:
         raise ConfigError(
             f"the checkout rail is set to '{settings.checkout_provider}' but "
             f"{ENV_PREFIX}PAYME_MERCHANT_ID is empty; the cashbox id is what every checkout "
@@ -400,45 +592,80 @@ def build_checkout(
             context={"checkout_provider": settings.checkout_provider},
         )
 
+    # The ledger's own ``merchant_id`` is only its default: every provider passes its own on
+    # ``open_intent``. On a stub deployment selling checkout.uz alone there is no cashbox and
+    # no Rahmat store, so the default names the rail that actually opens the intents.
+    if settings.checkout_provider == STUB_PROVIDER_NAME:
+        ledger_merchant_id = CHECKOUTUZ_MERCHANT_ID
+    else:
+        ledger_merchant_id = merchant_id or str(settings.rhmt_store_id or "rhmt")
     ledger = SqlPaymeLedger(
         session_factory,
-        merchant_id=merchant_id,
+        merchant_id=ledger_merchant_id,
         intent_ttl_s=settings.payme_intent_ttl_s,
         account_field=settings.payme_account_field,
     )
-    provider = PaymeCheckoutProvider(
-        # The SAME object, handed over twice under two types. See ``AppContainer.intents``.
-        ledger,
-        merchant_id=merchant_id,
-        base_url=resolve_base_url(
-            is_sandbox=settings.payme_is_sandbox,
-            override=settings.payme_checkout_base_url,
-        ),
-        account_field=settings.payme_account_field,
-        return_url=settings.payme_return_url,
-        is_sandbox=settings.payme_is_sandbox,
-        # The catalogue's numbers, snapshotted onto every plan intent at the moment of sale so
-        # a later package change cannot retroactively shrink what somebody already paid for.
-        plan_songs=settings.starter_plan_songs,
-        plan_days=settings.starter_plan_days,
-        # The deployment's default UI language, not the individual customer's: nothing on the
-        # charge path carries one today. Stated as a limitation on the provider's ``__init__``
-        # rather than hidden here, and a callable so the fix is this line when it arrives.
-        language_of=lambda: settings.default_ui_language,
-        paused=paused or _never_paused,
+
+    providers: list[CheckoutProvider] = []
+    for rail in rails:
+        if rail == "rhmt":
+            providers.append(
+                _build_rhmt_provider(
+                    settings, ledger=ledger, paused=_gated(paused, rail_enabled, rail)
+                )
+            )
+        elif rail == "payme":
+            providers.append(
+                _build_payme_provider(
+                    settings,
+                    ledger=ledger,
+                    # ``both`` has always tolerated a blank cashbox id here; ``payme`` alone
+                    # was refused above.
+                    merchant_id=merchant_id or "placeholder_merchant_id",
+                    paused=_gated(paused, rail_enabled, rail),
+                )
+            )
+        elif rail == CHECKOUTUZ_PROVIDER_NAME:
+            providers.append(
+                _build_checkoutuz_provider(
+                    settings,
+                    ledger=ledger,
+                    session_factory=session_factory,
+                    paused=paused,
+                    enabled=_switch_for(rail_enabled, rail),
+                )
+            )
+        else:  # pragma: no cover - wired_rails names only the three rails above
+            raise ConfigError(f"unknown checkout rail: '{rail}'", context={"rail": rail})
+
+    provider: CheckoutProvider = (
+        providers[0] if len(providers) == 1 else CompositeCheckoutProvider(providers)
     )
+
     _LOG.info(
         "the checkout rail is live",
         extra={
             "checkout_provider": settings.checkout_provider,
+            "rails": list(rails),
             "merchant_id": merchant_id,
-            "is_sandbox": settings.payme_is_sandbox,
-            "intent_ttl_s": settings.payme_intent_ttl_s,
-            "account_field": settings.payme_account_field,
             "has_pause_switch": paused is not None,
+            "has_rail_switch": rail_enabled is not None,
         },
     )
     return provider, ledger
+
+
+def _switch_for(
+    rail_enabled: Callable[[str], Awaitable[bool]] | None, name: str
+) -> Callable[[], Awaitable[bool]] | None:
+    """``rail_enabled`` bound to one rail's name, or ``None`` when no reader is wired."""
+    if rail_enabled is None:
+        return None
+
+    async def read() -> bool:
+        return await rail_enabled(name)
+
+    return read
 
 
 def _similarity(heard: str, expected: str) -> float:
@@ -457,6 +684,8 @@ async def build_container(
     data_root: Path | None = None,
     with_providers: bool = True,
     paused: Callable[[], Awaitable[bool]] | None = None,
+    music_provider_resolver: Callable[[], Awaitable[str]] | None = None,
+    rail_enabled: Callable[[str], Awaitable[bool]] | None = None,
 ) -> AppContainer:
     """Build everything. Raises ``ConfigError`` for a misconfiguration and nothing else.
 
@@ -466,6 +695,10 @@ async def build_container(
     reader over the queue pool it was already going to open, so arming the switch costs no
     second connection — and a process with no pool (the demo path) passes ``None`` and gets a
     rail that is always open, which is the honest answer where no operator can reach it.
+
+    ``rail_enabled`` is the owner's per-rail switch (DECISIONS.md D28) and travels the same
+    road for the same reason: ``bayram.main.run`` passes a reader over the same pool, and
+    ``None`` leaves every wired rail switched on.
 
     Wiring only — it does not probe ffmpeg. That check belongs to *process* startup
     (:func:`bayram.runtime.startup.verify_host`), so a host missing libopus fails one boot
@@ -514,7 +747,9 @@ async def build_container(
     # ``bayram.main.run`` passes is a reader over the queue pool it opens anyway, so the switch
     # is armed for free in the process that sells songs; ``None`` — the demo path, and every
     # test that does not care — leaves the rail always open. See ``build_checkout``.
-    checkout, intents = build_checkout(settings, session_factory=session_factory, paused=paused)
+    checkout, intents = build_checkout(
+        settings, session_factory=session_factory, paused=paused, rail_enabled=rail_enabled
+    )
     return AppContainer(
         settings=settings,
         # The vendors, each holding the SAME persisting usage sink. The sink is built here
@@ -525,7 +760,11 @@ async def build_container(
         # rows stamped ``is_fake=True`` and is excluded from spend by that flag rather than
         # by leaving a gap in the table.
         providers=(
-            build_provider_set(settings, usage=DbUsageSink(session_factory))
+            build_provider_set(
+                settings,
+                usage=DbUsageSink(session_factory),
+                music_provider_resolver=music_provider_resolver,
+            )
             if with_providers
             else None
         ),

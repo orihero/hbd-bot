@@ -187,6 +187,7 @@ from bayram.db.admin.audience_lists import (
 )
 from bayram.db.admin.audit import AuditEntry
 from bayram.db.admin.balances import vendor_balances
+from bayram.db.admin.channels import channel_performance
 from bayram.db.admin.metrics import (
     delivered_counts,
     delivered_latency,
@@ -577,6 +578,7 @@ def build_dashboard_router() -> APIRouter:
             ),
             activity_bucket=_ACTIVITY_BUCKET,
             capabilities=await read_capabilities(db),
+            channels=await channel_performance(db, window=window),
         )
 
     @router.get(FINANCE_PATH)

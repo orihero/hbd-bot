@@ -298,6 +298,20 @@ export const uz: TranslationSchema = {
       costProvenance: {
         title: "Narx qanday belgilangan",
       },
+      channels: {
+        heading: "Marketing kanallari",
+        subtitle: "Telegram deep linklaridan kelgan trafik (?start=channel yoki utm_source=channel)",
+        emptyTitle: "Kanallar boʻyicha trafik yoʻq",
+        emptyMessage: "Foydalanuvchilar kanal havolalari orqali (masalan, https://t.me/<bot>?start=utm_source_kanal yoki ?start=kanal) botga kirganda maʼlumotlar bu yerda koʻrinadi.",
+        colChannel: "Kanal",
+        colClicks: "Oʻtishlar",
+        colNewUsers: "Yangi foydalanuvchilar",
+        colOnboarded: "Onbording",
+        colOrders: "Qoʻshiqlar",
+        colPaying: "Toʻlovchilar",
+        colRevenue: "Tushum",
+        colConversion: "Konv. %",
+      },
     },
     note: {
       noCorrelationId: "correlation id yoʻq",
@@ -317,6 +331,15 @@ export const uz: TranslationSchema = {
       notPolled: "balanslar soʻralmadi",
       notPolledTitle:
         "Ushbu konfiguratsiyada hech qaysi provayder balans hisobotini bermaydi.",
+    },
+    gemini: {
+      heading: "Gemini xarajati",
+      monthLabel: "Gemini xarajati · shu oy (taxminiy)",
+      monthSub: "{songs} ta qoʻshiq · bugun {today}",
+      outOfCredit: "Gemini krediti tugadi — renderlar ElevenLabs'ga oʻtadi. AI Studio'da toʻldiring.",
+      estimateHint: "Soʻrov boshiga narximiz boʻyicha taxmin; Google balansni koʻrsatmaydi.",
+      spendLabel: "Gemini xarajati · {period}",
+      notPriced: "chaqiruvlar bor, narxlanmagan",
     },
     fx: {
       rate: "1 USD = {rate} soʻm",
@@ -665,6 +688,7 @@ export const uz: TranslationSchema = {
       firstOrder: "ilk buyurtma",
       lastOrder: "oxirgi buyurtma",
       wizardSession: "Vizard sessiyasi",
+      acquisitionChannel: "jalb qilish kanali",
     },
     profileStanding: {
       onFile: "profil bor",
@@ -690,6 +714,8 @@ export const uz: TranslationSchema = {
         "Maskada mamlakat kodi ataylab yoʻq. Raqamning oʻzi hech qaysi rolda simdan oʻtmaydi — uni faqat ochish beradi.",
       phoneShared:
         "Mijoz Telegramdagi “kontakt ulashish” tugmasini qachon bosgani. Boʻsh boʻlsa — hech qachon bosmagan.",
+      acquisitionChannel:
+        "Ushbu hisobning ilk /start murojaatida qayd etilgan marketing trafigi kanali parametri.",
     },
     ordersPanel: {
       noun: "bu mijozning buyurtmalari",
@@ -804,6 +830,29 @@ export const uz: TranslationSchema = {
     subtitleAll: "render jurnalida {count} ta urinish",
     subtitleFiltered: "filtrlarga mos {count} ta urinish",
     searchPlaceholder: "Urinish ID yoki korrelyatsiya ID boʻyicha qidirish…",
+    teachersDay: {
+      label: "Ustozlar kuni:",
+      loading: "Yuklanmoqda…",
+      active: "Faol (-{percent}%)",
+      off: "Oʻchiq",
+      enableAria: "Ustozlar kuni aksiyasini yoqish",
+      disableAria: "Ustozlar kuni aksiyasini oʻchirish",
+      turnOn: "Yoqish",
+      turnOff: "Oʻchirish",
+      enableTitle: "Ustozlar kuni aksiyasini yoqish (-{percent}%)",
+      disableTitle: "Ustozlar kuni aksiyasini oʻchirish",
+      enableDescription: "Telegram botda Ustozlar kuni boʻlimini {percent}% chegirma va yuboruvchi bagʻishlovi bosqichi bilan yoqish.",
+      disableDescription: "Ustozlar kuni boʻlimi va chegirmasini oʻchirish. Boʻlim Telegram botning asosiy menyusidan olib tashlanadi.",
+      confirmOn: "Aksiyani yoqish",
+      confirmOff: "Aksiyani oʻchirish",
+      pendingOn: "Yoqilmoqda…",
+      pendingOff: "Oʻchirilmoqda…",
+      errorTitle: "Yangilab boʻlmadi",
+      reasonLabel: "Sabab (ixtiyoriy, 500 belgigacha)",
+      reasonHint: "Audit uchun izoh. Erkin matn, 90 kundan keyin oʻchiriladi.",
+      enableDetail: "Yoqilgach, botning asosiy menyusida darhol «👩‍🏫 Ustozlar kuni (-{percent}%)» tugmasi paydo boʻladi, bitta qoʻshiq xaridiga {percent}% chegirma qoʻllanadi va matn promptlari ustozlarga minnatdorlikka sozlanadi.",
+      disableDetail: "Oʻchirilgach, tugma asosiy menyudan yashiriladi va bitta qoʻshiq xaridi oddiy narxga qaytadi.",
+    },
     subjects: {
       ledger: "Generatsiyalar jurnali",
       attempt: "Bu urinish",
@@ -2308,6 +2357,35 @@ export const uz: TranslationSchema = {
       reasonLabel: "Nega kalit oʻzgartirilyapti",
       reasonHint:
         "Audit qatoriga sizning nomingiz bilan tushadi. Bitta qator yetarli.",
+    },
+    rails: {
+      heading: "Toʻlov kanallari",
+      names: { rhmt: "Rahmat", payme: "Payme", checkoutuz: "checkout.uz" },
+      on: "Yoqilgan",
+      off: "Oʻchirilgan",
+      notWired: "Env’da ulanmagan",
+      notWiredHint:
+        "Bot muhiti oxirgi ishga tushishda bu kanalni ulamagan, shuning uchun kanal ulanmaguncha kalit hech narsaga taʼsir qilmaydi.",
+      wiredUnknownHint:
+        "Bot muhitida qaysi kanallar ulanganini xabar qilmagan, shuning uchun faqat kalit koʻrsatilgan.",
+      turnOn: "Yoqish",
+      turnOff: "Oʻchirish",
+      turnOnAria: "{rail}’ni yoqish",
+      turnOffAria: "{rail}’ni oʻchirish",
+      offTitle: "{rail} orqali sotuv toʻxtatilsinmi?",
+      offBody:
+        "Bot {rail} tugmalarini koʻrsatmaydi va yangi {rail} toʻlovlarini rad etadi. Boshlangan toʻlovlar baribir oʻtkaziladi va hisobga yoziladi. Boshqa kanallarga taʼsir qilmaydi.",
+      offLabel: "{rail}’ni oʻchirish",
+      offPending: "Oʻchirilyapti…",
+      onTitle: "{rail} orqali sotuv qayta yoqilsinmi?",
+      onBody:
+        "Agar kanal muhitda ulangan boʻlsa va toʻlovlar toʻxtatilmagan boʻlsa, bot {rail}’ni yana taklif qiladi.",
+      onLabel: "{rail}’ni yoqish",
+      onPending: "Yoqilyapti…",
+      reasonLabel: "Nega kanal kaliti oʻzgartirilyapti",
+      reasonHint: "Audit qatoriga sizning nomingiz bilan tushadi. Bitta qator yetarli.",
+      failedTitle: "Oʻzgartirib boʻlmadi",
+      loadFailed: "Toʻlov kanallarini oʻqib boʻlmadi",
     },
     calls: {
       title: "Kiruvchi chaqiruvlar",

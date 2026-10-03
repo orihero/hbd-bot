@@ -482,7 +482,7 @@ export function FigureCard({
  * coarse charts' default means the query key matches theirs and the page fetches one series
  * rather than two identical ones.
  */
-const UNTOGGLED_GRANS: readonly Gran[] = ["daily", "weekly", "monthly"];
+export const UNTOGGLED_GRANS: readonly Gran[] = ["daily", "weekly", "monthly"];
 
 export function granOr(grans: readonly Gran[], period: Period, fallback: Gran): Gran {
   return granFor(grans, period) ?? fallback;

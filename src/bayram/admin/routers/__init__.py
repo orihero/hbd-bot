@@ -29,7 +29,7 @@ from bayram.admin.routers.broadcasts import (
     build_broadcasts_router,
 )
 from bayram.admin.routers.chats import build_chats_router
-from bayram.admin.routers.config import build_config_router
+from bayram.admin.routers.config import build_config_manage_router, build_config_router
 from bayram.admin.routers.credits import build_credit_grant_router, build_credits_router
 from bayram.admin.routers.dashboard import (
     build_audience_lists_router,
@@ -71,6 +71,7 @@ __all__ = [
     "build_broadcast_actions_router",
     "build_broadcasts_router",
     "build_chats_router",
+    "build_config_manage_router",
     "build_config_router",
     "build_credit_grant_router",
     "build_credits_router",

@@ -413,6 +413,7 @@ class ElevenLabsMusicProvider:
                     plan.total_duration_ms, usd_per_minute=self._usd_per_minute
                 ),
                 cost_source=CostSource.ESTIMATED,
+                provider=self.name,
             )
         )
 

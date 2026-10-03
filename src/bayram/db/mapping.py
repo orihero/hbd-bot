@@ -228,6 +228,9 @@ def to_generated_asset(row: AssetRow) -> GeneratedAsset:
             strategy=row.name_candidate_strategy,
             rank=row.name_candidate_rank,
         )
+    provider = None
+    if row.payload and isinstance(row.payload, dict):
+        provider = row.payload.get("provider")
     return GeneratedAsset(
         kind=row.kind,
         path=Path(row.path),
@@ -237,6 +240,7 @@ def to_generated_asset(row: AssetRow) -> GeneratedAsset:
         name_candidate=candidate,
         loudness_lufs=row.loudness_lufs,
         persona_id=row.persona_id,
+        provider=provider,
     )
 
 
@@ -296,5 +300,9 @@ def asset_name_candidate_values(candidate: NameCandidate | None) -> dict[str, An
 
 
 def payload_for(asset: GeneratedAsset, lyrics: LyricDraft) -> dict[str, Any] | None:
-    """Only the lyric sheet stores its content in the row; everything else stores a path."""
-    return lyrics_to_payload(lyrics) if asset.kind is AssetKind.LYRIC_SHEET else None
+    """Store lyric sheet content, or asset provider metadata for audio assets."""
+    if asset.kind is AssetKind.LYRIC_SHEET:
+        return lyrics_to_payload(lyrics)
+    if asset.provider:
+        return {"provider": asset.provider}
+    return None

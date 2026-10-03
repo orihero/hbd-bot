@@ -24,9 +24,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from arq import create_pool
+from arq.connections import RedisSettings
+
 from bayram.bot.app import build_bot, build_storage
 from bayram.config import Settings, load_settings
 from bayram.logging import configure_logging, get_logger
+from bayram.providers.music.switch import read_music_provider
 from bayram.runtime.container import build_container
 from bayram.runtime.jobs import (
     BOT_CTX_KEY,
@@ -53,7 +57,17 @@ _SETTINGS = _settings()
 async def build_dependencies() -> Mapping[str, Any]:
     """Awaited once, at worker startup. Everything expensive is created here."""
     verify_host(_SETTINGS)
-    container = await build_container(_SETTINGS)
+    redis = (
+        None
+        if _SETTINGS.use_fake_providers
+        else await create_pool(RedisSettings.from_dsn(_SETTINGS.redis_url))
+    )
+    music_resolver = (
+        None
+        if redis is None
+        else (lambda: read_music_provider(redis, default=_SETTINGS.music_provider))
+    )
+    container = await build_container(_SETTINGS, music_provider_resolver=music_resolver)
     _LOG.info(
         "worker dependencies built",
         extra={"is_fake": _SETTINGS.use_fake_providers, "environment": _SETTINGS.environment},
@@ -65,6 +79,7 @@ async def build_dependencies() -> Mapping[str, Any]:
         CONTAINER_CTX_KEY: container,
         BOT_CTX_KEY: build_bot(_SETTINGS),
         STORAGE_CTX_KEY: build_storage(_SETTINGS),
+        "redis": redis,
     }
 
 
@@ -73,7 +88,9 @@ async def shutdown(ctx: Mapping[str, Any]) -> None:
     container = ctx.get(CONTAINER_CTX_KEY)
     bot = ctx.get(BOT_CTX_KEY)
     storage = ctx.get(STORAGE_CTX_KEY)
+    redis = ctx.get("redis")
     for label, close in (
+        ("redis", getattr(redis, "aclose", None)),
         ("fsm_storage", getattr(storage, "close", None)),
         ("bot", getattr(getattr(bot, "session", None), "close", None)),
         ("container", getattr(container, "aclose", None)),

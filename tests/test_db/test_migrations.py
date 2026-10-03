@@ -154,6 +154,18 @@ _BOT_CHATS_TABLE: Final[str] = "bot_chats"
 #: because that test compares NAMES in one direction only.
 _SELECTED_SUPPORT_GROUP_INDEX: Final[str] = "ix_bot_chats_selected_support_group"
 
+#: The table revision ``0030`` adds: one row per checkout.uz payment link. Named by hand for the
+#: reason stated on ``_EXPECTED_TABLES``, and the stake is the poller. checkout.uz's webhook is
+#: unsigned and never retried, so this table is the ONLY record of which orders a worker must
+#: still ask checkout.uz about — and every test that proves a paid order is granted exactly once
+#: builds its schema with ``create_all``. An unregistered model would leave that suite green
+#: against a database where no payment link was ever recorded.
+_CHECKOUTUZ_PAYMENTS_TABLE: Final[str] = "checkoutuz_payments"
+#: The poller's composite index, hand-named in the model and in revision 0030. Asserted by name
+#: AND by shape, the way the support card latch is: the generic comparison checks names in one
+#: direction only, and an index on the wrong columns would leave both poll reads full scans.
+_CHECKOUTUZ_POLL_INDEX: Final[str] = "ix_checkoutuz_payments_state_valid_until"
+
 #: The revision that adds the lyric the customer approves in the wizard, and the one it
 #: builds on. Named here because both halves of the product depend on this column existing
 #: before the wizard ships: without it the worker silently sings a lyric nobody approved.
@@ -527,6 +539,31 @@ def test_the_bot_chats_table_is_registered_as_well_as_migrated() -> None:
     )
 
 
+def test_the_checkoutuz_payments_table_is_registered_as_well_as_migrated() -> None:
+    """Revision 0030 creates ``checkoutuz_payments``; a model has to declare it too.
+
+    The same companion the registration tests above are, and the same blind spot in
+    ``_EXPECTED_TABLES``: a model file that exists but is never imported in
+    ``db/models/__init__.py`` is invisible to ``Base.metadata``, so it drops out of BOTH sides
+    of every comparison in this module at once.
+
+    Named rather than left to the derived comparison because of what the table is FOR. A
+    checkout.uz link outlives nothing on our side but this row: the webhook is unsigned and
+    never retried, so the poller walking this table is the only path by which a payment made on
+    checkout.uz's page becomes a song. An unregistered model would leave every settlement test
+    green against a database with no payment links in it — and the symptom in production would
+    be customers who paid and were never granted anything.
+    """
+    # Arrange / Act
+    registered = set(Base.metadata.tables)
+
+    # Assert
+    assert _CHECKOUTUZ_PAYMENTS_TABLE in registered, (
+        f"{_CHECKOUTUZ_PAYMENTS_TABLE} is created by revision 0030 but no model declares it; "
+        "import CheckoutUzPaymentRow in src/bayram/db/models/__init__.py"
+    )
+
+
 def test_the_approved_lyrics_revision_is_reachable_from_head() -> None:
     # Arrange — walk_revisions starts at head, so membership proves the chain resolves.
     script = ScriptDirectory.from_config(_config())
@@ -748,6 +785,27 @@ def test_the_support_group_selection_index_is_unique_and_partial(
         "UNIQUE (is_support_group) permits one selected row AND one unselected row, so the "
         "table would refuse the third group the bot is added to."
     )
+
+
+def test_the_checkoutuz_poll_index_spans_state_then_the_link_clock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both poll reads filter ``state = 'pending'`` and range over ``link_valid_until``.
+
+    The leading column is the equality and the second the range, which is the only order in
+    which one index serves both :func:`bayram.db.checkoutuz_sql.pollable_payments` and
+    :func:`bayram.db.checkoutuz_sql.final_check_payments`. Not unique: many links share a state.
+    """
+    # Arrange
+    url = _sqlite_url(tmp_path, "checkoutuz.db")
+    _upgrade(url, monkeypatch)
+
+    # Act
+    indexes = _index_columns_of(url, _CHECKOUTUZ_PAYMENTS_TABLE)
+
+    # Assert
+    assert indexes[_CHECKOUTUZ_POLL_INDEX] == (("state", "link_valid_until"), False)
+    assert indexes["ix_checkoutuz_payments_intent_id"] == (("intent_id",), False)
 
 
 def test_upgrade_then_downgrade_leaves_no_tables_behind(

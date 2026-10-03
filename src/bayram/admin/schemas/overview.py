@@ -106,6 +106,7 @@ from bayram.contracts import (
     Vendor,
     VendorOperation,
 )
+from bayram.db.admin.channels import ChannelPerformance
 from bayram.db.admin.sql import TimeWindow
 from bayram.db.admin.views import (
     AccountTotals,
@@ -159,6 +160,7 @@ __all__ = [
     "LanguageMixEntryView",
     "LanguageMixView",
     "ActivityPointView",
+    "ChannelPerformanceView",
     "AudienceResponse",
     "DerivedRevenueView",
     "CostPerSongView",
@@ -617,6 +619,21 @@ class AudienceResponse(ApiModel):
     #: False means the nightly snapshot job has not run, so there is no HISTORICAL active
     #: series to draw — even though the live DAU/WAU/MAU gauge above answers perfectly well.
     is_activity_history: bool
+    #: Traffic and conversion performance aggregated per marketing acquisition channel.
+    channels: list[ChannelPerformanceView] = Field(default_factory=list)
+
+
+class ChannelPerformanceView(ApiModel):
+    """Acquisition metrics for one marketing channel."""
+
+    channel: str
+    clicks: int
+    new_users: int
+    onboarded_users: int
+    orders_count: int
+    paying_users: int
+    revenue_minor: int
+    conversion_rate: float
 
 
 # ---------------------------------------------------------------------------
@@ -1225,6 +1242,7 @@ def to_audience_response(
     activity: tuple[ActivityPoint, ...],
     activity_bucket: SeriesBucket,
     capabilities: ReadCapabilities,
+    channels: list[ChannelPerformance] | None = None,
 ) -> AudienceResponse:
     """Assemble the Audience section. Keyword-only: eight aggregates of eight shapes.
 
@@ -1276,6 +1294,19 @@ def to_audience_response(
         ],
         activity_bucket=activity_bucket,
         is_activity_history=capabilities.is_activity_history,
+        channels=[
+            ChannelPerformanceView(
+                channel=c.channel,
+                clicks=c.clicks,
+                new_users=c.new_users,
+                onboarded_users=c.onboarded_users,
+                orders_count=c.orders_count,
+                paying_users=c.paying_users,
+                revenue_minor=c.revenue_minor,
+                conversion_rate=c.conversion_rate,
+            )
+            for c in (channels or [])
+        ],
     )
 
 

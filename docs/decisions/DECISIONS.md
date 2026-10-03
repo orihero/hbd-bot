@@ -601,6 +601,100 @@ The render's identity is the UUID5 `order_id_for` already takes over the draft, 
 **Known weaknesses.** (1) Nothing alarms on a stale date; the date is rendered and a human must look at it. (2) The price mirror can drift silently — `extra="ignore"` means writing the worker's spelling into the admin file is a no-op with no error, and nothing cross-checks the two processes. (3) Setting three of the four variables takes the panel off the air in a crash loop rather than degrading, which is the correct refusal but an unkind one to walk into; the procedure in `02-configuration.md` states it in capitals for that reason. (4) The rate applies to every historical card at once, so correcting a wrong rate changes what past periods appear to have earned — the as-of date is the only record that they were ever read differently.
 
 
+### D27 — Gemini shows SPEND, not a balance, and an empty prepay balance fails over per call
+
+*(D20–D26 are taken by the image/video plan on `feat/media-products`; this entry skips them so the two branches cannot collide.)*
+
+**Decision.** The panel reports what Gemini has **cost** (all Gemini calls: Lyria music, and the LLM leg when it runs on Gemini). `GET /api/metrics/gemini-spend` returns today and month to date (UTC), summed from `vendor_usage` at our per-request price (`LYRIA_USD_PER_REQUEST`, $0.08 per `lyria-3.5` song) by `bayram.db.gemini_spend`. It also returns **`isDepleted`**: the latest Gemini call was refused with `QUOTA_EXHAUSTED`, meaning Google answered 402 "prepayment credits are depleted". While that holds, **each render is re-issued on the default provider** (ElevenLabs) inside `DynamicMusicProvider`. The Redis switch is not flipped, so the next successful Gemini call after a top-up clears the state by itself. Gemini writes **no** `vendor_balances` row.
+
+**Reasoning.** Google gives no programmatic access to a Gemini prepay balance or to the credits bought into it. Its billing docs (updated 2026-09-28) say the balance "must be" managed in AI Studio, the Cloud Billing charging-cycle page says prepay transactions never reach Cloud Billing, and neither the Cloud Billing API nor budgets nor the BigQuery export records a purchase. Postpay was removed on 2026-09-14, so this cannot be avoided by changing billing mode. A balance would need either a person typing it in or scraping AI Studio's private RPC with the owner's session cookies. **The owner rejected manual entry on 2026-09-30**, and scraping was rejected for its terms-of-service risk to the owner's Google account and for its fragility. Spend we can measure exactly; Google's own refusal is the one balance fact we can read.
+
+**Fallback and switch trigger.** Turn on AI Studio **auto-reload** with a monthly auto-charge limit (UI only; there is no API for it), so `isDepleted` should stay false. Revisit if Google publishes a balance or purchases API, or if the BigQuery export ever records prepay purchases; either would make a true balance a subtraction. Gmail receipt parsing was considered as an automatic source of purchases, but Google sending a receipt per top-up is unverified, and it would need read access to a mailbox.
+
+**Cost.** One read-only SQL module, one admin route, no migration, no new secret, no Redis key.
+
+**Confidence.** HIGH that no balance API exists as of 2026-09-30. MEDIUM on the spend figure: per-request pricing was read from Google's pricing page and has not been reconciled against Cloud Billing. MEDIUM on the 402 signal: forum reports show Google's own prepay state occasionally lagging after a top-up.
+
+**Reversibility.** Cheap. The route and module are additive; the failover is a few lines in `DynamicMusicProvider` and applies only to `QUOTA_EXHAUSTED`.
+
+### D28 — checkout.uz is an added rail whose webhook is believed for nothing, and the owner switches each rail off without a restart
+
+*(Decided 2026-10-03. The owner answered the plan's open questions the same day: the switch covers all three real rails, checkout.uz is listed after Rahmat and Payme, and a payment confirmed after the intent's 12-hour expiry is honoured. The runbook is `docs/deployment/12-checkoutuz.md`.)*
+
+**Decision.** checkout.uz is a third redirect rail. Its hosted page offers Click and Payme. Eighteen rules define it.
+
+1. **It is a separate env flag, not a `CheckoutRail` value.** `BAYRAM_CHECKOUTUZ_ENABLED` is a bool that composes with every value of `BAYRAM_CHECKOUT_PROVIDER`. The `stub | payme | rhmt | both` literal is unchanged.
+2. **The bot sells on one ordered rail list**, `bayram.checkout_rails.wired_rails`: `stub` → (), `payme` → (payme), `rhmt` → (rhmt), `both` → (rhmt, payme), and then `checkoutuz` is appended when the flag is on **and** the key is non-blank. An empty list is the stub. One rail is that rail's provider, bare. Several rails are a `CompositeCheckoutProvider`. The container builds the providers and the bot draws its buttons from this one list. A stub is never placed inside a composite.
+3. **The composite routes exactly.** A button that names a rail goes to that rail. An unknown name is an `Err(CheckoutError)` and never falls through. A press with no rail named goes to the first rail. A stale checkout.uz button therefore cannot quietly open a Rahmat payment. Because one wired rail is the BARE provider, which ignores the named rail, the bot's `_settle` also refuses up front any press naming a rail that is not in `BotDeps.checkout_rails` (`checkout.unavailable`, then a redraw), before anything is charged — so a stale 💸 button after the fallback below cannot open a Payme payment either.
+4. **The API key goes in the bot's dotenv only** (`/etc/bayram/bot.env`, read by the bot and the worker). It is in `VENDOR_SECRET_FIELDS` and not in `REQUIRED_VENDOR_SECRET_FIELDS`. There is no `.env.checkoutuz`. The admin process and the Payme gateway refuse to boot in production if they can reach the key, and neither of them needs it. Turning the flag on with a blank key is a **boot refusal** naming `BAYRAM_CHECKOUTUZ_API_KEY`. It does not silently leave the button off.
+5. **The webhook body is never trusted.** Money moves only after the worker calls `status_payment(id)` itself and every one of these checks holds:
+   - the answer is `status == "paid"` for that exact `id`;
+   - the paid amount equals the soʻm amount recorded when the link was minted;
+   - that amount × 100 equals the intent's `amount_minor`;
+   - the intent was opened for this rail.
+6. **The poller is the source of truth, and the webhook only makes settlement sooner.** The worker cron `run_checkoutuz_poll` runs every `BAYRAM_CHECKOUTUZ_POLL_MINUTES` (5 by default, at :01, :06, … so it never shares a minute with another cron). The gateway route `POST /checkoutuz/callback[/<public_ref>]` does one SELECT and, for a known pending order, enqueues `reconcile_checkoutuz_order` under a deterministic job id. It answers `200 {"ok":true}` to everything. The reconcile is registered with `keep_result=0`: ARQ refuses an id while a RESULT is kept under it, so with the worker-wide one-hour TTL an early or forged webhook would have left a `not_paid` result that swallowed the real webhook's enqueue for an hour. The id therefore only dedupes reconciles queued at the same moment.
+7. **A side table records every link: `checkoutuz_payments` (migration 0030).** One intent can carry several payments, because a link lives 3 600 s and an intent lives 12 h. A press within the hour returns the same link. A press after the link has lapsed (or will within 60 s) mints a new link beside the old one. Every `order_id` stays pollable. The expiry column is `link_valid_until`, not `…_expires_at`, because `test_audit_retention` treats any `*expires_at` column as a retention clock. The FK to `payment_intents` is `ON DELETE RESTRICT`, not CASCADE: an expired intent can sit behind an `orphan_paid` link (an amount mismatch leaves the intent to expire), and that link is the only record of a refund owed. The 400-day intent purge skips any intent with a `paid` or `orphan_paid` link and deletes the remaining links child-first.
+   - **Every failed `status_payment` is stamped** (`last_polled_at`), and both poll batches order `last_polled_at NULLS FIRST`, so an order checkout.uz will not answer for rotates to the back instead of filling the head of every batch. A non-retryable error (4xx, malformed reply, answer about another order) is logged at ERROR. **The final check gives up** `FINAL_CHECK_GIVE_UP_S` (24 h) after the link's end: the row is closed `expired` with an ERROR `checkoutuz.final_check_unresolved` naming the order, for a manual check. A time cap rather than "close on the first non-retryable error", because a revoked key turns every answer into a non-retryable 401 and would otherwise expire every lapsed link in one pass.
+8. **A late payment is honoured, for this rail only.** An intent in `PENDING`, `AWAITING` **or `EXPIRED`** can be claimed. A paid link whose intent was already paid through another link becomes `orphan_paid`, is logged at ERROR, and is never granted twice. **A paid amount that does not match is also closed as `orphan_paid`**, rather than left pending to raise an ERROR on every poll. Both cases are refunded by hand. The same applies one level down: a **link** the final check already closed as `expired` is still settled when its webhook arrives and checkout.uz confirms `paid`.
+9. **The owner switch is per rail**, for `rhmt`, `payme` and `checkoutuz`. The Redis key is `bayram:config:checkout_rail:<name>`, and it is always written explicitly as `"1"` or `"0"`, never deleted. Deleting the key is how the teachers'-day switch fails. A missing key, an unrecognised value or a Redis error all read as **on**: the switch fails open, like the Payme pause. Only the OWNER can write it (`CONFIG_MANAGE`, `POST /api/config/checkout-rails`, with a reason and an audit row). The audit row's `subject_id` is `checkout_rail:<rail>:on|off` and it records the client IP, because the Redis value is overwritten by the next write and the audit log is the switch's only history. Every role can read it.
+10. **A rail is on sale only if the env wires it AND its switch is on AND checkout is not globally paused.** The switch is read only by `charge()` and by the bot when it draws buttons. Settlement never reads it.
+11. **Rahmat and Payme get the switch inside their existing `paused` callable** (`_gated`). There is no wrapper, so the `isinstance`/`._opener` wiring pins hold, and a stale press shows the "paused" copy. checkout.uz instead gets an explicit `enabled=` reader and returns `CheckoutRailDisabledError` with its own copy, `checkout.rail_disabled`.
+12. **Settlement runs whenever the key is present.** Sales need the flag AND the key AND the switch. The poll cron is registered when the key is non-blank, whatever the flag says. Turning the flag off therefore never strands a payment, and no drain procedure is needed.
+13. **The idempotency key is rail-qualified when a button names a rail:** `…:{seq}:{rail}`. The plain first-rail button keeps the old key, so intents minted before this change still match. The double-tap window is keyed on (product, rail). As a second guard, the checkout.uz provider refuses any intent whose `provider` is not `checkoutuz`.
+14. **Amounts are whole soʻm:** `amount_minor // 100`. A price with a tiyin remainder, or outside 1 000..10 000 000 soʻm, is refused before any intent is opened. Amounts are never rounded. If checkout.uz echoes a different amount on `create_payment`, the page is withheld and an ERROR is logged.
+15. **An intent that is not `PENDING` is refused with `Err`.** No payment is created and no "paid" receipt is returned. Answering `is_paid=True` would send the bot down its fulfil path under the request key, and the customer could be granted twice.
+16. **The bot publishes its wired rails** to `bayram:checkout:wired_rails` at boot, comma-joined with no TTL. The admin panel reads that key to mark a rail "Not live in env", because the panel cannot read `bot.env`. A missing key reads as "unknown", not as "nothing wired".
+17. **Two counts now filter on provider, and force-settle keeps the provider.**
+    - `settlement_counts` counts settled keys only when `provider == "payme"`. Without the filter, every Rahmat or checkout.uz sale would raise a `receipts_over` alarm.
+    - The panel's `settlement_snapshot` filters its operator-settlement count the same way, so that "Payme transactions + operator settlements = receipts" still holds.
+    - `_write_sale` stamps a receipt with the intent's own `provider` instead of a hard-coded `payme`, so a force-settled Rahmat or checkout.uz receipt is no longer labelled Payme.
+18. **The link screen shows one button per payment method** (owner-approved, 2026-10-03). `create_payment` returns `_pay_via`, a page per enabled method (`click`, `payme`, `card`, `plum`, `paylov`, `xazna`, `oson` for this merchant). The bot draws them as URL buttons, two per row, under brand names that are not translated (`keyboards.PAY_METHOD_LABELS`), in checkout.uz's order. Below them is 🌐 "All payment methods", which opens the general `_url` page, and then 🏠. The price screen is unchanged. `_pay_via` is parsed leniently: entries with a bad key or a non-https value are dropped, a missing block leaves only the general page, and the list is capped at 12. It is stored as `checkoutuz_payments.pay_via` (JSON, nullable), so a re-press within the hour draws the same buttons. `get_payment_methods` is never called per charge. Every other rail passes no methods, and its keyboard is byte-identical to before.
+
+**Reasoning.** checkout.uz documents no signature on its webhook, no retry, and no statuses other than `pending` and `paid`. It also has no sandbox. So the webhook can be neither believed nor relied on. The only trustworthy fact is the answer to our own authenticated `status_payment` call, which makes the poller the mechanism and the webhook a hint. Because the vendor takes the money on its own page without asking us first, refusing a late payment would not stop the payment. It would only guarantee the customer got nothing for it. That is why `EXPIRED → PAID` is allowed here and nowhere else.
+
+The switch is per rail because the three rails fail independently: one cabinet can be frozen while the others are fine. The env flag stays the hard off because the panel's process must never hold the key. The two predicates in `bayram.main` are kept apart on purpose:
+- `takes_money = checkout_provider != stub OR checkoutuz_enabled` gates the dark-meter refusal, so `BAYRAM_CREDITS_ENFORCED=true` is required whenever checkout.uz sells.
+- The Payme sandbox refusal still keys on `checkout_provider != stub` alone. Folding checkout.uz into it would refuse every stub + checkout.uz production deployment, because `payme_is_sandbox` defaults to true in the bot.
+
+**Fallback and switch trigger.** The fallback is `BAYRAM_CHECKOUTUZ_ENABLED=false` and a restart of the bot and the worker. The button disappears and no new links are minted. Settlement continues for as long as the key is left in place, so keep it until one hour (link life) plus 15 minutes (poll grace) after the last link was issued. For a pause with no restart, the owner turns the `checkoutuz` switch off in the panel. **Trigger to revisit:**
+- checkout.uz adds a webhook signature, at which point the webhook could settle directly and the poll could slow down;
+- checkout.uz documents statuses beyond `pending`/`paid` (refunded, cancelled, partial), which the settlement does not recognise today;
+- any evidence of a double grant, or of a paid order that no poll ever saw.
+
+**Alternatives rejected.**
+- *A fifth `CheckoutRail` value* (`all`, `payme+checkoutuz`, …). This multiplies the literal for every combination and breaks the pinned rail-name tests.
+- *Columns on `payment_intents`, replaced when a link expires.* This overwrites the old `order_id`, so a page left open past its hour and then paid would arrive as an unknown order: money taken, no credit.
+- *A gating wrapper around each provider.* This breaks the Payme wiring pins and adds a second place where "paused" is decided.
+- *Gating the poller on the env flag.* This strands every payment in flight on the day the rail is turned off.
+- *Settling straight from the webhook body.* Anyone on the internet can POST it.
+- *One MGET for the three switches.* The admin test double has no `mget`, and three GETs cost nothing.
+
+**Cost.**
+- One migration (0030, additive: one table, two indexes, no backfill).
+- One new credential, in one file.
+- Two worker functions and one cron.
+- One gateway route.
+- Three Redis switch keys and one published key.
+- One owner-only admin endpoint and a panel row per rail.
+- Five locale keys in each bot catalogue.
+- One edge route: the Cloudflare Tunnel ingress for `pay.bayrambot.uz` must deliver `/checkoutuz/*` to the gateway on `127.0.0.1:8091`. The Caddy handle in `deploy/caddy/pay.bayrambot.uz.caddy` does this when the tunnel route still ends at Caddy on `:80`.
+
+**Confidence.**
+- HIGH on the settlement's safety. Every write is a conditional `UPDATE` whose rowcount is the lock, and money moves only on our own authenticated read.
+- MEDIUM on the vendor's contract. The API was read from checkout.uz's public docs on 2026-10-03 and has never been exercised against a live key. `_lifteme` (sic) is parsed leniently, falling back to 3 600 s with a warning. No status beyond `pending`/`paid` is documented.
+- UNVERIFIED on the edge route. Nobody has confirmed that the tunnel delivers `/checkoutuz/*` on the host.
+
+**Reversibility.** Behaviour: CHEAP (one variable, or one owner click). Structure: MEDIUM. Removing the table needs a down-migration and loses the record of which links were ever issued, so do not remove it while any row is `pending`.
+
+**Known weaknesses.**
+1. **A link paid after its final check is credited only if its webhook arrives.** The poll asks one last time 15 minutes after the link's hour and then closes it as `expired`, and never polls it again. The webhook gate still queues a reconcile for an `expired` link, and the settlement moves it `expired → paid` once checkout.uz confirms (ERROR `checkoutuz.paid_after_expiry`). If that one unretried webhook is lost, recovery is manual (`12-checkoutuz.md` §7.2).
+2. **No sandbox**, so the first live test is real money. It needs the owner's explicit yes, at the 1 000 soʻm floor.
+3. **The webhook needs the Payme gateway running.** Its lifespan refuses to boot unless Payme is enabled with a key. A deployment selling checkout.uz alone has no webhook and settles on the poll only, within one poll interval.
+4. **Refunds for `orphan_paid` are by hand in the checkout.uz dashboard**, with no API and no agreed SLA (an open question for the owner).
+5. **Fiscal receipts (`get_fiscal`, OFD) are out of scope.** Whether they are legally required is an open question.
+6. **Migration 0030 collides by number** with `feat/media-products`' own 0030. Whichever branch merges second re-chains.
+7. **The one-tap paywall stays out of scope** (owner, 2026-10-03). `charge()` makes an HTTP call and cannot run at render time.
+
 ---
 
 ## 5. Fastest path to a paying bot

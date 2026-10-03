@@ -43,6 +43,7 @@ __all__ = [
     "PaymentError",
     "CheckoutError",
     "CheckoutPausedError",
+    "CheckoutRailDisabledError",
     "EntitlementError",
     "InsufficientCreditsError",
     "TooManyOrdersInFlightError",
@@ -429,6 +430,25 @@ class CheckoutPausedError(CheckoutError):
     """
 
     default_user_message_key = "checkout.paused"
+
+
+class CheckoutRailDisabledError(CheckoutPausedError):
+    """The owner has switched ONE rail off for new sales; the others may still be selling.
+
+    A subclass of :class:`CheckoutPausedError` because it is the same event with a narrower
+    scope: nothing was charged, nothing broke, and money already in flight on this rail still
+    settles — the per-rail switch, like the global pause, is read only when a sale starts and
+    never on a settlement (``DECISIONS.md D28``). Every caller that already treats "paused" as
+    "say so plainly and do not apologise" therefore handles this one correctly without a
+    branch of its own.
+
+    **It has its own copy because "payments are paused" would be false.** The customer who
+    sees this pressed a button for a rail that went dark while their screen was open, and the
+    other price buttons on a refreshed screen still work. ``checkout.rail_disabled`` says
+    "this payment method is unavailable, choose another", which is the truthful next step.
+    """
+
+    default_user_message_key = "checkout.rail_disabled"
 
 
 # ---------------------------------------------------------------------------

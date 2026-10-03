@@ -23,9 +23,17 @@ from bayram.errors import ConfigError
 from bayram.providers.music.elevenlabs import (
     DEFAULT_MUSIC_MAX_CONCURRENCY,
     SCALE_TIER_MAX_CONCURRENCY,
+    ElevenLabsMusicProvider,
 )
 from bayram.providers.music.factory import build_music_provider
 from tests.test_providers_music.conftest import simple_plan
+
+
+def _elevenlabs(settings: Settings, **kwargs: Any) -> ElevenLabsMusicProvider:
+    """``build_music_provider`` on the default (ElevenLabs) path, narrowed for inspection."""
+    provider = build_music_provider(settings, **kwargs)
+    assert isinstance(provider, ElevenLabsMusicProvider)
+    return provider
 
 
 def _reconfigured(settings: Settings, **extra: Any) -> Settings:
@@ -35,7 +43,7 @@ def _reconfigured(settings: Settings, **extra: Any) -> Settings:
 
 def test_the_provider_is_wired_from_the_elevenlabs_settings(settings: Settings) -> None:
     # Arrange / Act
-    provider = build_music_provider(settings)
+    provider = _elevenlabs(settings)
 
     # Assert
     assert provider._model_id == settings.music_model_id
@@ -45,7 +53,7 @@ def test_the_provider_is_wired_from_the_elevenlabs_settings(settings: Settings) 
 
 def test_concurrency_defaults_to_the_safe_tier_ceiling(settings: Settings) -> None:
     # Arrange / Act
-    provider = build_music_provider(settings)
+    provider = _elevenlabs(settings)
 
     # Assert: two simultaneous renders, the Starter/Creator/Pro limit.
     assert provider._slots._value == DEFAULT_MUSIC_MAX_CONCURRENCY
@@ -60,7 +68,7 @@ def test_the_configured_ceiling_is_honoured(settings: Settings) -> None:
     )
 
     # Act
-    provider = build_music_provider(upgraded)
+    provider = _elevenlabs(upgraded)
 
     # Assert
     assert provider._slots._value == SCALE_TIER_MAX_CONCURRENCY
@@ -92,7 +100,7 @@ def test_a_zero_rate_is_accepted_and_reaches_the_provider(settings: Settings) ->
     unpriced = _reconfigured(settings, music_usd_per_minute=0.0)
 
     # Act
-    provider = build_music_provider(unpriced)
+    provider = _elevenlabs(unpriced)
 
     # Assert — it arrives unaltered, and the adapter reads it as "not priced": no cost and
     # no provenance, which is what keeps SUM(cost_usd) honest for this deployment.
@@ -105,7 +113,7 @@ def test_the_shipped_rate_prices_a_render_and_says_the_figure_is_estimated(
 ) -> None:
     # Arrange — nothing configured. This is the out-of-the-box deployment, and music is the
     # one leg it prices: the panel's "nothing is priced yet" state is NOT what it ships in.
-    provider = build_music_provider(settings)
+    provider = _elevenlabs(settings)
 
     # Act
     cost, source = provider._estimated_cost(simple_plan())
@@ -138,7 +146,7 @@ async def test_a_shared_client_is_used_when_one_is_passed(settings: Settings) ->
     client = httpx.AsyncClient()
 
     # Act
-    provider = build_music_provider(settings, client=client)
+    provider = _elevenlabs(settings, client=client)
     await provider.aclose()
 
     # Assert: the pool belongs to the caller, so it stays open.

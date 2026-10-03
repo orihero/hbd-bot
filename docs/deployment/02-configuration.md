@@ -139,6 +139,7 @@ the rule is stated once, at `bayram.admin.settings.ADMIN_ENV_FILE_VAR`, and
 | file read **on this host** | `/etc/hbd/hbd.env`, via `EnvironmentFile=` | same | `/etc/hbd/hbd-admin.env`, via `EnvironmentFile=` | `/etc/hbd/payme.env`, via the selector — the only one | `[UNPROVEN]`; the host's cutover script sources an env file with `set -a` |
 | holds vendor keys | yes, required | yes, required | **never** — no field can hold one | **never** — no field can hold one, **plus** `InaccessiblePaths` at the kernel level on this host | inherits the bot's file |
 | needs ffmpeg | yes | yes | no | **no** | no |
+| holds the checkout.uz key (`BAYRAM_CHECKOUTUZ_API_KEY`, `DECISIONS.md D28`) | **yes** — creates payments | **yes** — polls and settles them; the poll cron is registered only when the key is set | **never** — refused at prod boot (`FORBIDDEN_ENV_VARS`) | **never** — refused at prod boot; its webhook route needs no key | inherits the bot's file, reads nothing from it `[TREE 2026-10-03]` |
 
 The admin process reads a different file from the bot *because that separation is the
 vendor-key boundary*, not as a convenience — `src/bayram/admin/settings.py:64` says it plainly
@@ -762,6 +763,48 @@ certification and reconciliation runbooks — are [08-payme.md](08-payme.md) and
 [09-payme-go-live.md](09-payme-go-live.md), not this page. What belongs here is the single
 configuration fact an operator must not miss: **`environment` is `dev` on a production host**, and
 it disarms two of this class's boot controls.
+
+## The checkout.uz rail — a `Settings` block, one file, and a flag that gates sales but not settlement
+
+Added 2026-10-03 `[TREE 2026-10-03]`. Nothing here has been set on the host yet. The runbook,
+covering the edge route, the owner switch, manual confirmation and refunds, is
+[12-checkoutuz.md](12-checkoutuz.md). The reasons are in `DECISIONS.md D28`.
+
+**Unlike Payme, checkout.uz brings no new process and no new dotenv.** Every variable below is a
+`Settings` field read from the **bot's** file (`/etc/bayram/bot.env` through `BAYRAM_ENV_FILE`),
+by both the bot and the worker. There is no `.env.checkoutuz` and no `CheckoutUzSettings`. The
+key is a credential in `VENDOR_SECRET_FIELDS`, so the admin API and the Payme gateway both
+**refuse to boot in production** when it is reachable to them. It is **not** in
+`REQUIRED_VENDOR_SECRET_FIELDS`, so a deployment that does not sell on checkout.uz boots without
+it.
+
+| Variable | Default | Consequence |
+| --- | --- | --- |
+| `BAYRAM_CHECKOUTUZ_ENABLED` | `false` | **Sales only.** It is a separate bool, not a value of `BAYRAM_CHECKOUT_PROVIDER`: checkout.uz is appended to whatever rails that variable selects (`stub` → checkout.uz alone; `both` → Rahmat, Payme, checkout.uz). `true` with a blank key is a **boot refusal** in `build_checkout` on the bot and the worker, naming the key. `true` also makes the dark-meter refusal apply: see below. |
+| `BAYRAM_CHECKOUTUZ_API_KEY` | `""` | The Bearer key. **It alone governs settlement:** the worker registers the poll cron whenever it is non-blank, whatever the flag or the owner switch says. Remove it only one hour plus 15 minutes after the last link was issued. |
+| `BAYRAM_CHECKOUTUZ_BASE_URL` | `https://checkout.uz/api/v1` | No sandbox host exists. Every payment is real money. |
+| `BAYRAM_CHECKOUTUZ_WEBHOOK_BASE_URL` | `https://pay.bayrambot.uz/checkoutuz/callback` | Sent per payment, with `/<public_ref>` appended. It arrives only if the **Cloudflare Tunnel ingress for the pay host delivers `/checkoutuz/*` to the gateway on `127.0.0.1:8091`**, either through Caddy's `handle /checkoutuz/*` or through a tunnel path rule. The webhook only speeds settlement up; the poll settles every payment without it. |
+| `BAYRAM_CHECKOUTUZ_RETURN_URL` | `https://t.me/BayramBot` | Where checkout.uz sends the customer after payment. |
+| `BAYRAM_CHECKOUTUZ_POLL_MINUTES` | `5`, `1..60` | Customer-facing: the longest a paid customer waits when the webhook is lost. Minutes are counted from :01 and never collide with another cron (`bayram.runtime.jobs.checkoutuz_poll_minutes`). |
+| `BAYRAM_CHECKOUTUZ_POLL_BATCH` | `50`, `1..500` | The maximum number of `status_payment` calls in one pass. |
+
+**Two interactions with variables documented elsewhere on this page:**
+
+* **`BAYRAM_CREDITS_ENFORCED` must be `true` before the flag goes on.** `bayram.main` now refuses
+  to boot when `takes_money` holds (`checkout_provider != stub` **or** `checkoutuz_enabled`) and
+  the meter is dark. That refusal predates checkout.uz for the Payme and Rahmat values. The
+  "Entitlements and price" row above, which says the bot "never refuses", describes the code as
+  it was on 2026-09-11 and is stale on that point.
+* **`BAYRAM_PAYME_IS_SANDBOX` does not affect this rail.** The sandbox refusal keeps its old
+  predicate (`checkout_provider != stub`). A stub + checkout.uz production deployment therefore
+  boots with Payme entirely unconfigured, which is the reason the two predicates are kept apart.
+
+**The owner's per-rail switch is not configuration in this sense.** It is three Redis keys
+(`bayram:config:checkout_rail:{rhmt,payme,checkoutuz}`, explicit `"1"`/`"0"`, read as on when
+missing), written from the admin panel by the OWNER with no restart. It can switch a rail off
+but never on: a rail the env does not wire stays off whatever the key says. At boot the bot
+publishes the rails it wired to `bayram:checkout:wired_rails`, which is how the panel knows
+whether a rail is "live in env" without reading this file.
 
 ---
 

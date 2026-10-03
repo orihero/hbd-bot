@@ -67,6 +67,8 @@ from fastapi import APIRouter, Depends, Query
 
 from bayram.admin.deps import API_PREFIX, Db, require_permission
 from bayram.admin.schemas.vendors import (
+    GeminiSpendResponse,
+    GeminiSpendTotalView,
     VendorErrorView,
     VendorUsagePerDayView,
     VendorUsageResponse,
@@ -88,8 +90,10 @@ from bayram.db.admin.vendor_usage import (
     vendor_usage_totals,
 )
 from bayram.db.base import utc_now
+from bayram.db.gemini_spend import measure_gemini_spend
 
 __all__ = [
+    "GEMINI_SPEND_PATH",
     "VENDOR_ERRORS_PATH",
     "VENDOR_USAGE_BY_DAY_PATH",
     "VENDOR_USAGE_PATH",
@@ -102,6 +106,7 @@ __all__ = [
 VENDOR_USAGE_PATH: Final[str] = f"{API_PREFIX}/metrics/vendor-usage"
 VENDOR_USAGE_BY_DAY_PATH: Final[str] = f"{API_PREFIX}/metrics/vendor-usage-by-day"
 VENDOR_ERRORS_PATH: Final[str] = f"{API_PREFIX}/metrics/vendor-errors"
+GEMINI_SPEND_PATH: Final[str] = f"{API_PREFIX}/metrics/gemini-spend"
 
 
 def build_window(
@@ -268,5 +273,28 @@ def build_vendors_router() -> APIRouter:
                 exclude_operations=exclude_health,
             )
         ]
+
+    @router.get(GEMINI_SPEND_PATH)
+    async def gemini_spend(db: Db) -> GeminiSpendResponse:
+        """Gemini spend today and this month (UTC), and whether Google has refused for credit.
+
+        Window-blind on purpose: the two periods are fixed calendar boundaries so the figure
+        reads the same on every screen that shows it.
+        """
+        now = utc_now()
+        day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        spend = await measure_gemini_spend(
+            db, day_start=day_start, month_start=day_start.replace(day=1)
+        )
+        return GeminiSpendResponse(
+            today=GeminiSpendTotalView(
+                spent_usd=spend.today.spent_usd, priced_calls=spend.today.priced_calls
+            ),
+            month_to_date=GeminiSpendTotalView(
+                spent_usd=spend.month.spent_usd, priced_calls=spend.month.priced_calls
+            ),
+            is_depleted=spend.is_depleted,
+            depleted_at=spend.depleted_at,
+        )
 
     return router

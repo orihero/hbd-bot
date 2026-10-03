@@ -89,8 +89,7 @@ def upgrade() -> None:
         op.execute(f"CREATE INDEX {name} ON {table} ({columns})")
     op.execute(f"DROP INDEX IF EXISTS {_FAILURES_INDEX}")
     op.execute(
-        f"CREATE INDEX {_FAILURES_INDEX} ON {_ATTEMPTS} (created_at) "
-        f"WHERE {_failure_predicate()}"
+        f"CREATE INDEX {_FAILURES_INDEX} ON {_ATTEMPTS} (created_at) WHERE {_failure_predicate()}"
     )
 
 

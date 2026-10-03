@@ -81,6 +81,7 @@ from bayram.admin.routers import (
     build_broadcast_actions_router,
     build_broadcasts_router,
     build_chats_router,
+    build_config_manage_router,
     build_config_router,
     build_credit_grant_router,
     build_credits_router,
@@ -546,6 +547,7 @@ def create_app(
     # share a router-level guard.
     application.include_router(build_admin_accounts_router())
     application.include_router(build_config_router())
+    application.include_router(build_config_manage_router())
     # The SPA's catch-all is NOT added here. It is installed by the lifespan, after everything
     # else — including anything a caller adds to the application this returns — has claimed
     # its paths. See ``_mount_spa``.

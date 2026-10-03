@@ -266,3 +266,23 @@ export const PUBLIC_REF_PATTERN = /^[0-9a-f]{24}$/;
  * cabinet. Stored, compared and echoed as text and never parsed as a number.
  */
 export const PAYME_TRANSACTION_ID_PATTERN = /^[0-9a-fA-F]{24}$/;
+
+/* -------------------------------------------------------------------------- */
+/* Runtime Configuration                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** `bayram.admin.routers.config.CONFIG_PATH`. */
+export const CONFIG_PREFIX = "/api/config";
+
+/** `bayram.admin.routers.config.CONFIG_MUSIC_PROVIDER_PATH`. */
+export const CONFIG_MUSIC_PROVIDER_PATH = "/api/config/music-provider";
+
+/** `bayram.admin.routers.config.CONFIG_TEACHERS_DAY_PATH`. */
+export const CONFIG_TEACHERS_DAY_PATH = "/api/config/teachers-day";
+
+/**
+ * `bayram.admin.routers.config.CONFIG_CHECKOUT_RAILS_PATH` — the owner's per-rail sale switch
+ * (DECISIONS.md D28). GET for every role, POST for the owner only.
+ */
+export const CONFIG_CHECKOUT_RAILS_PATH = "/api/config/checkout-rails";
+

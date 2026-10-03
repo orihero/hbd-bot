@@ -223,9 +223,7 @@ class PaymeSettings(BaseSettings):
     #: pick ``-31054`` or ``-31099``. Shipping it as a value means a certification finding is
     #: an environment variable and a restart rather than a release. Bounded to the negative
     #: range so a typo cannot emit a positive "code" Payme would read as a success.
-    payme_duplicate_transaction_code: int = Field(
-        default=int(PaymeErrorCode.STATE_REFUSAL), lt=0
-    )
+    payme_duplicate_transaction_code: int = Field(default=int(PaymeErrorCode.STATE_REFUSAL), lt=0)
     #: The rail's own window, measured from ``params.time`` — Payme's creation instant, not
     #: ours. Twelve hours by default. A SETTING rather than a constant so the expiry branch
     #: can be driven in seconds during certification: an untested branch on the money path is

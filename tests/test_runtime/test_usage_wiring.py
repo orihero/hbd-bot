@@ -18,6 +18,7 @@ one sink per process, shared, and therefore one table an operator has to read.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
@@ -176,9 +177,14 @@ def handed_to_the_vendors(monkeypatch: pytest.MonkeyPatch) -> list[UsageSink]:
     handed: list[UsageSink] = []
     original = providers_module.build_provider_set
 
-    def spy(built: Settings, *, usage: UsageSink) -> Any:
+    def spy(
+        built: Settings,
+        *,
+        usage: UsageSink,
+        music_provider_resolver: Callable[[], Awaitable[str]] | None = None,
+    ) -> Any:
         handed.append(usage)
-        return original(built, usage=usage)
+        return original(built, usage=usage, music_provider_resolver=music_provider_resolver)
 
     monkeypatch.setattr("bayram.runtime.container.build_provider_set", spy)
     return handed

@@ -155,7 +155,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from bayram.contracts import OrderState, Result
 from bayram.db.credits import settle_stale_debits
-from bayram.db.enums import PaymentIntentState
+from bayram.db.enums import CheckoutUzPaymentState, PaymentIntentState
 from bayram.db.guard import run_guarded
 from bayram.db.models.admin_audit import AdminAuditRow
 from bayram.db.models.admin_session import AdminSessionRow
@@ -164,6 +164,7 @@ from bayram.db.models.bot_membership_event import BotMembershipEventRow
 from bayram.db.models.brief import BriefRow
 from bayram.db.models.broadcast_recipient import BroadcastRecipientRow
 from bayram.db.models.chat_message import ChatMessageRow
+from bayram.db.models.checkoutuz_payment import CheckoutUzPaymentRow
 from bayram.db.models.generation_attempt import GenerationAttemptRow
 from bayram.db.models.name_record import NameRecordRow
 from bayram.db.models.order import OrderRow
@@ -656,10 +657,22 @@ def _terminal_intents_due(cutoff: datetime) -> sa.ColumnElement[bool]:
     The states are spelled as enum members rather than literals because this is application
     code and the enum is the single definition; the CHECK constraints in revision 0023 spell
     the same values literally, and that asymmetry is deliberate — DDL outlives the class.
+
+    The third term is checkout.uz's (``DECISIONS.md D28``): an ``expired`` intent can still
+    sit behind real money there — an amount mismatch closes the link ``orphan_paid`` and
+    leaves the intent to expire — and that link is the only record of a refund owed. So an
+    intent with a ``paid`` or ``orphan_paid`` checkout.uz link is never due, exactly as
+    ``payme_transactions`` is never swept.
     """
     return sa.and_(
         PaymentIntentRow.created_at <= cutoff,
         PaymentIntentRow.state.in_((PaymentIntentState.CANCELLED, PaymentIntentState.EXPIRED)),
+        ~sa.exists().where(
+            CheckoutUzPaymentRow.intent_id == PaymentIntentRow.id,
+            CheckoutUzPaymentRow.state.in_(
+                (CheckoutUzPaymentState.PAID, CheckoutUzPaymentState.ORPHAN_PAID)
+            ),
+        ),
     )
 
 
@@ -1159,6 +1172,12 @@ async def _purge_terminal_intents(session: AsyncSession, *, cutoff: datetime, li
     )
     if not due:
         return 0
+    # Child first, explicitly: ``checkoutuz_payments.intent_id`` is ON DELETE RESTRICT, and the
+    # predicate above has already excluded every intent with a paid or orphan_paid link, so
+    # what goes here is only lapsed links of purchases nobody paid.
+    await session.execute(
+        sa.delete(CheckoutUzPaymentRow).where(CheckoutUzPaymentRow.intent_id.in_(due))
+    )
     await session.execute(sa.delete(PaymentIntentRow).where(PaymentIntentRow.id.in_(due)))
     return len(due)
 

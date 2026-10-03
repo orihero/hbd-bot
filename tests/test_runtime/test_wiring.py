@@ -9,9 +9,10 @@ cannot accidentally be served silence.
 from __future__ import annotations
 
 import inspect
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from pathlib import Path
-from typing import Final, get_args
+from typing import Any, Final, get_args
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -22,10 +23,19 @@ from bayram.bot.pricing import Pricing
 from bayram.checkout import (
     STUB_PROVIDER_NAME,
     CheckoutProvider,
+    CompositeCheckoutProvider,
     Product,
     PurchaseFulfiller,
     PurchaseRequest,
 )
+from bayram.checkout_rails import wired_rails
+from bayram.checkoutuz.jobs import (
+    CHECKOUTUZ_POLL_JOB_NAME,
+    CHECKOUTUZ_RECONCILE_JOB_NAME,
+    run_checkoutuz_poll,
+)
+from bayram.checkoutuz.ports import CHECKOUTUZ_PROVIDER_NAME
+from bayram.checkoutuz.provider import CHECKOUTUZ_MERCHANT_ID, CheckoutUzCheckoutProvider
 from bayram.config import ENV_FILE_VAR, ENV_PREFIX, CheckoutRail, Settings, build_settings
 from bayram.contracts import (
     AudioPostProcessor,
@@ -45,8 +55,8 @@ from bayram.db.lyric_budget import SqlLyricBudget
 from bayram.db.payme import SqlPaymeLedger
 from bayram.db.purchases import SqlPurchaseLedger
 from bayram.entitlements import EntitlementStore, resolve_entitlement_policy
-from bayram.errors import ConfigError
-from bayram.main import refuse_an_unsafe_checkout_rail
+from bayram.errors import CheckoutRailDisabledError, ConfigError
+from bayram.main import _rail_switch_reader, refuse_an_unsafe_checkout_rail
 from bayram.payme.link import PROD_CHECKOUT_URL, SANDBOX_CHECKOUT_URL
 from bayram.payme.ports import PAYME_PROVIDER_NAME
 from bayram.payme.provider import PaymeCheckoutProvider
@@ -58,6 +68,7 @@ from bayram.providers.tts.fakes import FakeTtsProvider
 from bayram.providers.tts.router import LanguageRoutingTts
 from bayram.runtime.container import AppContainer, build_checkout, build_container
 from bayram.runtime.fakes import KeytermSttProvider
+from bayram.runtime.jobs import build_kit_worker_settings, checkoutuz_poll_minutes
 from bayram.runtime.providers import build_provider_set
 from bayram.runtime.submitter import InProcessOrderSubmitter
 from bayram.user_profiles import AVATAR_MIME, avatar_key
@@ -502,7 +513,7 @@ def test_the_checkout_rail_literal_names_exactly_the_two_rails_that_exist() -> N
     declared = set(get_args(CheckoutRail.__value__))
 
     # Assert
-    assert declared == {STUB_PROVIDER_NAME, PAYME_PROVIDER_NAME}
+    assert declared == {STUB_PROVIDER_NAME, PAYME_PROVIDER_NAME, "rhmt", "both"}
 
 
 def _payme(settings: Settings, tmp_path: Path, **extra: object) -> Settings:
@@ -1139,3 +1150,316 @@ async def test_a_container_built_without_a_reader_leaves_the_rail_open(
     assert isinstance(charged, Ok)
     assert charged.value.checkout_url is not None
     await container.aclose()
+
+
+# ---------------------------------------------------------------------------
+# checkout.uz and the owner's per-rail switch (DECISIONS.md D28)
+# ---------------------------------------------------------------------------
+#: A plausible Bearer key. Never a real one: nothing here reaches checkout.uz, and the
+#: provider built over it opens no connection until ``charge`` is called.
+_CHECKOUTUZ_KEY: Final[str] = "test-checkoutuz-key-not-real"
+
+
+def _with_checkoutuz(settings: Settings, **extra: object) -> Settings:
+    """``settings`` with checkout.uz switched on and keyed, and the meter enforced."""
+    values: dict[str, object] = {
+        "checkoutuz_enabled": True,
+        "checkoutuz_api_key": _CHECKOUTUZ_KEY,
+        "credits_enforced": True,
+    }
+    values.update(extra)
+    return settings.model_copy(update=values)
+
+
+def _reader(off: set[str]) -> Callable[[str], Awaitable[bool]]:
+    """An owner switch with ``off`` switched off and every other rail on. No Redis anywhere."""
+
+    async def read(rail: str) -> bool:
+        return rail not in off
+
+    return read
+
+
+def test_checkoutuz_switched_on_with_a_blank_key_refuses_by_name(settings: Settings) -> None:
+    """An operator who turned the rail on meant to sell on it.
+
+    Quietly leaving the button off would be a go-live nobody could see had failed, so the
+    refusal names the one variable whose value is the whole fix.
+    """
+    # Arrange
+    keyless = _with_checkoutuz(settings, checkoutuz_api_key="   ")
+
+    # Act / Assert
+    with pytest.raises(ConfigError, match="BAYRAM_CHECKOUTUZ_API_KEY"):
+        build_checkout(keyless, session_factory=_null_session_factory())
+
+
+def test_the_stub_plus_checkoutuz_is_a_bare_checkoutuz_rail_over_the_ledger(
+    settings: Settings,
+) -> None:
+    """One rail is that rail's provider, BARE — and the stub is not in the list at all.
+
+    A composite of (stub, checkoutuz) would route a stale generic press to the stub, which
+    reports every purchase paid: a free song. A bare provider has nothing to fall through to.
+    """
+    # Arrange
+    configured = _with_checkoutuz(settings, checkout_provider=STUB_PROVIDER_NAME)
+
+    # Act
+    provider, intents = build_checkout(configured, session_factory=_null_session_factory())
+
+    # Assert
+    assert isinstance(provider, CheckoutUzCheckoutProvider)
+    assert provider.name == CHECKOUTUZ_PROVIDER_NAME
+    assert isinstance(intents, SqlPaymeLedger)
+    assert provider._opener is intents
+    # No cashbox and no Rahmat store on this deployment, so the ledger's default names the
+    # rail that actually opens its intents.
+    assert intents._merchant_id == CHECKOUTUZ_MERCHANT_ID
+
+
+def test_both_plus_checkoutuz_is_a_composite_in_routing_order(settings: Settings) -> None:
+    """The composite's rails are ``wired_rails`` in order — the list the bot draws buttons from."""
+    # Arrange
+    configured = _with_checkoutuz(
+        settings, checkout_provider="both", payme_merchant_id=_MERCHANT_ID
+    )
+
+    # Act
+    provider, intents = build_checkout(configured, session_factory=_null_session_factory())
+
+    # Assert
+    assert isinstance(provider, CompositeCheckoutProvider)
+    assert provider.rail_names == ("rhmt", "payme", "checkoutuz")
+    assert provider.rail_names == wired_rails(configured)
+    assert isinstance(intents, SqlPaymeLedger)
+
+
+def test_checkoutuz_enabled_does_not_unwrap_or_rewrap_a_payme_deployment_without_it(
+    settings: Settings,
+) -> None:
+    """The flag off leaves the single-rail Payme build exactly as it was: bare, not composite."""
+    # Arrange
+    configured = settings.model_copy(
+        update={
+            "checkout_provider": "payme",
+            "payme_merchant_id": _MERCHANT_ID,
+            "checkoutuz_enabled": False,
+            # A key with the flag off: settlement-ready, not selling. Not wired.
+            "checkoutuz_api_key": _CHECKOUTUZ_KEY,
+        }
+    )
+
+    # Act
+    provider, _ = build_checkout(configured, session_factory=_null_session_factory())
+
+    # Assert
+    assert isinstance(provider, PaymeCheckoutProvider)
+
+
+async def test_the_owner_switch_off_pauses_payme_through_its_existing_pause_callable(
+    settings: Settings,
+) -> None:
+    """Composed INTO ``paused``, not wrapped around the provider.
+
+    A wrapper would have broken the ``isinstance``/``_opener`` pins above; composing keeps the
+    provider bare and still refuses the sale before any intent is opened.
+    """
+    # Arrange
+    configured = settings.model_copy(
+        update={"checkout_provider": "payme", "payme_merchant_id": _MERCHANT_ID}
+    )
+
+    # Act
+    switched_off, _ = build_checkout(
+        configured, session_factory=_null_session_factory(), rail_enabled=_reader({"payme"})
+    )
+    switched_on, _ = build_checkout(
+        configured, session_factory=_null_session_factory(), rail_enabled=_reader(set())
+    )
+
+    # Assert
+    assert isinstance(switched_off, PaymeCheckoutProvider)
+    assert isinstance(switched_on, PaymeCheckoutProvider)
+    assert await switched_off._paused() is True
+    assert await switched_on._paused() is False
+
+
+async def test_the_global_pause_still_wins_over_a_switched_on_rail(settings: Settings) -> None:
+    # Arrange
+    async def always_paused() -> bool:
+        return True
+
+    configured = settings.model_copy(
+        update={"checkout_provider": "payme", "payme_merchant_id": _MERCHANT_ID}
+    )
+
+    # Act
+    provider, _ = build_checkout(
+        configured,
+        session_factory=_null_session_factory(),
+        paused=always_paused,
+        rail_enabled=_reader(set()),
+    )
+
+    # Assert
+    assert isinstance(provider, PaymeCheckoutProvider)
+    assert await provider._paused() is True
+
+
+async def test_the_owner_switch_reaches_checkoutuz_as_its_own_enabled_reader(
+    settings: Settings,
+) -> None:
+    """checkout.uz reads the switch through ``enabled``, so it can say "switched off"."""
+    # Arrange
+    configured = _with_checkoutuz(settings)
+
+    # Act
+    off, _ = build_checkout(
+        configured,
+        session_factory=_null_session_factory(),
+        rail_enabled=_reader({CHECKOUTUZ_PROVIDER_NAME}),
+    )
+    unwired, _ = build_checkout(configured, session_factory=_null_session_factory())
+
+    # Assert
+    assert isinstance(off, CheckoutUzCheckoutProvider)
+    assert isinstance(unwired, CheckoutUzCheckoutProvider)
+    assert await off._enabled() is False
+    # No reader wired: switched ON, for ``_never_paused``'s reason.
+    assert await unwired._enabled() is True
+    assert await unwired._paused() is False
+
+
+async def test_a_switched_off_checkoutuz_refuses_through_the_container(
+    settings: Settings, tmp_path: Path
+) -> None:
+    """``build_container`` threads ``rail_enabled`` to the rail, or the panel's switch is inert."""
+    # Arrange
+    configured = _with_checkoutuz(_sqlite(settings, tmp_path), checkout_provider=STUB_PROVIDER_NAME)
+    container = await build_container(
+        configured, data_root=tmp_path, rail_enabled=_reader({CHECKOUTUZ_PROVIDER_NAME})
+    )
+
+    # Act
+    try:
+        charged = await container.checkout.charge(
+            PurchaseRequest(
+                telegram_user_id=4244,
+                product=Product.SINGLE,
+                amount_minor=configured.single_song_price_minor,
+                currency=configured.kit_currency,
+                idempotency_key="rail-switch-wiring",
+                preferred_provider=CHECKOUTUZ_PROVIDER_NAME,
+            )
+        )
+    finally:
+        await container.aclose()
+
+    # Assert — refused with the rail's own error, before any intent row or vendor call.
+    assert isinstance(charged, Err)
+    assert isinstance(charged.error, CheckoutRailDisabledError)
+
+
+@pytest.mark.usefixtures("isolated_dotenv")
+def test_checkoutuz_over_a_dark_credit_meter_refuses_to_boot(settings: Settings) -> None:
+    """``takes_money`` covers checkout.uz on a stub deployment: it charges real cards too."""
+    # Arrange
+    dark = _with_checkoutuz(settings, checkout_provider=STUB_PROVIDER_NAME, credits_enforced=False)
+
+    # Act / Assert
+    with pytest.raises(ConfigError, match="BAYRAM_CREDITS_ENFORCED"):
+        refuse_an_unsafe_checkout_rail(dark)
+
+
+@pytest.mark.usefixtures("isolated_dotenv")
+def test_stub_plus_checkoutuz_boots_in_production_with_the_payme_sandbox_default(
+    settings: Settings,
+) -> None:
+    """The sandbox refusal is about Payme LINKS, and this deployment builds none.
+
+    ``payme_is_sandbox`` defaults to True. Folding checkout.uz into that refusal would have
+    made a production deployment selling on checkout.uz alone — rightly, with no Payme
+    configuration at all — impossible to boot.
+    """
+    # Arrange
+    checkoutuz_only_in_prod = _with_checkoutuz(
+        settings,
+        checkout_provider=STUB_PROVIDER_NAME,
+        payme_is_sandbox=True,
+        environment="prod",
+    )
+
+    # Act / Assert — no raise.
+    refuse_an_unsafe_checkout_rail(checkoutuz_only_in_prod)
+
+
+def test_main_has_no_rail_switch_without_a_queue_pool() -> None:
+    # The demo path: no pool, no switch, every wired rail on.
+    assert _rail_switch_reader(None) is None
+
+
+def _worker(settings: Settings) -> Any:
+    async def _dependencies() -> dict[str, Any]:
+        return {}
+
+    return build_kit_worker_settings(settings=settings, build_dependencies=_dependencies)
+
+
+def test_the_checkoutuz_poll_is_scheduled_only_when_the_key_is_set(settings: Settings) -> None:
+    """Scheduled on the KEY, not on the flag: the flag stops sales, never settlement."""
+    # Arrange
+    keyed_but_off = settings.model_copy(
+        update={"checkoutuz_enabled": False, "checkoutuz_api_key": _CHECKOUTUZ_KEY}
+    )
+    keyless = settings.model_copy(update={"checkoutuz_api_key": ""})
+
+    # Act
+    with_key = _worker(keyed_but_off)
+    without_key = _worker(keyless)
+
+    # Assert
+    entry = next(job for job in with_key.cron_jobs if job.name == CHECKOUTUZ_POLL_JOB_NAME)
+    assert entry.coroutine is run_checkoutuz_poll
+    assert entry.minute == tuple(range(1, 60, 5))
+    assert entry.unique is True
+    assert entry.max_tries == 1
+    assert entry.run_at_startup is False
+    assert all(job.name != CHECKOUTUZ_POLL_JOB_NAME for job in without_key.cron_jobs)
+    # The functions are registered either way, so a webhook-enqueued reconcile always resolves
+    # to a job (which then skips itself when there is no key).
+    for worker in (with_key, without_key):
+        names = {getattr(f, "name", getattr(f, "__name__", None)) for f in worker.functions}
+        assert {CHECKOUTUZ_POLL_JOB_NAME, CHECKOUTUZ_RECONCILE_JOB_NAME} <= names
+    # The reconcile keeps NO result: ARQ refuses a deterministic ``_job_id`` while a result is
+    # kept under it, so a finished not-paid reconcile (an early or forged webhook) would
+    # otherwise swallow the real webhook's enqueue for the whole result TTL.
+    reconcile = next(
+        f for f in with_key.functions if getattr(f, "name", None) == CHECKOUTUZ_RECONCILE_JOB_NAME
+    )
+    assert reconcile.keep_result_s == 0
+
+
+@pytest.mark.parametrize("every", [1, 2, 3, 4, 5, 7, 10, 15, 30, 60])
+def test_the_checkoutuz_poll_never_shares_a_minute_with_another_cron(
+    settings: Settings, every: int
+) -> None:
+    # Arrange
+    keyed = settings.model_copy(
+        update={"checkoutuz_api_key": _CHECKOUTUZ_KEY, "checkoutuz_poll_minutes": every}
+    )
+
+    # Act
+    worker = _worker(keyed)
+    poll = next(job for job in worker.cron_jobs if job.name == CHECKOUTUZ_POLL_JOB_NAME)
+    others: set[int] = set()
+    for job in worker.cron_jobs:
+        if job.name == CHECKOUTUZ_POLL_JOB_NAME:
+            continue
+        minute = job.minute
+        others.update(minute if isinstance(minute, tuple | list | set) else {minute})
+
+    # Assert
+    assert poll.minute, "a poller that never runs strands every payment whose webhook was lost"
+    assert not set(poll.minute) & others
+    assert poll.minute == checkoutuz_poll_minutes(keyed)

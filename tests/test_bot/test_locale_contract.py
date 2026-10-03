@@ -26,7 +26,7 @@ from typing import Final
 import pytest
 
 from bayram.bot.callbacks import NavAction
-from bayram.bot.keyboards import LANGUAGE_COLUMNS
+from bayram.bot.keyboards import LANGUAGE_COLUMNS, PAY_METHOD_LABELS
 from bayram.bot.locales import CATALOGUES
 from bayram.contracts import Language
 from tests.test_bot.test_keyboards import every_keyboard, every_reply_keyboard
@@ -535,11 +535,17 @@ def test_no_two_buttons_on_one_screen_lead_with_the_same_emoji(language: Languag
     navigation labels with translated enum content, and only a translator can bring the two
     into collision.
     """
-    # Arrange / Act
+    # Arrange — checkout.uz's per-method buttons are BRAND NAMES with no emoji by design
+    # (``keyboards.PAY_METHOD_LABELS``), so Payme, Plum and Paylov share a "P" that is a letter,
+    # not a pictograph. They are the only labels exempted, and only from this rule.
+    brands = set(PAY_METHOD_LABELS.values())
+
+    # Act
     collisions: dict[str, list[str]] = {}
-    for name, labels in _labels_by_screen(language):
+    for name, all_labels in _labels_by_screen(language):
         if _is_a_language_picker(name):
             continue
+        labels = tuple(label for label in all_labels if label not in brands)
         leading = Counter(_first_grapheme(label) for label in labels)
         for emoji, count in leading.items():
             if count > 1:

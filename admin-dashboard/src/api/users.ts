@@ -292,6 +292,8 @@ export const userDetailViewSchema = z.object({
    * number on the screen that explains why the customer is being refused.
    */
   inFlightRenderCount: z.number().int(),
+  /** First-touch marketing traffic channel, if any. */
+  acquisitionChannel: z.string().nullable().optional(),
 });
 export type UserDetailView = z.infer<typeof userDetailViewSchema>;
 

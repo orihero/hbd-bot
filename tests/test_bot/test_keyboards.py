@@ -24,6 +24,8 @@ covering one half.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import replace
+from typing import Final
 
 import pytest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
@@ -31,10 +33,12 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeybo
 from bayram.bot.callbacks import LanguageSlot, NavAction, NavCB
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import (
+    ALL_PAY_METHODS_LABEL_KEY,
     KEEP_NOTE_LABEL_KEY,
     MAX_REPLY_ROW_LABEL_CHARS,
     MAX_ROW_BUTTONS,
     MAX_ROW_LABEL_CHARS,
+    PAY_NOW_LABEL_KEY,
     SKIP_LABEL_KEY,
     checkout_keyboard,
     checkout_link_keyboard,
@@ -106,14 +110,16 @@ SAMPLE_CHECKOUT_URL = (
 )
 
 
-def sample_offer(*, is_plan_offered: bool) -> CheckoutOffer:
-    """A paywalled offer, with and without the plan button.
+def sample_offer(*, is_plan_offered: bool, rails: tuple[str, ...] = ("stub",)) -> CheckoutOffer:
+    """A paywalled offer, with and without the plan button, on one rail or several.
 
-    Both shapes are registered below because they are different KEYBOARDS — one row or
+    Both plan shapes are registered below because they are different KEYBOARDS — one row or
     two — and the second one is what a customer with a spent-but-running plan sees. A
     register that yielded only the two-button shape would leave the top-up screen
     unmeasured in all four locales, which is the exact gap ``every_keyboard`` exists to
-    close.
+    close. The rail sets are registered for the same reason: every named rail button carries
+    a price and a noun, and each one has to be measured against ``MAX_ROW_LABEL_CHARS`` and
+    the one-emoji-per-screen rule in every locale.
     """
     return CheckoutOffer(
         is_paywalled=True,
@@ -122,7 +128,20 @@ def sample_offer(*, is_plan_offered: bool) -> CheckoutOffer:
         plan_ends_on=None if is_plan_offered else "2026-04-20",
         is_plan_offered=is_plan_offered,
         pricing=SAMPLE_PRICING,
+        rails=rails,
     )
+
+
+#: Every wired rail, the shape with the most price buttons on one screen (``DECISIONS.md D28``).
+ALL_RAILS: Final[tuple[str, ...]] = ("rhmt", "payme", "checkoutuz")
+
+
+#: checkout.uz's ``_pay_via`` for the live merchant, in the order ``get_payment_methods``
+#: returned them on 2026-10-03 — seven methods, so the last row of the register carries one.
+SAMPLE_PAY_OPTIONS: tuple[tuple[str, str], ...] = tuple(
+    (method, f"https://checkout.uz/pay/550e8400-e29b-41d4-a716-446655440000/{method}")
+    for method in ("click", "payme", "card", "plum", "paylov", "xazna", "oson")
+)
 
 
 def every_keyboard(language: Language) -> Iterator[tuple[str, InlineKeyboardMarkup]]:
@@ -167,6 +186,7 @@ def every_keyboard(language: Language) -> Iterator[tuple[str, InlineKeyboardMark
         ),
     )
     yield "occasion", occasion_keyboard(language)
+    yield "occasion_teachers_day", occasion_keyboard(language, teachers_day_enabled=True)
     yield "genre", genre_keyboard(language)
     yield "vocal_gender", vocal_gender_keyboard(language)
     yield "note", note_keyboard(language)
@@ -181,10 +201,45 @@ def every_keyboard(language: Language) -> Iterator[tuple[str, InlineKeyboardMark
     yield "confirm", confirm_keyboard(language)
     yield "checkout", checkout_keyboard(language, sample_offer(is_plan_offered=True))
     yield (
+        "checkout_dual_provider",
+        checkout_keyboard(language, sample_offer(is_plan_offered=True, rails=("rhmt", "payme"))),
+    )
+    yield (
+        "checkout_every_rail",
+        checkout_keyboard(language, sample_offer(is_plan_offered=True, rails=ALL_RAILS)),
+    )
+    yield (
+        "checkout_primary_rail_switched_off",
+        checkout_keyboard(
+            language,
+            replace(
+                sample_offer(is_plan_offered=True, rails=("payme", "checkoutuz")),
+                primary_rail="rhmt",
+            ),
+        ),
+    )
+    yield (
+        "checkout_every_rail_switched_off",
+        checkout_keyboard(language, sample_offer(is_plan_offered=True, rails=())),
+    )
+    yield (
         "checkout_with_a_plan_already_running",
         checkout_keyboard(language, sample_offer(is_plan_offered=False)),
     )
+    yield (
+        "checkout_with_a_plan_already_running_dual_provider",
+        checkout_keyboard(language, sample_offer(is_plan_offered=False, rails=("rhmt", "payme"))),
+    )
+    yield (
+        "checkout_with_a_plan_already_running_every_rail",
+        checkout_keyboard(language, sample_offer(is_plan_offered=False, rails=ALL_RAILS)),
+    )
     yield "checkout_link", checkout_link_keyboard(language, SAMPLE_CHECKOUT_URL)
+    yield (
+        "checkout_link_with_pay_methods",
+        checkout_link_keyboard(language, SAMPLE_CHECKOUT_URL, options=SAMPLE_PAY_OPTIONS),
+    )
+
     yield "start_over", start_over_keyboard(language)
     yield "paid_late", paid_late_keyboard(language)
     yield "post_delivery", post_delivery_keyboard(language)
@@ -206,6 +261,7 @@ def every_reply_keyboard(language: Language) -> Iterator[tuple[str, ReplyKeyboar
     builder that enters ``keyboards.__all__`` without a line here still fails loudly.
     """
     yield "main_menu", main_menu_keyboard(language)
+    yield "main_menu_teachers_day", main_menu_keyboard(language, teachers_day_enabled=True)
     yield "contact_request", contact_request_keyboard(language)
 
 
@@ -639,6 +695,69 @@ def test_a_screen_whose_only_control_left_telegram_would_strand_the_customer() -
 
     # Assert
     assert [data for _, data in offered] == ["", NavCB(action=NavAction.TO_MENU).pack()]
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_pay_methods_are_url_buttons_two_per_row_then_all_methods_then_home(
+    language: Language,
+) -> None:
+    """checkout.uz's per-method pages: brand-named URL buttons, then the general page, then 🏠."""
+    # Arrange / Act
+    rows = checkout_link_keyboard(
+        language, SAMPLE_CHECKOUT_URL, options=SAMPLE_PAY_OPTIONS
+    ).inline_keyboard
+
+    # Assert
+    *methods, every, home = rows
+    assert [[button.text for button in row] for row in methods] == [
+        ["Click", "Payme"],
+        ["Uzcard / Humo", "Plum"],
+        ["Paylov", "Xazna"],
+        ["OSON"],
+    ]
+    assert [button.url for row in methods for button in row] == [
+        url for _, url in SAMPLE_PAY_OPTIONS
+    ]
+    assert all(button.callback_data is None for row in methods for button in row)
+    for row in methods:
+        assert row_width(row) <= MAX_ROW_LABEL_CHARS, [button.text for button in row]
+    assert [(button.text, button.url) for button in every] == [
+        (translate(ALL_PAY_METHODS_LABEL_KEY, language), SAMPLE_CHECKOUT_URL)
+    ]
+    assert row_width(every) <= MAX_ROW_LABEL_CHARS
+    assert [button.callback_data for button in home] == [NavCB(action=NavAction.TO_MENU).pack()]
+    assert translate(PAY_NOW_LABEL_KEY, language) not in [
+        button.text for row in rows for button in row
+    ]
+
+
+def test_an_unknown_pay_method_is_drawn_under_its_own_key() -> None:
+    """A method checkout.uz adds tomorrow still gets a button, named after its slug."""
+    # Arrange / Act
+    rows = checkout_link_keyboard(
+        Language.EN, SAMPLE_CHECKOUT_URL, options=(("newpay", "https://checkout.uz/pay/x/newpay"),)
+    ).inline_keyboard
+
+    # Assert
+    assert [(button.text, button.url) for button in rows[0]] == [
+        ("Newpay", "https://checkout.uz/pay/x/newpay")
+    ]
+    assert len(rows) == 3
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_no_pay_methods_leaves_the_link_keyboard_exactly_as_it_was(language: Language) -> None:
+    """Payme and Rahmat pass no options; their keyboard must not move by a byte."""
+    # Arrange / Act
+    without = checkout_link_keyboard(language, SAMPLE_CHECKOUT_URL)
+    empty = checkout_link_keyboard(language, SAMPLE_CHECKOUT_URL, options=())
+
+    # Assert
+    assert empty.model_dump_json() == without.model_dump_json()
+    assert [[button.text for button in row] for row in without.inline_keyboard] == [
+        [translate(PAY_NOW_LABEL_KEY, language)],
+        [translate("button.to_menu", language)],
+    ]
 
 
 def test_the_writing_screen_can_be_escaped() -> None:

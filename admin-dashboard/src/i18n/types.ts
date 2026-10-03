@@ -395,6 +395,20 @@ export interface DashboardTranslations {
     readonly pollerFreshness: { readonly title: string };
     readonly songConsumption: { readonly title: string };
     readonly costProvenance: { readonly title: string };
+    readonly channels: {
+      readonly heading: string;
+      readonly subtitle: string;
+      readonly emptyTitle: string;
+      readonly emptyMessage: string;
+      readonly colChannel: string;
+      readonly colClicks: string;
+      readonly colNewUsers: string;
+      readonly colOnboarded: string;
+      readonly colOrders: string;
+      readonly colPaying: string;
+      readonly colRevenue: string;
+      readonly colConversion: string;
+    };
   };
   /** A failed read, as something an operator can act on. `{subject}` is one of the above. */
   readonly note: {
@@ -413,6 +427,21 @@ export interface DashboardTranslations {
     readonly unavailable: string;
     readonly notPolled: string;
     readonly notPolledTitle: string;
+  };
+  /**
+   * Gemini (Lyria) spend on Finances. Google has no balance API, so these are our own metered
+   * spend at a flat per-request price — every figure is an estimate and the words must say so.
+   */
+  readonly gemini: {
+    readonly heading: string;
+    readonly monthLabel: string;
+    /** `{songs}` priced calls this month · `{today}` spent today. */
+    readonly monthSub: string;
+    readonly outOfCredit: string;
+    readonly estimateHint: string;
+    /** `{period}` is the figure picker's own word for the window. */
+    readonly spendLabel: string;
+    readonly notPriced: string;
   };
   readonly fx: {
     /* `unavailable` and `noRate` were here: the header now prints no rate rather than a
@@ -731,6 +760,7 @@ export interface UsersTranslations {
     readonly firstOrder: string;
     readonly lastOrder: string;
     readonly wizardSession: string;
+    readonly acquisitionChannel: string;
   };
   /** The identity panel's field notes, each one a fact the masked value cannot carry. */
   /** The three readings of `isProfilePresent`, and what each one can and cannot claim. */
@@ -750,6 +780,7 @@ export interface UsersTranslations {
     readonly username: string;
     readonly phone: string;
     readonly phoneShared: string;
+    readonly acquisitionChannel: string;
   };
   /** The orders panel, which pages a customer's own orders. */
   readonly ordersPanel: {
@@ -873,6 +904,30 @@ export interface GenerationsTranslations {
   readonly subtitleAll: string;
   readonly subtitleFiltered: string;
   readonly searchPlaceholder: string;
+  /** The Teachers' Day promo switch in the Generations toolbar. `{percent}` is the discount. */
+  readonly teachersDay: {
+    readonly label: string;
+    readonly loading: string;
+    readonly active: string;
+    readonly off: string;
+    readonly enableAria: string;
+    readonly disableAria: string;
+    readonly turnOn: string;
+    readonly turnOff: string;
+    readonly enableTitle: string;
+    readonly disableTitle: string;
+    readonly enableDescription: string;
+    readonly disableDescription: string;
+    readonly confirmOn: string;
+    readonly confirmOff: string;
+    readonly pendingOn: string;
+    readonly pendingOff: string;
+    readonly errorTitle: string;
+    readonly reasonLabel: string;
+    readonly reasonHint: string;
+    readonly enableDetail: string;
+    readonly disableDetail: string;
+  };
   readonly subjects: {
     readonly ledger: string;
     readonly attempt: string;
@@ -2332,6 +2387,39 @@ export interface BillingTranslations {
     readonly resumePending: string;
     readonly reasonLabel: string;
     readonly reasonHint: string;
+  };
+  /**
+   * The owner's per-rail sale switch (DECISIONS.md D28). Rail names are brands and stay
+   * untranslated, but they live here so the panel holds no literal copy at all.
+   */
+  readonly rails: {
+    readonly heading: string;
+    readonly names: {
+      readonly rhmt: string;
+      readonly payme: string;
+      readonly checkoutuz: string;
+    };
+    readonly on: string;
+    readonly off: string;
+    readonly notWired: string;
+    readonly notWiredHint: string;
+    readonly wiredUnknownHint: string;
+    readonly turnOn: string;
+    readonly turnOff: string;
+    readonly turnOnAria: string;
+    readonly turnOffAria: string;
+    readonly offTitle: string;
+    readonly offBody: string;
+    readonly offLabel: string;
+    readonly offPending: string;
+    readonly onTitle: string;
+    readonly onBody: string;
+    readonly onLabel: string;
+    readonly onPending: string;
+    readonly reasonLabel: string;
+    readonly reasonHint: string;
+    readonly failedTitle: string;
+    readonly loadFailed: string;
   };
   readonly calls: {
     readonly title: string;

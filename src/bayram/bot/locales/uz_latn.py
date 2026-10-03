@@ -211,6 +211,16 @@ CATALOGUE: Final[dict[str, str]] = {
         "Toʻlovlar bir necha daqiqaga toʻxtatib turildi — biz bir narsani tuzatyapmiz. "
         "Sizdan hech narsa yechilmadi, iltimos, birozdan soʻng qayta urinib koʻring."
     ),
+    # ``CheckoutRailDisabledError``: faqat bitta toʻlov usuli oʻchirilgan, qolganlari ishlaydi.
+    "checkout.rail_disabled": (
+        "Bu toʻlov usuli hozir mavjud emas. Sizdan hech narsa yechilmadi — iltimos, boshqa "
+        "usulni tanlang."
+    ),
+    "checkout.pending_hint_checkoutuz": (
+        "<i>Har bir tugma oʻsha toʻlov usulining sahifasini ochadi. Havola 1 soat amal qiladi. "
+        "Muddati tugasa, narx tugmasini yana bosing — yangi havola beriladi. Sahifani yopib, "
+        "keyin qaytsangiz ham hech narsa yoʻqolmaydi.</i>"
+    ),
     # -- start -------------------------------------------------------------
     "start.welcome": (
         "🎂 <b>Bitta odam uchun maxsus qoʻshiq</b> — ismi toʻgʻri kuylanadi.\n\n"
@@ -226,8 +236,7 @@ CATALOGUE: Final[dict[str, str]] = {
     # matnni yozdirgan yagona narsani, yaʼni pastdagi tugmani bosish koʻrsatmasini,
     # olib yura olmasdi.
     "onboarding.language.prompt": (
-        "🌐 <b>Qaysi tilda gaplashamiz?</b>\n\n"
-        "Keyin ⚙️ Sozlamalardan oʻzgartirish mumkin."
+        "🌐 <b>Qaysi tilda gaplashamiz?</b>\n\nKeyin ⚙️ Sozlamalardan oʻzgartirish mumkin."
     ),
     "onboarding.contact.prompt": (
         "📱 Endi telefon raqamingizni qoldiring — quyidagi tugmani bosing.\n\n"
@@ -261,6 +270,7 @@ CATALOGUE: Final[dict[str, str]] = {
     "menu.balance": "🎫 Limitim",
     "menu.settings": "⚙️ Sozlamalar",
     "menu.help": "❓ Yordam",
+    "menu.teachers_day": "👩‍🏫 Ustozlar kuni (-30%)",
     # -- settings ------------------------------------------------------------
     # ``{language}`` — bu oʻzgarish qoʻshadigan yagona oʻrin egallovchi, va unga til KODI
     # emas, ``language.*`` yozuvi — tilning oʻz yozuvidagi oʻz nomi — qoʻyiladi: "Joriy
@@ -276,7 +286,13 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.note.prompt": (
         "🎯 <b>Qoʻshiqni shaxsiy qilamiz!</b>\n\n"
         "<b>Tafsilotlarni yozing</b> ({limit} belgigacha): "
-        "<b>oʻziga xos odatlari, qiziq voqealar, sevimli iboralari</b> yoki asosiy tilak (<b>mehr, hazil, minnatdorlik</b>)."
+        "<b>oʻziga xos odatlari, qiziq voqealar, sevimli iboralari</b> "
+        "yoki asosiy tilak (<b>mehr, hazil, minnatdorlik</b>)."
+    ),
+    "wizard.note.teachers_day_prompt": (
+        "👩‍🏫 <b>Qoʻshiq kimning nomidan boʻlsin?</b>\n\n"
+        "Masalan: <i>56-maktab 9-«A» sinfi</i> yoki <i>2013-yil bitiruvchilari</i>.\n\n"
+        "Matn qilib yozing ({limit} belgigacha) yoki oʻtkazib yuboring."
     ),
     "wizard.note.privacy_line": "",
     "wizard.note.too_long": "Biroz uzun boʻldi. Iltimos, {limit} belgidan oshmasin.",
@@ -302,6 +318,9 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.output_language.prompt": "{name} uchun qoʻshiq qaysi tilda boʻlsin?",
     "wizard.output_language.prompt_noname": "Qoʻshiq qaysi tilda boʻlsin?",
     "wizard.lyrics.writing": ("✍️ {name} uchun soʻzlarni yozayapman… bu bir daqiqagacha oladi."),
+    "wizard.lyrics.writing_teachers_day": (
+        "✍️ Ustozlar uchun soʻzlarni yozayapman… bu bir daqiqagacha oladi."
+    ),
     "wizard.lyrics.preview": (
         "<b>{title}</b>\n\n"
         "<b>{lyrics}</b>\n\n"
@@ -370,6 +389,17 @@ CATALOGUE: Final[dict[str, str]] = {
         "Soʻzlaringiz tayyor. Endi yozib olaman.\n\n"
         "Boshlaymizmi?"
     ),
+    "wizard.confirm.summary_teachers_day": (
+        "<b>👩‍🏫 Ustozlar uchun qoʻshiq</b>\n"
+        "{occasion}\n"
+        "{genre}\n"
+        "{vocal_gender}\n"
+        "🌐 {output_language}\n"
+        "✍️ Kimdan: {sender}\n\n"
+        "Soʻzlar tayyor. Endi yozib olamiz.\n\n"
+        "Boshlaymizmi?"
+    ),
+    "wizard.confirm.no_sender": "—",
     "wizard.lyrics.untitled": "Sizning qoʻshigʻingiz",
     "wizard.expired": "Bu sessiya yopildi. Qaytadan boshlashimiz mumkin.",
     "wizard.cancelled": "Bekor qilindi — hech narsa yasalmadi va hech narsa saqlanmadi.",
@@ -410,10 +440,13 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.pay_payme": "📲 Payme orqali: {amount} soʻm",
     "button.subscribe": "🌟 {amount} soʻm — {songs} ta",
     "button.subscribe_payme": "💎 Payme: {amount} soʻm — {songs} ta",
-
+    # checkout.uz (Click / Payme). {amount} = "149 000" bilan 29 va 29 belgi.
+    "button.pay_checkoutuz": "💸 Click / Payme: {amount} soʻm",
+    "button.subscribe_checkoutuz": "💰 Click/Payme {amount} — {songs} ta",
     # Mahsulotdagi tashqi havolali birinchi tugma — u toʻlov sahifasiga olib chiqadi. 💳 emas,
     # 🔗: 💳 bir ekran oldin ``button.pay``ga tegishli. Narx unda yoʻq — narx tepadagi xabarda.
     "button.pay_now": "🔗 Toʻlash",
+    "button.checkoutuz_all_methods": "🌐 Barcha toʻlov usullari",
     "button.name_ok": "✅ Ha, shunday",
     "button.retype": "✏️ Qaytadan yozish",
     "button.lyrics_ok": "✅ Shu matn qolsin",
@@ -445,6 +478,7 @@ CATALOGUE: Final[dict[str, str]] = {
     "occasion.kids": "👶 Bolalar uchun",
     "occasion.no_occasion": "🎶 Sababsiz",
     "occasion.custom": "✨ Boshqa sabab",
+    "occasion.teachers_day": "👩‍🏫 Ustozlar kuni",
     "genre.pop": "🎤 Pop",
     "genre.retro_estrada": "📻 Retro estrada",
     "genre.hip_hop": "🎧 Xip-xop",

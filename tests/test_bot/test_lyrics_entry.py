@@ -68,6 +68,38 @@ def test_a_message_too_long_to_be_a_song_is_refused_with_its_own_limit() -> None
     assert result.error.context["limit"] == MAX_LYRIC_CHARS
 
 
+def test_a_message_exceeding_total_chars_due_to_whitespace_is_accepted() -> None:
+    """Whitespaces and newlines are not counted against MAX_LYRIC_CHARS.
+
+    A lyric with 4,800 letters plus 1,000 spaces/newlines has 5,800 total characters,
+    but only 4,800 non-whitespace characters. It must clear the 5,000-character bound
+    and preserve its multiline structure.
+    """
+    # 4 lines per verse, 10 verses separated by blank lines
+    verse = "Satr bir soʻzlar\nSatr ikki qoʻshiq\nSatr uch kuylar\nSatr toʻrt bitdi\n\n"
+    # Repeat verse to create text with lots of spaces and newlines
+    # Each verse is ~66 characters (~58 non-whitespace).
+    # 80 verses ~ 4640 non-whitespace characters, ~5280 total characters
+    text = verse * 80
+    non_ws_count = len("".join(text.split()))
+    assert len(text) > MAX_LYRIC_CHARS
+    assert non_ws_count <= MAX_LYRIC_CHARS
+
+    draft = value_of(parse(text))
+    assert draft.sections
+
+
+def test_a_message_exceeding_non_whitespace_limit_is_refused() -> None:
+    """Even with whitespaces stripped, exceeding 5,000 non-whitespace characters is refused."""
+    text = "a" * (MAX_LYRIC_CHARS + 1)
+    result = parse(text)
+
+    assert isinstance(result, Err)
+    assert result.error.user_message_key == LYRICS_TOO_LONG_KEY
+    assert result.error.context["limit"] == 5_000
+    assert result.error.context["length"] == 5_001
+
+
 def test_a_lyric_exactly_on_the_lower_bound_is_accepted() -> None:
     # Arrange / Act
     draft = value_of(parse("a" * MIN_LYRIC_CHARS))

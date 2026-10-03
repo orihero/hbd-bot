@@ -63,6 +63,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Final
 from uuid import UUID, uuid4
 
 import sqlalchemy as sa
@@ -78,6 +79,7 @@ from bayram.db.models.plan_purchase import PlanPurchaseRow
 from bayram.db.models.topup_purchase import TopupPurchaseRow
 
 __all__ = [
+    "PAYME_INTENT_PROVIDER",
     # Reads
     "intent_by_ref",
     "intent_by_key",
@@ -104,6 +106,11 @@ __all__ = [
     "anonymise_intents",
     "insert_rpc_log",
 ]
+
+#: The ``payment_intents.provider`` value of an intent opened for Payme. Spelled here rather
+#: than imported from :mod:`bayram.payme.ports` (``PAYME_PROVIDER_NAME``) because persistence
+#: sits below the rail packages; ``tests/test_db/test_payme_ledger.py`` pins the two together.
+PAYME_INTENT_PROVIDER: Final[str] = "payme"
 
 
 # ---------------------------------------------------------------------------
@@ -358,8 +365,18 @@ async def settlement_counts(
     See :class:`bayram.payme.ports.SettlementCounts` for the identity a caller may assert:
     ``transactions_performed == receipts_written`` always, while ``grants_written`` is the
     single-song subset because a plan sale grants no credit at purchase.
+
+    **Only Payme's intents are counted on the receipt side**, and the filter is what keeps the
+    identity true now that Payme is not the only rail settling into ``payment_intents``. A
+    Rahmat or checkout.uz sale settles an intent and writes a receipt with no
+    ``payme_transactions`` row behind it at all, so without the ``provider`` term every such
+    sale was one more receipt than there were performed transactions — and the five-minute
+    sweep raised a ``receipts_over`` incident for every customer who paid the other way
+    (DECISIONS.md D28). The left side of the identity is Payme's own table, so the right side
+    has to be Payme's own sales.
     """
     settled_keys = sa.select(PaymentIntentRow.idempotency_key).where(
+        PaymentIntentRow.provider == PAYME_INTENT_PROVIDER,
         PaymentIntentRow.state == PaymentIntentState.PAID,
         PaymentIntentRow.settled_at >= frm,
         PaymentIntentRow.settled_at <= to,

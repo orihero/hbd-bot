@@ -217,7 +217,9 @@ async def test_get_chat_transcript_chronological(
     assert messages[3]["kind"] == "audio"
 
 
-@pytest.mark.parametrize("role", [AdminRole.VIEWER, AdminRole.SUPPORT, AdminRole.ADMIN, AdminRole.OWNER])
+@pytest.mark.parametrize(
+    "role", [AdminRole.VIEWER, AdminRole.SUPPORT, AdminRole.ADMIN, AdminRole.OWNER]
+)
 async def test_all_roles_have_access(
     container: AdminContainer, client: httpx.AsyncClient, role: AdminRole
 ) -> None:

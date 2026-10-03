@@ -51,7 +51,11 @@ def _after(draft: WizardDraft, step: WizardStep) -> WizardStep:
     owns the answer; this only supplies the fallback for the last step, which no handler
     here can reach because CONFIRM is nobody's successor.
     """
-    following = next_step(step, is_own_lyrics=draft.is_own_lyrics)
+    following = next_step(
+        step,
+        is_own_lyrics=draft.is_own_lyrics,
+        is_teachers_day=draft.is_teachers_day,
+    )
     return following if following is not None else step
 
 
@@ -132,7 +136,7 @@ async def handle_note_skipped(callback: CallbackQuery, state: FSMContext) -> Non
     if draft is None:
         await expire(callback, state)
         return
-    await show_step(callback, state, draft, WizardStep.NAME)
+    await show_step(callback, state, draft, _after(draft, WizardStep.NOTE))
 
 
 async def handle_note(message: Message, state: FSMContext) -> None:
@@ -173,7 +177,7 @@ async def handle_note(message: Message, state: FSMContext) -> None:
             message, translate("wizard.note.too_long", draft.ui_language, limit=MAX_NOTE_CHARS)
         )
         return
-    await show_step(message, state, draft.updated(note=note), WizardStep.NAME)
+    await show_step(message, state, draft.updated(note=note), _after(draft, WizardStep.NOTE))
 
 
 async def handle_own_lyrics(callback: CallbackQuery, state: FSMContext) -> None:

@@ -234,9 +234,7 @@ def _repair_json_scalar_nulls() -> None:
 def upgrade() -> None:
     with op.batch_alter_table(_PURGE_RUNS, schema=None) as batch_op:
         for name in _NEW_COUNTERS:
-            batch_op.add_column(
-                sa.Column(name, sa.Integer(), nullable=False, server_default="0")
-            )
+            batch_op.add_column(sa.Column(name, sa.Integer(), nullable=False, server_default="0"))
     if op.get_bind().dialect.name == "postgresql":
         # The default was only ever there to backfill. The application supplies every count,
         # and a surviving default would let a forgotten one read as "nothing was due".

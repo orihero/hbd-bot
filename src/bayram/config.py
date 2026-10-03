@@ -122,7 +122,7 @@ type LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 #: package anyway (``bayram.checkout`` is a leaf ``bayram.db`` depends on; ``bayram.payme`` is a
 #: rail). ``tests/test_runtime/test_wiring.py`` asserts the three spellings agree, so the
 #: duplication is pinned rather than merely noticed.
-type CheckoutRail = Literal["stub", "payme"]
+type CheckoutRail = Literal["stub", "payme", "rhmt", "both"]
 
 #: The credentials the admin process must never hold (ADMIN_PANEL_PLAN §4.2, D10). The admin
 #: lifespan derives ``FORBIDDEN_ENV_VARS`` from this tuple, so a credential missing here is a
@@ -136,6 +136,11 @@ VENDOR_SECRET_FIELDS: Final[tuple[str, ...]] = (
     "llm_api_key",
     "llm_fallback_api_key",
     "openrouter_management_key",
+    "gemini_api_key",
+    # checkout.uz's Bearer key (DECISIONS.md D28). Held by the bot, which creates payments,
+    # and the worker, which polls them — both read ``bot.env``. The admin process and the Payme
+    # gateway need neither half of that, so a production admin or gateway holding it is refused.
+    "checkoutuz_api_key",
 )
 
 #: The subset the bot and the worker cannot run without — the ones
@@ -168,7 +173,10 @@ REQUIRED_VENDOR_SECRET_FIELDS: Final[tuple[str, ...]] = (
 #: :class:`Settings`, so a name with no field behind it would fail a test whose whole purpose
 #: is to stop the NEXT credential being forgotten. Consumers that refuse an environment — the
 #: admin lifespan, and ``bayram.main``'s prod boot check — read both.
-FOREIGN_SECRET_ENV_VARS: Final[tuple[str, ...]] = (f"{ENV_PREFIX}PAYME_MERCHANT_KEY",)
+FOREIGN_SECRET_ENV_VARS: Final[tuple[str, ...]] = (
+    f"{ENV_PREFIX}PAYME_MERCHANT_KEY",
+    f"{ENV_PREFIX}RHMT_SECRET",
+)
 
 #: The bake-off's winning arm is not yet fed back in, so this is a starting order,
 #: not a finding. Override with BAYRAM_NAME_CANDIDATE_ORDER without touching code.
@@ -231,6 +239,12 @@ class Settings(BaseSettings):
     database_url: str = Field(min_length=1, description="postgresql+asyncpg://…")
     redis_url: str = Field(default="redis://localhost:6379/0")
 
+    # -- Music generation providers -----------------------------------------
+    music_provider: Literal["elevenlabs", "gemini"] = Field(
+        default="elevenlabs",
+        description="Which adapter serves primary music generation: 'elevenlabs' or 'gemini'.",
+    )
+
     # -- ElevenLabs (music + RU/EN TTS + STT) -------------------------------
     elevenlabs_api_key: str = Field(default="")  # required — see telegram_bot_token
     elevenlabs_base_url: str = Field(default="https://api.elevenlabs.io")
@@ -257,6 +271,36 @@ class Settings(BaseSettings):
             "labelled ESTIMATED — reconcile it against the dashboard. Set 0.0 to mean NOT "
             "PRICED: the render is still measured and logged, cost_usd stays NULL and the "
             "panel prints 'not priced', which is not the same claim as a free render."
+        ),
+    )
+
+    # -- Gemini Music (Google Lyria) ----------------------------------------
+    gemini_api_key: str = Field(
+        default="",
+        description="Google AI Studio / Gemini API key. Used for Gemini Music when set.",
+    )
+    gemini_music_model_id: str = Field(
+        default="lyria-3.5",
+        description='Gemini music model id, e.g. "lyria-3.5" or "lyria-3-clip-preview".',
+    )
+    gemini_music_base_url: str = Field(
+        default="https://generativelanguage.googleapis.com",
+        description="Base URL for Gemini Music API.",
+    )
+    gemini_music_max_concurrency: int = Field(
+        default=2,
+        ge=1,
+        le=20,
+        description="Gemini music simultaneous-render ceiling.",
+    )
+    gemini_music_usd_per_request: float | None = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "USD Google charges per Lyria request. Lyria is priced per song, not per minute. "
+            "Unset means the published price of `gemini_music_model_id` "
+            "(`bayram.providers.music.gemini.LYRIA_USD_PER_REQUEST`); an unknown model with "
+            "no override is recorded unpriced rather than guessed."
         ),
     )
     tts_max_concurrency: int = Field(default=3, ge=1, le=20)
@@ -548,6 +592,12 @@ class Settings(BaseSettings):
 
     # -- moderation ---------------------------------------------------------
     is_moderation_enabled: bool = Field(default=True)
+
+    # -- campaigns & promotions ---------------------------------------------
+    teachers_day_enabled: bool = Field(
+        default=False,
+        description="Feature flag for Teachers' Day category, custom intake flow & 30% discount.",
+    )
 
     # -- entitlements -------------------------------------------------------
     #: Whether the credit balance is actually *enforced* at the render gate.
@@ -856,7 +906,11 @@ class Settings(BaseSettings):
     #: falls through to the stub and sells nothing while the operator watches for orders.
     checkout_provider: CheckoutRail = Field(
         default="stub",
-        description="stub | payme. Flip to payme WITH credits_enforced; see bayram.main's refusal.",
+        description=(
+            "stub | payme | rhmt | both (rhmt first, then payme). checkout.uz is NOT a value "
+            "here: it is added on top of any of these by BAYRAM_CHECKOUTUZ_ENABLED. Any rail "
+            "that takes money must ship WITH credits_enforced; see bayram.main's refusal."
+        ),
     )
     #: The cashbox id, from Кассы -> the kassa -> Настройки -> Инструменты разработчика.
     #:
@@ -908,6 +962,66 @@ class Settings(BaseSettings):
     #: instead, and the two checks are not redundant: this one is about the rail, that one is
     #: about two subsystems' clocks agreeing.
     payme_intent_ttl_s: int = Field(default=43_200, ge=60, le=86_400)
+
+    # -- checkout rail (Rahmat - rhmt.uz) -----------------------------------
+    #: Application ID for Rahmat / MultiCard acquiring API.
+    rhmt_application_id: str = Field(default="", max_length=128)
+    #: Store ID for Rahmat merchant account.
+    rhmt_store_id: int | None = Field(default=None)
+    #: Override for Rahmat API base URL (empty derives from rhmt_is_sandbox).
+    rhmt_checkout_base_url: str = Field(default="", max_length=255)
+    #: Inbound callback URL Rahmat notifies on payment.
+    rhmt_callback_url: str = Field(default="https://pay.bayrambot.uz/rhmt/callback", max_length=255)
+    #: Where customer returns after paying on Rahmat checkout page. Blank (the default) means
+    #: "back to this bot", resolved at boot like ``checkoutuz_return_url`` — unless
+    #: ``.env.rhmt`` sets one (``bayram.main.resolve_return_urls``).
+    rhmt_return_url: str = Field(default="", max_length=255)
+    #: Whether to build links against Rahmat's sandbox (dev-mesh.multicard.uz).
+    rhmt_is_sandbox: bool = Field(default=True)
+    #: How long an opened Rahmat checkout link stays payable, in seconds.
+    rhmt_intent_ttl_s: int = Field(default=43_200, ge=60, le=86_400)
+
+    # -- checkout rail (checkout.uz — Click / Payme aggregator) -------------
+    #: Whether checkout.uz is SOLD on. A separate bool rather than a fifth
+    #: :data:`CheckoutRail` value, because it composes with every existing value instead of
+    #: multiplying them: the ordered rail list is ``checkout_provider``'s rails followed by
+    #: checkout.uz when this is on (``bayram.checkout_rails.wired_rails``, DECISIONS.md D28).
+    #:
+    #: **This gates sales, not settlement.** The worker's poller and the webhook route run
+    #: whenever :attr:`checkoutuz_api_key` is set, whatever this says, so turning the rail off
+    #: never strands a payment a customer already started — there is no drain procedure
+    #: because none is needed. The owner's per-rail switch in the admin panel is a softer,
+    #: restart-free off on top of this one; this is the hard off.
+    checkoutuz_enabled: bool = Field(default=False)
+    #: The merchant's Bearer key, from the checkout.uz dashboard. A credential, so it is in
+    #: :data:`VENDOR_SECRET_FIELDS` and NOT in :data:`REQUIRED_VENDOR_SECRET_FIELDS`: a
+    #: deployment that does not sell on checkout.uz boots without it. Blank with
+    #: :attr:`checkoutuz_enabled` on is a BOOT REFUSAL naming this variable
+    #: (``bayram.runtime.container.build_checkout``): an operator who turned the rail on meant
+    #: to sell on it. ``wired_rails`` itself stays pure and requires both.
+    checkoutuz_api_key: str = Field(default="")
+    #: The API root. Only overridable because a rail repointable only by a release is down
+    #: for as long as a release takes; checkout.uz documents no sandbox host.
+    checkoutuz_base_url: str = Field(default="https://checkout.uz/api/v1", max_length=255)
+    #: The per-payment ``webhook_url`` sent on ``create_payment``. The webhook is unsigned and
+    #: never retried, so it only ACCELERATES settlement: the route verifies nothing in the body
+    #: and asks the worker to re-read the payment from the API (DECISIONS.md D28). The public
+    #: host must route ``/checkoutuz/*`` to the gateway for it to arrive at all.
+    checkoutuz_webhook_base_url: str = Field(
+        default="https://pay.bayrambot.uz/checkoutuz/callback", max_length=255
+    )
+    #: Where checkout.uz sends the customer after paying. **Blank (the default) means "back to
+    #: this bot"**: the bot process asks Telegram for its own username at boot and uses
+    #: ``https://t.me/<username>`` (``bayram.main.resolve_return_urls``), so a dev bot
+    #: never hands its testers to the production bot. Set it only to send customers elsewhere.
+    checkoutuz_return_url: str = Field(default="", max_length=255)
+    #: How often the worker polls pending checkout.uz payments, in minutes. The poll is the
+    #: source of truth (the webhook may never come), so this is the ceiling on how long a paid
+    #: customer waits when the webhook is lost — customer-facing, hence a setting.
+    checkoutuz_poll_minutes: int = Field(default=5, ge=1, le=60)
+    #: How many pending payments one poll pass asks checkout.uz about. Bounded so a backlog is
+    #: worked down across passes instead of one pass hammering a rail with no documented limit.
+    checkoutuz_poll_batch: int = Field(default=50, ge=1, le=500)
     #: Whether a settled REDIRECT payment starts the render it was opened for.
     #:
     #: ``False`` restores, exactly, the behaviour that shipped before ``DECISIONS.md D17``:

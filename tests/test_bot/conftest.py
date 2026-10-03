@@ -397,6 +397,9 @@ class RecordingCheckout:
         self.requests: list[PurchaseRequest] = []
         #: Reference minted per IDEMPOTENCY KEY, not per call. See the class docstring.
         self.opened: dict[str, str] = {}
+        #: The per-method pages every receipt carries (checkout.uz's ``_pay_via``). Empty by
+        #: default, so every existing test's receipt is unchanged.
+        self.pay_options: tuple[tuple[str, str], ...] = ()
 
     async def charge(self, request: PurchaseRequest) -> Result[Purchase]:
         self.requests.append(request)
@@ -414,6 +417,7 @@ class RecordingCheckout:
                 currency=request.currency,
                 is_paid=self.is_paid,
                 checkout_url=link,
+                pay_options=self.pay_options,
             )
         )
 

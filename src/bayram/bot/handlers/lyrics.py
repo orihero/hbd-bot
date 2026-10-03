@@ -181,7 +181,8 @@ async def enter_lyrics_step(
 
     brief = brief_result.value
     recipient = brief.recipient
-    if recipient is None:  # pragma: no cover - the writer's path always has a name
+    # pragma below: the writer's path always has a name.
+    if recipient is None and not draft.is_teachers_day:  # pragma: no cover
         # Unreachable: this is the writer's branch, and ``to_brief`` requires a recipient
         # unless the draft is on the own-lyrics path, which returned above.
         _LOG.error("the writer was reached with no recipient; refusing to call it")
@@ -198,11 +199,15 @@ async def enter_lyrics_step(
     await state.set_state(Wizard.submitting)
     # The brief is what proves there is a recipient to name, so the name is taken from it
     # rather than re-narrowed off the draft: ``to_brief`` cannot succeed without one.
-    name = recipient.display
+    if draft.is_teachers_day:
+        writing_text = translate("wizard.lyrics.writing_teachers_day", language)
+    else:
+        name = recipient.display if recipient is not None else ""
+        writing_text = translate("wizard.lyrics.writing", language, name=name)
     await present(
         event,
         Screen(
-            translate("wizard.lyrics.writing", language, name=name),
+            writing_text,
             lyrics_writing_keyboard(language),
         ),
     )

@@ -197,13 +197,22 @@ __all__ = [
     "build_router",
     "handle_pay",
     "handle_subscribe",
+    "handle_pay_payme",
+    "handle_subscribe_payme",
     "handle_pay_from_balance",
     "handle_subscribe_from_balance",
+    "handle_pay_payme_from_balance",
+    "handle_subscribe_payme_from_balance",
+    "handle_pay_checkoutuz",
+    "handle_subscribe_checkoutuz",
+    "handle_pay_checkoutuz_from_balance",
+    "handle_subscribe_checkoutuz_from_balance",
     "SettleOutcome",
     "PURCHASE_SEQ_KEY",
     "PURCHASE_SETTLED_UPDATES_KEY",
     "PURCHASE_SETTLED_AT_KEY",
     "PURCHASE_SETTLED_PRODUCT_KEY",
+    "PURCHASE_SETTLED_RAIL_KEY",
     "DOUBLE_TAP_WINDOW",
 ]
 
@@ -294,6 +303,17 @@ PURCHASE_SETTLED_AT_KEY: Final[str] = "purchase_settled_at"
 #: rather than opening a hole at the deploy boundary to buy back a case measured in seconds.
 PURCHASE_SETTLED_PRODUCT_KEY: Final[str] = "purchase_settled_product"
 
+#: WHICH rail the press remembered by :data:`PURCHASE_SETTLED_AT_KEY` named — the button's
+#: ``preferred_provider``, or ``""`` for the generic 💳/🌟 that name none.
+#:
+#: The third half of the same marker, for the reason the product is the second: a press of
+#: the Payme button a second after the checkout.uz one is a customer who changed their mind
+#: about HOW to pay, not a bounced thumb, and each rail has its own idempotency key
+#: (:func:`_idempotency_key`, ``DECISIONS.md D28``) so the two cannot collapse onto one
+#: intent anyway. A session written before this key existed carries no rail and reads as
+#: "matches", exactly like a missing product.
+PURCHASE_SETTLED_RAIL_KEY: Final[str] = "purchase_settled_rail"
+
 #: How long after a settled purchase a further press is read as the same intent, in seconds.
 #:
 #: Five, and the two bounds it sits between are worth writing down because a future edit will
@@ -306,6 +326,11 @@ DOUBLE_TAP_WINDOW: Final[float] = 5.0
 
 #: How many settled ``update_id`` values are remembered. See :data:`PURCHASE_SETTLED_UPDATES_KEY`.
 _SETTLED_UPDATES_KEPT: Final[int] = 8
+
+#: The rail name the checkout.uz buttons route to. Spelled here rather than imported from
+#: ``bayram.checkoutuz`` so the bot's handler layer never imports a rail package; it must equal
+#: ``CHECKOUTUZ_PROVIDER_NAME``, which ``test_bot_multi_checkout`` asserts.
+_CHECKOUTUZ: Final[str] = "checkoutuz"
 
 
 async def handle_pay(
@@ -322,6 +347,52 @@ async def handle_subscribe(
     await _buy_in_wizard(callback, state, deps, event_update, product=Product.STARTER)
 
 
+async def handle_pay_payme(
+    callback: CallbackQuery, state: FSMContext, deps: BotDeps, event_update: Update
+) -> None:
+    """📲 One song, paid via Payme, pressed on the Confirm screen."""
+    await _buy_in_wizard(
+        callback, state, deps, event_update, product=Product.SINGLE, preferred_provider="payme"
+    )
+
+
+async def handle_subscribe_payme(
+    callback: CallbackQuery, state: FSMContext, deps: BotDeps, event_update: Update
+) -> None:
+    """💎 The starter plan, paid via Payme, pressed on the Confirm screen."""
+    await _buy_in_wizard(
+        callback, state, deps, event_update, product=Product.STARTER, preferred_provider="payme"
+    )
+
+
+async def handle_pay_checkoutuz(
+    callback: CallbackQuery, state: FSMContext, deps: BotDeps, event_update: Update
+) -> None:
+    """💸 One song, paid via checkout.uz (Click or Payme on its page), on the Confirm screen."""
+    await _buy_in_wizard(
+        callback,
+        state,
+        deps,
+        event_update,
+        product=Product.SINGLE,
+        preferred_provider=_CHECKOUTUZ,
+    )
+
+
+async def handle_subscribe_checkoutuz(
+    callback: CallbackQuery, state: FSMContext, deps: BotDeps, event_update: Update
+) -> None:
+    """💰 The starter plan, paid via checkout.uz, pressed on the Confirm screen."""
+    await _buy_in_wizard(
+        callback,
+        state,
+        deps,
+        event_update,
+        product=Product.STARTER,
+        preferred_provider=_CHECKOUTUZ,
+    )
+
+
 async def handle_pay_from_balance(
     callback: CallbackQuery, state: FSMContext, deps: BotDeps, event_update: Update
 ) -> None:
@@ -336,6 +407,52 @@ async def handle_subscribe_from_balance(
     await _buy_from_balance(callback, state, deps, event_update, product=Product.STARTER)
 
 
+async def handle_pay_payme_from_balance(
+    callback: CallbackQuery, state: FSMContext, deps: BotDeps, event_update: Update
+) -> None:
+    """📲 One song, paid via Payme, pressed on the ``/balance`` screen."""
+    await _buy_from_balance(
+        callback, state, deps, event_update, product=Product.SINGLE, preferred_provider="payme"
+    )
+
+
+async def handle_subscribe_payme_from_balance(
+    callback: CallbackQuery, state: FSMContext, deps: BotDeps, event_update: Update
+) -> None:
+    """💎 The starter plan, paid via Payme, pressed on the ``/balance`` screen."""
+    await _buy_from_balance(
+        callback, state, deps, event_update, product=Product.STARTER, preferred_provider="payme"
+    )
+
+
+async def handle_pay_checkoutuz_from_balance(
+    callback: CallbackQuery, state: FSMContext, deps: BotDeps, event_update: Update
+) -> None:
+    """💸 One song, paid via checkout.uz, pressed on the ``/balance`` screen."""
+    await _buy_from_balance(
+        callback,
+        state,
+        deps,
+        event_update,
+        product=Product.SINGLE,
+        preferred_provider=_CHECKOUTUZ,
+    )
+
+
+async def handle_subscribe_checkoutuz_from_balance(
+    callback: CallbackQuery, state: FSMContext, deps: BotDeps, event_update: Update
+) -> None:
+    """💰 The starter plan, paid via checkout.uz, pressed on the ``/balance`` screen."""
+    await _buy_from_balance(
+        callback,
+        state,
+        deps,
+        event_update,
+        product=Product.STARTER,
+        preferred_provider=_CHECKOUTUZ,
+    )
+
+
 async def _buy_in_wizard(
     callback: CallbackQuery,
     state: FSMContext,
@@ -343,6 +460,7 @@ async def _buy_in_wizard(
     event_update: Update,
     *,
     product: Product,
+    preferred_provider: str | None = None,
 ) -> None:
     """Charge from the Confirm screen and put the customer back on it, drawn from the meter.
 
@@ -383,7 +501,9 @@ async def _buy_in_wizard(
             # the money lands, that the draft has not moved since. See
             # :func:`_resumable_order_id` for the two refusals that make it ``None``.
             resume_order_id=_resumable_order_id(callback.from_user.id, draft),
+            preferred_provider=preferred_provider,
         )
+
     finally:
         # Fact 2. Only a path that neither redrew nor cleared can still be parked here, and
         # leaving it parked would strand the customer behind ``handlers.submitting``.
@@ -398,6 +518,7 @@ async def _buy_from_balance(
     event_update: Update,
     *,
     product: Product,
+    preferred_provider: str | None = None,
 ) -> None:
     """Charge from the ``/balance`` screen, where there is no draft and maybe no session.
 
@@ -449,6 +570,7 @@ async def _buy_from_balance(
         # the announcement's keyboard, so they are handed a live 🎬 on the draft they were
         # working on. One tap instead of none, and no guess about whose money it was.
         resume_order_id=None,
+        preferred_provider=preferred_provider,
     )
     # ``SETTLED`` only, and ``PENDING`` deliberately not. The menu is drawn here as the next
     # step for somebody who has just bought a song — and a customer who has just been handed
@@ -457,7 +579,13 @@ async def _buy_from_balance(
     # ``Screen.markup``), so "what are we making?" would be the last thing under a 🔗 button
     # the customer has not tapped.
     if outcome is SettleOutcome.SETTLED and await state.get_state() is None:
-        await present(callback, menu_screen(language))
+        await present(
+            callback,
+            menu_screen(
+                language,
+                teachers_day_enabled=await deps.is_teachers_day_enabled(),
+            ),
+        )
 
 
 async def _settle(
@@ -471,6 +599,7 @@ async def _settle(
     update_id: int,
     redraw: Callable[[], Awaitable[None]],
     resume_order_id: UUID | None = None,
+    preferred_provider: str | None = None,
 ) -> SettleOutcome:
     """Charge, fulfil, remember, redraw — or hand over a link and grant nothing.
 
@@ -504,6 +633,20 @@ async def _settle(
         await say(callback, translate("checkout.unavailable", language))
         await redraw()
         return SettleOutcome.NOTHING
+    if preferred_provider is not None and preferred_provider not in deps.checkout_rails:
+        # A NAMED-rail button (📲 Payme, 💸 checkout.uz) drawn by a deployment that wired that
+        # rail, pressed after a restart that no longer does — e.g. the D28 fallback
+        # BAYRAM_CHECKOUTUZ_ENABLED=false. With one rail left ``bayram.main`` wires the BARE
+        # provider, not the composite, and a bare rail ignores ``preferred_provider``: without
+        # this check the press would silently open a payment on a rail the customer never
+        # chose. Refused before anything is charged, and the redraw removes the button.
+        _LOG.info(
+            "a named-rail button was pressed for a rail this deployment does not wire",
+            extra={"rail": preferred_provider, "wired": list(deps.checkout_rails)},
+        )
+        await say(callback, translate("checkout.unavailable", language))
+        await redraw()
+        return SettleOutcome.NOTHING
     data = await state.get_data()
     if update_id in _settled_updates(data):
         # Telegram sent this exact update again, and the purchase it carried has already
@@ -516,7 +659,9 @@ async def _settle(
         )
         await redraw()
         return SettleOutcome.NOTHING
-    if _within_double_tap_window(data, now=deps.clock().timestamp(), product=product):
+    if _within_double_tap_window(
+        data, now=deps.clock().timestamp(), product=product, rail=preferred_provider
+    ):
         _LOG.info(
             "a purchase button was pressed again within the double-tap window",
             extra={"update_id": update_id, "product": product.value},
@@ -524,9 +669,13 @@ async def _settle(
         await redraw()
         return SettleOutcome.NOTHING
     seq = int(data.get(PURCHASE_SEQ_KEY, 0))
-    key = _idempotency_key(user.id, scope, product=product, seq=seq)
+    key = _idempotency_key(user.id, scope, product=product, seq=seq, rail=preferred_provider)
+    draft = await read_draft(state)
+    effective_pricing = pricing.for_draft(draft)
     amount_minor = (
-        pricing.single_amount_minor if product is Product.SINGLE else pricing.plan_amount_minor
+        effective_pricing.single_amount_minor
+        if product is Product.SINGLE
+        else effective_pricing.plan_amount_minor
     )
     charged = await deps.checkout.charge(
         PurchaseRequest(
@@ -535,6 +684,7 @@ async def _settle(
             amount_minor=amount_minor,
             currency=pricing.currency,
             idempotency_key=key,
+            preferred_provider=preferred_provider,
             # Passed through untouched, and meaningful only to a REDIRECT rail: it records
             # which render this money buys, so the settlement — which happens in another
             # process, after the customer has put their phone away — can start it. An inline
@@ -576,7 +726,12 @@ async def _settle(
             },
         )
         await _remember_pending(
-            state, data, update_id=update_id, now=deps.clock().timestamp(), product=product
+            state,
+            data,
+            update_id=update_id,
+            now=deps.clock().timestamp(),
+            product=product,
+            rail=preferred_provider,
         )
         # Fact 4 holds on this branch too. The redraw re-reads the meter — which on the
         # ``/balance`` surface really can have moved, because a DIFFERENT intent may have
@@ -594,7 +749,20 @@ async def _settle(
         # button. On a message Telegram will no longer let us edit — a different 400 — the
         # fallback still sends, and the link arrives as a new message.
         await redraw()
-        await present(callback, checkout_link_screen(language, url=link, amount_minor=amount_minor))
+        await present(
+            callback,
+            checkout_link_screen(
+                language,
+                url=link,
+                amount_minor=amount_minor,
+                # Which rail opened it picks the "how long is this link good for" sentence:
+                # checkout.uz's page lives one hour, the others twelve (``DECISIONS.md D28``).
+                provider=charged.value.provider,
+                # One button per payment method the rail offered (checkout.uz's ``_pay_via``);
+                # empty for every other rail, whose keyboard is then unchanged.
+                pay_options=charged.value.pay_options,
+            ),
+        )
         return SettleOutcome.PENDING
     if not charged.value.is_paid:
         # Unpaid, and nowhere to pay. For an INLINE rail this is an ordinary decline and
@@ -630,6 +798,7 @@ async def _settle(
             update_id=update_id,
             now=deps.clock().timestamp(),
             product=product,
+            rail=preferred_provider,
         )
         await say(
             callback,
@@ -653,6 +822,7 @@ async def _settle(
             update_id=update_id,
             now=deps.clock().timestamp(),
             product=product,
+            rail=preferred_provider,
         )
         await say(
             callback,
@@ -684,8 +854,9 @@ async def _remember(
     update_id: int,
     now: float,
     product: Product,
+    rail: str | None = None,
 ) -> None:
-    """Record that this press bought something, in ONE write. All four markers or none.
+    """Record that this press bought something, in ONE write. All five markers or none.
 
     One ``update_data`` call and not four, because a process that died between them would
     leave the markers disagreeing about what happened — a bumped counter with no settled
@@ -708,6 +879,7 @@ async def _remember(
             PURCHASE_SETTLED_UPDATES_KEY: kept,
             PURCHASE_SETTLED_AT_KEY: now,
             PURCHASE_SETTLED_PRODUCT_KEY: product.value,
+            PURCHASE_SETTLED_RAIL_KEY: rail or "",
         }
     )
 
@@ -719,8 +891,9 @@ async def _remember_pending(
     update_id: int,
     now: float,
     product: Product,
+    rail: str | None = None,
 ) -> None:
-    """Record that this press opened a payment. Three markers of four, in ONE write.
+    """Record that this press opened a payment. Four markers of five, in ONE write.
 
     The same single ``update_data`` call as :func:`_remember` and for the same reason — FSM
     storage gives no transaction across separate writes, so the atom has to be the write
@@ -753,6 +926,7 @@ async def _remember_pending(
             PURCHASE_SETTLED_UPDATES_KEY: kept,
             PURCHASE_SETTLED_AT_KEY: now,
             PURCHASE_SETTLED_PRODUCT_KEY: product.value,
+            PURCHASE_SETTLED_RAIL_KEY: rail or "",
         }
     )
 
@@ -773,8 +947,14 @@ def _settled_updates(data: dict[str, object]) -> list[int]:
     return [item for item in raw if isinstance(item, int)]
 
 
-def _within_double_tap_window(data: dict[str, object], *, now: float, product: Product) -> bool:
-    """Did a purchase of THIS product settle within :data:`DOUBLE_TAP_WINDOW` seconds?
+def _within_double_tap_window(
+    data: dict[str, object], *, now: float, product: Product, rail: str | None = None
+) -> bool:
+    """Did a purchase of THIS product, on THIS rail, settle within :data:`DOUBLE_TAP_WINDOW`?
+
+    The rail half is :data:`PURCHASE_SETTLED_RAIL_KEY`'s, and it reads exactly like the
+    product half: a different rail's button is a different decision, and a missing marker
+    (a session older than the key) matches.
 
     Both halves are required, and the product half is the one that is easy to leave out —
     see :data:`PURCHASE_SETTLED_PRODUCT_KEY` for the sale that omitting it refused without
@@ -801,9 +981,12 @@ def _within_double_tap_window(data: dict[str, object], *, now: float, product: P
     if not 0.0 <= elapsed < DOUBLE_TAP_WINDOW:
         return False
     settled = data.get(PURCHASE_SETTLED_PRODUCT_KEY)
-    if not isinstance(settled, str):
+    if isinstance(settled, str) and settled != product.value:
+        return False
+    settled_rail = data.get(PURCHASE_SETTLED_RAIL_KEY)
+    if not isinstance(settled_rail, str):
         return True
-    return settled == product.value
+    return settled_rail == (rail or "")
 
 
 async def _fulfilment_failed(
@@ -874,7 +1057,9 @@ def _resumable_order_id(telegram_user_id: int, draft: WizardDraft) -> UUID | Non
     return order_id_for(telegram_user_id, draft)
 
 
-def _idempotency_key(telegram_user_id: int, scope: str, *, product: Product, seq: int) -> str:
+def _idempotency_key(
+    telegram_user_id: int, scope: str, *, product: Product, seq: int, rail: str | None = None
+) -> str:
     """The string a retry and a half-written purchase collapse onto.
 
     Shaped ``topup:{tg}:{scope}:{seq}`` and ``plan:starter:{tg}:{scope}:{seq}``. The product
@@ -901,9 +1086,17 @@ def _idempotency_key(telegram_user_id: int, scope: str, *, product: Product, seq
     Those two are the module docstring's second section, and they are closed by
     :data:`PURCHASE_SETTLED_UPDATES_KEY` and :data:`PURCHASE_SETTLED_AT_KEY` rather than
     here. Reading this function as the whole defence is how the gap got shipped.
+
+    **A button that names a rail gets a rail-qualified key**, ``…:{seq}:{rail}``
+    (``DECISIONS.md D28``). A redirect rail never bumps ``seq`` (:func:`_remember_pending`),
+    so without the suffix the Payme button pressed after the generic one in the same scope
+    re-minted the generic press's key — and the intent store, keyed on it, handed back the
+    OTHER rail's intent. The generic buttons name no rail and keep the unsuffixed key, so
+    every key minted before this change still collapses onto the same intent.
     """
     prefix = "topup" if product is Product.SINGLE else f"plan:{product.value}"
-    return f"{prefix}:{telegram_user_id}:{scope}:{seq}"
+    key = f"{prefix}:{telegram_user_id}:{scope}:{seq}"
+    return key if rail is None else f"{key}:{rail}"
 
 
 def build_router() -> Router:
@@ -933,6 +1126,22 @@ def build_router() -> Router:
         handle_subscribe, Wizard.confirm, NavCB.filter(F.action == NavAction.SUBSCRIBE)
     )
     router.callback_query.register(
+        handle_pay_payme, Wizard.confirm, NavCB.filter(F.action == NavAction.PAY_PAYME)
+    )
+    router.callback_query.register(
+        handle_subscribe_payme, Wizard.confirm, NavCB.filter(F.action == NavAction.SUBSCRIBE_PAYME)
+    )
+    router.callback_query.register(
+        handle_pay_checkoutuz,
+        Wizard.confirm,
+        NavCB.filter(F.action == NavAction.PAY_CHECKOUTUZ),
+    )
+    router.callback_query.register(
+        handle_subscribe_checkoutuz,
+        Wizard.confirm,
+        NavCB.filter(F.action == NavAction.SUBSCRIBE_CHECKOUTUZ),
+    )
+    router.callback_query.register(
         handle_pay_from_balance,
         ~StateFilter(Wizard.submitting),
         NavCB.filter(F.action == NavAction.PAY),
@@ -941,5 +1150,25 @@ def build_router() -> Router:
         handle_subscribe_from_balance,
         ~StateFilter(Wizard.submitting),
         NavCB.filter(F.action == NavAction.SUBSCRIBE),
+    )
+    router.callback_query.register(
+        handle_pay_payme_from_balance,
+        ~StateFilter(Wizard.submitting),
+        NavCB.filter(F.action == NavAction.PAY_PAYME),
+    )
+    router.callback_query.register(
+        handle_subscribe_payme_from_balance,
+        ~StateFilter(Wizard.submitting),
+        NavCB.filter(F.action == NavAction.SUBSCRIBE_PAYME),
+    )
+    router.callback_query.register(
+        handle_pay_checkoutuz_from_balance,
+        ~StateFilter(Wizard.submitting),
+        NavCB.filter(F.action == NavAction.PAY_CHECKOUTUZ),
+    )
+    router.callback_query.register(
+        handle_subscribe_checkoutuz_from_balance,
+        ~StateFilter(Wizard.submitting),
+        NavCB.filter(F.action == NavAction.SUBSCRIBE_CHECKOUTUZ),
     )
     return router

@@ -742,6 +742,8 @@ class UserDetail:
     #: explains a refusal an operator cannot see any other way — a wedged render holds a
     #: credit that neither the balance nor the ledger's totals show as spent.
     in_flight_render_count: int
+    #: The first-touch acquisition channel from /start deep-linking, if any.
+    acquisition_channel: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

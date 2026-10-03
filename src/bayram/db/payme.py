@@ -182,6 +182,7 @@ def _intent_view(row: PaymentIntentRow) -> PaymentIntent:
         settled_at=row.settled_at,
         notified_at=row.notified_at,
         resume_order_id=row.resume_order_id,
+        provider=row.provider,
     )
 
 
@@ -268,6 +269,7 @@ class SqlPaymeLedger:
         plan_songs: int | None = None,
         plan_days: int | None = None,
         resume_order_id: UUID | None = None,
+        provider: str = PAYME_PROVIDER_NAME,
     ) -> Result[PaymentIntent]:
         return await run_guarded(
             "payme.open_intent",
@@ -283,6 +285,7 @@ class SqlPaymeLedger:
                 plan_songs=plan_songs,
                 plan_days=plan_days,
                 resume_order_id=resume_order_id,
+                provider=provider,
             ),
             telegram_user_id=telegram_user_id,
             idempotency_key=idempotency_key,
@@ -425,6 +428,7 @@ class SqlPaymeLedger:
         plan_songs: int | None,
         plan_days: int | None,
         resume_order_id: UUID | None = None,
+        provider: str = PAYME_PROVIDER_NAME,
     ) -> PaymentIntent:
         """Insert-or-ignore, then read the WINNER back. A replay writes nothing.
 
@@ -461,7 +465,7 @@ class SqlPaymeLedger:
                 currency=currency,
                 plan_songs=plan_songs,
                 plan_days=plan_days,
-                provider=PAYME_PROVIDER_NAME,
+                provider=provider,
                 merchant_id=merchant_id,
                 is_sandbox=is_sandbox,
                 language=language,
@@ -1049,7 +1053,11 @@ class SqlPaymeLedger:
         """
         purchase = Purchase(
             product=Product(intent.product.value),
-            provider=PAYME_PROVIDER_NAME,
+            # The INTENT's rail, not this module's: an operator's forced settlement goes through
+            # here for an intent of any provider, and a receipt stamped ``payme`` for money that
+            # moved on another rail is a mislabelled line in every reconciliation that follows.
+            # For a Payme intent the column holds ``PAYME_PROVIDER_NAME`` and nothing changes.
+            provider=intent.provider,
             reference=reference,
             amount_minor=intent.amount_minor,
             currency=intent.currency,

@@ -572,7 +572,7 @@ async def test_a_recovered_perform_after_a_failure_still_settles_exactly_once(
 async def test_every_inbound_call_is_journalled_including_the_ones_we_refuse(
     client: httpx.AsyncClient, container: PaymeContainer
 ) -> None:
-    """"Did Payme ever call us about this, and what did we say?" is unanswerable without it.
+    """ "Did Payme ever call us about this, and what did we say?" is unanswerable without it.
 
     The route-template-only request log the admin panel carries cannot answer it: every call
     here lands on one path with one template, and the difference between them is entirely in a
@@ -628,7 +628,7 @@ async def _gateway_with(duplicate_code: int) -> tuple[PaymeContainer, PaymeSetti
 async def test_a_second_transaction_for_a_held_intent_uses_the_settable_duplicate_code(
     duplicate_code: int, carries_account_shape: bool
 ) -> None:
-    """"This order already has another active transaction" is a real contradiction in their docs.
+    """ "This order already has another active transaction" is a real contradiction in their docs.
 
     The sandbox scenario text demands ``-31008``, PaycomUZ's own PHP template returns
     ``-31050``, and three third-party packages pick ``-31054`` or ``-31099``. The code ships as

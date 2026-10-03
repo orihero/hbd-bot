@@ -8,6 +8,7 @@ fixed clock.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Final
 
@@ -16,6 +17,7 @@ from bayram.bot.payment import DEFAULT_CURRENCY, FREE_AMOUNT_MINOR, NoopPaymentP
 from bayram.bot.ports import Clock, OrderSubmitter, SupportTicketEraser, utc_now
 from bayram.bot.pricing import Pricing
 from bayram.bot_chats import BotChatDirectory
+from bayram.channels import ChannelAttributionStore
 from bayram.checkout import (
     CheckoutProvider,
     PaymentIntentOpener,
@@ -272,3 +274,53 @@ class BotDeps:
     #: half of the support feature is simply off — the ticket is still written, the customer is
     #: still answered and the panel board is still populated.
     bot_chats: BotChatDirectory | None = None
+    #: Records inbound traffic attribution from /start parameters. TRAILING and DEFAULTED.
+    channel_attributions: ChannelAttributionStore | None = None
+    #: Reads whether Teachers' Day promo is active. TRAILING and DEFAULTED.
+    teachers_day_reader: Callable[[], Awaitable[bool]] | None = None
+    #: THE RAILS THIS DEPLOYMENT WIRED, in the order the paywall draws them
+    #: (``bayram.checkout_rails.wired_rails``): ``()`` on a stub deployment, otherwise some
+    #: ordered subset of ``("rhmt", "payme", "checkoutuz")``. The first entry is the rail the
+    #: generic 💳/🌟 buttons reach, because ``CompositeCheckoutProvider`` sends a press that
+    #: names no rail to its first provider (``DECISIONS.md D28``).
+    #:
+    #: A VALUE resolved at the composition root and not re-derived from ``settings`` in a
+    #: handler, for the reason ``pricing`` gives: a handler that reached for ambient settings
+    #: is one no test can wire differently. It has to agree with the composite ``checkout``
+    #: above, and ``bayram.main`` builds both from the same list.
+    #:
+    #: TRAILING and DEFAULTED for the reason measured on ``profiles``. ``()`` reads as "the
+    #: stub", which is what every ``BotDeps`` built outside ``bayram.main`` is.
+    checkout_rails: tuple[str, ...] = ()
+    #: Reads the owner's per-rail sale switch (``bayram.checkout_rails.read_rail_enabled``).
+    #: ``None`` means no switch is wired and every wired rail sells. Read ONLY to decide which
+    #: price buttons to draw; the rails themselves read the same switch inside ``charge`` so a
+    #: button drawn before the owner flipped it still cannot sell (``DECISIONS.md D28``).
+    #: TRAILING and DEFAULTED.
+    rail_enabled_reader: Callable[[str], Awaitable[bool]] | None = None
+
+    async def enabled_rails(self) -> tuple[str, ...]:
+        """The wired rails the owner's switch currently allows, in wired order.
+
+        Fails OPEN, like the switch itself and like the Payme pause: no reader, or a reader
+        that raises, answers every wired rail. Failing closed would take the whole paywall
+        off the screen on a Redis blip, and a button drawn for a rail that has in fact been
+        switched off is harmless — that rail refuses inside ``charge`` with its own copy.
+        """
+        reader = self.rail_enabled_reader
+        if reader is None or not self.checkout_rails:
+            return self.checkout_rails
+        try:
+            allowed = [rail for rail in self.checkout_rails if await reader(rail)]
+        except Exception:
+            return self.checkout_rails
+        return tuple(allowed)
+
+    async def is_teachers_day_enabled(self) -> bool:
+        """Return True if Teachers' Day promo is currently active."""
+        if self.teachers_day_reader is None:
+            return self.settings.teachers_day_enabled
+        try:
+            return await self.teachers_day_reader()
+        except Exception:
+            return self.settings.teachers_day_enabled

@@ -463,6 +463,18 @@ export const activityPointViewSchema = z.object({
 });
 export type ActivityPointView = z.infer<typeof activityPointViewSchema>;
 
+export const channelPerformanceViewSchema = z.object({
+  channel: z.string(),
+  clicks: z.number().int(),
+  newUsers: z.number().int(),
+  onboardedUsers: z.number().int(),
+  ordersCount: z.number().int(),
+  payingUsers: z.number().int(),
+  revenueMinor: z.number().int(),
+  conversionRate: z.number(),
+});
+export type ChannelPerformanceView = z.infer<typeof channelPerformanceViewSchema>;
+
 /** `GET /api/metrics/dashboard/audience` — the Audience cards in one round trip. */
 export const audienceResponseSchema = z.object({
   /** Null = counted over the whole record (neither bound was sent). */
@@ -491,6 +503,8 @@ export const audienceResponseSchema = z.object({
   activityBucket: seriesBucketSchema,
   /** False = no HISTORICAL series to draw, even though the live gauge above answers fine. */
   isActivityHistory: z.boolean(),
+  /** Performance metrics per marketing traffic channel. */
+  channels: z.array(channelPerformanceViewSchema).default([]),
 });
 export type AudienceResponse = z.infer<typeof audienceResponseSchema>;
 
@@ -1282,6 +1296,8 @@ export const DASHBOARD_ENDPOINT = {
   vendor: "GET /api/metrics/dashboard/vendor",
   /** A state, not a section: no `?from=&to=` exists for it. `DASHBOARD_READ` like its siblings. */
   plans: "GET /api/metrics/plans",
+  /** A state on fixed UTC calendar boundaries: no `?from=&to=`, like `plans`. */
+  geminiSpend: "GET /api/metrics/gemini-spend",
   /** `DASHBOARD_READ`, and read from a `RECORDS_READ` screen — see `nameAnalyticsViewSchema`. */
   nameAnalytics: "GET /api/metrics/name-analytics",
   /** The one route here on `RECORDS_READ`, and the one that writes an audit row per call. */
@@ -1413,6 +1429,39 @@ export function plans(signal?: AbortSignal): Promise<ApiResult<PlanLiabilityResp
     endpoint: DASHBOARD_ENDPOINT.plans,
     path: `${METRICS_PREFIX}/plans`,
     schema: planLiabilityResponseSchema,
+    ...(signal === undefined ? {} : { signal }),
+  });
+}
+
+/**
+ * What Gemini (Lyria) cost today and this month, and whether Google is refusing us.
+ *
+ * Google exposes no balance API, so there is no balance here — only our own metered SPEND,
+ * every figure an ESTIMATE at a flat per-request price. Both periods are UTC calendar ones the
+ * server fixes; the route takes no window, so neither does this fetcher.
+ *
+ * `isDepleted` is the latest Gemini call having been refused for lack of prepay credit (renders
+ * then fail over to ElevenLabs); it clears on the next successful call. `depletedAt` is when.
+ */
+export const geminiSpendPeriodSchema = z.object({
+  spentUsd: z.number(),
+  pricedCalls: z.number().int(),
+});
+export type GeminiSpendPeriod = z.infer<typeof geminiSpendPeriodSchema>;
+
+export const geminiSpendResponseSchema = z.object({
+  today: geminiSpendPeriodSchema,
+  monthToDate: geminiSpendPeriodSchema,
+  isDepleted: z.boolean(),
+  depletedAt: timestampSchema.nullable(),
+});
+export type GeminiSpendResponse = z.infer<typeof geminiSpendResponseSchema>;
+
+export function geminiSpend(signal?: AbortSignal): Promise<ApiResult<GeminiSpendResponse>> {
+  return request({
+    endpoint: DASHBOARD_ENDPOINT.geminiSpend,
+    path: `${METRICS_PREFIX}/gemini-spend`,
+    schema: geminiSpendResponseSchema,
     ...(signal === undefined ? {} : { signal }),
   });
 }

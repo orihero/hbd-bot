@@ -29,6 +29,8 @@ __all__ = [
     "IntentProduct",
     "PaymentIntentState",
     "PaymeState",
+    # --- the checkout.uz rail (DECISIONS.md D28) --------------------------------
+    "CheckoutUzPaymentState",
     # --- admin audit log (ADMIN_PANEL_PLAN §5.1) -------------------------------
     "AuditAction",
     "AuditReasonCode",
@@ -339,6 +341,38 @@ class PaymeState(StrEnum):
     CANCELLED_AFTER_PERFORM = "cancelled_after_perform"
 
 
+class CheckoutUzPaymentState(StrEnum):
+    """Where one checkout.uz payment LINK has got to — not the intent it was minted for.
+
+    A separate vocabulary from :class:`PaymentIntentState` because the two rows answer
+    different questions. The intent is the customer's offer and lives twelve hours; a
+    checkout.uz link lives one hour, so one intent can accumulate several links, and every one
+    of them stays pollable because any of them may be the one somebody paid through. The
+    intent's state says "did this purchase settle?"; this state says "has THIS link been
+    looked at for the last time?" (DECISIONS.md D28).
+
+    Every move is a conditional ``UPDATE`` naming the state it expects — the rowcount-is-the-
+    lock primitive :mod:`bayram.db.payme_sql` is built on — and ``pending`` is the only state
+    anything moves OUT of. The column is ``VARCHAR(16)``; the longest value is
+    ``orphan_paid`` at 11 characters, and ``tests/test_db/test_enum_lengths.py`` checks the
+    fit against the column's own declared length rather than ``ENUM_LENGTH``.
+    """
+
+    #: Minted at checkout.uz and handed to the customer; nothing confirmed since. The ONLY
+    #: state the poller reads and the only state any transition starts from.
+    PENDING = "pending"
+    #: checkout.uz's ``status_payment`` said ``paid`` for this exact order and amount, and the
+    #: intent was claimed and the sale written in the same commit that moved this row. Terminal.
+    PAID = "paid"
+    #: The link lapsed and the last-chance status check after the grace window still did not
+    #: say paid. Terminal for THIS row only — the intent is never touched by it.
+    EXPIRED = "expired"
+    #: Confirmed paid, but the intent had ALREADY been settled through another link: the
+    #: customer paid twice for one purchase. Nothing is granted for it; it exists so the
+    #: second payment is a row an operator can find and refund by hand rather than a log line.
+    ORPHAN_PAID = "orphan_paid"
+
+
 # ---------------------------------------------------------------------------
 # Admin audit log (ADMIN_PANEL_PLAN §5.1 and §12.4)
 # ---------------------------------------------------------------------------
@@ -512,4 +546,3 @@ class ChatMessageKind(StrEnum):
     VOICE = "voice"
     TOAST = "toast"
     ACTION = "action"
-

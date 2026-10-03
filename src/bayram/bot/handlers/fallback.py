@@ -105,7 +105,13 @@ async def handle_stray_message(message: Message, state: FSMContext, deps: BotDep
         # fresh wizard would put them four screens into a purchase they did not ask to start,
         # and would do it to somebody who may only have said "hello".
         _LOG.info("a known customer with no session; showing the menu")
-        await present(message, menu_screen(await ui_language(state, deps)))
+        await present(
+            message,
+            menu_screen(
+                await ui_language(state, deps),
+                teachers_day_enabled=await deps.is_teachers_day_enabled(),
+            ),
+        )
         return
     await say(message, translate(_USE_BUTTONS_KEY, await resolve_language(state)))
 

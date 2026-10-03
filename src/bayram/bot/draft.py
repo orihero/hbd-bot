@@ -79,6 +79,7 @@ __all__ = [
     "MAX_NOTE_CHARS",
     "REQUIRED_ANSWERS",
     "OWN_LYRICS_REQUIRED_ANSWERS",
+    "TEACHERS_DAY_REQUIRED_ANSWERS",
 ]
 
 #: Single FSM-data key holding the whole draft, so no other key can collide with it.
@@ -128,6 +129,14 @@ REQUIRED_ANSWERS: Final[tuple[str, ...]] = (
 #: incomplete, and ``resolve_step`` would bounce the customer back to a NAME step their path
 #: does not contain.
 OWN_LYRICS_REQUIRED_ANSWERS: Final[tuple[str, ...]] = (
+    "occasion",
+    "genre",
+    "vocal_gender",
+    "output_language",
+)
+
+#: Required answers for Teachers' Day: recipient is not asked.
+TEACHERS_DAY_REQUIRED_ANSWERS: Final[tuple[str, ...]] = (
     "occasion",
     "genre",
     "vocal_gender",
@@ -201,9 +210,18 @@ class WizardDraft(BaseModel):
         return WizardDraft.model_validate({**self.model_dump(), **changes})
 
     @property
+    def is_teachers_day(self) -> bool:
+        """True when the song is celebrating Teachers' Day."""
+        return self.occasion is Occasion.TEACHERS_DAY
+
+    @property
     def required_answers(self) -> tuple[str, ...]:
-        """Which answers this draft's path actually needs. See the two constants above."""
-        return OWN_LYRICS_REQUIRED_ANSWERS if self.is_own_lyrics else REQUIRED_ANSWERS
+        """Which answers this draft's path actually needs. See the constants above."""
+        if self.is_own_lyrics:
+            return OWN_LYRICS_REQUIRED_ANSWERS
+        if self.is_teachers_day:
+            return TEACHERS_DAY_REQUIRED_ANSWERS
+        return REQUIRED_ANSWERS
 
     @property
     def missing_answers(self) -> tuple[str, ...]:
@@ -232,10 +250,10 @@ class WizardDraft(BaseModel):
     def to_brief(self) -> Result[Brief]:
         """Build the finished brief, or explain exactly what is still missing.
 
-        The recipient is required on the writer's path and optional on the customer's, which
-        is the one asymmetry here — ``missing_answers`` owns that rule, and this method only
-        has to agree with it. A ``None`` recipient reaching ``Brief`` is not a hole: it is
-        how the pipeline is told this song names nobody.
+        The recipient is required on the writer's path and optional on the customer's and on
+        Teachers' Day, which is the asymmetry here — ``missing_answers`` owns that rule, and
+        this method only has to agree with it. A ``None`` recipient reaching ``Brief`` is not
+        a hole: it is how the pipeline is told this song names nobody.
         """
         occasion, genre, vocal_gender = self.occasion, self.genre, self.vocal_gender
         recipient, output_language = self.recipient, self.output_language
@@ -243,7 +261,7 @@ class WizardDraft(BaseModel):
             occasion is None
             or genre is None
             or vocal_gender is None
-            or (recipient is None and not self.is_own_lyrics)
+            or (recipient is None and not self.is_own_lyrics and not self.is_teachers_day)
             or output_language is None
         ):
             return err(

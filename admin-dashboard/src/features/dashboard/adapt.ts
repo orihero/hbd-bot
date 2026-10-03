@@ -1740,13 +1740,23 @@ export interface VendorCard {
  * arrives it falls through to the tail rather than being hidden, since a demo run showing up
  * in a live panel is a fact worth seeing.
  */
-const CARD_ORDER: readonly Vendor[] = ["openrouter", "elevenlabs"];
+const CARD_ORDER: readonly Vendor[] = ["openrouter", "elevenlabs", "gemini"];
 
-/** `null` reads as "this supplier measures no such unit", never as a zero. */
+/**
+ * `null` reads as "this supplier measures no such unit", never as a zero.
+ *
+ * Tokens win over audio for every supplier but one: a Gemini music (Lyria) row can carry a
+ * token count as well as the audio it rendered, and what Gemini is billed on for a song is the
+ * SONG — so for `gemini` a measured audio length is preferred whenever there is one.
+ */
 function consumptionOf(
   units: VendorUnitsPerSongView | undefined,
+  vendor: Vendor,
 ): { readonly unit: ConsumptionUnit; readonly total: number; readonly perSong: number | null } | null {
   if (units === undefined) return null;
+  if (vendor === "gemini" && units.audioMs !== null) {
+    return { unit: "audio ms", total: units.audioMs, perSong: units.audioMsPerSong?.value ?? null };
+  }
   if (units.totalTokens !== null) {
     return { unit: "tokens", total: units.totalTokens, perSong: units.tokensPerSong?.value ?? null };
   }
@@ -1806,7 +1816,10 @@ export function adaptVendorCards(r: VendorResponse): VendorCardsProps {
 function buildCard(vendor: Vendor, r: VendorResponse, asOf: number | null): VendorCard {
   const balances = r.vendorBalances.filter((b) => b.vendor === vendor);
   const cost = r.costPerSongByVendor.find((c) => c.vendor === vendor);
-  const consumed = consumptionOf(r.unitsPerSongByVendor.find((u) => u.vendor === vendor));
+  const consumed = consumptionOf(
+    r.unitsPerSongByVendor.find((u) => u.vendor === vendor),
+    vendor,
+  );
 
   /* The figures quote the PRIMARY account, so the light must read the primary too or the card
      contradicts itself: a spare key at eight songs would paint a red light beside a funded
@@ -2094,4 +2107,28 @@ export function audienceListsNote(status: number): string {
     return "Your role can read the dashboard aggregates but not customer records, so these two lists were not requested.";
   }
   return "The list was not read. The aggregate figures on this page come from a different request.";
+}
+
+/* ---- Gemini spend: the window's bill off the cost split ------------------ */
+
+/**
+ * What the window spent at Gemini, summed across its operations off the series response's
+ * `costSplit` — the same rows the cost-split figure draws, so the two can never disagree.
+ *
+ * Three answers, kept apart: no Gemini row at all is a window with no Gemini calls, which is a
+ * real `$0.00`; rows that are ALL unpriced are calls nobody put a rate on, which is an absence
+ * (`null`) and never zero; otherwise the priced rows' sum, with `isPartial` when some were not.
+ */
+export function adaptGeminiSpend(slices: readonly CostSplitView[]): {
+  readonly usd: number | null;
+  readonly isPartial: boolean;
+} {
+  const rows = slices.filter((s) => s.vendor === "gemini");
+  if (rows.length === 0) return { usd: 0, isPartial: false };
+  const priced = rows.filter((s) => s.cost.amountUsd !== null);
+  if (priced.length === 0) return { usd: null, isPartial: false };
+  return {
+    usd: priced.reduce((sum, s) => sum + (s.cost.amountUsd ?? 0), 0),
+    isPartial: priced.length < rows.length,
+  };
 }

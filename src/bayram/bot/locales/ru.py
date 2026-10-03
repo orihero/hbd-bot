@@ -188,6 +188,16 @@ CATALOGUE: Final[dict[str, str]] = {
         "Приём оплат ненадолго приостановлен — мы кое-что чиним. С вас ничего не списано, "
         "попробуйте, пожалуйста, чуть позже."
     ),
+    # ``CheckoutRailDisabledError``: выключен только один способ оплаты, остальные работают.
+    "checkout.rail_disabled": (
+        "Этот способ оплаты сейчас недоступен. С вас ничего не списано — пожалуйста, выберите "
+        "другой."
+    ),
+    "checkout.pending_hint_checkoutuz": (
+        "<i>Каждая кнопка открывает страницу своего способа оплаты. Ссылка действует 1 час. "
+        "Если время вышло, нажмите кнопку с ценой ещё раз — придёт новая. Страницу можно "
+        "закрыть и вернуться — ничего не потеряется.</i>"
+    ),
     # -- start -------------------------------------------------------------
     "start.welcome": (
         "🎂 <b>Персональная песня для одного человека</b> — имя звучит правильно.\n\n"
@@ -202,8 +212,7 @@ CATALOGUE: Final[dict[str, str]] = {
     # ``error.``, не смог бы нести то единственное, ради чего этот отказ и написан:
     # указание нажать кнопку под ним.
     "onboarding.language.prompt": (
-        "🌐 <b>На каком языке будем общаться?</b>\n\n"
-        "Позже можно изменить в ⚙️ Настройках."
+        "🌐 <b>На каком языке будем общаться?</b>\n\nПозже можно изменить в ⚙️ Настройках."
     ),
     "onboarding.contact.prompt": (
         "📱 Теперь оставьте номер телефона — нажмите кнопку ниже.\n\n"
@@ -234,6 +243,7 @@ CATALOGUE: Final[dict[str, str]] = {
     "menu.balance": "🎫 Мой лимит",
     "menu.settings": "⚙️ Настройки",
     "menu.help": "❓ Помощь",
+    "menu.teachers_day": "👩‍🏫 День учителя (-30%)",
     # -- settings ------------------------------------------------------------
     # ``{language}`` — единственный плейсхолдер, который добавляет всё это изменение, и в
     # него подставляется подпись ``language.*`` — самоназвание в собственной графике, а не
@@ -250,6 +260,11 @@ CATALOGUE: Final[dict[str, str]] = {
         "🎯 <b>Сделаем песню личной!</b>\n\n"
         "Напишите <b>детали</b> (до {limit} симв.): "
         "<b>фишки, истории, любимые фразы</b> или посыл (<b>любовь, юмор, благодарность</b>)."
+    ),
+    "wizard.note.teachers_day_prompt": (
+        "👩‍🏫 <b>От кого будет эта песня?</b>\n\n"
+        "Например: <i>9 «А» класс школы №56</i> или <i>выпускники 2013 года</i>.\n\n"
+        "Напишите текстом (до {limit} символов) или пропустите."
     ),
     "wizard.note.privacy_line": "",
     "wizard.note.too_long": "Немного длинновато. Уложитесь, пожалуйста, в {limit} символов.",
@@ -275,6 +290,7 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.output_language.prompt": "На каком языке спеть песню для {name}?",
     "wizard.output_language.prompt_noname": "На каком языке спеть песню?",
     "wizard.lyrics.writing": "✍️ Пишу слова для {name}… это займёт до минуты.",
+    "wizard.lyrics.writing_teachers_day": "✍️ Сочиняю слова для учителей… это займет до минуты.",
     "wizard.lyrics.preview": (
         "<b>{title}</b>\n\n"
         "<b>{lyrics}</b>\n\n"
@@ -344,6 +360,17 @@ CATALOGUE: Final[dict[str, str]] = {
         "Ваши слова готовы. Дальше я их записываю.\n\n"
         "Начинать?"
     ),
+    "wizard.confirm.summary_teachers_day": (
+        "<b>👩‍🏫 Песня для учителей</b>\n"
+        "{occasion}\n"
+        "{genre}\n"
+        "{vocal_gender}\n"
+        "🌐 {output_language}\n"
+        "✍️ От кого: {sender}\n\n"
+        "Слова готовы. Теперь запишем песню.\n\n"
+        "Начинаем?"
+    ),
+    "wizard.confirm.no_sender": "—",
     "wizard.lyrics.untitled": "Ваша песня",
     "wizard.expired": "Эта сессия закрылась. Можем пройти всё заново, с самого начала.",
     "wizard.cancelled": "Отменено — ничего не сделано и ничего не сохранено.",
@@ -384,10 +411,13 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.pay_payme": "📲 Через Payme: {amount} сум",
     "button.subscribe": "🌟 {amount} сум — {songs} песен",
     "button.subscribe_payme": "💎 Payme: {amount} сум — {songs} шт",
-
+    # checkout.uz (Click / Payme). При {amount} = "149 000" — 28 и 29 символов.
+    "button.pay_checkoutuz": "💸 Click / Payme: {amount} сум",
+    "button.subscribe_checkoutuz": "💰 Click/Payme {amount} — {songs} шт",
     # Первая в продукте кнопка со ссылкой наружу — она уводит на страницу оплаты. 🔗, а не
     # 💳: 💳 занята ``button.pay`` экраном раньше. Цены на ней нет — цена в сообщении над ней.
     "button.pay_now": "🔗 Оплатить",
+    "button.checkoutuz_all_methods": "🌐 Все способы оплаты",
     "button.name_ok": "✅ Да, именно так",
     "button.retype": "✏️ Написать заново",
     "button.lyrics_ok": "✅ Оставить этот текст",
@@ -419,6 +449,7 @@ CATALOGUE: Final[dict[str, str]] = {
     "occasion.kids": "👶 Для детей",
     "occasion.no_occasion": "🎶 Без повода",
     "occasion.custom": "✨ Другой повод",
+    "occasion.teachers_day": "👩‍🏫 День учителя",
     "genre.pop": "🎤 Поп",
     "genre.retro_estrada": "📻 Ретро-эстрада",
     "genre.hip_hop": "🎧 Хип-хоп",

@@ -229,7 +229,9 @@ async def test_paymes_own_content_type_parses(client: httpx.AsyncClient) -> None
 # ---------------------------------------------------------------------------
 async def test_the_right_pair_gets_through(client: httpx.AsyncClient) -> None:
     # Act
-    response = await _post(client, b'{"method": "GetStatement", "params": {"from": 0, "to": 1}, "id": 3}')
+    response = await _post(
+        client, b'{"method": "GetStatement", "params": {"from": 0, "to": 1}, "id": 3}'
+    )
 
     # Assert
     assert _envelope(response)["result"] == {"transactions": []}
@@ -242,7 +244,9 @@ async def test_the_right_key_with_the_wrong_login_is_refused(client: httpx.Async
     trailing half, which accepts any username at all. The whole pair is compared here.
     """
     # Act
-    response = await _post(client, b'{"method": "GetStatement", "params": {}, "id": 3}', login="admin")
+    response = await _post(
+        client, b'{"method": "GetStatement", "params": {}, "id": 3}', login="admin"
+    )
 
     # Assert
     assert _envelope(response)["error"]["code"] == PaymeErrorCode.UNAUTHORISED
@@ -252,7 +256,9 @@ async def test_a_missing_authorization_header_is_minus_32504_at_status_200(
     client: httpx.AsyncClient,
 ) -> None:
     # Act
-    response = await client.post(PAYME_PATH, content=b'{"method": "GetStatement", "params": {}, "id": 1}')
+    response = await client.post(
+        PAYME_PATH, content=b'{"method": "GetStatement", "params": {}, "id": 1}'
+    )
 
     # Assert
     assert _envelope(response)["error"]["code"] == PaymeErrorCode.UNAUTHORISED
@@ -319,7 +325,9 @@ async def test_an_exception_inside_a_handler_renders_minus_32400_at_status_200(
     monkeypatch.setattr(PaymeService, "dispatch", _explode)
 
     # Act
-    response = await _post(client, b'{"method": "CheckTransaction", "params": {"id": "x"}, "id": 8}')
+    response = await _post(
+        client, b'{"method": "CheckTransaction", "params": {"id": "x"}, "id": 8}'
+    )
 
     # Assert
     body = _envelope(response)
@@ -358,7 +366,7 @@ async def test_healthz_is_a_bare_200_that_touches_nothing(client: httpx.AsyncCli
 async def test_readyz_tells_an_unauthenticated_caller_a_constant_word(
     client: httpx.AsyncClient,
 ) -> None:
-    """"degraded" is the same fleet telemetry as ``{"database": false}`` with fewer characters."""
+    """ "degraded" is the same fleet telemetry as ``{"database": false}`` with fewer characters."""
     # Act
     response = await client.get("/readyz")
 

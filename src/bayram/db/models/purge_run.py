@@ -119,9 +119,7 @@ class PurgeRunRow(Base):
     #: the schema, one row per account per campaign, so a sweep that silently stops keeping up
     #: shows here as a small figure beside a large backlog long before it shows anywhere else.
     #: A sweep whose count is not stored is a backlog the panel reports as zero.
-    broadcast_recipients_deleted: Mapped[int] = mapped_column(
-        sa.Integer, nullable=False, default=0
-    )
+    broadcast_recipients_deleted: Mapped[int] = mapped_column(sa.Integer, nullable=False, default=0)
 
     # -- bytes --------------------------------------------------------------
     #: Keys ``purge_expired`` handed back, i.e. rows whose objects are now orphaned.

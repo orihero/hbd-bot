@@ -162,6 +162,7 @@ class FakeMusicProvider:
             remote_id=f"fake-song-{self._render_count:04d}",
             cost_usd=DEFAULT_FAKE_COST_USD,
             cost_source=CostSource.ESTIMATED,
+            provider=self.name,
         )
 
     async def compose(

@@ -295,6 +295,20 @@ export const en: TranslationSchema = {
       costProvenance: {
         title: "How the cost was priced",
       },
+      channels: {
+        heading: "Marketing channels",
+        subtitle: "Traffic attribution from Telegram deep-links (?start=channel or utm_source=channel)",
+        emptyTitle: "No channel traffic recorded",
+        emptyMessage: "Traffic will appear here when users start the bot using channel links like https://t.me/<bot>?start=utm_source_channel_name or ?start=channel_name.",
+        colChannel: "Channel",
+        colClicks: "Starts",
+        colNewUsers: "New Users",
+        colOnboarded: "Onboarded",
+        colOrders: "Songs",
+        colPaying: "Paying",
+        colRevenue: "Revenue",
+        colConversion: "Conv. %",
+      },
     },
     note: {
       noCorrelationId: "no correlation id",
@@ -314,6 +328,15 @@ export const en: TranslationSchema = {
       notPolled: "balances not polled",
       notPolledTitle:
         "No vendor in this deployment reports a balance, so nothing is polled.",
+    },
+    gemini: {
+      heading: "Gemini spend",
+      monthLabel: "Gemini spend · this month (est.)",
+      monthSub: "{songs} songs · today {today}",
+      outOfCredit: "Gemini out of credit — renders fail over to ElevenLabs. Top up in AI Studio.",
+      estimateHint: "Estimated at our per-request price; Google exposes no balance.",
+      spendLabel: "Gemini spend · {period}",
+      notPriced: "calls recorded, not priced",
     },
     fx: {
       rate: "1 USD = {rate} soʻm",
@@ -654,6 +677,7 @@ export const en: TranslationSchema = {
       firstOrder: "first order",
       lastOrder: "last order",
       wizardSession: "Wizard session",
+      acquisitionChannel: "acquisition channel",
     },
     profileStanding: {
       onFile: "profile on file",
@@ -679,6 +703,8 @@ export const en: TranslationSchema = {
         "The mask carries no country prefix, by design. The number itself is on no wire at any role — only a reveal produces it.",
       phoneShared:
         "When the customer pressed Telegram's share-contact button. Absent means they never did.",
+      acquisitionChannel:
+        "The marketing traffic channel parameter recorded on this account's first /start interaction.",
     },
     ordersPanel: {
       noun: "this customer's orders",
@@ -794,6 +820,29 @@ export const en: TranslationSchema = {
     subtitleAll: "{count} attempts in the render ledger",
     subtitleFiltered: "{count} attempts match these filters",
     searchPlaceholder: "Search by attempt ID or correlation ID…",
+    teachersDay: {
+      label: "Teachers' Day:",
+      loading: "Loading…",
+      active: "Active (-{percent}%)",
+      off: "Off",
+      enableAria: "Enable Teachers' Day promo",
+      disableAria: "Disable Teachers' Day promo",
+      turnOn: "Turn On",
+      turnOff: "Turn Off",
+      enableTitle: "Enable Teachers' Day Promo (-{percent}%)",
+      disableTitle: "Disable Teachers' Day Promo",
+      enableDescription: "Enable the Teachers' Day category on Telegram bot with a {percent}% discount and dedicated sender dedication flow.",
+      disableDescription: "Disable the Teachers' Day category and discount. The category will be removed from the Telegram bot main menu.",
+      confirmOn: "Turn On Promo",
+      confirmOff: "Turn Off Promo",
+      pendingOn: "Turning on…",
+      pendingOff: "Turning off…",
+      errorTitle: "Update failed",
+      reasonLabel: "Why (optional, up to 500 characters)",
+      reasonHint: "Audit explanation. Free text on a 90-day sweep.",
+      enableDetail: "Activating Teachers' Day will immediately display the \"👩‍🏫 Ustozlar kuni (-{percent}%)\" button in the bot's main menu, apply a {percent}% single-song discount, and configure lyrics prompts for educator appreciation.",
+      disableDetail: "Deactivating Teachers' Day will hide the button from the main menu and revert single song purchases to regular pricing.",
+    },
     subjects: {
       ledger: "The render ledger",
       attempt: "This attempt",
@@ -2283,6 +2332,35 @@ export const en: TranslationSchema = {
       reasonLabel: "Why the switch is being moved",
       reasonHint:
         "Goes on the audit row against your name. One line is enough.",
+    },
+    rails: {
+      heading: "Payment rails",
+      names: { rhmt: "Rahmat", payme: "Payme", checkoutuz: "checkout.uz" },
+      on: "On",
+      off: "Off",
+      notWired: "Not live in env",
+      notWiredHint:
+        "The bot's environment did not wire this rail at its last boot, so the switch has no effect until it does.",
+      wiredUnknownHint:
+        "The bot has not reported which rails its environment wired, so only the switch is shown.",
+      turnOn: "Turn on",
+      turnOff: "Turn off",
+      turnOnAria: "Turn on {rail}",
+      turnOffAria: "Turn off {rail}",
+      offTitle: "Stop selling through {rail}?",
+      offBody:
+        "The bot stops offering {rail} buttons and refuses new {rail} checkouts. Payments already started still settle and are credited. The other rails are unaffected.",
+      offLabel: "Turn off {rail}",
+      offPending: "Turning off…",
+      onTitle: "Sell through {rail} again?",
+      onBody:
+        "The bot offers {rail} again, provided its environment wires the rail and checkouts are not paused.",
+      onLabel: "Turn on {rail}",
+      onPending: "Turning on…",
+      reasonLabel: "Why the rail is being switched",
+      reasonHint: "Goes on the audit row against your name. One line is enough.",
+      failedTitle: "Switch failed",
+      loadFailed: "Payment rails could not be read",
     },
     calls: {
       title: "Inbound calls",

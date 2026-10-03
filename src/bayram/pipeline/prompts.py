@@ -67,6 +67,10 @@ OCCASION_BRIEFS: Final[dict[Occasion, str]] = {
     Occasion.ANNIVERSARY: "an anniversary",
     Occasion.KIDS: "a child, so keep the words simple, playful and easy to sing along to",
     Occasion.NO_OCCASION: "no particular occasion at all, just to make someone smile today",
+    Occasion.TEACHERS_DAY: (
+        "Teachers' Day (1st of October - O'qituvchi va murabbiylar kuni), "
+        "honoring teachers and mentors with heartfelt gratitude and respect"
+    ),
     Occasion.CUSTOM: "a personal celebration",
 }
 
@@ -161,6 +165,28 @@ def lyrics_system_prompt(language: Language) -> str:
 
 
 def lyrics_user_prompt(brief: Brief) -> str:
+    if brief.occasion is Occasion.TEACHERS_DAY:
+        sender_note = brief.note.strip()
+        sender_instruction = (
+            f'This song is dedicated to teachers and mentors on behalf of: "{sender_note}". '
+            f'Weave in that the dedication comes from "{sender_note}" naturally in the lyrics '
+            "(e.g. in a verse or chorus)."
+            if sender_note
+            else "This song is a warm, universal dedication to teachers and mentors."
+        )
+        return (
+            f"Write celebration song lyrics for {OCCASION_BRIEFS[brief.occasion]}.\n"
+            f"{sender_instruction}\n"
+            "Key instructions for Teachers' Day lyrics:\n"
+            "- Express heartfelt gratitude, deep respect, and warm appreciation for teachers' "
+            "and mentors' dedication, wisdom, guidance, and patience.\n"
+            "- Evoke school memories, the path to knowledge, and the lifelong impact of teachers.\n"
+            "- Keep the tone celebratory, emotional, uplifting, and respectful.\n"
+            f"Musical style: {GENRE_BRIEFS[brief.genre]}.\n"
+            f"Language of the lyrics: {LANGUAGE_NAMES[brief.output_language]}.\n\n"
+            'Return JSON shaped as {"title": str, "sections": '
+            '[{"label": str, "lines": [str], "is_name_hook": bool}]}.'
+        )
     return (
         f"Write celebration song lyrics for {OCCASION_BRIEFS[brief.occasion]}.\n"
         f"{_name_line(brief)}\n"

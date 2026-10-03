@@ -207,9 +207,12 @@ async def test_a_finished_kit_is_sent_to_the_chat_that_asked_for_it(
     summary = await generate_and_deliver(_ctx(container, bot), str(order.id), CHAT_ID, MESSAGE_ID)
 
     # Assert
+    # Since 2b4803d delivery is exactly two messages — the lyric card, then the song — and
+    # the greeting voice notes are no longer sent (pinned in tests/test_bot/test_delivery.py).
     assert summary["is_delivered"] is True
+    assert session.named("SendPhoto")
     assert session.named("SendAudio")
-    assert session.named("SendVoice")
+    assert not session.named("SendVoice")
 
 
 async def test_the_progress_sink_targets_the_message_the_wizard_already_posted(

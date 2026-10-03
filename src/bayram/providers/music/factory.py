@@ -1,45 +1,37 @@
 """Build the music provider from ``Settings``. One place reads configuration.
 
-Two knobs decide how this adapter behaves against the vendor:
-
-* ``music_max_concurrency`` — the simultaneous-render ceiling (2 on Starter/Creator/Pro,
-  5 on Scale). Exceeding it earns a 429, so it is a hard limit that belongs beside
-  ``worker_concurrency``, not a literal in an adapter.
-* ``music_usd_per_minute`` — the rate the usage line's cost estimate is derived from.
-  ``0.0`` is a legal value and not a degenerate one: it says no music rate is configured
-  here, and the adapter answers that by leaving ``cost_usd`` NULL rather than by billing
-  the render at nothing (``ElevenLabsMusicProvider._estimated_cost``). Passing it through
-  untouched is therefore the whole job — a guard here would turn "unpriced" into a startup
-  failure and take the one honest way of saying it away from the operator.
-
-Both are now real ``Settings`` fields with ``ge`` bounds, so a nonsense value — a negative
-rate, a ceiling of zero — is rejected at startup by ``load_settings()`` and can never reach
-a semaphore. This module therefore reads them straight: re-validating here would be a
-second, weaker copy of a check that already happened at the only boundary that matters.
-
-``usage`` is the third collaborator and the only one with a working default. It defaults to
-the logging sink so a caller with no database — a test, a one-shot operator tool — still
-gets the measurement on stdout; ``runtime.providers`` passes the persisting sink instead.
+Supports ElevenLabs Music and Gemini Music (Google Lyria). When dynamic switching
+is enabled via ``provider_resolver``, returns a ``DynamicMusicProvider`` that
+delegates calls to the active vendor resolved at runtime (e.g. from Redis).
 """
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 import httpx
 
 from bayram.config import Settings
+from bayram.contracts import MusicProvider
+from bayram.providers.music.dynamic import DynamicMusicProvider
 from bayram.providers.music.elevenlabs import ElevenLabsMusicProvider
+from bayram.providers.music.gemini import GeminiMusicProvider
 from bayram.usage import LOGGING_USAGE_SINK, UsageSink
 
-__all__ = ["build_music_provider"]
+__all__ = [
+    "build_music_provider",
+    "build_elevenlabs_provider",
+    "build_gemini_provider",
+]
 
 
-def build_music_provider(
+def build_elevenlabs_provider(
     settings: Settings,
     *,
     client: httpx.AsyncClient | None = None,
     usage: UsageSink = LOGGING_USAGE_SINK,
 ) -> ElevenLabsMusicProvider:
-    """Wire the live Eleven Music adapter. Pass ``client`` to share a pooled connection."""
+    """Wire the live Eleven Music adapter."""
     return ElevenLabsMusicProvider(
         api_key=settings.elevenlabs_api_key,
         base_url=settings.elevenlabs_base_url,
@@ -50,3 +42,53 @@ def build_music_provider(
         client=client,
         usage=usage,
     )
+
+
+def build_gemini_provider(
+    settings: Settings,
+    *,
+    client: httpx.AsyncClient | None = None,
+    usage: UsageSink = LOGGING_USAGE_SINK,
+) -> GeminiMusicProvider:
+    """Wire the live Gemini Music (Lyria) adapter."""
+    api_key = settings.gemini_api_key or (
+        settings.llm_api_key if settings.llm_provider == "gemini" else ""
+    )
+    return GeminiMusicProvider(
+        api_key=api_key,
+        base_url=settings.gemini_music_base_url,
+        model_id=settings.gemini_music_model_id,
+        max_concurrency=settings.gemini_music_max_concurrency,
+        usd_per_request=settings.gemini_music_usd_per_request,
+        client=client,
+        usage=usage,
+    )
+
+
+def build_music_provider(
+    settings: Settings,
+    *,
+    client: httpx.AsyncClient | None = None,
+    gemini_client: httpx.AsyncClient | None = None,
+    usage: UsageSink = LOGGING_USAGE_SINK,
+    provider_resolver: Callable[[], Awaitable[str]] | None = None,
+) -> MusicProvider:
+    """Wire the music provider according to settings and optional runtime resolver."""
+    eleven = build_elevenlabs_provider(settings, client=client, usage=usage)
+
+    if provider_resolver is not None:
+        gemini = build_gemini_provider(settings, client=gemini_client or client, usage=usage)
+        return DynamicMusicProvider(
+            {"elevenlabs": eleven, "gemini": gemini},
+            default_provider=settings.music_provider,
+            resolver=provider_resolver,
+        )
+
+    if settings.music_provider == "gemini":
+        gemini = build_gemini_provider(settings, client=gemini_client or client, usage=usage)
+        return DynamicMusicProvider(
+            {"elevenlabs": eleven, "gemini": gemini},
+            default_provider="gemini",
+        )
+
+    return eleven

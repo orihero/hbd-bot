@@ -70,13 +70,9 @@ class ChatMessageRow(Base):
     correlation_id: Mapped[str | None] = mapped_column(
         sa.String(CORRELATION_ID_LENGTH), nullable=True, index=True
     )
-    text_expires_at: Mapped[datetime] = mapped_column(
-        UtcDateTime, nullable=False, index=True
-    )
+    text_expires_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, index=True)
     body_purged_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
-    expires_at: Mapped[datetime] = mapped_column(
-        UtcDateTime, nullable=False, index=True
-    )
+    expires_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         UtcDateTime, nullable=False, default=utc_now, index=True
     )

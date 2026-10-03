@@ -278,6 +278,8 @@ class UserDetailView(ApiModel):
     #: as spent, and this is the only number on the screen that explains why the customer is
     #: being refused.
     in_flight_render_count: int
+    #: First-touch marketing acquisition channel, if known.
+    acquisition_channel: str | None = None
 
 
 class DraftFieldView(ApiModel):
@@ -393,6 +395,7 @@ def to_user_detail_view(detail: UserDetail, *, avatar_url: str | None) -> UserDe
         failed_order_count=detail.failed_order_count,
         credits_projected=detail.credits_projected,
         in_flight_render_count=detail.in_flight_render_count,
+        acquisition_channel=detail.acquisition_channel,
     )
 
 

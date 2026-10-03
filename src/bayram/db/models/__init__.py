@@ -21,7 +21,9 @@ from bayram.db.models.brief import BriefRow
 from bayram.db.models.broadcast import BroadcastRow
 from bayram.db.models.broadcast_body import BroadcastBodyRow
 from bayram.db.models.broadcast_recipient import BroadcastRecipientRow
+from bayram.db.models.channel_attribution import ChannelAttributionRow
 from bayram.db.models.chat_message import ChatMessageRow
+from bayram.db.models.checkoutuz_payment import CheckoutUzPaymentRow
 from bayram.db.models.credit_account import CreditAccountRow
 from bayram.db.models.credit_ledger import CreditLedgerRow
 from bayram.db.models.generation_attempt import GenerationAttemptRow
@@ -63,6 +65,7 @@ __all__ = [
     "PaymentIntentRow",
     "PaymeTransactionRow",
     "PaymeRpcLogRow",
+    "CheckoutUzPaymentRow",
     "LyricBudgetRow",
     "PurgeRunRow",
     "VendorUsageRow",
@@ -73,6 +76,7 @@ __all__ = [
     "BroadcastRow",
     "BroadcastBodyRow",
     "BroadcastRecipientRow",
+    "ChannelAttributionRow",
     "SupportTicketRow",
     "SupportTicketEventRow",
 ]

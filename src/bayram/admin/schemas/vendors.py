@@ -43,7 +43,7 @@ decision on this surface and no unmasked variant of any response.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Final
 
 from bayram.admin.schemas.common import ApiModel
@@ -58,6 +58,8 @@ from bayram.db.admin.views import (
 )
 
 __all__ = [
+    "GeminiSpendResponse",
+    "GeminiSpendTotalView",
     "MIXED_COST_SOURCE",
     "VendorErrorView",
     "VendorUsagePerDayView",
@@ -290,3 +292,26 @@ def cost_source_of(source: CostSource | None, *, is_mixed: bool) -> str | None:
     if is_mixed:
         return MIXED_COST_SOURCE
     return None if source is None else source.value
+
+
+class GeminiSpendTotalView(ApiModel):
+    """Estimated Gemini spend since a boundary, and the priced calls it is the sum of."""
+
+    spent_usd: float
+    priced_calls: int
+
+
+class GeminiSpendResponse(ApiModel):
+    """``GET /api/metrics/gemini-spend`` — what Gemini has cost us, not what is left.
+
+    Google exposes no API for the prepay balance (DECISIONS.md D27), so the panel shows spend.
+    Both periods are UTC calendar boundaries, like every other dashboard window. Every figure
+    is an ESTIMATE from our per-request price. ``is_depleted`` is Google's own word: the most
+    recent Gemini call was refused for lack of prepay credit, and renders are failing over to
+    ElevenLabs until someone tops up in AI Studio.
+    """
+
+    today: GeminiSpendTotalView
+    month_to_date: GeminiSpendTotalView
+    is_depleted: bool
+    depleted_at: datetime | None

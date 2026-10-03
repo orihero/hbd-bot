@@ -31,6 +31,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { BillingWindowQuery, IntentFilters } from "@/api/billing";
+import type { CheckoutRailsConfig } from "@/api/config";
 import { en } from "@/i18n/locales/en";
 import { useAuthStore } from "@/state/auth";
 
@@ -58,6 +59,24 @@ vi.mock("@/api/billing", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return { ...actual, getAttention, getRailFunnel, getRailStatus, listIntents, postIntentNotify };
 });
+
+/* The rails panel above the table reads `/api/config/checkout-rails`. Replaced here so this
+   suite never reaches the network; `CheckoutRailsPanel.test.tsx` owns that panel's behaviour. */
+const { getCheckoutRails } = vi.hoisted(() => ({ getCheckoutRails: vi.fn() }));
+
+vi.mock("@/api/config", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return { ...actual, getCheckoutRails };
+});
+
+const RAILS: CheckoutRailsConfig = {
+  rails: [
+    { name: "rhmt", enabled: true, wired: true },
+    { name: "payme", enabled: true, wired: true },
+    { name: "checkoutuz", enabled: true, wired: true },
+  ],
+  wiredKnown: true,
+};
 
 /** The em dash `PageStats` prints in place of a figure nobody measured. Never a zero. */
 const NO_VALUE = "—";
@@ -112,6 +131,7 @@ beforeEach(() => {
      state these tiles have to render honestly. */
   getRailFunnel.mockResolvedValue({ ok: true, data: makeRailFunnel() });
   getAttention.mockResolvedValue({ ok: true, data: makeAttention() });
+  getCheckoutRails.mockResolvedValue({ ok: true, data: RAILS });
   useAuthStore.setState({
     account: {
       id: "00000000-0000-4000-8000-000000000001",

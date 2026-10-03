@@ -192,6 +192,8 @@ class Occasion(StrEnum):
     #: "nothing to celebrate, just sing", while ``CUSTOM`` says "something you have not
     #: listed".
     NO_OCCASION = "no_occasion"
+    #: Teachers' Day (1st of October in Uzbekistan: Ustoz va murabbiylar kuni).
+    TEACHERS_DAY = "teachers_day"
     CUSTOM = "custom"
 
 
@@ -1030,6 +1032,7 @@ class RenderedAudio(_Frozen):
     )
     cost_usd: float = Field(ge=0.0)
     cost_source: CostSource
+    provider: str | None = None
 
 
 class VoiceDescriptor(_Frozen):
@@ -1125,6 +1128,7 @@ class GeneratedAsset(_Frozen):
     )
     loudness_lufs: float | None = None
     persona_id: str | None = None
+    provider: str | None = None
 
 
 class Kit(_Frozen):

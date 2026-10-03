@@ -72,12 +72,17 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from bayram.checkoutuz.app import (
+    CHECKOUTUZ_GATE_STATE_ATTR,
+    CheckoutUzWebhookGate,
+    build_checkoutuz_router,
+)
 from bayram.config import ENV_PREFIX, VENDOR_SECRET_FIELDS, resolve_env_file
 from bayram.db.engine import ping
 from bayram.errors import ConfigError
 from bayram.logging import configure_logging, get_logger
 from bayram.payme.auth import presented_login, verify_basic
-from bayram.payme.container import PaymeContainer, build_payme_container
+from bayram.payme.container import PaymeContainer, QueuedNotifier, build_payme_container
 from bayram.payme.protocol import PaymeErrorCode, RpcRequest, render_fault
 from bayram.payme.settings import (
     PAYME_ENV_FILE,
@@ -85,6 +90,9 @@ from bayram.payme.settings import (
     PaymeSettings,
     build_payme_settings,
 )
+from bayram.rhmt.app import build_rhmt_router
+from bayram.rhmt.service import RhmtWebhookService
+from bayram.rhmt.settings import RhmtSettings
 
 __all__ = [
     "FORBIDDEN_ENV_VARS",
@@ -400,9 +408,7 @@ class JsonRpcErrorMiddleware:
             # ``id: null``: the exception may have happened before anything was parsed, and
             # guessing an id we did not read would be worse than the honest null.
             await _rpc_response(
-                render_fault(
-                    PaymeErrorCode.INTERNAL, "internal error", request_id=None
-                )
+                render_fault(PaymeErrorCode.INTERNAL, "internal error", request_id=None)
             )(scope, receive, send)
 
 
@@ -486,9 +492,7 @@ def _register_routes(application: FastAPI) -> None:
             return _rpc_response(_unauthorised(request_id=None))
 
         header = request.headers.get(AUTHORIZATION_HEADER)
-        if not verify_basic(
-            header, login=settings.payme_basic_login, key=settings.merchant_key
-        ):
+        if not verify_basic(header, login=settings.payme_basic_login, key=settings.merchant_key):
             # The RECEIVED login and never the key. The undocumented username is then learned
             # from the first sandbox call rather than from a support ticket, and the one secret
             # on this host stays out of a log file that has no retention clock.
@@ -576,12 +580,19 @@ def _register_routes(application: FastAPI) -> None:
             "isSandbox": container.settings.payme_is_sandbox,
         }
 
+    application.include_router(build_rhmt_router())
+    # checkout.uz's webhook (DECISIONS.md D28). Mounted here rather than in a fifth process
+    # because it needs exactly what this one already holds — the database and the queue — and
+    # no secret at all: the body is unsigned and is never trusted, so the route only asks the
+    # worker to re-read the payment from checkout.uz's API. It always answers 200. The public
+    # edge must route ``/checkoutuz/*`` to this port for any of it to arrive; the poller in the
+    # worker settles every payment whether or not it does.
+    application.include_router(build_checkoutuz_router())
+
 
 def _unauthorised(*, request_id: int | None) -> dict[str, object]:
     """``-32504`` at HTTP 200. One builder, so the two callers cannot render it differently."""
-    return render_fault(
-        PaymeErrorCode.UNAUTHORISED, "authorisation failed", request_id=request_id
-    )
+    return render_fault(PaymeErrorCode.UNAUTHORISED, "authorisation failed", request_id=request_id)
 
 
 def _is_probe_authorised(request: Request, settings: PaymeSettings) -> bool:
@@ -634,6 +645,26 @@ def _lifespan_factory(
         container = preset_container or await build_payme_container(settings)
         application.state.settings = settings
         application.state.container = container
+        rhmt_settings = RhmtSettings.from_env()
+        rhmt_secret = rhmt_settings.rhmt_secret.get_secret_value()
+        if rhmt_secret:
+            application.state.rhmt_service = RhmtWebhookService(
+                session_factory=container.session_factory,
+                secret=rhmt_secret,
+                scheme=rhmt_settings.rhmt_callback_scheme,
+                notifier=QueuedNotifier(container.redis),
+                clock=container.clock,
+            )
+
+        # UNCONDITIONAL, unlike the Rahmat service above, because the gate holds no secret: it
+        # reads one row and enqueues one deterministic job id. A deployment that never sold on
+        # checkout.uz simply never finds an order on file, and answers 200 with nothing queued.
+        setattr(
+            application.state,
+            CHECKOUTUZ_GATE_STATE_ATTR,
+            CheckoutUzWebhookGate(container.session_factory, container.redis),
+        )
+
         _LOGGER.info(
             "payme gateway started",
             extra={

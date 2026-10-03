@@ -25,18 +25,29 @@ from typing import Final
 
 import httpx
 import pytest
+import sqlalchemy as sa
 
 from bayram.admin.container import AdminContainer
-from bayram.admin.routers.config import CONFIG_PATH
+from bayram.admin.routers.config import (
+    CONFIG_CHECKOUT_RAILS_PATH,
+    CONFIG_MUSIC_PROVIDER_PATH,
+    CONFIG_PATH,
+    CONFIG_TEACHERS_DAY_PATH,
+)
 from bayram.admin.schemas.config_view import endpoint_of, to_config_view
 from bayram.admin.settings import AdminSettings
-from bayram.db.enums import AdminRole
+from bayram.checkout_rails import WIRED_RAILS_KEY, rail_switch_key
+from bayram.db.enums import AdminRole, AuditAction, AuditReasonCode
+from bayram.db.models.admin_audit import AdminAuditRow
+from bayram.providers.music.switch import read_music_provider
+from bayram.teachers_day import read_teachers_day_enabled
 from tests.test_admin.conftest import (
     ORIGIN,
     PASSWORD,
     FakeRedis,
     MemoryRateLimits,
     create_account,
+    csrf_headers,
     make_settings,
     open_client,
     open_container,
@@ -385,3 +396,500 @@ def test_a_password_containing_a_colon_does_not_become_the_port() -> None:
     # Assert
     assert endpoint.host == "db.internal"
     assert endpoint.port is None
+
+
+# ---------------------------------------------------------------------------
+# Music provider configuration and runtime switching
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "role", [AdminRole.VIEWER, AdminRole.SUPPORT, AdminRole.ADMIN, AdminRole.OWNER]
+)
+async def test_every_role_in_the_matrix_row_may_read_music_provider_config(
+    container: AdminContainer, client: httpx.AsyncClient, role: AdminRole
+) -> None:
+    await signed_in(container, client, role=role)
+
+    response = await client.get(CONFIG_MUSIC_PROVIDER_PATH)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["activeProvider"] == "elevenlabs"
+    assert body["defaultProvider"] == "elevenlabs"
+    assert sorted(body["availableProviders"]) == ["elevenlabs", "gemini"]
+
+
+async def test_unauthenticated_caller_cannot_read_or_write_music_provider(
+    client: httpx.AsyncClient,
+) -> None:
+    get_res = await client.get(CONFIG_MUSIC_PROVIDER_PATH)
+    assert get_res.status_code == 401
+    assert get_res.json()["error"]["code"] == "UNAUTHENTICATED"
+
+    post_res = await client.post(
+        CONFIG_MUSIC_PROVIDER_PATH,
+        json={"provider": "gemini", "reasonCode": AuditReasonCode.ROUTINE_OPS.value},
+    )
+    assert post_res.status_code == 401
+    assert post_res.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
+@pytest.mark.parametrize("role", [AdminRole.VIEWER, AdminRole.SUPPORT, AdminRole.ADMIN])
+async def test_non_owner_roles_cannot_set_music_provider(
+    container: AdminContainer, client: httpx.AsyncClient, role: AdminRole
+) -> None:
+    await signed_in(container, client, role=role)
+
+    response = await client.post(
+        CONFIG_MUSIC_PROVIDER_PATH,
+        json={
+            "provider": "gemini",
+            "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
+            "reasonText": "switch attempt",
+        },
+        headers=csrf_headers(client) | {"Origin": ORIGIN},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "FORBIDDEN"
+
+
+async def test_owner_can_switch_music_provider_and_audits_commit(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    await signed_in(container, client, role=AdminRole.OWNER)
+
+    # Initial state
+    assert await read_music_provider(container.redis) == "elevenlabs"
+
+    # Switch to gemini
+    response = await client.post(
+        CONFIG_MUSIC_PROVIDER_PATH,
+        json={
+            "provider": "gemini",
+            "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
+            "reasonText": "Switching to Gemini Lyria for music gen",
+        },
+        headers=csrf_headers(client) | {"Origin": ORIGIN},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["activeProvider"] == "gemini"
+    assert body["defaultProvider"] == "elevenlabs"
+    assert sorted(body["availableProviders"]) == ["elevenlabs", "gemini"]
+
+    # Verify Redis updated
+    assert await read_music_provider(container.redis) == "gemini"
+
+    # Verify GET returns updated active provider
+    get_res = await client.get(CONFIG_MUSIC_PROVIDER_PATH)
+    assert get_res.status_code == 200
+    assert get_res.json()["activeProvider"] == "gemini"
+
+    # Verify audit log row
+    async with container.session_factory.begin() as db:
+        rows = list(
+            (
+                await db.execute(
+                    sa.select(AdminAuditRow).where(
+                        AdminAuditRow.action == AuditAction.CONFIG_COMMIT
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.subject_type == "config"
+    assert row.subject_id == "music_provider"
+    assert row.reason_code == AuditReasonCode.ROUTINE_OPS.value
+    assert row.reason_text == "Switching to Gemini Lyria for music gen"
+    assert row.actor_username == "owner-account"
+
+
+async def test_set_music_provider_refuses_invalid_provider(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    await signed_in(container, client, role=AdminRole.OWNER)
+
+    response = await client.post(
+        CONFIG_MUSIC_PROVIDER_PATH,
+        json={
+            "provider": "suno_unknown",
+            "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
+        },
+        headers=csrf_headers(client) | {"Origin": ORIGIN},
+    )
+
+    assert response.status_code == 422
+
+
+async def test_set_music_provider_refuses_missing_reason_code(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    await signed_in(container, client, role=AdminRole.OWNER)
+
+    response = await client.post(
+        CONFIG_MUSIC_PROVIDER_PATH,
+        json={"provider": "gemini"},
+        headers=csrf_headers(client) | {"Origin": ORIGIN},
+    )
+
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("role", list(AdminRole))
+async def test_every_role_in_the_matrix_row_may_read_teachers_day_config(
+    container: AdminContainer, client: httpx.AsyncClient, role: AdminRole
+) -> None:
+    await signed_in(container, client, role=role)
+
+    response = await client.get(CONFIG_TEACHERS_DAY_PATH)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is False
+    assert body["discountPercent"] == 30
+
+
+async def test_unauthenticated_caller_cannot_read_or_write_teachers_day(
+    client: httpx.AsyncClient,
+) -> None:
+    get_res = await client.get(CONFIG_TEACHERS_DAY_PATH)
+    assert get_res.status_code == 401
+    assert get_res.json()["error"]["code"] == "UNAUTHENTICATED"
+
+    post_res = await client.post(
+        CONFIG_TEACHERS_DAY_PATH,
+        json={"enabled": True, "reasonCode": AuditReasonCode.ROUTINE_OPS.value},
+    )
+    assert post_res.status_code == 401
+    assert post_res.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
+@pytest.mark.parametrize("role", [AdminRole.VIEWER, AdminRole.SUPPORT, AdminRole.ADMIN])
+async def test_non_owner_roles_cannot_set_teachers_day(
+    container: AdminContainer, client: httpx.AsyncClient, role: AdminRole
+) -> None:
+    await signed_in(container, client, role=role)
+
+    response = await client.post(
+        CONFIG_TEACHERS_DAY_PATH,
+        json={
+            "enabled": True,
+            "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
+            "reasonText": "switch attempt",
+        },
+        headers=csrf_headers(client) | {"Origin": ORIGIN},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "FORBIDDEN"
+
+
+async def test_owner_can_switch_teachers_day_and_audits_commit(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    await signed_in(container, client, role=AdminRole.OWNER)
+
+    # Initial state
+    assert await read_teachers_day_enabled(container.redis) is False
+
+    # Switch to True
+    response = await client.post(
+        CONFIG_TEACHERS_DAY_PATH,
+        json={
+            "enabled": True,
+            "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
+            "reasonText": "Enabling Teachers Day promo",
+        },
+        headers=csrf_headers(client) | {"Origin": ORIGIN},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["discountPercent"] == 30
+
+    # Redis check
+    assert await read_teachers_day_enabled(container.redis) is True
+
+    # Audit log check
+    async with container.session_factory() as session:
+        rows = (
+            (
+                await session.execute(
+                    sa.select(AdminAuditRow).where(
+                        AdminAuditRow.action == AuditAction.CONFIG_COMMIT
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.subject_type == "config"
+    assert row.subject_id == "teachers_day"
+    assert row.reason_code == AuditReasonCode.ROUTINE_OPS.value
+    assert row.reason_text == "Enabling Teachers Day promo"
+    assert row.actor_username == "owner-account"
+
+
+async def test_set_teachers_day_refuses_missing_reason_code(
+    container: AdminContainer, client: httpx.AsyncClient
+) -> None:
+    await signed_in(container, client, role=AdminRole.OWNER)
+
+    response = await client.post(
+        CONFIG_TEACHERS_DAY_PATH,
+        json={"enabled": True},
+        headers=csrf_headers(client) | {"Origin": ORIGIN},
+    )
+
+    assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# The owner's per-rail checkout switch (DECISIONS.md D28)
+# ---------------------------------------------------------------------------
+_RAIL_BODY: Final[dict[str, object]] = {
+    "rail": "checkoutuz",
+    "enabled": False,
+    "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
+    "reasonText": "pausing checkout.uz sales",
+}
+
+
+async def _rail_audit_rows(container: AdminContainer) -> list[AdminAuditRow]:
+    async with container.session_factory() as session:
+        return list(
+            (
+                await session.execute(
+                    sa.select(AdminAuditRow).where(
+                        AdminAuditRow.action == AuditAction.CONFIG_COMMIT
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+
+@pytest.mark.parametrize("role", list(AdminRole))
+async def test_every_role_may_read_the_checkout_rails_and_unset_reads_as_on_and_unknown(
+    container: AdminContainer, client: httpx.AsyncClient, role: AdminRole
+) -> None:
+    # Arrange — nothing written: no switch keys, and the bot has not published its rails.
+    await signed_in(container, client, role=role)
+
+    # Act
+    response = await client.get(CONFIG_CHECKOUT_RAILS_PATH)
+
+    # Assert — a missing switch is ON (fail-open), and an unpublished list is unknown, not
+    # "nothing is wired".
+    assert response.status_code == 200
+    assert response.json() == {
+        "rails": [
+            {"name": "rhmt", "enabled": True, "wired": None},
+            {"name": "payme", "enabled": True, "wired": None},
+            {"name": "checkoutuz", "enabled": True, "wired": None},
+        ],
+        "wiredKnown": False,
+    }
+
+
+async def test_the_checkout_rails_view_reports_the_published_wired_list_and_the_switches(
+    container: AdminContainer, client: httpx.AsyncClient, fake_redis: FakeRedis
+) -> None:
+    # Arrange
+    await signed_in(container, client, role=AdminRole.VIEWER)
+    fake_redis.values[WIRED_RAILS_KEY] = "payme,checkoutuz"
+    fake_redis.values[rail_switch_key("payme")] = "0"
+
+    # Act
+    response = await client.get(CONFIG_CHECKOUT_RAILS_PATH)
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json() == {
+        "rails": [
+            {"name": "rhmt", "enabled": True, "wired": False},
+            {"name": "payme", "enabled": False, "wired": True},
+            {"name": "checkoutuz", "enabled": True, "wired": True},
+        ],
+        "wiredKnown": True,
+    }
+
+
+async def test_a_stub_deployment_publishes_an_empty_list_which_is_known_and_wires_nothing(
+    container: AdminContainer, client: httpx.AsyncClient, fake_redis: FakeRedis
+) -> None:
+    await signed_in(container, client, role=AdminRole.OWNER)
+    fake_redis.values[WIRED_RAILS_KEY] = ""
+
+    body = (await client.get(CONFIG_CHECKOUT_RAILS_PATH)).json()
+
+    assert body["wiredKnown"] is True
+    assert [rail["wired"] for rail in body["rails"]] == [False, False, False]
+
+
+async def test_unauthenticated_caller_cannot_read_or_write_checkout_rails(
+    client: httpx.AsyncClient,
+) -> None:
+    get_res = await client.get(CONFIG_CHECKOUT_RAILS_PATH)
+    assert get_res.status_code == 401
+    assert get_res.json()["error"]["code"] == "UNAUTHENTICATED"
+
+    post_res = await client.post(CONFIG_CHECKOUT_RAILS_PATH, json=_RAIL_BODY)
+    assert post_res.status_code == 401
+    assert post_res.json()["error"]["code"] == "UNAUTHENTICATED"
+
+
+@pytest.mark.parametrize("role", [AdminRole.VIEWER, AdminRole.SUPPORT, AdminRole.ADMIN])
+async def test_non_owner_roles_cannot_switch_a_checkout_rail(
+    container: AdminContainer,
+    client: httpx.AsyncClient,
+    fake_redis: FakeRedis,
+    role: AdminRole,
+) -> None:
+    await signed_in(container, client, role=role)
+
+    response = await client.post(
+        CONFIG_CHECKOUT_RAILS_PATH,
+        json=_RAIL_BODY,
+        headers=csrf_headers(client) | {"Origin": ORIGIN},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "FORBIDDEN"
+    assert rail_switch_key("checkoutuz") not in fake_redis.values
+
+
+async def test_owner_can_switch_a_checkout_rail_off_and_on_and_each_commit_is_audited(
+    container: AdminContainer, client: httpx.AsyncClient, fake_redis: FakeRedis
+) -> None:
+    # Arrange
+    await signed_in(container, client, role=AdminRole.OWNER)
+
+    # Act — off
+    response = await client.post(
+        CONFIG_CHECKOUT_RAILS_PATH,
+        json=_RAIL_BODY,
+        headers=csrf_headers(client) | {"Origin": ORIGIN},
+    )
+
+    # Assert — an explicit "0", never a deleted key (a missing key reads as ON).
+    assert response.status_code == 200
+    assert fake_redis.values[rail_switch_key("checkoutuz")] == "0"
+    rails = {rail["name"]: rail["enabled"] for rail in response.json()["rails"]}
+    assert rails == {"rhmt": True, "payme": True, "checkoutuz": False}
+    rows = await _rail_audit_rows(container)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.subject_type == "config"
+    assert row.subject_id == "checkout_rail:checkoutuz:off"
+    assert row.ip is not None
+    assert row.reason_code == AuditReasonCode.ROUTINE_OPS.value
+    assert row.reason_text == "pausing checkout.uz sales"
+    assert row.actor_username == "owner-account"
+
+    # Act — back on; the GET agrees with the POST's answer.
+    response = await client.post(
+        CONFIG_CHECKOUT_RAILS_PATH,
+        json=_RAIL_BODY | {"enabled": True},
+        headers=csrf_headers(client) | {"Origin": ORIGIN},
+    )
+    assert response.status_code == 200
+    assert fake_redis.values[rail_switch_key("checkoutuz")] == "1"
+    assert (await client.get(CONFIG_CHECKOUT_RAILS_PATH)).json() == response.json()
+    # Off and on are distinguishable in the audit log alone — the Redis value is overwritten.
+    assert sorted(str(row.subject_id) for row in await _rail_audit_rows(container)) == [
+        "checkout_rail:checkoutuz:off",
+        "checkout_rail:checkoutuz:on",
+    ]
+
+
+async def test_the_rail_name_is_normalised_before_it_is_written_or_audited(
+    container: AdminContainer, client: httpx.AsyncClient, fake_redis: FakeRedis
+) -> None:
+    await signed_in(container, client, role=AdminRole.OWNER)
+
+    response = await client.post(
+        CONFIG_CHECKOUT_RAILS_PATH,
+        json=_RAIL_BODY | {"rail": "  Payme "},
+        headers=csrf_headers(client) | {"Origin": ORIGIN},
+    )
+
+    assert response.status_code == 200
+    assert fake_redis.values[rail_switch_key("payme")] == "0"
+    assert [row.subject_id for row in await _rail_audit_rows(container)] == [
+        "checkout_rail:payme:off"
+    ]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        _RAIL_BODY | {"rail": "stub"},
+        _RAIL_BODY | {"rail": "click"},
+        {key: value for key, value in _RAIL_BODY.items() if key != "reasonCode"},
+        {key: value for key, value in _RAIL_BODY.items() if key != "enabled"},
+    ],
+    ids=["stub-is-not-switchable", "unknown-rail", "missing-reason-code", "missing-enabled"],
+)
+async def test_set_checkout_rail_refuses_a_malformed_body_and_writes_nothing(
+    container: AdminContainer,
+    client: httpx.AsyncClient,
+    fake_redis: FakeRedis,
+    body: dict[str, object],
+) -> None:
+    await signed_in(container, client, role=AdminRole.OWNER)
+
+    response = await client.post(
+        CONFIG_CHECKOUT_RAILS_PATH,
+        json=body,
+        headers=csrf_headers(client) | {"Origin": ORIGIN},
+    )
+
+    assert response.status_code == 422
+    assert not any(key.startswith(rail_switch_key("")) for key in fake_redis.values)
+    assert await _rail_audit_rows(container) == []
+
+
+async def test_a_switch_that_cannot_be_written_is_a_503_and_is_not_audited(
+    container: AdminContainer, client: httpx.AsyncClient, fake_redis: FakeRedis
+) -> None:
+    # Arrange — the owner must never be told (by the panel or the log) a rail is shut when
+    # the write did not land.
+    await signed_in(container, client, role=AdminRole.OWNER)
+    fake_redis.is_down = True
+
+    # Act
+    response = await client.post(
+        CONFIG_CHECKOUT_RAILS_PATH,
+        json=_RAIL_BODY,
+        headers=csrf_headers(client) | {"Origin": ORIGIN},
+    )
+
+    # Assert
+    fake_redis.is_down = False
+    assert response.status_code == 503
+    assert rail_switch_key("checkoutuz") not in fake_redis.values
+    assert await _rail_audit_rows(container) == []
+
+
+async def test_an_unreachable_redis_reads_as_every_rail_on_and_wiring_unknown(
+    container: AdminContainer, client: httpx.AsyncClient, fake_redis: FakeRedis
+) -> None:
+    await signed_in(container, client, role=AdminRole.VIEWER)
+    fake_redis.is_down = True
+
+    response = await client.get(CONFIG_CHECKOUT_RAILS_PATH)
+
+    fake_redis.is_down = False
+    assert response.status_code == 200
+    body = response.json()
+    assert body["wiredKnown"] is False
+    assert all(rail["enabled"] is True and rail["wired"] is None for rail in body["rails"])

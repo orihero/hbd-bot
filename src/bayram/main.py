@@ -50,12 +50,16 @@ from bayram.bot.deps import BotDeps
 from bayram.bot.ports import OrderSubmitter, SupportTicketEraser
 from bayram.bot.pricing import Pricing
 from bayram.checkout import STUB_PROVIDER_NAME
+from bayram.checkout_rails import publish_wired_rails, read_rail_enabled, wired_rails
 from bayram.config import FOREIGN_SECRET_ENV_VARS, Settings, env_file, load_settings
+from bayram.db.channel_attributions import SqlChannelAttributions
 from bayram.db.support_tickets import SqlSupportTickets
 from bayram.errors import BayramError, ConfigError
 from bayram.logging import configure_logging, get_logger
 from bayram.payme.pause import is_paused
 from bayram.pipeline.content import LlmContentWriter
+from bayram.providers.music.switch import read_music_provider
+from bayram.rhmt.settings import build_rhmt_settings
 from bayram.runtime.container import AppContainer, build_container
 from bayram.runtime.jobs import (
     BOT_CTX_KEY,
@@ -66,6 +70,7 @@ from bayram.runtime.jobs import (
 from bayram.runtime.startup import verify_host
 from bayram.runtime.submitter import ArqOrderSubmitter, InProcessOrderSubmitter
 from bayram.support import resolve_support_quota
+from bayram.teachers_day import read_teachers_day_enabled
 
 __all__ = [
     "main",
@@ -150,15 +155,25 @@ def refuse_an_unsafe_checkout_rail(settings: Settings) -> None:
     the draft clock is fourteen days — and it is here for the day either number moves, which
     is precisely when nobody will be thinking about the other one.
     """
+    # TWO predicates, and keeping them apart is what lets a stub + checkout.uz deployment boot
+    # (DECISIONS.md D28). ``takes_money`` is "any rail can charge a card", which is what the
+    # dark-meter refusal is about. ``is_live_rail`` stays "Payme-or-Rahmat is selected",
+    # which is what the sandbox refusal below is about: ``payme_is_sandbox`` defaults to True,
+    # and folding checkout.uz into it would refuse every production deployment that sells on
+    # checkout.uz alone and has, rightly, never configured Payme at all.
     is_live_rail = settings.checkout_provider != STUB_PROVIDER_NAME
-    if is_live_rail and not settings.credits_enforced:
+    takes_money = is_live_rail or settings.checkoutuz_enabled
+    if takes_money and not settings.credits_enforced:
         raise ConfigError(
-            f"BAYRAM_CHECKOUT_PROVIDER is '{settings.checkout_provider}' but "
+            f"BAYRAM_CHECKOUT_PROVIDER is '{settings.checkout_provider}' "
+            f"(BAYRAM_CHECKOUTUZ_ENABLED={settings.checkoutuz_enabled}) but "
             "BAYRAM_CREDITS_ENFORCED is false: a rail taking real money into a meter nobody "
             "reads sells the song for nothing and charges for it anyway. Set "
-            "BAYRAM_CREDITS_ENFORCED=true in the same edit, or set BAYRAM_CHECKOUT_PROVIDER=stub.",
+            "BAYRAM_CREDITS_ENFORCED=true in the same edit, or set BAYRAM_CHECKOUT_PROVIDER=stub "
+            "and BAYRAM_CHECKOUTUZ_ENABLED=false.",
             context={
                 "checkout_provider": settings.checkout_provider,
+                "checkoutuz_enabled": settings.checkoutuz_enabled,
                 "credits_enforced": settings.credits_enforced,
             },
         )
@@ -271,6 +286,48 @@ def _pause_reader(pool: ArqRedis | None) -> Callable[[], Awaitable[bool]] | None
     return read
 
 
+def _rail_switch_reader(pool: ArqRedis | None) -> Callable[[str], Awaitable[bool]] | None:
+    """The owner's per-rail switch as ``build_checkout`` and ``BotDeps`` want it.
+
+    ``None`` without a pool, for :func:`_pause_reader`'s reason. Otherwise one argument — the
+    rail's name — over the SAME pool the pause switch reads, so arming it costs no second
+    connection. :func:`bayram.checkout_rails.read_rail_enabled` never raises and answers
+    "enabled" on a missing key or a Redis error (DECISIONS.md D28): an unreadable switch keeps
+    selling, exactly like an unreadable pause.
+    """
+    if pool is None:
+        return None
+
+    async def read(rail: str) -> bool:
+        return await read_rail_enabled(pool, rail)
+
+    return read
+
+
+def _music_provider_reader(
+    pool: ArqRedis | None, default: str
+) -> Callable[[], Awaitable[str]] | None:
+    if pool is None:
+        return None
+
+    async def read() -> str:
+        return await read_music_provider(pool, default=default)
+
+    return read
+
+
+def _teachers_day_reader(
+    pool: ArqRedis | None, default: bool
+) -> Callable[[], Awaitable[bool]] | None:
+    if pool is None:
+        return None
+
+    async def read() -> bool:
+        return await read_teachers_day_enabled(pool, default=default)
+
+    return read
+
+
 async def build_submitter(
     settings: Settings,
     container: AppContainer,
@@ -348,6 +405,42 @@ def support_eraser(store: object | None) -> SupportTicketEraser | None:
     return None
 
 
+async def resolve_return_urls(settings: Settings, bot: Bot) -> Settings:
+    """Fill blank rail return links with ``https://t.me/<this bot's username>``.
+
+    The return link must lead back to the bot the customer paid in. Fixed defaults once named
+    the production bot, so a tester paying through a dev bot was handed to a different one.
+    Asking Telegram (``getMe``) makes every deployment point at itself. Covers checkout.uz and
+    Rahmat, each only when wired and not set explicitly (for Rahmat, in neither ``bot.env``
+    nor ``.env.rhmt``). A failed lookup logs and leaves them blank; both clients then omit the
+    field rather than send it empty.
+    """
+    rails = wired_rails(settings)
+    needs: list[str] = []
+    if "checkoutuz" in rails and not settings.checkoutuz_return_url.strip():
+        needs.append("checkoutuz_return_url")
+    if (
+        "rhmt" in rails
+        and not settings.rhmt_return_url.strip()
+        and not build_rhmt_settings().rhmt_return_url.strip()
+    ):
+        needs.append("rhmt_return_url")
+    if not needs:
+        return settings
+    try:
+        me = await bot.get_me()
+    except Exception as exc:
+        _LOG.warning(
+            "could not learn this bot's username; payment pages get no return link",
+            extra={"event": "checkout.return_url_unresolved", "failure": type(exc).__name__},
+        )
+        return settings
+    if not me.username:
+        return settings
+    link = f"https://t.me/{me.username}"
+    return settings.model_copy(update=dict.fromkeys(needs, link))
+
+
 async def run(settings: Settings, *, data_root: Path | None = None) -> None:
     """Build everything, poll until interrupted, then release it all."""
     # Before anything is built: three statements about configuration alone, each of which
@@ -357,8 +450,24 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
     # The queue pool first, so the container can be handed a pause reader over it. See
     # :func:`build_queue_pool` for why one connection serves both and why earlier is better.
     pool = await build_queue_pool(settings)
-    container = await build_container(settings, data_root=data_root, paused=_pause_reader(pool))
+    # ONE reader, handed to the rail AND to the buttons below, and one rail list computed from
+    # the same settings both times — so a button is drawn exactly when the provider behind it
+    # will sell (DECISIONS.md D28).
+    rail_switch = _rail_switch_reader(pool)
+    checkout_rails = wired_rails(settings)
     bot = build_bot(settings)
+    settings = await resolve_return_urls(settings, bot)
+    container = await build_container(
+        settings,
+        data_root=data_root,
+        paused=_pause_reader(pool),
+        music_provider_resolver=_music_provider_reader(pool, default=settings.music_provider),
+        rail_enabled=rail_switch,
+    )
+    # Published for the admin panel, which cannot read ``bot.env`` and so cannot otherwise
+    # tell a rail switched off by the owner from one this deployment never wired. Best-effort
+    # and never raises: a missing value only greys the panel's switches as "unknown".
+    await publish_wired_rails(pool, checkout_rails)
     storage = _fsm_storage(settings)
     submitter, closeable = await build_submitter(settings, container, bot, storage, pool=pool)
     chat_recorder = ChatRecorder(container.session_factory) if container.session_factory else None
@@ -464,6 +573,18 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         # ``my_chat_member`` and reads the selection on every group update, and the worker reads
         # the selection for a card sync and is the only process that can prove the bot may post.
         bot_chats=container.bot_chats,
+        channel_attributions=(
+            SqlChannelAttributions(container.session_factory)
+            if container.session_factory is not None
+            else None
+        ),
+        teachers_day_reader=_teachers_day_reader(pool, default=settings.teachers_day_enabled),
+        # Which price buttons the paywall and ``/balance`` may draw, in routing order, and the
+        # owner's switch over each. The SAME list ``build_checkout`` built the composite from
+        # and the SAME reader it gated the rails with: a button drawn for a rail the provider
+        # does not route, or hidden for one it does, is the drift this pair exists to prevent.
+        checkout_rails=checkout_rails,
+        rail_enabled_reader=rail_switch,
     )
     # The lock that makes a state filter a real gate. Built from the same Redis as the
     # storage, so it holds across every process that could handle this chat.

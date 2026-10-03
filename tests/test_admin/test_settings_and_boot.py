@@ -164,6 +164,29 @@ async def test_prod_refuses_to_start_with_the_payme_merchant_key_in_the_admin_en
     assert "a-value-that-must-not-be-here" not in caught.value.operator_message
 
 
+async def test_prod_refuses_to_start_with_the_checkoutuz_api_key_in_the_environment(
+    container: AdminContainer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The checkout.uz key is a bot/worker credential only (``DECISIONS.md D28``).
+
+    It is a ``Settings`` field in ``VENDOR_SECRET_FIELDS``, so the admin host refuses it the
+    same way it refuses every other vendor key: the panel's switch writes a Redis value and
+    never needs to talk to checkout.uz, so a key on this host could only ever be a leak.
+    """
+    # Arrange
+    variable = f"{ENV_PREFIX}CHECKOUTUZ_API_KEY"
+    assert variable in FORBIDDEN_ENV_VARS
+    monkeypatch.setenv(variable, "a-value-that-must-not-be-here")
+    application = create_app(make_settings(environment="prod"))
+
+    # Act / Assert - the message names the variable and never carries its value.
+    with pytest.raises(ConfigError) as caught:
+        async with application.router.lifespan_context(application):
+            pass  # pragma: no cover - the lifespan must not reach here
+    assert variable in caught.value.operator_message
+    assert "a-value-that-must-not-be-here" not in caught.value.operator_message
+
+
 def test_only_the_three_credentials_the_bot_cannot_run_without_are_required() -> None:
     """Forbidden on the admin host and required for the bot are two different sets.
 
@@ -180,6 +203,7 @@ def test_only_the_three_credentials_the_bot_cannot_run_without_are_required() ->
     for field in REQUIRED_VENDOR_SECRET_FIELDS:
         assert f"{ENV_PREFIX}{field.upper()}" in message
     assert f"{ENV_PREFIX}LLM_FALLBACK_API_KEY" not in message
+    assert f"{ENV_PREFIX}CHECKOUTUZ_API_KEY" not in message
 
 
 # ---------------------------------------------------------------------------

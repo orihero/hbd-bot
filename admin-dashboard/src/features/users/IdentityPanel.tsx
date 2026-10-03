@@ -61,9 +61,10 @@ function standingOf(user: UserView): ProfileStanding {
 
 export interface IdentityPanelProps {
   readonly user: UserView;
+  readonly acquisitionChannel?: string | null | undefined;
 }
 
-export function IdentityPanel({ user }: IdentityPanelProps): JSX.Element {
+export function IdentityPanel({ user, acquisitionChannel }: IdentityPanelProps): JSX.Element {
   const { t } = useI18n();
   const standing = standingOf(user);
   /* OUR words for the subject, for every dialog this panel can open. The label of a dialog
@@ -83,6 +84,17 @@ export function IdentityPanel({ user }: IdentityPanelProps): JSX.Element {
         >
           {formatTimestamp(user.accountCreatedAt)}
         </Fact>
+
+        {acquisitionChannel ? (
+          <Fact
+            label={t("users.detail.acquisitionChannel")}
+            hint={t("users.identityNotes.acquisitionChannel")}
+          >
+            <span className="rounded bg-surface px-1.5 py-0.5 font-mono text-[11px] font-semibold text-accent">
+              {acquisitionChannel}
+            </span>
+          </Fact>
+        ) : null}
 
         <Fact label={t("users.detail.uiLanguage")} hint={t("users.identityNotes.uiLanguage")}>
           {t(LANGUAGE_LABEL_KEY[user.uiLanguage])}

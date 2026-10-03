@@ -99,6 +99,7 @@ class FakeOpener:
         plan_songs: int | None = None,
         plan_days: int | None = None,
         resume_order_id: UUID | None = None,
+        provider: str = "payme",
     ) -> Result[PaymentIntent]:
         self.calls += 1
         self.seen.append(
@@ -141,6 +142,7 @@ class FakeOpener:
             # reaching here, which is the real store's behaviour and the property the resume
             # depends on when two presses in one run carry different drafts.
             resume_order_id=resume_order_id,
+            provider=provider,
         )
         self.stored[idempotency_key] = intent
         return ok(intent)

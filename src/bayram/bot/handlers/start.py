@@ -20,7 +20,7 @@ from __future__ import annotations
 from typing import Final
 
 from aiogram import F, Router
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import Message
 
@@ -43,6 +43,7 @@ from bayram.bot.i18n import translate
 from bayram.bot.middleware import resolve_language
 from bayram.bot.screens import menu_screen, onboarding_contact_screen, onboarding_language_screen
 from bayram.bot.states import Onboarding
+from bayram.channels import parse_channel_param
 from bayram.logging import get_logger
 
 __all__ = ["build_router", "handle_paid_return", "PAID_DEEP_LINK"]
@@ -65,7 +66,12 @@ _TOO_LATE_KEY: Final[str] = "wizard.cancel_too_late"
 PAID_DEEP_LINK: Final[str] = "paid"
 
 
-async def handle_start(message: Message, state: FSMContext, deps: BotDeps) -> None:
+async def handle_start(
+    message: Message,
+    state: FSMContext,
+    deps: BotDeps,
+    command: CommandObject | None = None,
+) -> None:
     """Three ways in, and which one is taken is decided by what we already know.
 
     **A returning customer is never asked a question we already have the answer to.** This
@@ -96,6 +102,17 @@ async def handle_start(message: Message, state: FSMContext, deps: BotDeps) -> No
     """
     user = message.from_user
     _LOG.info("wizard started", extra={"user_id": user.id if user is not None else None})
+    if user is not None and command is not None and command.args:
+        channel = parse_channel_param(command.args)
+        if channel is not None and deps.channel_attributions is not None:
+            try:
+                await deps.channel_attributions.record_attribution(
+                    user.id,
+                    raw_param=command.args,
+                    channel=channel,
+                )
+            except Exception:
+                _LOG.warning("failed to record channel attribution", exc_info=True)
     identity = await load_identity(state, deps, user.id if user is not None else None)
     # The identity's language when there is one, and the operator's configured default
     # otherwise: this is the one screen that must be drawn before anybody has chosen.
@@ -109,7 +126,13 @@ async def handle_start(message: Message, state: FSMContext, deps: BotDeps) -> No
         await present(message, onboarding_contact_screen(language))
         return
     await clear_keeping_identity(state)
-    await present(message, menu_screen(await ui_language(state, deps)))
+    await present(
+        message,
+        menu_screen(
+            await ui_language(state, deps),
+            teachers_day_enabled=await deps.is_teachers_day_enabled(),
+        ),
+    )
 
 
 async def handle_paid_return(message: Message, state: FSMContext, deps: BotDeps) -> None:

@@ -45,6 +45,22 @@ http://pay.bayrambot.uz {
 		}
 	}
 
+	# checkout.uz's webhook (DECISIONS.md D28). Unsigned, never retried, and trusted for
+	# nothing: the gateway only checks the order is on file and asks the worker to re-read
+	# the payment from checkout.uz's API, so this route is an ACCELERATOR — the worker's
+	# poll settles every payment without it. It still has to be routable to arrive at all:
+	# whichever hop the tunnel lands on for this hostname must send /checkoutuz/* to
+	# 127.0.0.1:8091 — this handle when the route is `-> 127.0.0.1:80` as documented above,
+	# or a path rule in the Cloudflare Tunnel ingress if the route ever points at the
+	# gateway directly. Verify with a POST to /checkoutuz/callback after a reload: the
+	# answer is `200 {"ok":true}` from the gateway, not this file's 404.
+	#
+	# /rhmt/* is NOT routed here either and so 404s at this edge today. That is a separate,
+	# open question about the Rahmat rail and is deliberately not changed by this edit.
+	handle /checkoutuz/* {
+		reverse_proxy 127.0.0.1:8091
+	}
+
 	# Nothing else on this hostname is reachable. /healthz and /readyz stay on the loopback,
 	# where the monitor reaches them.
 	handle {

@@ -90,7 +90,9 @@ async def test_inbound_middleware_records_message(mock_session_factory: MagicMoc
 
     user = User(id=42, is_bot=False, first_name="Test")
     chat = Chat(id=42, type="private")
-    msg = Message(message_id=101, date=datetime.now(UTC), chat=chat, from_user=user, text="Hello bot")
+    msg = Message(
+        message_id=101, date=datetime.now(UTC), chat=chat, from_user=user, text="Hello bot"
+    )
 
     handler = AsyncMock(return_value="handled")
     result = await middleware(handler, msg, {})
@@ -112,7 +114,9 @@ async def test_inbound_middleware_records_callback(mock_session_factory: MagicMo
     user = User(id=42, is_bot=False, first_name="Test")
     chat = Chat(id=42, type="private")
     msg = Message(message_id=101, date=datetime.now(UTC), chat=chat, from_user=user, text="prompt")
-    cb = CallbackQuery(id="cb1", from_user=user, chat_instance="ci1", message=msg, data="btn:select")
+    cb = CallbackQuery(
+        id="cb1", from_user=user, chat_instance="ci1", message=msg, data="btn:select"
+    )
 
     handler = AsyncMock(return_value="ok")
     result = await middleware(handler, cb, {})
@@ -134,7 +138,9 @@ async def test_outbound_middleware_records_send_message(mock_session_factory: Ma
     bot = MagicMock()
     user = User(id=99, is_bot=True, first_name="Bot")
     chat = Chat(id=42, type="private")
-    msg_obj = Message(message_id=202, date=datetime.now(UTC), chat=chat, from_user=user, text="Bot response")
+    msg_obj = Message(
+        message_id=202, date=datetime.now(UTC), chat=chat, from_user=user, text="Bot response"
+    )
     mock_res: Any = Response[Message](ok=True, result=msg_obj)
     make_request = AsyncMock(return_value=mock_res)
 

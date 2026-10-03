@@ -24,6 +24,7 @@ from datetime import timedelta
 from typing import Any, Final
 from uuid import UUID, uuid4
 
+import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -37,6 +38,7 @@ from bayram.db.models.payment_intent import SETTLE_NOTE_LENGTH, PaymentIntentRow
 from bayram.db.models.topup_purchase import TopupPurchaseRow
 from bayram.db.payme import SqlPaymeLedger
 from bayram.db.payme_sql import (
+    PAYME_INTENT_PROVIDER,
     anonymise_intents,
     claim_intent,
     hold_intent,
@@ -45,8 +47,9 @@ from bayram.db.payme_sql import (
     settlement_counts,
     transaction_count_for_intent,
 )
-from bayram.payme.ports import PaymeLedger
+from bayram.payme.ports import PAYME_PROVIDER_NAME, PaymeLedger
 from tests.test_db.conftest import MovableClock
+from tests.test_db.rail_helpers import add, make_grant, make_intent, make_topup_receipt, settle
 
 _USER: Final[int] = 8_912_345_678_901
 _MERCHANT: Final[str] = "587f72c72cac0d162c722ae2"
@@ -748,6 +751,51 @@ async def test_a_cancelled_transaction_counts_towards_nothing(
     async with sessions() as session:
         row = (await session.execute(sa.select(PaymeTransactionRow))).scalar_one()
     assert row.state is PaymeState.CANCELLED
+
+
+@pytest.mark.parametrize("provider", ["rhmt", "checkoutuz"])
+async def test_another_rails_sale_does_not_skew_the_settlement_counts(
+    sessions: async_sessionmaker[AsyncSession], clock: MovableClock, provider: str
+) -> None:
+    """A Rahmat or checkout.uz sale has a receipt and a grant and NO Payme transaction.
+
+    Before the ``provider`` term, every such sale counted as a receipt with nothing performed
+    behind it, and the sweep raised ``receipts_over`` for every customer who paid the other way
+    (DECISIONS.md D28). The left side of the identity is Payme's own table, so the right side
+    must be Payme's own sales — and one genuine Payme settlement beside it still counts.
+    """
+    # Arrange — one genuine Payme settlement...
+    ledger = _ledger(sessions, clock)
+    intent = await _open(ledger)
+    identifier = uuid4().hex[:24]
+    assert is_ok(
+        await ledger.create(
+            payme_transaction_id=identifier,
+            payme_time=clock.now,
+            amount_minor=_PRICE,
+            public_ref=intent.public_ref,
+            now=clock.now,
+        )
+    )
+    assert is_ok(await ledger.perform(payme_transaction_id=identifier, now=clock.now))
+    # ...and one settled through another rail, receipt and grant under its own key.
+    other = settle(make_intent(now=clock.now, provider=provider), at=clock.now, note=provider)
+    await add(sessions, other)
+    await add(sessions, make_topup_receipt(other, at=clock.now), make_grant(other, at=clock.now))
+
+    # Act
+    async with sessions() as session:
+        counted = await settlement_counts(
+            session, frm=clock.now - timedelta(hours=1), to=clock.now + timedelta(hours=1)
+        )
+
+    # Assert
+    assert counted == (1, 1, 1)
+
+
+def test_the_persisted_payme_provider_name_is_the_rails_own() -> None:
+    """``payme_sql`` spells ``'payme'`` itself rather than importing the rail; this pins the two."""
+    assert PAYME_INTENT_PROVIDER == PAYME_PROVIDER_NAME
 
 
 # ---------------------------------------------------------------------------

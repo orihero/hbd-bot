@@ -90,6 +90,8 @@ class _RecordingOpener:
         # below kept passing against a fake whose signature no longer matched (checkout.py's
         # own docstring says this is what mypy is for).
         resume_order_id: UUID | None = None,
+        # The rail that opens the intent (DECISIONS.md D28) — same drift, same reason.
+        provider: str = "payme",
     ) -> Result[PaymentIntent]:
         self.keys.append(idempotency_key)
         return ok(_intent())

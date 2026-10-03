@@ -205,7 +205,11 @@ export function UserDetailScreen(): JSX.Element {
         /* Keyed on the subject: the cells inside hold revealed plaintext in their own state,
            and a cached user swapped in by Back/Forward re-renders this panel rather than
            remounting it — which would draw one customer's bought name under another's mask. */
-        <IdentityPanel key={user.id} user={user} />
+        <IdentityPanel
+          key={user.id}
+          user={user}
+          acquisitionChannel={detail.data?.acquisitionChannel}
+        />
       )}
 
       {/* `/orders` and `/credits` 404 under an id nothing is held for, exactly as the record

@@ -79,7 +79,10 @@ def upgrade() -> None:
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
-            ["user_id"], ["users.id"], name=op.f("fk_chat_messages_user_id_users"), ondelete="SET NULL"
+            ["user_id"],
+            ["users.id"],
+            name=op.f("fk_chat_messages_user_id_users"),
+            ondelete="SET NULL",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_chat_messages")),
     )
@@ -104,10 +107,14 @@ def upgrade() -> None:
 
     with op.batch_alter_table("purge_runs", schema=None) as batch_op:
         batch_op.add_column(
-            sa.Column("chat_bodies_purged", sa.Integer(), nullable=False, server_default=sa.text("0"))
+            sa.Column(
+                "chat_bodies_purged", sa.Integer(), nullable=False, server_default=sa.text("0")
+            )
         )
         batch_op.add_column(
-            sa.Column("chat_messages_deleted", sa.Integer(), nullable=False, server_default=sa.text("0"))
+            sa.Column(
+                "chat_messages_deleted", sa.Integer(), nullable=False, server_default=sa.text("0")
+            )
         )
 
 

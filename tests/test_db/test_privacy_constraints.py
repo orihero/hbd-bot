@@ -412,6 +412,22 @@ def test_every_table_holding_personal_data_carries_an_expiry_column() -> None:
     # would also delete the one thing an operator needs when tickets stop arriving — the row
     # saying which group was selected and what the last verification said about it.
     #
+    # ``checkoutuz_payments`` (revision 0030) is deliberately in NEITHER set, on
+    # ``payme_transactions``' argument above and at the same strength: IT HOLDS NO TELEGRAM ID
+    # AT ALL. Every column is checkout.uz's own integer order id, its UUID, the URL of its own
+    # payment page (which carries their order number and nothing of ours), an integer amount in
+    # soʻm, a closed enum, a foreign key to ``payment_intents.id`` or a clock — no name, no note,
+    # no free text of any kind. A person is reachable from it only by joining through
+    # ``payment_intents``, which is the join ``/forget`` breaks by nulling that table's
+    # ``telegram_user_id``, so there is nothing on this row to null and no erasure arm to write.
+    # Its one business clock is named ``link_valid_until`` and NOT ``link_expires_at`` for the
+    # reason ``payment_intents.valid_until`` is: that suffix would enlist it in the retention
+    # inventory ``tests/test_db/test_audit_retention.py`` enforces and claim a legal schedule it
+    # does not have. Its growth is bounded by its parent: ``ON DELETE CASCADE`` from
+    # ``payment_intents`` means the 400-day sweep of terminal unpaid intents takes their links
+    # with them, while a PAID intent's links stay for the reason a receipt does — they are the
+    # record of which checkout.uz order a sale, or a refund of a second payment, belongs to.
+    #
     #: Tables whose personal data is erased ON REQUEST rather than on a clock. The absence of
     #: a row IS the erasure record: ``/forget`` DELETEs it outright (PD-3, a full reset to
     #: first-contact state), so there is nothing for a sweep to find and no ``*_expires_at``

@@ -285,9 +285,7 @@ def _create_audit_table() -> None:
         # The expiry sweep is one predicate over this column; the panel's default list is the
         # composite. Both are named by the convention in src/bayram/db/base.py.
         batch_op.create_index(batch_op.f(f"ix_{_AUDIT}_expires_at"), ["expires_at"], unique=False)
-        batch_op.create_index(
-            batch_op.f(f"ix_{_AUDIT}_action_at"), ["action", "at"], unique=False
-        )
+        batch_op.create_index(batch_op.f(f"ix_{_AUDIT}_action_at"), ["action", "at"], unique=False)
 
 
 def _create_anchor_table() -> None:

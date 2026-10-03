@@ -97,6 +97,7 @@ async def show_step(
     *,
     credits_note: str | None = None,
     offer: CheckoutOffer | None = None,
+    teachers_day_enabled: bool = False,
 ) -> WizardStep:
     """Persist the draft, move the FSM to ``step`` and put its screen up.
 
@@ -129,7 +130,16 @@ async def show_step(
         shown = further
     await write_draft(state, draft)
     await state.set_state(state_for(shown))
-    await present(event, render_step(shown, draft, credits_note=credits_note, offer=offer))
+    await present(
+        event,
+        render_step(
+            shown,
+            draft,
+            credits_note=credits_note,
+            offer=offer,
+            teachers_day_enabled=teachers_day_enabled,
+        ),
+    )
     return shown
 
 
@@ -297,7 +307,13 @@ async def reset_to_welcome(event: Event, state: FSMContext, deps: BotDeps) -> No
     """
     await clear_keeping_identity(state)
     draft = WizardDraft(session_id=uuid4().hex, ui_language=await ui_language(state, deps))
-    await show_step(event, state, draft, WizardStep.OCCASION)
+    await show_step(
+        event,
+        state,
+        draft,
+        WizardStep.OCCASION,
+        teachers_day_enabled=await deps.is_teachers_day_enabled(),
+    )
 
 
 def is_menu_label(text: str) -> bool:

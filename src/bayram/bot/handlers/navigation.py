@@ -114,7 +114,14 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
     # onwards, so a Back that always consulted ``WIZARD_ORDER`` would send an own-lyrics
     # customer from the words to the voice question — a step they have not reached — and
     # from the genre to a NOTE screen their path does not contain.
-    target = previous_step(current, is_own_lyrics=draft.is_own_lyrics) or current
+    target = (
+        previous_step(
+            current,
+            is_own_lyrics=draft.is_own_lyrics,
+            is_teachers_day=draft.is_teachers_day,
+        )
+        or current
+    )
     _LOG.info(
         "wizard back",
         extra={

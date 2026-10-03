@@ -297,6 +297,20 @@ export const ru: TranslationSchema = {
       costProvenance: {
         title: "Как была рассчитана стоимость",
       },
+      channels: {
+        heading: "Маркетинговые каналы",
+        subtitle: "Атрибуция трафика по диплинкам Telegram (?start=channel или utm_source=channel)",
+        emptyTitle: "Трафик по каналам не зафиксирован",
+        emptyMessage: "Статистика появится, когда пользователи перейдут в бота по ссылкам с метками каналов (например, https://t.me/<bot>?start=utm_source_channel или ?start=channel).",
+        colChannel: "Канал",
+        colClicks: "Переходы",
+        colNewUsers: "Новые польз.",
+        colOnboarded: "Онбординг",
+        colOrders: "Песни",
+        colPaying: "Платящие",
+        colRevenue: "Выручка",
+        colConversion: "Конв. %",
+      },
     },
     note: {
       noCorrelationId: "нет correlation id",
@@ -315,6 +329,15 @@ export const ru: TranslationSchema = {
       notPolled: "балансы не опрашиваются",
       notPolledTitle:
         "Ни один провайдер в этой конфигурации не сообщает баланс, опрос не выполняется.",
+    },
+    gemini: {
+      heading: "Расходы Gemini",
+      monthLabel: "Расход Gemini · этот месяц (оценка)",
+      monthSub: "{songs} песен · сегодня {today}",
+      outOfCredit: "У Gemini закончился кредит — рендеры переключаются на ElevenLabs. Пополните в AI Studio.",
+      estimateHint: "Оценка по нашей цене за запрос; Google не сообщает баланс.",
+      spendLabel: "Расход Gemini · {period}",
+      notPriced: "вызовы есть, цена не указана",
     },
     fx: {
       rate: "1 USD = {rate} сум",
@@ -661,6 +684,7 @@ export const ru: TranslationSchema = {
       firstOrder: "первый заказ",
       lastOrder: "последний заказ",
       wizardSession: "Сессия визарда",
+      acquisitionChannel: "канал привлечения",
     },
     profileStanding: {
       onFile: "профиль есть",
@@ -686,6 +710,8 @@ export const ru: TranslationSchema = {
         "В маске намеренно нет кода страны. Сам номер не уходит по проводу ни на одной роли — его даёт только раскрытие.",
       phoneShared:
         "Когда клиент нажал кнопку «поделиться контактом» в Telegram. Пусто — значит не нажимал.",
+      acquisitionChannel:
+        "Параметр маркетингового канала, зафиксированный при первом /start в боте.",
     },
     ordersPanel: {
       noun: "заказы этого клиента",
@@ -800,6 +826,29 @@ export const ru: TranslationSchema = {
     subtitleAll: "{count} попыток в журнале рендеринга",
     subtitleFiltered: "{count} попыток соответствуют фильтрам",
     searchPlaceholder: "Поиск по ID попытки или ID корреляции…",
+    teachersDay: {
+      label: "День учителя:",
+      loading: "Загрузка…",
+      active: "Включено (-{percent}%)",
+      off: "Выключено",
+      enableAria: "Включить акцию «День учителя»",
+      disableAria: "Выключить акцию «День учителя»",
+      turnOn: "Включить",
+      turnOff: "Выключить",
+      enableTitle: "Включить акцию «День учителя» (-{percent}%)",
+      disableTitle: "Выключить акцию «День учителя»",
+      enableDescription: "Включить категорию «День учителя» в Telegram-боте со скидкой {percent}% и отдельным шагом посвящения от отправителя.",
+      disableDescription: "Выключить категорию «День учителя» и скидку. Категория исчезнет из главного меню Telegram-бота.",
+      confirmOn: "Включить акцию",
+      confirmOff: "Выключить акцию",
+      pendingOn: "Включаем…",
+      pendingOff: "Выключаем…",
+      errorTitle: "Не удалось обновить",
+      reasonLabel: "Причина (необязательно, до 500 символов)",
+      reasonHint: "Пояснение для аудита. Свободный текст, удаляется через 90 дней.",
+      enableDetail: "После включения в главном меню бота сразу появится кнопка «👩‍🏫 Ustozlar kuni (-{percent}%)», к покупке одной песни применится скидка {percent}%, а промпты для текстов настроятся на благодарность учителям.",
+      disableDetail: "После выключения кнопка исчезнет из главного меню, а покупка одной песни вернётся к обычной цене.",
+    },
     subjects: {
       ledger: "Журнал генераций",
       attempt: "Эта попытка",
@@ -2299,6 +2348,35 @@ export const ru: TranslationSchema = {
       reasonLabel: "Почему переключаем",
       reasonHint:
         "Попадёт в журнал аудита на ваше имя. Достаточно одной строки.",
+    },
+    rails: {
+      heading: "Платёжные каналы",
+      names: { rhmt: "Rahmat", payme: "Payme", checkoutuz: "checkout.uz" },
+      on: "Вкл.",
+      off: "Выкл.",
+      notWired: "Не подключён в env",
+      notWiredHint:
+        "Окружение бота не подключило этот канал при последнем запуске, поэтому переключатель ни на что не влияет, пока канал не подключат.",
+      wiredUnknownHint:
+        "Бот не сообщил, какие каналы подключены в его окружении, поэтому показан только переключатель.",
+      turnOn: "Включить",
+      turnOff: "Выключить",
+      turnOnAria: "Включить {rail}",
+      turnOffAria: "Выключить {rail}",
+      offTitle: "Прекратить продажи через {rail}?",
+      offBody:
+        "Бот перестанет показывать кнопки {rail} и откажет в новых оплатах через {rail}. Уже начатые платежи всё равно проведутся и будут зачислены. Другие каналы не затрагиваются.",
+      offLabel: "Выключить {rail}",
+      offPending: "Выключаем…",
+      onTitle: "Снова продавать через {rail}?",
+      onBody:
+        "Бот снова предложит {rail}, если канал подключён в окружении и оплата не приостановлена.",
+      onLabel: "Включить {rail}",
+      onPending: "Включаем…",
+      reasonLabel: "Почему переключаем канал",
+      reasonHint: "Попадёт в журнал аудита на ваше имя. Достаточно одной строки.",
+      failedTitle: "Не удалось переключить",
+      loadFailed: "Не удалось прочитать платёжные каналы",
     },
     calls: {
       title: "Входящие вызовы",

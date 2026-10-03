@@ -20,17 +20,21 @@ price interpolated INTO them cannot.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Final
+from dataclasses import dataclass, replace
+from typing import Any, Final
 
 from bayram.config import Settings
+from bayram.contracts import Occasion
 
 __all__ = [
     "GROUPING_SPACE",
+    "TEACHERS_DAY_DISCOUNT_PERCENT",
     "format_amount",
     "Pricing",
     "CheckoutOffer",
 ]
+
+TEACHERS_DAY_DISCOUNT_PERCENT: Final[int] = 30
 
 #: U+00A0 NO-BREAK SPACE, and no other separator. A price is the one string on the checkout
 #: screen that must not be split across a line: "49" at the end of one line and "000 soʻm" at
@@ -130,6 +134,15 @@ class Pricing:
         """The plan price as a person reads it, e.g. ``"49 000"``. No currency word."""
         return format_amount(self.plan_amount_minor)
 
+    def for_draft(self, draft: Any | None) -> Pricing:
+        """Return pricing adapted for the given draft (e.g. 30% discount on Teachers' Day)."""
+        if draft is not None and getattr(draft, "occasion", None) is Occasion.TEACHERS_DAY:
+            discounted_single = (
+                self.single_amount_minor * (100 - TEACHERS_DAY_DISCOUNT_PERCENT)
+            ) // 100
+            return replace(self, single_amount_minor=discounted_single)
+        return self
+
 
 @dataclass(frozen=True, slots=True)
 class CheckoutOffer:
@@ -168,3 +181,25 @@ class CheckoutOffer:
     is_plan_offered: bool
     #: What the two buttons cost.
     pricing: Pricing
+    #: The rails a price button may be drawn for, in the order they are drawn: the wired
+    #: rails (``BotDeps.checkout_rails``) the owner's per-rail switch has on, or ``("stub",)``
+    #: on a deployment that wires none. EMPTY means every wired rail is switched off, and the
+    #: paywall then draws no price button at all and says so (``DECISIONS.md D28``).
+    #:
+    #: Defaulted to EMPTY rather than to the stub so that an offer built without thinking
+    #: about rails draws nothing it could not sell, rather than a button that charges for free.
+    rails: tuple[str, ...] = ()
+    #: The rail the GENERIC 💳/🌟 buttons reach — the first WIRED rail, whether or not it is
+    #: switched on, because a press that names no rail goes to the composite's first provider.
+    #: The generic pair is drawn only while ``rails[0]`` is this rail; once it is switched off
+    #: the remaining rails are drawn under their own named buttons instead, so no button on the
+    #: screen routes to a rail that cannot sell. ``None`` reads as ``rails[0]``.
+    primary_rail: str | None = None
+
+    @property
+    def generic_rail(self) -> str | None:
+        """The rail the generic buttons are drawn for, or ``None`` when they are not drawn."""
+        if not self.rails:
+            return None
+        primary = self.rails[0] if self.primary_rail is None else self.primary_rail
+        return primary if self.rails[0] == primary else None

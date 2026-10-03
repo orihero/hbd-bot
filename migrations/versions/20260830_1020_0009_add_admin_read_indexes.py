@@ -117,8 +117,7 @@ def upgrade() -> None:
         # apply the convention a second time and produce ``ix_orders_ix_orders_…``.
         op.create_index(op.f(name), table, columns, unique=False)
     op.execute(
-        f"CREATE INDEX {_FAILURES_INDEX} ON {_ATTEMPTS} (created_at) "
-        f"WHERE {_failure_predicate()}"
+        f"CREATE INDEX {_FAILURES_INDEX} ON {_ATTEMPTS} (created_at) WHERE {_failure_predicate()}"
     )
 
 

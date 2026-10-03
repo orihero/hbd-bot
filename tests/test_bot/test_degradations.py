@@ -11,7 +11,6 @@ real degradation. ``test_walker_preconditions.py`` checks that statically.
 from __future__ import annotations
 
 from itertools import pairwise
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -25,17 +24,16 @@ from aiogram.types import Audio, Chat, Message
 from bayram.bot import i18n
 from bayram.bot.app import build_dispatcher
 from bayram.bot.callbacks import NavAction, NavCB
-from bayram.bot.delivery import DeliveryLedger, deliver_kit, order_reference
+from bayram.bot.delivery import DeliveryLedger, deliver_kit
 from bayram.bot.deps import BotDeps
 from bayram.bot.i18n import translate
 from bayram.bot.progress import render_progress
 from bayram.bot.states import WIZARD_ORDER, Wizard, WizardStep, next_step, step_for_state
 from bayram.config import Settings
-from bayram.contracts import AssetKind, Err, Kit, Language, Result, err
+from bayram.contracts import Err, Kit, Language, Result, err
 from bayram.errors import ErrorCode, PaymentError
 from bayram.pipeline.events import PipelineStage, ProgressStatus
 from bayram.pipeline.outcome import PipelineGap
-from tests.conftest import make_asset
 from tests.test_bot.conftest import (
     CHAT_ID,
     FIXED_MOMENT,

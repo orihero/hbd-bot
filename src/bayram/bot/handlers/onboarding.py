@@ -423,7 +423,14 @@ async def handle_contact_shared(
     # The reply keyboard arrives attached to the screen that EXPLAINS it rather than to the
     # receipt above, and that same message is what replaces the pinned 📱 contact button.
     # ``is_first_time`` draws the welcome paragraph, here and nowhere else.
-    await present(message, menu_screen(language, is_first_time=True))
+    await present(
+        message,
+        menu_screen(
+            language,
+            is_first_time=True,
+            teachers_day_enabled=await deps.is_teachers_day_enabled(),
+        ),
+    )
     await fetch_and_store_avatar(bot, telegram_user_id=user.id, profiles=deps.profiles)
 
 

@@ -158,10 +158,13 @@ def test_a_checkout_offer_carries_only_finished_renderable_values() -> None:
         plan_ends_on=None,
         is_plan_offered=True,
         pricing=Pricing.from_settings(settings),
+        rails=("stub",),
     )
 
     # Assert
     assert offer.is_paywalled
+    assert offer.rails == ("stub",)
+    assert offer.generic_rail == "stub"
     assert offer.plan_ends_on is None
     assert offer.pricing.single_amount == f"15{GROUPING_SPACE}000"
 
@@ -180,9 +183,59 @@ def test_a_spent_plan_is_still_a_running_plan_and_is_offered_no_second_one() -> 
         plan_ends_on="2026-10-06",
         is_plan_offered=False,
         pricing=Pricing.from_settings(settings),
+        rails=("stub",),
     )
 
     # Assert
     assert offer.plan_ends_on == "2026-10-06"
     assert offer.plan_songs_left == 0
     assert not offer.is_plan_offered
+
+
+def test_an_offer_built_without_rails_draws_no_rail() -> None:
+    # The default is EMPTY, not the stub: an offer built without thinking about rails must
+    # draw no button it could not sell, rather than one that charges nothing.
+    settings = Settings(_env_file=None, database_url=_DATABASE_URL)
+
+    offer = CheckoutOffer(
+        is_paywalled=True,
+        credits=0,
+        plan_songs_left=0,
+        plan_ends_on=None,
+        is_plan_offered=False,
+        pricing=Pricing.from_settings(settings),
+    )
+
+    assert offer.rails == ()
+    assert offer.generic_rail is None
+
+
+@pytest.mark.parametrize(
+    ("rails", "primary", "expected"),
+    [
+        (("rhmt", "payme", "checkoutuz"), "rhmt", "rhmt"),
+        (("payme", "checkoutuz"), "rhmt", None),
+        (("payme", "checkoutuz"), "payme", "payme"),
+        (("checkoutuz",), "payme", None),
+        (("checkoutuz",), None, "checkoutuz"),
+    ],
+)
+def test_the_generic_buttons_stand_only_for_the_first_wired_rail(
+    rails: tuple[str, ...], primary: str | None, expected: str | None
+) -> None:
+    # A generic press names no rail and the composite sends it to its FIRST provider, so the
+    # generic pair is drawn only while that rail is the first one still on (DECISIONS.md D28).
+    settings = Settings(_env_file=None, database_url=_DATABASE_URL)
+
+    offer = CheckoutOffer(
+        is_paywalled=True,
+        credits=0,
+        plan_songs_left=0,
+        plan_ends_on=None,
+        is_plan_offered=False,
+        pricing=Pricing.from_settings(settings),
+        rails=rails,
+        primary_rail=primary,
+    )
+
+    assert offer.generic_rail == expected

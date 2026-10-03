@@ -146,6 +146,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bayram.db.churn import anonymise_bot_membership_events
 from bayram.db.credit_sql import rowcount_of
 from bayram.db.models.broadcast_recipient import BroadcastRecipientRow
+from bayram.db.models.channel_attribution import ChannelAttributionRow
 from bayram.db.models.credit_account import CreditAccountRow
 from bayram.db.models.credit_ledger import CreditLedgerRow
 from bayram.db.models.payment_intent import PaymentIntentRow
@@ -208,6 +209,8 @@ class CreditErasure:
     #: the only number here that can be in the thousands for one account: a customer who has
     #: been on the audience of every campaign we have ever run has a row for each.
     recipients_anonymised: int = 0
+    #: ``channel_attributions`` rows that lost their user id, preserving channel click counts.
+    attributions_anonymised: int = 0
     #: ``support_tickets`` rows DELETED, and an EIGHTH number that must never be read as one
     #: more anonymisation. Every count above this one is a row that survived with its
     #: identity removed; this one is a row that is gone. An operator reading the log line
@@ -277,6 +280,11 @@ async def forget_account(session: AsyncSession, *, telegram_user_id: int) -> Cre
         .where(BroadcastRecipientRow.telegram_user_id == telegram_user_id)
         .values(telegram_user_id=None)
     )
+    attributions = await session.execute(
+        sa.update(ChannelAttributionRow)
+        .where(ChannelAttributionRow.telegram_user_id == telegram_user_id)
+        .values(telegram_user_id=None)
+    )
     anonymised = await session.execute(
         sa.update(CreditLedgerRow)
         .where(CreditLedgerRow.telegram_user_id == telegram_user_id)
@@ -314,6 +322,7 @@ async def forget_account(session: AsyncSession, *, telegram_user_id: int) -> Cre
         membership_events_anonymised=events,
         intents_anonymised=rowcount_of(intents),
         recipients_anonymised=rowcount_of(recipients),
+        attributions_anonymised=rowcount_of(attributions),
         tickets_deleted=rowcount_of(tickets),
         ticket_events_deleted=rowcount_of(ticket_events),
     )

@@ -170,7 +170,9 @@ def test_the_merchant_key_never_appears_in_a_repr_or_a_dump() -> None:
 def test_every_declared_secret_field_is_a_secret_str() -> None:
     """The property that keeps :data:`PAYME_SECRET_FIELDS` from being a comment."""
     # Arrange / Act
-    annotations = {name: PaymeSettings.model_fields[name].annotation for name in PAYME_SECRET_FIELDS}
+    annotations = {
+        name: PaymeSettings.model_fields[name].annotation for name in PAYME_SECRET_FIELDS
+    }
 
     # Assert
     assert PAYME_SECRET_FIELDS == ("payme_merchant_key",)
@@ -183,9 +185,7 @@ def test_every_declared_secret_field_is_a_secret_str() -> None:
 def test_the_shipped_defaults_leave_the_rail_switched_off() -> None:
     """Production behaviour must be byte-identical to today until three values change."""
     # Arrange / Act
-    settings = build_payme_settings(
-        {"_env_file": None, "database_url": _MEMORY_URL}
-    )
+    settings = build_payme_settings({"_env_file": None, "database_url": _MEMORY_URL})
 
     # Assert
     assert settings.payme_enabled is False

@@ -161,7 +161,12 @@ async def test_a_second_failure_counts_up_while_the_balance_still_stands(
     await record_probe(sessions, probe=_failed(), divisor=None, at=_T1)
 
     # Act
-    await record_probe(sessions, probe=_failed(http_status=None, error_code="UPSTREAM_TIMEOUT"), divisor=None, at=_T2)
+    await record_probe(
+        sessions,
+        probe=_failed(http_status=None, error_code="UPSTREAM_TIMEOUT"),
+        divisor=None,
+        at=_T2,
+    )
 
     # Assert — the count is what tells an operator how long "the last known figure" has been
     # the only figure. It increments as a column expression rather than a read-modify-write,
@@ -252,7 +257,9 @@ async def test_two_polls_of_one_account_leave_one_row_and_the_fallback_is_its_ow
     )
     await record_probe(
         sessions,
-        probe=_ok(vendor=Vendor.ELEVENLABS, unit=BalanceUnit.CHARACTERS, balance_remaining=380_000.0),
+        probe=_ok(
+            vendor=Vendor.ELEVENLABS, unit=BalanceUnit.CHARACTERS, balance_remaining=380_000.0
+        ),
         divisor=None,
         at=_T1,
     )
@@ -486,9 +493,7 @@ async def test_a_fake_run_never_moves_the_divisor_an_operator_tops_up_on(
     # Arrange — one real priced call and one fake one, both on delivered orders in window.
     async with sessions.begin() as session:
         real = await _seed_delivered_order(session, created_at=_T0 - timedelta(days=1))
-        fake = await _seed_delivered_order(
-            session, created_at=_T0 - timedelta(days=1), who=95_003
-        )
+        fake = await _seed_delivered_order(session, created_at=_T0 - timedelta(days=1), who=95_003)
         session.add(
             _usage_row(order_id=real.id, cost_usd=1.0, cost_source=CostSource.VENDOR_REPORTED)
         )
@@ -791,9 +796,7 @@ async def test_the_songs_remaining_figure_floors_and_never_rounds_up(
     divisor = (0.30, BalanceEstimateBasis.TRAILING_SPEND_USD)
 
     # Act
-    await record_probe(
-        sessions, probe=_ok(balance_remaining=1.19), divisor=divisor, at=_T0
-    )
+    await record_probe(sessions, probe=_ok(balance_remaining=1.19), divisor=divisor, at=_T0)
 
     # Assert — a rounded-up "1 song remaining" on a balance that cannot pay for one is
     # exactly the failure this tile exists to prevent. All three estimate columns are

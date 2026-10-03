@@ -151,38 +151,37 @@ async def list_chat_conversations(
     Joins with user_profiles and users to enrich each thread with avatar, username, and name.
     """
     # CTE to rank messages per user by created_at DESC
-    rn = sa.func.row_number().over(
-        partition_by=ChatMessageRow.telegram_user_id,
-        order_by=(ChatMessageRow.created_at.desc(), ChatMessageRow.id.desc()),
-    ).label("rn")
-    total_cnt = sa.func.count(ChatMessageRow.id).over(
-        partition_by=ChatMessageRow.telegram_user_id
-    ).label("total_cnt")
-
-    ranked_subq = (
-        sa.select(
-            ChatMessageRow.id.label("msg_id"),
-            ChatMessageRow.telegram_user_id,
-            ChatMessageRow.chat_id,
-            ChatMessageRow.user_id.label("msg_user_id"),
-            ChatMessageRow.created_at.label("last_msg_at"),
-            ChatMessageRow.body.label("last_msg_body"),
-            ChatMessageRow.direction.label("last_msg_direction"),
-            ChatMessageRow.kind.label("last_msg_kind"),
-            ChatMessageRow.callback_data.label("last_callback_data"),
-            ChatMessageRow.wizard_step.label("last_wizard_step"),
-            rn,
-            total_cnt,
+    rn = (
+        sa.func.row_number()
+        .over(
+            partition_by=ChatMessageRow.telegram_user_id,
+            order_by=(ChatMessageRow.created_at.desc(), ChatMessageRow.id.desc()),
         )
-        .subquery("ranked_messages")
+        .label("rn")
     )
+    total_cnt = (
+        sa.func.count(ChatMessageRow.id)
+        .over(partition_by=ChatMessageRow.telegram_user_id)
+        .label("total_cnt")
+    )
+
+    ranked_subq = sa.select(
+        ChatMessageRow.id.label("msg_id"),
+        ChatMessageRow.telegram_user_id,
+        ChatMessageRow.chat_id,
+        ChatMessageRow.user_id.label("msg_user_id"),
+        ChatMessageRow.created_at.label("last_msg_at"),
+        ChatMessageRow.body.label("last_msg_body"),
+        ChatMessageRow.direction.label("last_msg_direction"),
+        ChatMessageRow.kind.label("last_msg_kind"),
+        ChatMessageRow.callback_data.label("last_callback_data"),
+        ChatMessageRow.wizard_step.label("last_wizard_step"),
+        rn,
+        total_cnt,
+    ).subquery("ranked_messages")
 
     # Filter to rn == 1 (the latest message for each user)
-    latest = (
-        sa.select(ranked_subq)
-        .where(ranked_subq.c.rn == 1)
-        .subquery("latest_per_user")
-    )
+    latest = sa.select(ranked_subq).where(ranked_subq.c.rn == 1).subquery("latest_per_user")
 
     # Join with users and user_profiles
     query = (
@@ -217,7 +216,7 @@ async def list_chat_conversations(
         pattern = f"%{trimmed}%"
         try:
             numeric_id = int(trimmed)
-            id_clause = (latest.c.telegram_user_id == numeric_id)
+            id_clause = latest.c.telegram_user_id == numeric_id
         except ValueError:
             id_clause = sa.literal(False)
 
@@ -281,10 +280,7 @@ async def get_chat_transcript(
     before: datetime | None = None,
 ) -> list[ChatMessageRow]:
     """Return messages for a user in chronological order (earliest first)."""
-    query = (
-        sa.select(ChatMessageRow)
-        .where(ChatMessageRow.telegram_user_id == telegram_user_id)
-    )
+    query = sa.select(ChatMessageRow).where(ChatMessageRow.telegram_user_id == telegram_user_id)
     if before is not None:
         query = query.where(ChatMessageRow.created_at < before)
 

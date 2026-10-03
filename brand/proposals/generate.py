@@ -4,6 +4,7 @@ Same discipline as brand/: no fonts, geometry generated from constants.
 Bar width 9, flame = 0.8 x bar width and 1.944x as tall as wide, rhythm 3:5:4.
 Change a constant here and every file below stays consistent.
 """
+
 from __future__ import annotations
 import math, pathlib
 
@@ -20,15 +21,17 @@ def flame(c: float, tip: float, r: float) -> str:
     """The canonical flame: width 2r, height 3.889r, tip at (c, tip)."""
     return (
         f'<path d="M{n(c)} {n(tip)}'
-        f'C{n(c+0.76*r)} {n(tip+1.502*r)} {n(c+r)} {n(tip+2.469*r)} {n(c+r)} {n(tip+2.889*r)}'
-        f'a{n(r)} {n(r)} 0 0 1 {n(-2*r)} 0'
-        f'C{n(c-r)} {n(tip+2.469*r)} {n(c-0.76*r)} {n(tip+1.502*r)} {n(c)} {n(tip)}Z" fill="{{flame}}"/>'
+        f"C{n(c + 0.76 * r)} {n(tip + 1.502 * r)} {n(c + r)} {n(tip + 2.469 * r)} {n(c + r)} {n(tip + 2.889 * r)}"
+        f"a{n(r)} {n(r)} 0 0 1 {n(-2 * r)} 0"
+        f'C{n(c - r)} {n(tip + 2.469 * r)} {n(c - 0.76 * r)} {n(tip + 1.502 * r)} {n(c)} {n(tip)}Z" fill="{{flame}}"/>'
     )
 
 
 def bar(cx: float, top: float, h: float, w: float = 9.0) -> str:
-    return (f'<rect x="{n(cx-w/2)}" y="{n(top)}" width="{n(w)}" height="{n(h)}" '
-            f'rx="{n(w/2)}" fill="{{ink}}"/>')
+    return (
+        f'<rect x="{n(cx - w / 2)}" y="{n(top)}" width="{n(w)}" height="{n(h)}" '
+        f'rx="{n(w / 2)}" fill="{{ink}}"/>'
+    )
 
 
 # ---------------------------------------------------------------- 01 monogram
@@ -54,8 +57,8 @@ def suzani() -> list[str]:
     out = ['<g transform="translate(32 32)">']
     for k, ln in enumerate(lengths):
         out.append(
-            f'<rect x="{n(-w/2)}" y="{n(-(r0+ln))}" width="{n(w)}" height="{n(ln)}" '
-            f'rx="{n(w/2)}" fill="{{ink}}" transform="rotate({k*45})"/>'
+            f'<rect x="{n(-w / 2)}" y="{n(-(r0 + ln))}" width="{n(w)}" height="{n(ln)}" '
+            f'rx="{n(w / 2)}" fill="{{ink}}" transform="rotate({k * 45})"/>'
         )
     out += ['<circle cx="0" cy="0" r="6.5" fill="{flame}"/>', "</g>"]
     return out
@@ -68,7 +71,7 @@ def doira() -> list[str]:
     dash = circ / 12
     out = [
         f'<circle cx="32" cy="32" r="24" fill="none" stroke="{{ink}}" stroke-width="5.5" '
-        f'stroke-linecap="butt" stroke-dasharray="{n(dash*0.8)} {n(dash*0.2)}"/>'
+        f'stroke-linecap="butt" stroke-dasharray="{n(dash * 0.8)} {n(dash * 0.2)}"/>'
     ]
     for cx, h in ((22, 12), (32, 20), (42, 16)):
         out.append(bar(cx, 47 - h, h, w=7))
@@ -86,7 +89,7 @@ def bubble() -> list[str]:
     ]
     for cx, h in ((22, 9), (32, 15), (42, 12)):
         out.append(
-            f'<rect x="{n(cx-3.5)}" y="{n(40-h)}" width="7" height="{n(h)}" rx="3.5" fill="{{paper}}"/>'
+            f'<rect x="{n(cx - 3.5)}" y="{n(40 - h)}" width="7" height="{n(h)}" rx="3.5" fill="{{paper}}"/>'
         )
         out.append(flame(cx, 40 - h - 1.2 - 3.889 * 2.8, 2.8))
     return out
@@ -100,7 +103,7 @@ def ikat() -> list[str]:
     for i, hw in enumerate(halves):
         y = 8 + i * 6.2
         out.append(
-            f'<rect x="{n(32-hw)}" y="{n(y)}" width="{n(2*hw)}" height="5.6" rx="2.8" fill="{{flame}}"/>'
+            f'<rect x="{n(32 - hw)}" y="{n(y)}" width="{n(2 * hw)}" height="5.6" rx="2.8" fill="{{flame}}"/>'
         )
     return out
 
@@ -143,17 +146,27 @@ def write(path: str, body: str) -> None:
 
 for slug, (label, body) in CONCEPTS.items():
     els = "\n  ".join(body)
-    write(f"mark-{slug}.svg",
-          HEAD.format(vb="64 64", w=64, h=64, label=f"Bayram — {label}")
-          + "\n  " + els.format(ink=INK, flame=FLAME, paper="#FFFFFF") + "\n</svg>")
+    write(
+        f"mark-{slug}.svg",
+        HEAD.format(vb="64 64", w=64, h=64, label=f"Bayram — {label}")
+        + "\n  "
+        + els.format(ink=INK, flame=FLAME, paper="#FFFFFF")
+        + "\n</svg>",
+    )
     # Telegram avatar: white out of a flame-coloured disc, same 9-unit clear space
     r_ink, r_flame, r_paper = REVERSED.get(slug, DEFAULT_REVERSED)
     inner = "\n    ".join(body).format(ink=r_ink, flame=r_flame, paper=r_paper)
-    write(f"avatar-{slug}.svg",
-          HEAD.format(vb="512 512", w=512, h=512, label=f"Bayram — {label}")
-          + f'\n  <rect width="512" height="512" rx="256" fill="{FLAME}"/>'
-          + '\n  <g transform="translate(96 96) scale(5)">\n    ' + inner + "\n  </g>\n</svg>")
+    write(
+        f"avatar-{slug}.svg",
+        HEAD.format(vb="512 512", w=512, h=512, label=f"Bayram — {label}")
+        + f'\n  <rect width="512" height="512" rx="256" fill="{FLAME}"/>'
+        + '\n  <g transform="translate(96 96) scale(5)">\n    '
+        + inner
+        + "\n  </g>\n</svg>",
+    )
 
 wm = "\n  ".join(wordmark()).format(ink=INK, flame=FLAME, paper="#FFFFFF")
-write("04-wordmark-bayram.svg",
-      HEAD.format(vb="294 94", w=294, h=94, label="BAYRAM") + "\n  " + wm + "\n</svg>")
+write(
+    "04-wordmark-bayram.svg",
+    HEAD.format(vb="294 94", w=294, h=94, label="BAYRAM") + "\n  " + wm + "\n</svg>",
+)

@@ -87,6 +87,7 @@ import { useCanControlRail } from "@/lib/rbac";
 import { cn } from "@/lib/cn";
 import { useSessionGuard } from "@/state/useSessionGuard";
 
+import { CheckoutRailsPanel } from "./CheckoutRailsPanel";
 import { LookupBox } from "./LookupBox";
 import { RailPauseDialog } from "./RailPauseDialog";
 import { buildIntentColumns } from "./intentColumns";
@@ -693,6 +694,9 @@ export function IntentsScreen(): JSX.Element {
                     : t("billing.pause.pauseAction")}
                 </ToolbarButton>
               ) : null}
+              {/* The owner's per-rail switch (DECISIONS.md D28). Every role sees which rails
+                  are on; only the owner gets the buttons — see the panel's docstring. */}
+              <CheckoutRailsPanel />
               <ToolbarButton
                 onClick={() => {
                   navigate(PATH.railCalls);

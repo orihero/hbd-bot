@@ -23,6 +23,8 @@ from bayram.runtime.container import build_container
 from bayram.runtime.jobs import (
     ACTIVITY_SNAPSHOT_JOB_NAME,
     BOT_CTX_KEY,
+    CHECKOUTUZ_POLL_JOB_NAME,
+    CHECKOUTUZ_RECONCILE_JOB_NAME,
     CONTAINER_CTX_KEY,
     DUE_JOB_NAME,
     EXPAND_JOB_NAME,
@@ -234,6 +236,10 @@ async def test_the_worker_registers_the_job_the_submitter_enqueues(settings: Set
         # bot was already sitting in; a rename that silently unregistered this job would leave
         # every such selection on "checking…" for ever.
         SUPPORT_VERIFY_JOB_NAME,
+        # checkout.uz (DECISIONS.md D28): the reconcile is enqueued by the payment GATEWAY,
+        # by string, from the unsigned webhook; the poll is the rail's source of truth.
+        CHECKOUTUZ_RECONCILE_JOB_NAME,
+        CHECKOUTUZ_POLL_JOB_NAME,
     ]
     assert worker_settings.max_jobs == settings.worker_concurrency
     assert worker_settings.job_timeout == settings.queue_job_timeout_s

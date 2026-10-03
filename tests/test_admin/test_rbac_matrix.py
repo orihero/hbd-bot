@@ -196,6 +196,7 @@ EXPECTED_DECISIONS: Final[
     # ``STEP_UP_ACTIONS`` entry at all, which is asserted below and is what makes it usable as
     # the router-level guard ``routers/support_groups.py`` declares it as.
     Permission.SUPPORT_GROUP_WRITE: (_NO, _NO, _OK, _OK),
+    Permission.CONFIG_MANAGE: (_NO, _NO, _NO, _OK),
 }
 
 #: Every ``(permission, role)`` pair, flattened once so the parameter list is the matrix.

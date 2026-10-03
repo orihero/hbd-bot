@@ -202,16 +202,16 @@ class LlmContentWriter:
         # ``orchestrator._lyrics_for``. ``None`` here would build a hookless draft and the
         # next line, which requires a hook, would raise.
         recipient = brief.recipient
-        assert recipient is not None
+        name_display = recipient.display if recipient is not None else None
         draft = build_lyric_draft(
             sections,
             title=payload.title,
             language=brief.output_language,
-            name_display=recipient.display,
+            name_display=name_display,
         )
-        # ``build_sections`` flags exactly one hook, so this never comes up empty.
         hook_index = next(
-            index for index, section in enumerate(draft.sections) if section.is_name_hook
+            (index for index, section in enumerate(draft.sections) if section.is_name_hook),
+            None,
         )
         _LOGGER.info(
             "lyrics written",

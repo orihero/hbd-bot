@@ -558,9 +558,7 @@ class PaymeService:
                     data=self._account_field,
                 )
             return render_fault(error.rpc_code, _fault_message(error), request_id=request_id)
-        return render_fault(
-            PaymeErrorCode.INTERNAL, _fault_message(error), request_id=request_id
-        )
+        return render_fault(PaymeErrorCode.INTERNAL, _fault_message(error), request_id=request_id)
 
     def _account_value(self, params: Mapping[str, Any]) -> str | None:
         """Our ``public_ref`` out of the account object, or ``None`` when it is not there.
@@ -573,9 +571,7 @@ class PaymeService:
             return None
         return value
 
-    def _unknown_account(
-        self, request_id: int, params: Mapping[str, Any]
-    ) -> dict[str, object]:
+    def _unknown_account(self, request_id: int, params: Mapping[str, Any]) -> dict[str, object]:
         """``-31050`` with ``data``, and the one log line that makes a cabinet typo obvious.
 
         The expected field name and the names that actually arrived, side by side. That

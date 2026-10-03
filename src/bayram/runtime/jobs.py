@@ -106,6 +106,12 @@ from bayram.bot.handlers.submitting import ORDER_ID_KEY
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import start_over_keyboard
 from bayram.bot.progress import TelegramProgressSink
+from bayram.checkoutuz.jobs import (
+    CHECKOUTUZ_POLL_JOB_NAME,
+    CHECKOUTUZ_RECONCILE_JOB_NAME,
+    reconcile_checkoutuz_order,
+    run_checkoutuz_poll,
+)
 from bayram.config import Settings
 from bayram.contracts import BotBlockSource, Err, Order, is_ok
 from bayram.db.repository import record_song_file_id
@@ -184,6 +190,9 @@ __all__ = [
     "sweep_due_broadcasts",
     "sync_support_card",
     "relay_support_reply",
+    "reconcile_checkoutuz_order",
+    "run_checkoutuz_poll",
+    "checkoutuz_poll_minutes",
     "build_kit_worker_settings",
     "KIT_JOB_NAME",
     "RETENTION_JOB_NAME",
@@ -198,6 +207,8 @@ __all__ = [
     "SUPPORT_CARD_JOB_NAME",
     "SUPPORT_RELAY_JOB_NAME",
     "SUPPORT_VERIFY_JOB_NAME",
+    "CHECKOUTUZ_RECONCILE_JOB_NAME",
+    "CHECKOUTUZ_POLL_JOB_NAME",
     "CONTAINER_CTX_KEY",
     "BOT_CTX_KEY",
     "STORAGE_CTX_KEY",
@@ -502,9 +513,7 @@ async def _release_session(
     )
 
 
-async def _record_file_id(
-    container: AppContainer, *, order_id: UUID, file_id: str | None
-) -> None:
+async def _record_file_id(container: AppContainer, *, order_id: UUID, file_id: str | None) -> None:
     """Store the song's Telegram handle, and never let that failure cost a delivered kit.
 
     ``deliver_kit`` reports the handle; this writes it down — the same division of labour
@@ -766,6 +775,33 @@ def _delivery_reporter(
     )
 
 
+def checkoutuz_poll_minutes(settings: Settings) -> tuple[int, ...]:
+    """Which minutes past the hour :func:`run_checkoutuz_poll` fires on (DECISIONS.md D28).
+
+    "Every ``checkoutuz_poll_minutes``" counted from :01 rather than :00, because the Payme
+    sweep owns the five-minute boundary: at the shipped five that is :01, :06, … :56, which no
+    other entry in this worker uses (the sweep :00/:05/…, the broadcast due sweep :04/:09/…,
+    retention :17, balances :43, the snapshot :07). A TUPLE for :func:`sweep_minutes`' reason.
+
+    **A cadence that would land on another cron's minute skips that minute** rather than
+    contending with it — ``test_no_two_crons_in_this_worker_contend_for_the_same_minute`` is
+    the standing rule — so a non-default setting may stretch one gap by a minute or two. The
+    poll is idempotent and bounded, so a skipped minute costs latency and nothing else. If the
+    filter would leave nothing, the unfiltered set is used: a poller that never runs strands
+    every payment whose webhook was lost, which is far worse than one shared minute.
+    """
+    candidates = tuple(range(1, 60, settings.checkoutuz_poll_minutes))
+    taken = {
+        *sweep_minutes(settings),
+        *BROADCAST_DUE_CRON_MINUTE,
+        RETENTION_CRON_MINUTE,
+        VENDOR_BALANCE_CRON_MINUTE,
+        ACTIVITY_SNAPSHOT_CRON_MINUTE,
+    }
+    free = tuple(minute for minute in candidates if minute not in taken)
+    return free or candidates
+
+
 def build_kit_worker_settings(
     *,
     settings: Settings,
@@ -920,6 +956,36 @@ def build_kit_worker_settings(
                 verify_support_group,
                 name=SUPPORT_VERIFY_JOB_NAME,
                 max_tries=SUPPORT_VERIFY_MAX_TRIES,
+                timeout=settings.queue_job_timeout_s,
+            ),
+            # THE TWO CHECKOUT.UZ JOBS (DECISIONS.md D28). The reconcile's enqueue side is the
+            # Payme GATEWAY — the process that mounts checkout.uz's unsigned webhook — so its
+            # name is stated explicitly for ``notify_payment_settled``'s reason: it crosses a
+            # process boundary as a string. Registered ALWAYS, even on a deployment with no
+            # checkout.uz key: a webhook that arrives anyway must resolve to a function, and the
+            # job answers "skipped: no key" by itself rather than failing as an unknown name.
+            #
+            # ``max_tries=1`` on both, and the argument is the Payme sweep's: the poll below,
+            # minutes away, IS the retry. A reconcile that could not reach checkout.uz has
+            # written nothing, and the poll asks about the same order on its next pass.
+            #
+            # ``keep_result=0`` on the reconcile, and it is load-bearing: ARQ refuses an enqueue
+            # while EITHER ``arq:job:<id>`` or ``arq:result:<id>`` exists, and the job id is
+            # deterministic per order. With the worker-wide keep_result (an hour), one early or
+            # forged webhook — the bare callback needs no public_ref — would leave a NOT_PAID
+            # result behind that silently swallowed the REAL webhook's enqueue for the next hour.
+            # With no result kept, the id only collapses reconciles that are queued at once.
+            func(
+                reconcile_checkoutuz_order,
+                name=CHECKOUTUZ_RECONCILE_JOB_NAME,
+                max_tries=1,
+                timeout=settings.queue_job_timeout_s,
+                keep_result=0,
+            ),
+            func(
+                run_checkoutuz_poll,
+                name=CHECKOUTUZ_POLL_JOB_NAME,
+                max_tries=1,
                 timeout=settings.queue_job_timeout_s,
             ),
         ]
@@ -1080,6 +1146,28 @@ def build_kit_worker_settings(
                 timeout=settings.broadcast_chunk_timeout_s,
             ),
         ]
+        # THE CHECKOUT.UZ POLL — the rail's source of truth, because its webhook is unsigned,
+        # never retried and may never arrive (DECISIONS.md D28). Scheduled whenever the API KEY
+        # is set, and deliberately NOT on ``checkoutuz_enabled`` or the owner's switch: those
+        # stop new sales, and a payment a customer has already started must still settle after
+        # the rail is turned off. Gating this on the flag would strand exactly those payments,
+        # and there would be no drain procedure that could save them.
+        #
+        # ``unique=True``/``run_at_startup=False``/``max_tries=1`` for the Payme sweep's
+        # reasons, and the minutes come from :func:`checkoutuz_poll_minutes`, which keeps it off
+        # every other entry's minute.
+        if settings.checkoutuz_api_key.strip():
+            cron_jobs.append(
+                cron(
+                    run_checkoutuz_poll,
+                    name=CHECKOUTUZ_POLL_JOB_NAME,
+                    minute=checkoutuz_poll_minutes(settings),  # type: ignore[arg-type]
+                    run_at_startup=False,
+                    unique=True,
+                    max_tries=1,
+                    timeout=settings.queue_job_timeout_s,
+                )
+            )
         redis_settings = RedisSettings.from_dsn(settings.redis_url)
         max_jobs = settings.worker_concurrency
         job_timeout = settings.queue_job_timeout_s

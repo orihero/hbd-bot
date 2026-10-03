@@ -218,3 +218,32 @@ async def test_an_erased_buyers_settlement_shows_as_a_performed_charge_with_no_r
     assert (
         snapshot.transactions_performed + snapshot.operator_settlements != snapshot.receipts_written
     )
+
+
+async def test_another_rails_force_settle_is_not_a_payme_operator_settlement(
+    sessions: async_sessionmaker[AsyncSession],
+) -> None:
+    """The fourth term follows the first three onto Payme's own intents (DECISIONS.md D28).
+
+    ``settlement_counts`` no longer counts a Rahmat or checkout.uz receipt, so an operator
+    settlement on such an intent must not be counted either — otherwise the identity
+    ``performed + operator == receipts`` would read one short for every one of them.
+    """
+    # Arrange
+    by_hand = settle(
+        make_intent(now=_NOW, provider="rhmt"), at=_NOW, note=f"{OPERATOR_SETTLE_PREFIX}INC-2"
+    )
+    await add(sessions, by_hand)
+    await add(sessions, make_topup_receipt(by_hand, at=_NOW), make_grant(by_hand, at=_NOW))
+
+    # Act
+    async with sessions() as session:
+        snapshot = await settlement_snapshot(session, since=_SINCE, until=_NOW)
+
+    # Assert
+    assert (
+        snapshot.transactions_performed,
+        snapshot.receipts_written,
+        snapshot.grants_written,
+        snapshot.operator_settlements,
+    ) == (0, 0, 0, 0)

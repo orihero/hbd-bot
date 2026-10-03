@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import type { FinanceResponse, MoneyTotal } from "@/api/dashboard";
+import type {
+  CostSplitView,
+  FinanceResponse,
+  MoneyTotal,
+  VendorBalanceView,
+  VendorResponse,
+  VendorUnitsPerSongView,
+} from "@/api/dashboard";
 import {
   adaptFinance,
+  adaptGeminiSpend,
+  adaptVendorCards,
   formatAudio,
   formatCents,
   unavailableKey,
@@ -297,5 +306,137 @@ describe("adaptFinance — Revenue is what was recorded", () => {
       capabilities: { ...r.capabilities, isPlanRevenue: false, isTopupRevenue: false },
     });
     expect(out.totalRevenue).toEqual({ tag: "not tracked", reason: "not_instrumented" });
+  });
+});
+
+/* ---- Gemini: vendor-card order, audio over tokens, the window's spend ------ */
+
+const AS_OF = "2026-09-30T12:00:00Z";
+
+function balanceRow(over: Partial<VendorBalanceView> = {}): VendorBalanceView {
+  return {
+    vendor: "gemini",
+    isFallback: false,
+    provider: "gemini_music",
+    unit: "usd",
+    remaining: 12.4,
+    total: 20,
+    used: 7.6,
+    isUnbounded: false,
+    quotaResetsAt: null,
+    quotaResetHint: null,
+    planTier: null,
+    subscriptionStatus: null,
+    songsRemaining: null,
+    perSongRate: null,
+    estimateBasis: null,
+    fetchedAt: "2026-09-30T11:30:00Z",
+    checkedAt: "2026-09-30T11:30:00Z",
+    isLastPollOk: true,
+    httpStatus: null,
+    errorCode: null,
+    consecutiveFailures: 0,
+    ...over,
+  };
+}
+
+function units(over: Partial<VendorUnitsPerSongView>): VendorUnitsPerSongView {
+  return {
+    vendor: "gemini",
+    totalTokens: null,
+    billedCharacters: null,
+    audioMs: null,
+    tokensPerSong: null,
+    charactersPerSong: null,
+    audioMsPerSong: null,
+    ...over,
+  };
+}
+
+function vendorResponse(over: Partial<VendorResponse> = {}): VendorResponse {
+  const finance = financeWithNoPrices();
+  return {
+    window: { from: "2026-09-23T12:00:00Z", to: AS_OF },
+    deliveredOrders: 10,
+    vendorSpend: finance.vendorSpend,
+    costPerSongByVendor: [],
+    unitsPerSongByVendor: [],
+    costProvenance: [],
+    vendorBalances: [],
+    capabilities: finance.capabilities,
+    ...over,
+  };
+}
+
+describe("adaptVendorCards — Gemini", () => {
+  it("orders Gemini after ElevenLabs", () => {
+    const out = adaptVendorCards(
+      vendorResponse({
+        vendorBalances: [
+          balanceRow(),
+          balanceRow({ vendor: "elevenlabs", provider: "elevenlabs_music" }),
+          balanceRow({ vendor: "openrouter", provider: "openrouter" }),
+        ],
+      }),
+    );
+    expect(out.cards.map((c) => c.vendor)).toEqual(["openrouter", "elevenlabs", "gemini"]);
+  });
+
+  it("prefers audio over tokens for Gemini, and only for Gemini", () => {
+    const both = {
+      totalTokens: 5000,
+      audioMs: 180_000,
+      tokensPerSong: { value: 500, numerator: 5000, denominator: 10 },
+      audioMsPerSong: { value: 18_000, numerator: 180_000, denominator: 10 },
+    };
+    const out = adaptVendorCards(
+      vendorResponse({
+        unitsPerSongByVendor: [units(both), units({ ...both, vendor: "openrouter" })],
+      }),
+    );
+    const gemini = out.cards.find((c) => c.vendor === "gemini");
+    const openrouter = out.cards.find((c) => c.vendor === "openrouter");
+    expect(gemini?.figures.find((f) => f.key === "consumed")?.label).toBe("Audio");
+    expect(openrouter?.figures.find((f) => f.key === "consumed")?.label).toBe("Tokens");
+  });
+
+  it("falls back to tokens for Gemini when no audio was measured", () => {
+    const out = adaptVendorCards(
+      vendorResponse({ unitsPerSongByVendor: [units({ totalTokens: 5000 })] }),
+    );
+    expect(out.cards[0]?.figures.find((f) => f.key === "consumed")?.label).toBe("Tokens");
+  });
+});
+
+describe("adaptGeminiSpend — the window's Gemini bill off costSplit", () => {
+  const priced = (amountUsd: number | null, vendor: CostSplitView["vendor"] = "gemini"): CostSplitView => ({
+    vendor,
+    operation: "music_compose",
+    cost: {
+      amountUsd,
+      costedCalls: amountUsd === null ? 0 : 1,
+      calls: 1,
+      costSource: amountUsd === null ? null : "estimate",
+      unavailableReason: amountUsd === null ? "not_priced" : null,
+    },
+  });
+
+  it("is a real zero when Gemini made no calls", () => {
+    expect(adaptGeminiSpend([priced(1, "elevenlabs")])).toEqual({ usd: 0, isPartial: false });
+  });
+
+  it("sums Gemini's priced rows only", () => {
+    expect(adaptGeminiSpend([priced(0.08), priced(0.16), priced(3, "openrouter")])).toEqual({
+      usd: 0.24,
+      isPartial: false,
+    });
+  });
+
+  it("is an absence, not zero, when every Gemini row is unpriced", () => {
+    expect(adaptGeminiSpend([priced(null)])).toEqual({ usd: null, isPartial: false });
+  });
+
+  it("flags a partial sum", () => {
+    expect(adaptGeminiSpend([priced(0.08), priced(null)])).toEqual({ usd: 0.08, isPartial: true });
   });
 });

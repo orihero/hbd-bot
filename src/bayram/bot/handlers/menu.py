@@ -30,6 +30,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from typing import Final
+from uuid import uuid4
 
 from aiogram import F, Router
 from aiogram.filters import StateFilter
@@ -38,27 +39,29 @@ from aiogram.types import CallbackQuery, Message
 
 from bayram.bot.callbacks import LanguageCB, LanguageSlot, NavAction, NavCB
 from bayram.bot.deps import BotDeps
-from bayram.bot.draft import UI_LANGUAGE_KEY
+from bayram.bot.draft import UI_LANGUAGE_KEY, WizardDraft
 from bayram.bot.handlers.balance import handle_balance
 from bayram.bot.handlers.common import (
+    clear_keeping_identity,
     present,
     privacy_text,
     read_draft,
     reset_to_welcome,
     say,
+    show_step,
     support_text,
     ui_language,
     write_draft,
 )
 from bayram.bot.i18n import SUPPORTED_LANGUAGES, translate
-from bayram.bot.keyboards import MENU_BUTTON_KEYS, MENU_LABELS
+from bayram.bot.keyboards import ALL_MENU_BUTTON_KEYS, MENU_LABELS
 from bayram.bot.screens import menu_screen, settings_language_screen, settings_screen
-from bayram.bot.states import Wizard
-from bayram.contracts import Err
+from bayram.bot.states import Wizard, WizardStep
+from bayram.contracts import Err, Occasion
 from bayram.db.retention import DEFAULT_RETENTION_POLICY
 from bayram.logging import get_logger
 
-__all__ = ["build_router"]
+__all__ = ["build_router", "handle_teachers_day"]
 
 _LOG = get_logger(__name__)
 
@@ -73,11 +76,13 @@ _LOG = get_logger(__name__)
 #: ``menu.prompt`` is absent on purpose: it is a MESSAGE BODY, not a button. Including it
 #: would mean a customer who typed "Что делаем?" — or, far likelier, a note at the note step
 #: that happened to equal a prompt in a locale they do not read — reached a dispatcher with no
-#: button to dispatch to. The set is built from ``MENU_BUTTON_KEYS``, which is the same tuple
+#: button to dispatch to. The set is built from ``ALL_MENU_BUTTON_KEYS``, which is the same tuple
 #: ``main_menu_keyboard`` draws from and ``MENU_LABELS`` is computed over, so the keyboard,
 #: the router filter and this map cannot disagree about what the menu is.
 _KEY_BY_LABEL: Final[Mapping[str, str]] = {
-    translate(key, language): key for key in MENU_BUTTON_KEYS for language in SUPPORTED_LANGUAGES
+    translate(key, language): key
+    for key in ALL_MENU_BUTTON_KEYS
+    for language in SUPPORTED_LANGUAGES
 }
 
 
@@ -106,6 +111,8 @@ async def handle_menu_label(message: Message, state: FSMContext, deps: BotDeps) 
     match key:
         case "menu.generate":
             await reset_to_welcome(message, state, deps)
+        case "menu.teachers_day":
+            await handle_teachers_day(message, state, deps)
         case "menu.balance":
             await handle_balance(message, state, deps)
         case "menu.help":
@@ -121,6 +128,20 @@ async def handle_menu_label(message: Message, state: FSMContext, deps: BotDeps) 
                 "a menu label matched the filter but not the map",
                 extra={"text": (message.text or "")[:64]},
             )
+
+
+async def handle_teachers_day(message: Message, state: FSMContext, deps: BotDeps) -> None:
+    """Tapping the Teachers' Day promo button from the main menu."""
+    if not await deps.is_teachers_day_enabled():
+        await reset_to_welcome(message, state, deps)
+        return
+    await clear_keeping_identity(state)
+    draft = WizardDraft(
+        session_id=uuid4().hex,
+        ui_language=await ui_language(state, deps),
+        occasion=Occasion.TEACHERS_DAY,
+    )
+    await show_step(message, state, draft, WizardStep.GENRE)
 
 
 async def handle_set_language(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:
@@ -164,7 +185,13 @@ async def handle_to_menu(callback: CallbackQuery, state: FSMContext, deps: BotDe
     to remember it.
     """
     await callback.answer()
-    await present(callback, menu_screen(await ui_language(state, deps)))
+    await present(
+        callback,
+        menu_screen(
+            await ui_language(state, deps),
+            teachers_day_enabled=await deps.is_teachers_day_enabled(),
+        ),
+    )
 
 
 async def handle_settings_language_chosen(
@@ -218,7 +245,13 @@ async def handle_settings_language_chosen(
     # LABELS changed and nowhere else; every other flow end is served by the 🏠 row on
     # ``start_over_keyboard`` and ``post_delivery_keyboard``. Re-sending it "whenever a flow
     # ends" would put a duplicate keyboard message after every cancellation and delivery.
-    await present(callback, menu_screen(language))
+    await present(
+        callback,
+        menu_screen(
+            language,
+            teachers_day_enabled=await deps.is_teachers_day_enabled(),
+        ),
+    )
 
 
 def build_router() -> Router:

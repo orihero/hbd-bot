@@ -127,7 +127,13 @@ def test_every_occasion_is_still_offered_beside_it() -> None:
     offered = {data for _, data in buttons(occasion_keyboard(Language.EN))}
 
     # Assert
-    assert {OccasionCB(value=value).pack() for value in Occasion} <= offered
+    assert {
+        OccasionCB(value=value).pack() for value in Occasion if value is not Occasion.TEACHERS_DAY
+    } <= offered
+    offered_with_promo = {
+        data for _, data in buttons(occasion_keyboard(Language.EN, teachers_day_enabled=True))
+    }
+    assert OccasionCB(value=Occasion.TEACHERS_DAY).pack() in offered_with_promo
 
 
 # ---------------------------------------------------------------------------

@@ -32,6 +32,7 @@ back for fourteen days) and is explicit that neither of them is a customer being
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Final
 
@@ -145,6 +146,14 @@ def resolve_step(step: WizardStep, draft: WizardDraft) -> WizardStep:
             # missing and the only one the customer can act on from a stale Confirm.
             return WizardStep.LYRICS if draft.lyrics is None else WizardStep.OUTPUT_LANGUAGE
         return step
+    if draft.is_teachers_day:
+        if step is WizardStep.CONFIRM and not draft.is_complete:
+            if draft.lyrics is None:
+                return WizardStep.LYRICS
+            if draft.missing_answers:
+                return WizardStep.OUTPUT_LANGUAGE
+            return WizardStep.NOTE
+        return step
     if step is WizardStep.NAME_CONFIRM and draft.recipient is None:
         return WizardStep.NAME
     if step is WizardStep.LYRICS and draft.lyrics is None:
@@ -158,7 +167,12 @@ def resolve_step(step: WizardStep, draft: WizardDraft) -> WizardStep:
     return step
 
 
-def menu_screen(language: Language, *, is_first_time: bool = False) -> Screen:
+def menu_screen(
+    language: Language,
+    *,
+    is_first_time: bool = False,
+    teachers_day_enabled: bool = False,
+) -> Screen:
     """The home screen: one question and the persistent keyboard under it.
 
     ``is_first_time`` is the whole of the argument about how much to say here.
@@ -176,10 +190,17 @@ def menu_screen(language: Language, *, is_first_time: bool = False) -> Screen:
     body = translate("menu.prompt", language)
     if is_first_time:
         body = f"{translate('start.welcome', language)}\n\n{body}"
-    return Screen(body, main_menu_keyboard(language))
+    return Screen(body, main_menu_keyboard(language, teachers_day_enabled=teachers_day_enabled))
 
 
-def checkout_link_screen(language: Language, *, url: str, amount_minor: int) -> Screen:
+def checkout_link_screen(
+    language: Language,
+    *,
+    url: str,
+    amount_minor: int,
+    provider: str | None = None,
+    pay_options: Sequence[tuple[str, str]] = (),
+) -> Screen:
     """A payment that has STARTED at a redirect rail. Not a receipt, and not a failure.
 
     Drawn by ``handlers.checkout._settle``'s pending branch, which is reached when the rail
@@ -217,15 +238,27 @@ def checkout_link_screen(language: Language, *, url: str, amount_minor: int) -> 
     ``present`` call in ``handlers.checkout._settle``'s pending branch and of
     ``common._edit_or_send`` declining to clone a message that already reads the way it was
     about to be drawn — see the comment on that branch for the shape of the bug it fixes.
+
+    **``provider`` picks the hint, and only the hint.** checkout.uz's payment page lives one
+    hour, not the twelve the other rails' intents do, so its link screen must not promise
+    twelve (``checkout.pending_hint_checkoutuz``, ``DECISIONS.md D28``). Every other value —
+    including ``None`` — keeps ``checkout.pending_hint``, byte-identical to before.
+
+    **``pay_options`` are the rail's per-method pages** (checkout.uz's ``_pay_via``), drawn by
+    :func:`checkout_link_keyboard` as one button each. Empty — every other rail — leaves the
+    keyboard exactly as it was.
     """
+    hint_key = (
+        "checkout.pending_hint_checkoutuz" if provider == "checkoutuz" else "checkout.pending_hint"
+    )
     return Screen(
         "\n\n".join(
             (
                 translate("checkout.pending", language, amount=format_amount(amount_minor)),
-                translate("checkout.pending_hint", language),
+                translate(hint_key, language),
             )
         ),
-        checkout_link_keyboard(language, url),
+        checkout_link_keyboard(language, url, options=pay_options),
     )
 
 
@@ -357,6 +390,7 @@ def render_step(
     *,
     credits_note: str | None = None,
     offer: CheckoutOffer | None = None,
+    teachers_day_enabled: bool = False,
 ) -> Screen:
     """Render any wizard step. Total over :class:`WizardStep`; never raises.
 
@@ -381,8 +415,10 @@ def render_step(
         case WizardStep.UI_LANGUAGE:
             return _parked_language_screen(language)
         case WizardStep.OCCASION:
+            enabled = teachers_day_enabled or draft.is_teachers_day
             return Screen(
-                translate("wizard.occasion.prompt", language), occasion_keyboard(language)
+                translate("wizard.occasion.prompt", language),
+                occasion_keyboard(language, teachers_day_enabled=enabled),
             )
         case WizardStep.GENRE:
             return Screen(translate("wizard.genre.prompt", language), genre_keyboard(language))
@@ -430,11 +466,14 @@ def _note_screen(draft: WizardDraft) -> Screen:
     """
     language = draft.ui_language
     note = draft.note.strip()
-    parts = [translate("wizard.note.prompt", language, limit=MAX_NOTE_CHARS)]
+    prompt_key = (
+        "wizard.note.teachers_day_prompt" if draft.is_teachers_day else "wizard.note.prompt"
+    )
+    parts = [translate(prompt_key, language, limit=MAX_NOTE_CHARS)]
     if note:
         parts.append(_quoted(note))
     privacy = translate("wizard.note.privacy_line", language).strip()
-    if privacy:
+    if privacy and not draft.is_teachers_day:
         parts.append(privacy)
     return Screen(
         "\n\n".join(parts),
@@ -643,6 +682,11 @@ def _paywall_screen(language: Language, offer: CheckoutOffer) -> Screen:
         text = translate("checkout.paywall_topup", language, single_amount=pricing.single_amount)
     else:
         text = translate("checkout.paywall_single", language, single_amount=pricing.single_amount)
+    if not offer.rails:
+        # Every rail is switched off by the owner (``DECISIONS.md D28``): the price stays on
+        # screen — it is still the price — but there is no button to pay it with, and the
+        # customer is told so rather than left looking for one. Back still leads to the lyric.
+        text = f"{text}\n\n{translate('checkout.unavailable', language)}"
     return Screen(text, checkout_keyboard(language, offer))
 
 
@@ -720,7 +764,7 @@ def _confirm_screen(
         or genre is None
         or vocal_gender is None
         or output_language is None
-        or (recipient is None and not draft.is_own_lyrics)
+        or (recipient is None and not draft.is_own_lyrics and not draft.is_teachers_day)
     ):
         # The downgrade wins over the offer. A draft this screen cannot render is not a
         # screen a price belongs on, and the step it resolves to is never CONFIRM.
@@ -728,6 +772,18 @@ def _confirm_screen(
     if offer is not None and offer.is_paywalled:
         return _paywall_screen(language, offer)
     notes = _confirm_notes(language, credits_note, offer)
+    if draft.is_teachers_day:
+        sender = draft.note.strip() or translate("wizard.confirm.no_sender", language)
+        text = translate(
+            "wizard.confirm.summary_teachers_day",
+            language,
+            occasion=occasion_label(occasion, language),
+            genre=genre_label(genre, language),
+            vocal_gender=vocal_gender_label(vocal_gender, language),
+            output_language=language_label(output_language, language),
+            sender=sender,
+        )
+        return Screen("\n\n".join((text, *notes)), confirm_keyboard(language))
     if recipient is None:
         # The own-lyrics summary. It is headlined by the SONG rather than by a person,
         # because there is no person: the wizard never asked. The note row is gone with the

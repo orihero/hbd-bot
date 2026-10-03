@@ -40,8 +40,10 @@ opening an intent is a database write and building the customer's URL is string 
 exercised from day one instead of being invented under pressure the day billing lands.
 
 This module sits at the same depth as :mod:`bayram.entitlements` and imports only leaves —
-``bayram.contracts``, ``bayram.logging`` (which itself imports nothing but ``bayram.errors``) and
-``bayram.entitlements``, for the ``CreditBalance`` a fulfilled single song hands back. **It may
+``bayram.contracts``, ``bayram.logging`` (which itself imports nothing but ``bayram.errors``),
+``bayram.errors`` itself, for the ``CheckoutError`` the multi-rail composite refuses an unknown
+rail with, and ``bayram.entitlements``, for the ``CreditBalance`` a fulfilled single song hands
+back. **It may
 never import ``bayram.db``.** The persistence side implements :class:`PurchaseFulfiller` from
 the other direction, exactly the way ``bayram.db.credits.SqlCreditLedger`` implements
 ``EntitlementStore`` — which is what keeps ``bayram.db`` free to import this module without the
@@ -50,6 +52,7 @@ cycle that putting these types in ``bayram.contracts`` reproduced for the entitl
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -58,8 +61,9 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from bayram.contracts import Result, ok
+from bayram.contracts import Result, err, ok
 from bayram.entitlements import CreditBalance
+from bayram.errors import CheckoutError
 from bayram.logging import get_logger
 
 __all__ = [
@@ -77,6 +81,7 @@ __all__ = [
     # The stub rail
     "STUB_PROVIDER_NAME",
     "StubCheckoutProvider",
+    "CompositeCheckoutProvider",
     # The redirect rail's vocabulary
     "PaymentIntentState",
     "PaymentIntent",
@@ -155,6 +160,9 @@ class PurchaseRequest:
     #: the one-method shape of that protocol is far more load-bearing than this dataclass's
     #: field list.
     resume_order_id: UUID | None = None
+    #: Which payment provider the customer preferred (e.g. "rhmt" or "payme").
+    #: When unset, the checkout provider's default / primary rail is charged.
+    preferred_provider: str | None = None
 
 
 class Purchase(BaseModel):
@@ -199,6 +207,10 @@ class Purchase(BaseModel):
     #: that reaches a receipt. A reader of ``topup_purchases.reference`` must therefore expect
     #: the rail's id on a paid row, never this one.
     checkout_url: str | None = None
+    #: ``(method, url)`` pairs: one page per payment method a redirect rail offers, drawn as
+    #: one button each beside ``checkout_url`` (checkout.uz's ``_pay_via``, ``DECISIONS.md
+    #: D28``). Empty for every other rail, which keeps their link screen exactly as it was.
+    pay_options: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,6 +379,126 @@ class StubCheckoutProvider:
             },
         )
         return ok(purchase)
+
+
+class CompositeCheckoutProvider:
+    """Routes a charge to EXACTLY the rail the customer pressed, from an ordered list of rails.
+
+    One composition root decides which rails a deployment sells on and in what order (see
+    ``bayram.checkout_rails.wired_rails`` and ``DECISIONS.md D28``); this class only routes.
+    ``providers[0]`` is the primary — the rail the generic price button charges — and every
+    other rail is reached only by naming it in ``PurchaseRequest.preferred_provider``.
+
+    **Routing is exact, and an unknown preference is a refusal rather than a fall-through.**
+    The two-rail version this replaced sent any preference that did not match the secondary
+    to the primary. With three rails that is a hazard: a stale checkout.uz button pressed
+    after the deployment stopped wiring checkout.uz would silently open a Rahmat payment the
+    customer never chose. So a preference that names no wired rail returns
+    ``Err(CheckoutError)``, nothing is opened, and the screen says the charge did not go
+    through. ``None`` — the generic button — goes to the primary. Matching is
+    case-insensitive and whitespace-tolerant, as before, because rail names are lower-case
+    literals everywhere this system writes them.
+
+    **A stub is never one of these rails.** The composition root builds a composite only from
+    two or more REAL rails; a stub in the list would turn a mistyped preference into a free
+    song, which is precisely what exact routing exists to rule out.
+
+    The ``primary=``/``secondary=`` keywords survive as a shim for the construction sites and
+    tests written against the two-rail shape: ``CompositeCheckoutProvider(primary=a,
+    secondary=b)`` is ``CompositeCheckoutProvider([a, b])`` and routes identically for every
+    input those callers send. Mixing the two forms is a programming error and raises at
+    construction, which is the one place in this class allowed to raise — :meth:`charge`
+    never does.
+    """
+
+    def __init__(
+        self,
+        providers: Sequence[CheckoutProvider] | None = None,
+        *,
+        primary: CheckoutProvider | None = None,
+        secondary: CheckoutProvider | None = None,
+    ) -> None:
+        if providers is not None and (primary is not None or secondary is not None):
+            raise ValueError("pass either providers or primary=/secondary=, not both")
+        if providers is None:
+            if primary is None:
+                raise ValueError("a composite checkout provider needs at least one rail")
+            providers = [primary] if secondary is None else [primary, secondary]
+        rails = tuple(providers)
+        if not rails:
+            raise ValueError("a composite checkout provider needs at least one rail")
+        self._providers: tuple[CheckoutProvider, ...] = rails
+        self.name: str = "+".join(rail.name for rail in rails)
+
+    @property
+    def providers(self) -> tuple[CheckoutProvider, ...]:
+        """Every rail, in routing order. ``providers[0]`` is the primary."""
+        return self._providers
+
+    @property
+    def rail_names(self) -> tuple[str, ...]:
+        """The rail names, in routing order — what a wiring test and a log line compare against."""
+        return tuple(rail.name for rail in self._providers)
+
+    @property
+    def primary(self) -> CheckoutProvider:
+        return self._providers[0]
+
+    @property
+    def secondary(self) -> CheckoutProvider | None:
+        """The second rail, or ``None``. Kept for the two-rail callers; prefer :attr:`providers`."""
+        return self._providers[1] if len(self._providers) > 1 else None
+
+    async def charge(self, request: PurchaseRequest) -> Result[Purchase]:
+        """Delegate to the named rail, or the primary when none is named. **Never raises.**
+
+        The delegate's own ``charge`` is contracted never to raise; the ``try`` is here anyway
+        because this is the one object every press goes through, and a rail that broke its
+        contract must cost the customer a "did not go through" screen rather than a dead
+        button and a crashed handler.
+        """
+        target = self._route(request.preferred_provider)
+        if target is None:
+            _LOG.warning(
+                "checkout preference names no wired rail; refusing rather than falling through",
+                extra={
+                    "preferred_provider": request.preferred_provider,
+                    "rails": list(self.rail_names),
+                    "idempotency_key": request.idempotency_key,
+                },
+            )
+            return err(
+                CheckoutError(
+                    "the preferred checkout rail is not wired on this deployment",
+                    context={
+                        "preferred_provider": request.preferred_provider,
+                        "rails": list(self.rail_names),
+                    },
+                )
+            )
+        try:
+            return await target.charge(request)
+        except Exception as exc:  # charge() is contracted never to raise
+            _LOG.exception(
+                "checkout rail raised from charge(); answering with a failed charge",
+                extra={"rail": target.name, "idempotency_key": request.idempotency_key},
+            )
+            return err(
+                CheckoutError(
+                    "the checkout rail raised instead of answering",
+                    context={"rail": target.name, "error_type": type(exc).__name__},
+                    cause=exc,
+                )
+            )
+
+    def _route(self, preferred: str | None) -> CheckoutProvider | None:
+        if preferred is None:
+            return self._providers[0]
+        wanted = preferred.strip().lower()
+        for rail in self._providers:
+            if rail.name.strip().lower() == wanted:
+                return rail
+        return None
 
 
 @runtime_checkable
@@ -591,6 +723,17 @@ class PaymentIntent:
     #: a field here would invite a read-then-write where a claim belongs — which is precisely
     #: the at-most-once property the column was added to provide.
     resume_order_id: UUID | None = None
+    #: Which rail opened this intent — ``payment_intents.provider``, copied verbatim. Trailing
+    #: and defaulted to ``"payme"`` so every existing constructor keeps compiling, and
+    #: ``"payme"`` because that was the only rail that wrote intents before it existed.
+    #:
+    #: **It is read as a guard, not as a label.** One ``payment_intents`` table serves every
+    #: redirect rail and its idempotency key is unique across all of them, so a key replayed on
+    #: a different rail returns ANOTHER rail's intent. A rail that builds its URL from an intent
+    #: whose ``provider`` is not its own would hand the customer a page for money it can never
+    #: settle; each rail therefore refuses a foreign intent (``DECISIONS.md D28``). Settlement
+    #: also stamps the receipt with it, so a force-settled checkout.uz sale is not filed as Payme.
+    provider: str = "payme"
 
 
 @runtime_checkable
@@ -634,6 +777,7 @@ class PaymentIntentOpener(Protocol):
         plan_songs: int | None = None,
         plan_days: int | None = None,
         resume_order_id: UUID | None = None,
+        provider: str = "payme",
     ) -> Result[PaymentIntent]:
         """Open — or re-open — the intent for ``idempotency_key``. **Never raises.**
 

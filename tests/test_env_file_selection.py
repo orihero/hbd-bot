@@ -132,7 +132,9 @@ def test_an_explicit_env_file_from_the_caller_beats_the_variable(
     smuggle values into a test that asked for none.
     """
     # Arrange
-    selected = _write(tmp_path / ".env.prod", BAYRAM_ENVIRONMENT="prod", BAYRAM_DATABASE_URL=_APP_DSN)
+    selected = _write(
+        tmp_path / ".env.prod", BAYRAM_ENVIRONMENT="prod", BAYRAM_DATABASE_URL=_APP_DSN
+    )
     monkeypatch.setenv(ENV_FILE_VAR, str(selected))
 
     # Act

@@ -20,6 +20,7 @@ import type { JSX } from "react";
 
 import type { PlanLiabilityResponse } from "@/api/dashboard";
 import { adaptPlanLiability, adaptPlanUtilisation } from "@/features/dashboard/adapt";
+import { GeminiSpendCards } from "@/features/dashboard/GeminiSpendCards";
 import { PlanLiability, PlanUtilisation } from "@/features/dashboard/charts";
 import { chartSpecsFor } from "@/features/dashboard/chartSpecs";
 import { useI18n } from "@/i18n";
@@ -78,6 +79,11 @@ export function FinancesSection({
         cardPeriods={cardPeriods}
         onCardPeriodChange={onCardPeriodChange}
       />
+
+      {/* Gemini has no balance API, so what is shown is SPEND: month-to-date off its own
+          unwindowed read, and the figure window's cost split — which is why that card's label
+          names the window. See `GeminiSpendCards`. */}
+      <GeminiSpendCards period={figurePeriod} />
 
       <FigureHeading label={t("dashboard.figures.heading")}>{picker}</FigureHeading>
       <FigureGrid>

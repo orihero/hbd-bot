@@ -66,7 +66,7 @@ from aiogram.types import FSInputFile, InlineKeyboardMarkup, Message
 from bayram.audio.lyrics_image import LYRICS_IMAGE_FILENAME, render_lyrics_image
 from bayram.bot.i18n import escape_html, translate
 from bayram.bot.keyboards import post_delivery_keyboard
-from bayram.contracts import Err, GeneratedAsset, Kit, Language, Ok, Result, err, ok
+from bayram.contracts import Err, GeneratedAsset, Kit, Language, Result, err, ok
 from bayram.errors import DeliveryError
 from bayram.logging import get_logger
 from bayram.pipeline.events import PipelineStage
@@ -312,7 +312,7 @@ async def deliver_kit(
     gaps: Sequence[PipelineGap] = (),
     ledger: DeliveryLedger | None = None,
 ) -> Result[str | None]:
-    """Send song, greetings, lyric sheet and the closing message. Never raises.
+    """Send exactly two messages: the lyric card image, then the song. Never raises.
 
     The success value is the song's Telegram ``file_id`` — the handle SoW FIL-4 wants on
     ``assets.tg_file_id`` so a re-send costs zero bytes — or ``None`` when the song was
@@ -339,12 +339,9 @@ async def deliver_kit(
     already_sent = len(outbox.ledger.sent_for(kit.order_id))
     failures: list[str] = []
     song_mark = translate("watermark.song", language, handle=WATERMARK_HANDLE)
-    invite = translate("watermark.invite", language, handle=WATERMARK_HANDLE)
 
     failures.extend(
-        await _send_lyric_image(
-            bot, chat_id=chat_id, kit=kit, language=language, out=outbox
-        )
+        await _send_lyric_image(bot, chat_id=chat_id, kit=kit, language=language, out=outbox)
     )
     failures.extend(
         await _send_song(
@@ -388,7 +385,12 @@ async def _send_lyric_image(
         return ()
     image_path = kit.song.path.parent / LYRICS_IMAGE_FILENAME
     if not image_path.exists():
-        rendered = render_lyrics_image(kit.lyrics, image_path, language=language)
+        rendered = render_lyrics_image(
+            kit.lyrics,
+            image_path,
+            language=language,
+            provider=kit.song.provider,
+        )
         if isinstance(rendered, Err):
             _LOG.warning(
                 "lyric image could not be rendered",

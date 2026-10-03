@@ -45,6 +45,9 @@ import { useSessionGuard } from "@/state/useSessionGuard";
 type Translate = (path: TranslationPath, params?: Record<string, string | number>) => string;
 
 import { AttemptDetailPanel } from "./AttemptDetailPanel";
+import { GeminiSpendBadge } from "./GeminiSpendBadge";
+import { MusicProviderSwitch } from "./MusicProviderSwitch";
+import { TeachersDaySwitch } from "./TeachersDaySwitch";
 import {
   GENERATION_KIND_KEY,
   NAME_STRATEGY_KEY,
@@ -1012,18 +1015,23 @@ export function GenerationsScreen(): JSX.Element {
           title={t("generations.title")}
           /* No subtitle. It printed the same count the Attempts tile does — see `stats`. */
           actions={
-            <ToolbarButton
-              icon={<SlidersHorizontal className="h-5 w-5" strokeWidth={1.75} />}
-              ariaExpanded={isPanelOpen}
-              ariaControls={FILTER_PANEL_ID}
-              onClick={() => {
-                setIsPanelOpen((open) => !open);
-              }}
-            >
-              {filterCount === 0
-                ? t("common.filters")
-                : t("common.filtersCount", { count: filterCount })}
-            </ToolbarButton>
+            <div className="flex flex-wrap items-center gap-3">
+              <TeachersDaySwitch />
+              <MusicProviderSwitch />
+              <GeminiSpendBadge />
+              <ToolbarButton
+                icon={<SlidersHorizontal className="h-5 w-5" strokeWidth={1.75} />}
+                ariaExpanded={isPanelOpen}
+                ariaControls={FILTER_PANEL_ID}
+                onClick={() => {
+                  setIsPanelOpen((open) => !open);
+                }}
+              >
+                {filterCount === 0
+                  ? t("common.filters")
+                  : t("common.filtersCount", { count: filterCount })}
+              </ToolbarButton>
+            </div>
           }
         />
 

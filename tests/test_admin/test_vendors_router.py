@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from bayram.admin.container import AdminContainer
 from bayram.admin.deps import RequirePermission, require_permission
 from bayram.admin.routers.vendors import (
+    GEMINI_SPEND_PATH,
     VENDOR_ERRORS_PATH,
     VENDOR_USAGE_BY_DAY_PATH,
     VENDOR_USAGE_PATH,
@@ -834,3 +835,115 @@ async def test_a_window_excludes_the_instant_it_ends_on(
 
     # Assert
     assert body["totals"]["calls"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Gemini spend: today and this month, and Google's out-of-credit verdict
+# ---------------------------------------------------------------------------
+#: A fixed "now" mid-month, so the day and month boundaries are both inside the seed.
+GEMINI_NOW: Final[datetime] = datetime(2026, 9, 30, 15, 0, tzinfo=UTC)
+
+
+async def seed_gemini(session: AsyncSession, *, created_at: datetime, **kw: Any) -> None:
+    await seed_call(
+        session,
+        vendor=Vendor.GEMINI,
+        operation=kw.pop("operation", VendorOperation.MUSIC_COMPOSE),
+        provider="gemini_music",
+        model_id="lyria-3.5",
+        task=UsageTask.SONG,
+        created_at=created_at,
+        **kw,
+    )
+
+
+@pytest.fixture
+def frozen_now(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("bayram.admin.routers.vendors.utc_now", lambda: GEMINI_NOW)
+
+
+@pytest.mark.parametrize("role", ALL_ROLES)
+async def test_every_role_may_read_gemini_spend_and_none_is_zero(
+    container: AdminContainer, client: httpx.AsyncClient, role: AdminRole, frozen_now: None
+) -> None:
+    await signed_in(container, client, role=role)
+
+    response = await client.get(GEMINI_SPEND_PATH)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "today": {"spentUsd": 0.0, "pricedCalls": 0},
+        "monthToDate": {"spentUsd": 0.0, "pricedCalls": 0},
+        "isDepleted": False,
+        "depletedAt": None,
+    }
+
+
+async def test_gemini_spend_sums_today_and_the_month_and_nothing_else(
+    container: AdminContainer, client: httpx.AsyncClient, frozen_now: None
+) -> None:
+    priced: dict[str, Any] = {"cost_usd": 0.08, "cost_source": CostSource.ESTIMATED}
+    async with container.session_factory.begin() as session:
+        await seed_gemini(session, created_at=datetime(2026, 8, 31, 23, 0, tzinfo=UTC), **priced)
+        await seed_gemini(session, created_at=datetime(2026, 9, 2, 9, 0, tzinfo=UTC), **priced)
+        await seed_gemini(session, created_at=datetime(2026, 9, 30, 9, 0, tzinfo=UTC), **priced)
+        await seed_gemini(session, created_at=datetime(2026, 9, 30, 10, 0, tzinfo=UTC), **priced)
+        # Excluded: a fake run, a health probe, another vendor, and an unpriced failure.
+        await seed_gemini(
+            session, created_at=datetime(2026, 9, 30, 11, 0, tzinfo=UTC), is_fake=True, **priced
+        )
+        await seed_gemini(
+            session,
+            created_at=datetime(2026, 9, 30, 11, 5, tzinfo=UTC),
+            operation=VendorOperation.HEALTH,
+        )
+        await seed_call(session, created_at=datetime(2026, 9, 30, 11, 10, tzinfo=UTC), **priced)
+        await seed_gemini(
+            session,
+            created_at=datetime(2026, 9, 30, 11, 15, tzinfo=UTC),
+            is_success=False,
+            error_code="UPSTREAM_5XX",
+        )
+    await signed_in(container, client)
+
+    body = (await client.get(GEMINI_SPEND_PATH)).json()
+
+    assert body["today"] == {"spentUsd": pytest.approx(0.16), "pricedCalls": 2}
+    assert body["monthToDate"] == {"spentUsd": pytest.approx(0.24), "pricedCalls": 3}
+    assert body["isDepleted"] is False
+
+
+async def test_a_credit_refusal_as_the_latest_call_reads_as_depleted_until_a_success(
+    container: AdminContainer, client: httpx.AsyncClient, frozen_now: None
+) -> None:
+    refused_at = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
+    async with container.session_factory.begin() as session:
+        await seed_gemini(
+            session,
+            created_at=datetime(2026, 9, 30, 9, 0, tzinfo=UTC),
+            cost_usd=0.08,
+            cost_source=CostSource.ESTIMATED,
+        )
+        await seed_gemini(
+            session,
+            created_at=refused_at,
+            is_success=False,
+            http_status=402,
+            error_code="QUOTA_EXHAUSTED",
+        )
+    await signed_in(container, client)
+
+    body = (await client.get(GEMINI_SPEND_PATH)).json()
+    assert body["isDepleted"] is True
+    assert datetime.fromisoformat(body["depletedAt"]) == refused_at
+
+    async with container.session_factory.begin() as session:
+        await seed_gemini(
+            session,
+            created_at=datetime(2026, 9, 30, 13, 0, tzinfo=UTC),
+            cost_usd=0.08,
+            cost_source=CostSource.ESTIMATED,
+        )
+    body = (await client.get(GEMINI_SPEND_PATH)).json()
+    assert body["isDepleted"] is False
+    assert body["depletedAt"] is None

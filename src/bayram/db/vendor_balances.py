@@ -310,9 +310,7 @@ async def measure_per_song_rate(
                 # figure built on it. That is the one direction this estimate must never fail
                 # in, and it failed in it silently: the tile reported more cover than the
                 # balance can buy, on an account an operator tops up by reading that tile.
-                sa.func.count(sa.distinct(VendorUsageRow.order_id)).filter(
-                    quantity.is_not(None)
-                ),
+                sa.func.count(sa.distinct(VendorUsageRow.order_id)).filter(quantity.is_not(None)),
             ).where(
                 VendorUsageRow.vendor == vendor,
                 # A fake run measures nothing real, and a demo must not move a divisor that

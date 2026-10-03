@@ -47,6 +47,7 @@ import {
   audience as fetchAudience,
   audienceLists as fetchAudienceLists,
   finance as fetchFinance,
+  geminiSpend as fetchGeminiSpend,
   performance as fetchPerformance,
   plans as fetchPlans,
   pulse as fetchPulse,
@@ -56,6 +57,7 @@ import {
   type AudienceListsResponse,
   type AudienceResponse,
   type FinanceResponse,
+  type GeminiSpendResponse,
   type PerformanceResponse,
   type PlanLiabilityResponse,
   type PulseView,
@@ -327,6 +329,8 @@ export const dashboardKeys = {
    * period the server never applied.
    */
   plans: () => [DASHBOARD_ROOT, "plans"] as const,
+  /** No window: the server fixes today and month-to-date on UTC calendar boundaries. */
+  geminiSpend: () => [DASHBOARD_ROOT, "gemini-spend"] as const,
   /**
    * The window narrows `topGenerators` and NOTHING else; `recentSubscribers` is a recency
    * list the route takes no parameter for. Both are in one key because they arrive in one
@@ -512,6 +516,22 @@ export function useAudienceLists(
     refetchOnReconnect: false,
     staleTime: AUDIENCE_LISTS_STALE_MS,
     enabled,
+    ...SHARED,
+  });
+}
+
+/**
+ * Gemini's metered spend, today and month-to-date, and whether Google is refusing for credit.
+ *
+ * Takes no window — the route fixes its own UTC calendar periods. Polled on `finance`'s 30s
+ * clock: the depleted flag is the one thing here an operator needs to see promptly. Shared by
+ * the Generations badge and the Finances card, so both are one request.
+ */
+export function useGeminiSpend(): UseQueryResult<GeminiSpendResponse, DashboardQueryError> {
+  return useQuery<GeminiSpendResponse, DashboardQueryError>({
+    queryKey: dashboardKeys.geminiSpend(),
+    queryFn: ({ signal }) => unwrap(fetchGeminiSpend(signal)),
+    refetchInterval: pollWhileVisible(POLL.finance),
     ...SHARED,
   });
 }

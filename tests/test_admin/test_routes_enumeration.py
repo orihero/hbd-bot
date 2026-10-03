@@ -105,7 +105,12 @@ from bayram.admin.routers.broadcasts import (
     BROADCASTS_PATH,
 )
 from bayram.admin.routers.chats import CHAT_MESSAGES_PATH_TEMPLATE, CHATS_PATH
-from bayram.admin.routers.config import CONFIG_PATH
+from bayram.admin.routers.config import (
+    CONFIG_CHECKOUT_RAILS_PATH,
+    CONFIG_MUSIC_PROVIDER_PATH,
+    CONFIG_PATH,
+    CONFIG_TEACHERS_DAY_PATH,
+)
 from bayram.admin.routers.credits import USER_CREDITS_GRANT_PATH, USER_CREDITS_PATH
 from bayram.admin.routers.dashboard import (
     AUDIENCE_LISTS_PATH,
@@ -161,6 +166,7 @@ from bayram.admin.routers.users import (
     WIZARD_STATE_PATH,
 )
 from bayram.admin.routers.vendors import (
+    GEMINI_SPEND_PATH,
     VENDOR_ERRORS_PATH,
     VENDOR_USAGE_BY_DAY_PATH,
     VENDOR_USAGE_PATH,
@@ -403,6 +409,13 @@ MOUNTED_ROUTES: Final[frozenset[tuple[str, str, Permission | None]]] = frozenset
         ("GET", SUPPORT_GROUPS_PATH, Permission.SUPPORT_READ),
         # Operations.
         ("GET", CONFIG_PATH, Permission.CONFIG_READ),
+        ("GET", CONFIG_MUSIC_PROVIDER_PATH, Permission.CONFIG_READ),
+        ("POST", CONFIG_MUSIC_PROVIDER_PATH, Permission.CONFIG_MANAGE),
+        ("GET", CONFIG_TEACHERS_DAY_PATH, Permission.CONFIG_READ),
+        ("POST", CONFIG_TEACHERS_DAY_PATH, Permission.CONFIG_MANAGE),
+        ("GET", CONFIG_CHECKOUT_RAILS_PATH, Permission.CONFIG_READ),
+        ("POST", CONFIG_CHECKOUT_RAILS_PATH, Permission.CONFIG_MANAGE),
+        ("GET", GEMINI_SPEND_PATH, Permission.DASHBOARD_READ),
         ("GET", RETENTION_PATH, Permission.RETENTION_READ),
         ("GET", AUDIT_PATH, Permission.AUDIT_READ),
         ("GET", VERIFY_PATH, Permission.AUDIT_READ),
@@ -563,6 +576,9 @@ MUTATIONS: Final[frozenset[tuple[str, str]]] = frozenset(
         # POST is also what puts each behind the CSRF check inside ``get_current_admin``.
         ("POST", SUPPORT_GROUP_SELECT_PATH),
         ("POST", SUPPORT_GROUP_CLEAR_PATH),
+        ("POST", CONFIG_MUSIC_PROVIDER_PATH),
+        ("POST", CONFIG_TEACHERS_DAY_PATH),
+        ("POST", CONFIG_CHECKOUT_RAILS_PATH),
     }
 )
 
@@ -990,6 +1006,21 @@ _MUTATION_BODIES: Final[dict[str, dict[str, Any]]] = {
     # Clear takes no body at all. ``{}`` is sent for the same reason ``/auth/logout`` sends
     # it: the probe needs a request with a JSON content type, not a request with fields.
     SUPPORT_GROUP_CLEAR_PATH: {},
+    # Music provider switch.
+    CONFIG_MUSIC_PROVIDER_PATH: {
+        "provider": "gemini",
+        "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
+    },
+    CONFIG_TEACHERS_DAY_PATH: {
+        "enabled": True,
+        "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
+    },
+    # The owner's per-rail checkout switch (DECISIONS.md D28).
+    CONFIG_CHECKOUT_RAILS_PATH: {
+        "rail": "checkoutuz",
+        "enabled": False,
+        "reasonCode": AuditReasonCode.ROUTINE_OPS.value,
+    },
 }
 
 #: Path parameters for the two CSRF sweeps. :data:`MUTATIONS` now carries templates, and a
