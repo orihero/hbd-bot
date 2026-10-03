@@ -771,7 +771,7 @@ covering the edge route, the owner switch, manual confirmation and refunds, is
 [12-checkoutuz.md](12-checkoutuz.md). The reasons are in `DECISIONS.md D28`.
 
 **Unlike Payme, checkout.uz brings no new process and no new dotenv.** Every variable below is a
-`Settings` field read from the **bot's** file (`/etc/bayram/bot.env` through `BAYRAM_ENV_FILE`),
+`Settings` field read from the **bot's** file (`/etc/bayram/bayram.env` through `BAYRAM_ENV_FILE`),
 by both the bot and the worker. There is no `.env.checkoutuz` and no `CheckoutUzSettings`. The
 key is a credential in `VENDOR_SECRET_FIELDS`, so the admin API and the Payme gateway both
 **refuse to boot in production** when it is reachable to them. It is **not** in

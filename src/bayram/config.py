@@ -81,7 +81,7 @@ ENV_FILE: Final[str] = ".env"
 
 #: The variable that selects a different one — ``BAYRAM_ENV_FILE=.env.prod``, which is how
 #: ``ENV=prod make dev`` exercises a production configuration from a development machine, and
-#: how a systemd unit points at ``/etc/bayram/bot.env`` outside the checkout.
+#: how a systemd unit points at ``/etc/bayram/bayram.env`` outside the checkout.
 #:
 #: **Read from the process environment ONLY**, and it has to be: a dotenv file cannot name
 #: the dotenv file that is about to be read. Writing ``BAYRAM_ENV_FILE`` *into* ``.env`` is
@@ -138,7 +138,7 @@ VENDOR_SECRET_FIELDS: Final[tuple[str, ...]] = (
     "openrouter_management_key",
     "gemini_api_key",
     # checkout.uz's Bearer key (DECISIONS.md D28). Held by the bot, which creates payments,
-    # and the worker, which polls them — both read ``bot.env``. The admin process and the Payme
+    # and the worker, which polls them — both read ``/etc/bayram/bayram.env``. The admin process and the Payme
     # gateway need neither half of that, so a production admin or gateway holding it is refused.
     "checkoutuz_api_key",
 )

@@ -94,7 +94,7 @@ one.
 
 ## 2. Configuration and where the key goes
 
-All of these are `Settings` fields, read from **the bot's dotenv only**: `/etc/bayram/bot.env`,
+All of these are `Settings` fields, read from **the bot's dotenv only**: `/etc/bayram/bayram.env`,
 which both `bayram-bot` and `bayram-worker` read through `BAYRAM_ENV_FILE`. There is no
 `.env.checkoutuz`. The variable reference is `02-configuration.md`, section "The checkout.uz
 rail".
@@ -123,20 +123,18 @@ the admin API (`FORBIDDEN_ENV_VARS`) and the Payme gateway both refuse to boot i
 it. Neither of them needs it: the gateway's webhook route only reads our own database and the
 queue. Do **not** copy it into `/etc/bayram/payme.env` or `/etc/bayram/bayram-admin.env`.
 
-> **One gap in the kernel-level separation, flagged rather than fixed.** The committed
-> `deploy/systemd/bayram-payme.service` declares
-> `InaccessiblePaths=/etc/bayram/bayram.env /etc/bayram/bayram-admin.env`, but the bot and worker
-> units read `/etc/bayram/bot.env`, which that list does not name `[TREE 2026-10-03]`. The
-> gateway is still protected at the application level, because it only reads
-> `BAYRAM_PAYME_ENV_FILE` and refuses a reachable key. But the kernel-level block that
-> `08-payme.md` §2 relies on does not cover the file holding this key. Before installing the key,
-> check what the unit on the host actually says (`systemctl cat bayram-payme | grep Inaccessible`).
+> **Which file, verified on the host `[HOST 2026-10-03]`.** `bayram-bot` and `bayram-worker`
+> load `EnvironmentFile=/etc/bayram/bayram.env` and nothing else; there is no `bot.env` on the
+> host, and a file created under that name is read by nothing. `bayram-admin` loads
+> `bayram-admin.env`, and the committed `deploy/systemd/bayram-payme.service` declares
+> `InaccessiblePaths=/etc/bayram/bayram.env /etc/bayram/bayram-admin.env`, so the gateway cannot
+> read the key at the kernel level either. Keep the file `root:hbd 0640`.
 
 **How to install the key.** Edit the file in place as root, keeping its mode and owner, and
 never paste the key into a shell command line:
 
 ```bash
-sudoedit /etc/bayram/bot.env      # add BAYRAM_CHECKOUTUZ_API_KEY=… (and, at go-live, §9)
+sudoedit /etc/bayram/bayram.env      # add BAYRAM_CHECKOUTUZ_API_KEY=… (and, at go-live, §9)
 sudo systemctl restart bayram-worker bayram-bot
 journalctl -u bayram-worker -f | grep checkoutuz.poll_finished   # one line per pass from the next poll minute
 ```
@@ -329,7 +327,7 @@ Then ask checkout.uz. The key is read into a variable, so it never appears on a 
 in shell history:
 
 ```bash
-KEY=$(sudo sed -n 's/^BAYRAM_CHECKOUTUZ_API_KEY=//p' /etc/bayram/bot.env)
+KEY=$(sudo sed -n 's/^BAYRAM_CHECKOUTUZ_API_KEY=//p' /etc/bayram/bayram.env)
 curl -sS -X POST https://checkout.uz/api/v1/status_payment \
      -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
      -d '{"id": <order_id>}'
@@ -448,7 +446,7 @@ The order matters, because the edge and the key have to be in place before a but
    poll now runs and finds nothing. On the panel, checkout.uz shows "Not live in env".
 4. **Decide the whitelist** (§5), and apply it before step 6 if it is wanted.
 5. **Set `BAYRAM_CHECKOUTUZ_ENABLED=true`** and, if it is not already set,
-   `BAYRAM_CREDITS_ENFORCED=true` in `/etc/bayram/bot.env`. Restart `bayram-worker` and
+   `BAYRAM_CREDITS_ENFORCED=true` in `/etc/bayram/bayram.env`. Restart `bayram-worker` and
    `bayram-bot`. The bot's boot publishes `…,checkoutuz` to `bayram:checkout:wired_rails`. The
    panel badge clears. The paywall shows "💸 Click/Payme …" after any Rahmat and Payme buttons.
 6. **The first live payment, at the 1 000 soʻm floor, with the owner's explicit yes.** The
@@ -494,7 +492,7 @@ on the flag (`DECISIONS.md D28`, rule 12).
 | --- | --- | --- |
 | The bot will not boot: "CHECKOUTUZ_ENABLED is on but CHECKOUTUZ_API_KEY is empty" | The flag was set without the key. | §2. |
 | The bot will not boot: "… but BAYRAM_CREDITS_ENFORCED is false" | The flag was turned on with the meter dark. | Set `BAYRAM_CREDITS_ENFORCED=true` in the same edit. |
-| The admin or the gateway will not boot in prod, naming `BAYRAM_CHECKOUTUZ_API_KEY` | The key was copied into their env. | Remove it. It belongs in `bot.env` only. |
+| The admin or the gateway will not boot in prod, naming `BAYRAM_CHECKOUTUZ_API_KEY` | The key was copied into their env. | Remove it. It belongs in `/etc/bayram/bayram.env` only (bot and worker). |
 | No checkout.uz button | The flag is off, the owner switch is off, the checkout is paused, or the bot has not restarted. | The panel's Payment rails row; `redis-cli GET bayram:checkout:wired_rails`. |
 | The customer sees "This payment method is not available right now" | The owner switch is off and the button was stale. | §6. |
 | A price button gives a checkout error and the log says `checkoutuz.unpayable_amount` | The price is not whole soʻm or is outside 1 000..10 000 000. | The price settings, in tiyin. |
