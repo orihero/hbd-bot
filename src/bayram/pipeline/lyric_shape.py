@@ -16,10 +16,12 @@ from the provider package.
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
 from bayram.contracts import Language, LyricDraft, LyricSection
 from bayram.names.marks import canonicalize_marks
+from bayram.names.translit import latin_to_cyrillic
 
 __all__ = [
     "MAX_LYRIC_SECTIONS",
@@ -31,6 +33,7 @@ __all__ = [
     "DEFAULT_TITLE",
     "MARK_CANONICAL_LANGUAGES",
     "canonical_text",
+    "in_uzbek_cyrillic",
     "clean_lines",
     "clean_label",
     "hook_index",
@@ -66,6 +69,22 @@ def canonical_text(text: str, language: Language) -> str:
     customer typing on a phone keyboard gets U+2019 whether they want it or not.
     """
     return canonicalize_marks(text) if language in MARK_CANONICAL_LANGUAGES else text
+
+
+def in_uzbek_cyrillic(text: str, *, keep: str | None) -> str:
+    """Transliterate any Latin left in an Uzbek Cyrillic line; Cyrillic passes through.
+
+    The writer is told to write Cyrillic and sometimes answers in Latin anyway — whole
+    lyrics, not stray words. ``keep`` is the recipient's name, left exactly as typed:
+    ``hook_index`` and the plan builder find the name by that spelling, so converting it
+    here would cost the song its name chunk.
+    """
+    if not keep:
+        return latin_to_cyrillic(text)
+    parts = re.split(f"({re.escape(keep)})", text, flags=re.IGNORECASE)
+    return "".join(
+        part if index % 2 else latin_to_cyrillic(part) for index, part in enumerate(parts)
+    )
 
 
 def clean_lines(lines: tuple[str, ...]) -> tuple[str, ...]:

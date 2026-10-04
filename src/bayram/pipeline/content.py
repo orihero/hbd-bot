@@ -46,6 +46,7 @@ from bayram.pipeline.lyric_shape import (
     build_lyric_draft,
     clean_label,
     clean_lines,
+    in_uzbek_cyrillic,
 )
 from bayram.pipeline.prompts import (
     lyrics_system_prompt,
@@ -176,6 +177,25 @@ class LlmContentWriter:
             max_output_tokens=self._settings.llm_max_output_tokens,
         )
 
+    def _in_cyrillic(
+        self,
+        sections: tuple[tuple[str, tuple[str, ...], bool], ...],
+        title: str,
+        name_display: str | None,
+    ) -> tuple[tuple[tuple[str, tuple[str, ...], bool], ...], str]:
+        """Hold an Uzbek Cyrillic lyric to its script; logs when the model ignored it."""
+        converted = tuple(
+            (label, tuple(in_uzbek_cyrillic(line, keep=name_display) for line in lines), hook)
+            for label, lines, hook in sections
+        )
+        converted_title = in_uzbek_cyrillic(title, keep=name_display)
+        if converted != sections or converted_title != title:
+            _LOGGER.warning(
+                "the writer answered an Uzbek Cyrillic lyric in Latin; transliterated it",
+                extra={"provider": self._llm.name},
+            )
+        return converted, converted_title
+
     async def write_lyrics(self, brief: Brief) -> Result[LyricDraft]:
         request = self._request(
             lyrics_system_prompt(brief.output_language), lyrics_user_prompt(brief)
@@ -203,9 +223,12 @@ class LlmContentWriter:
         # next line, which requires a hook, would raise.
         recipient = brief.recipient
         name_display = recipient.display if recipient is not None else None
+        title = payload.title
+        if brief.output_language is Language.UZ_CYRL:
+            sections, title = self._in_cyrillic(sections, title, name_display)
         draft = build_lyric_draft(
             sections,
-            title=payload.title,
+            title=title,
             language=brief.output_language,
             name_display=name_display,
         )

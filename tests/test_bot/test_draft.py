@@ -18,11 +18,12 @@ from bayram.bot.draft import (
     ONBOARDED_KEY,
     REQUIRED_ANSWERS,
     UI_LANGUAGE_KEY,
+    LyricSource,
     WizardDraft,
     load_draft,
 )
 from bayram.contracts import Brief, Err, Genre, Language, Occasion, Ok, VoiceGender
-from tests.conftest import make_name
+from tests.conftest import make_lyrics, make_name
 
 
 def complete_draft() -> WizardDraft:
@@ -212,3 +213,54 @@ def test_the_identity_caches_alone_are_not_mistaken_for_a_draft() -> None:
     # Assert
     assert isinstance(result, Err)
     assert result.error.context["key"] == DRAFT_KEY
+
+
+def test_renaming_the_recipient_throws_the_written_lyric_away() -> None:
+    # Arrange — re-picking the same language keeps the lyric in hand, so a stale one here
+    # was shown and sold as the song for the new name
+    written = complete_draft().updated(lyrics=make_lyrics())
+
+    # Act
+    renamed = written.updated(recipient=make_name(display="Saltanat", raw="Saltanat"))
+
+    # Assert
+    assert renamed.lyrics is None
+
+
+def test_every_answer_the_lyric_is_written_from_makes_it_stale() -> None:
+    # Arrange
+    written = complete_draft().updated(lyrics=make_lyrics())
+
+    # Act
+    changed = [
+        written.updated(genre=Genre.ROCK),
+        written.updated(occasion=Occasion.WEDDING),
+        written.updated(vocal_gender=VoiceGender.FEMALE),
+        written.updated(note="Loves the sea"),
+        written.updated(output_language=Language.UZ_CYRL),
+    ]
+
+    # Assert
+    assert all(draft.lyrics is None for draft in changed)
+
+
+def test_an_unchanged_answer_keeps_the_lyric() -> None:
+    # Arrange
+    written = complete_draft().updated(lyrics=make_lyrics())
+
+    # Act
+    same = written.updated(output_language=Language.UZ_LATN, genre=Genre.RETRO_ESTRADA)
+
+    # Assert
+    assert same.lyrics is not None
+
+
+def test_a_typed_lyric_survives_a_changed_answer() -> None:
+    # Arrange
+    typed = complete_draft().updated(lyrics_source=LyricSource.OWN, lyrics=make_lyrics())
+
+    # Act
+    retagged = typed.updated(output_language=Language.UZ_CYRL)
+
+    # Assert
+    assert retagged.lyrics is not None

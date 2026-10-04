@@ -90,6 +90,56 @@ async def test_forces_the_name_into_a_hook_that_forgot_it(settings: Settings) ->
     assert UZBEK_NAME_CANONICAL in draft.name_hook_sections[0].lines
 
 
+async def test_an_uzbek_cyrillic_lyric_answered_in_latin_comes_back_in_cyrillic(
+    settings: Settings,
+) -> None:
+    # Arrange — the cheap writer model ignores "write in Cyrillic" often enough to matter
+    llm = FakeLlmProvider()
+    llm.respond_with(
+        "LyricsPayload",
+        LyricsPayload(
+            title="Bayram qoʻshigʻi",
+            sections=(
+                LyricSectionPayload(label="verse", lines=("Bugun quyosh porlaydi",)),
+                LyricSectionPayload(
+                    label="hook", lines=(f"{UZBEK_NAME_CANONICAL} shodlik",), is_name_hook=True
+                ),
+            ),
+        ),
+    )
+    brief = make_brief(output_language=Language.UZ_CYRL)
+
+    # Act
+    draft = value_of(await _writer(llm, settings).write_lyrics(brief))
+
+    # Assert — the name keeps the spelling the plan builder will look for
+    assert draft.title == "Байрам қўшиғи"
+    assert draft.sections[0].lines == ("Бугун қуёш порлайди",)
+    assert draft.name_hook_sections[0].lines == (f"{UZBEK_NAME_CANONICAL} шодлик",)
+
+
+async def test_a_latin_lyric_is_left_alone_when_latin_was_asked_for(settings: Settings) -> None:
+    # Arrange
+    llm = FakeLlmProvider()
+    llm.respond_with(
+        "LyricsPayload",
+        LyricsPayload(
+            title="Bayram",
+            sections=(
+                LyricSectionPayload(
+                    label="hook", lines=(f"{UZBEK_NAME_CANONICAL} shodlik",), is_name_hook=True
+                ),
+            ),
+        ),
+    )
+
+    # Act
+    draft = value_of(await _writer(llm, settings).write_lyrics(make_brief()))
+
+    # Assert
+    assert draft.title == "Bayram"
+
+
 async def test_rejects_a_lyric_payload_with_no_usable_section(settings: Settings) -> None:
     # Arrange
     llm = FakeLlmProvider()

@@ -120,6 +120,16 @@ REQUIRED_ANSWERS: Final[tuple[str, ...]] = (
     "output_language",
 )
 
+#: The answers a written lyric is derived from. Changing one makes the lyric in hand stale.
+LYRIC_INPUTS: Final[tuple[str, ...]] = (
+    "occasion",
+    "genre",
+    "vocal_gender",
+    "note",
+    "recipient",
+    "output_language",
+)
+
 #: The same list for the bring-your-own-lyrics path, minus the recipient.
 #:
 #: That path never asks who the song is for — the customer wrote the words and put whatever
@@ -206,8 +216,19 @@ class WizardDraft(BaseModel):
     lyric_writes: int = Field(default=0, ge=0)
 
     def updated(self, **changes: Any) -> WizardDraft:
-        """Return a NEW draft with ``changes`` applied and revalidated. Never mutates."""
-        return WizardDraft.model_validate({**self.model_dump(), **changes})
+        """Return a NEW draft with ``changes`` applied and revalidated. Never mutates.
+
+        Changing an answer the writer wrote the lyric FROM throws that lyric away, unless
+        the same call supplies one. Without this a customer who went back and renamed the
+        recipient was shown — and sold — the song written for the previous name, because
+        re-picking an unchanged language deliberately keeps the lyric in hand. A typed lyric
+        is never discarded: on the own-lyrics path these answers only describe it.
+        """
+        candidate = WizardDraft.model_validate({**self.model_dump(), **changes})
+        is_stale = any(getattr(candidate, name) != getattr(self, name) for name in LYRIC_INPUTS)
+        if is_stale and "lyrics" not in changes and not candidate.is_own_lyrics:
+            return candidate.model_copy(update={"lyrics": None})
+        return candidate
 
     @property
     def is_teachers_day(self) -> bool:
