@@ -14,6 +14,7 @@ from bayram.contracts import (
     Brief,
     CompositionPlan,
     Err,
+    Language,
     LyricDraft,
     LyricSection,
     NameCandidate,
@@ -24,6 +25,7 @@ from bayram.pipeline.plan_builder import (
     build_composition_plan,
     derive_seed,
     substitute_name,
+    vendor_text,
     with_name_candidate,
 )
 from tests.conftest import UZBEK_NAME_CANONICAL, make_brief, make_lyrics
@@ -223,3 +225,102 @@ def test_a_multi_section_lyric_still_gets_the_short_name_chunk(settings: Setting
     # Assert
     assert plan.name_chunk_index is not None
     assert plan.chunks[plan.name_chunk_index].duration_ms == settings.name_chunk_duration_ms
+
+
+# -- Uzbek Cyrillic is shown in Cyrillic and sung from Latin ---------------------------------
+
+CYRILLIC_NAME = "Ғуломжон"
+CYRILLIC_STRIPPED = NameCandidate(text=CYRILLIC_NAME, strategy=NameStrategy.STRIPPED, rank=0)
+
+
+def _cyrillic_lyrics(language: Language) -> LyricDraft:
+    return make_lyrics(
+        title="Туғилган кун",
+        language=language,
+        sections=(
+            LyricSection(label="verse-1", lines=("Бугун қуёш бошқача порлайди",)),
+            LyricSection(label="hook", lines=(f"{CYRILLIC_NAME} шодлик",), is_name_hook=True),
+            LyricSection(label="chorus", lines=("Йиллар ўтса ҳам қўшиғинг янграйди",)),
+        ),
+        name_display=CYRILLIC_NAME,
+    )
+
+
+def _cyrillic_plan(settings: Settings, language: Language) -> CompositionPlan:
+    return value_of(
+        build_composition_plan(
+            _cyrillic_lyrics(language),
+            brief=make_brief(output_language=language),
+            candidate=CYRILLIC_STRIPPED,
+            settings=settings,
+            seed=42,
+        )
+    )
+
+
+def _has_cyrillic(text: str) -> bool:
+    return any("\u0400" <= character <= "\u04ff" for character in text)
+
+
+def test_an_uzbek_cyrillic_lyric_reaches_the_vendor_in_uzbek_latin(settings: Settings) -> None:
+    # Arrange / Act
+    plan = _cyrillic_plan(settings, Language.UZ_CYRL)
+
+    # Assert
+    texts = [chunk.text for chunk in plan.chunks]
+    assert texts == [
+        "Bugun quyosh boshqacha porlaydi",
+        "Gʻulomjon shodlik",
+        "Yillar oʻtsa ham qoʻshigʻing yangraydi",
+    ]
+    assert not any(_has_cyrillic(text) for text in texts)
+
+
+def test_the_customer_keeps_the_cyrillic_lyric(settings: Settings) -> None:
+    # Arrange
+    lyrics = _cyrillic_lyrics(Language.UZ_CYRL)
+
+    # Act
+    build_composition_plan(
+        lyrics,
+        brief=make_brief(output_language=Language.UZ_CYRL),
+        candidate=CYRILLIC_STRIPPED,
+        settings=settings,
+        seed=42,
+    )
+
+    # Assert — the draft is what the sheet, the preview and lyrics.txt are rendered from
+    assert lyrics.sections[0].lines == ("Бугун қуёш бошқача порлайди",)
+
+
+def test_a_russian_lyric_reaches_the_vendor_in_cyrillic(settings: Settings) -> None:
+    # Arrange / Act
+    plan = _cyrillic_plan(settings, Language.RU)
+
+    # Assert
+    assert plan.chunks[0].text == "Бугун қуёш бошқача порлайди"
+    assert all(_has_cyrillic(chunk.text) for chunk in plan.chunks)
+
+
+def test_re_roll_on_an_uzbek_cyrillic_plan_swaps_the_transliterated_name(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Arrange
+    plan = _cyrillic_plan(settings, Language.UZ_CYRL)
+    hyphenated = NameCandidate(text="Ғу-лом-жон", strategy=NameStrategy.HYPHENATED, rank=1)
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger="bayram.pipeline.plan_builder"):
+        rerolled = value_of(
+            with_name_candidate(plan, previous=CYRILLIC_STRIPPED, candidate=hyphenated)
+        )
+
+    # Assert — the lyric around the name survives, so no fallback was taken
+    assert rerolled.chunks[rerolled.name_chunk_index or 0].text == "Gʻu-lom-jon shodlik"
+    assert caplog.records == []
+
+
+def test_vendor_text_leaves_latin_and_other_languages_alone() -> None:
+    assert vendor_text("Gulomjon", Language.UZ_CYRL) == "Gulomjon"
+    assert vendor_text("Привет", Language.RU) == "Привет"
+    assert vendor_text("Ғулом", Language.UZ_LATN) == "Ғулом"

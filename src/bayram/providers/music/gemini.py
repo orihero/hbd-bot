@@ -156,7 +156,7 @@ def build_gemini_music_prompt(plan: CompositionPlan) -> str:
         prompt = (
             f"Generate a full song with vocals.\n"
             f"Style: {style_desc}\n"
-            f"Language: {plan.language.value}\n"
+            f"Language: {plan.language.vendor_language.value}\n"
             f"Duration: approximately {duration_s} seconds.\n\n"
             f"Lyrics:\n{lyrics}"
         )

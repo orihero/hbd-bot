@@ -9,7 +9,7 @@ import httpx
 import orjson
 import pytest
 
-from bayram.contracts import CostSource, HealthState, Vendor, is_err, is_ok
+from bayram.contracts import CostSource, HealthState, Language, Vendor, is_err, is_ok
 from bayram.errors import (
     ProviderInvalidResponseError,
     ProviderQuotaExhaustedError,
@@ -139,6 +139,16 @@ async def test_build_gemini_music_prompt() -> None:
     assert "Gʻulomjon" in prompt
     assert "Lyrics:" in prompt
     assert "Duration:" in prompt
+
+
+async def test_gemini_is_told_uzbek_cyrillic_is_sung_in_uzbek_latin() -> None:
+    plan = simple_plan().model_copy(update={"language": Language.UZ_CYRL})
+    assert "Language: uz_latn" in build_gemini_music_prompt(plan)
+
+
+async def test_gemini_is_told_russian_is_russian() -> None:
+    plan = simple_plan().model_copy(update={"language": Language.RU})
+    assert "Language: ru" in build_gemini_music_prompt(plan)
 
 
 async def test_gemini_inpaint_recomposes_plan() -> None:

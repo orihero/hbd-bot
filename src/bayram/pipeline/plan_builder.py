@@ -6,6 +6,10 @@ vendor carries ``NameCandidate.text``, which may be stripped, hyphenated or resp
 something that looks wrong and *sounds* right. The substitution happens here and nowhere
 else.
 
+The same split covers the script. A song ordered in Uzbek Cyrillic keeps its Cyrillic lyric
+for everything the customer reads, but every chunk is transliterated to Uzbek Latin before
+it reaches the vendor (``vendor_text``). Russian is sent as written.
+
 The hook section becomes a short chunk of its own so a bad take costs one inpaint instead
 of a whole track, and the body is packed to fit the configured song length without ever
 crossing a vendor bound.
@@ -27,6 +31,7 @@ from bayram.contracts import (
     Chunk,
     CompositionPlan,
     Genre,
+    Language,
     LyricDraft,
     LyricSection,
     NameCandidate,
@@ -37,6 +42,7 @@ from bayram.contracts import (
 )
 from bayram.errors import ValidationError
 from bayram.logging import get_logger
+from bayram.names.translit import cyrillic_to_latin
 from bayram.providers.music.styles import (
     BODY_CHUNK_CONTEXT_ADHERENCE,
     NAME_CHUNK_CONTEXT_ADHERENCE,
@@ -46,6 +52,7 @@ __all__ = [
     "build_composition_plan",
     "with_name_candidate",
     "substitute_name",
+    "vendor_text",
     "GENRE_STYLES",
     "NEGATIVE_STYLES",
 ]
@@ -106,6 +113,19 @@ def substitute_name(text: str, *, display: str, submitted: str) -> str:
     if not display or display == submitted:
         return text
     return re.sub(re.escape(display), submitted, text, flags=re.IGNORECASE)
+
+
+def vendor_text(text: str, language: Language) -> str:
+    """The text as the music vendor receives it: Uzbek Cyrillic goes as Uzbek Latin.
+
+    The conversion is the deterministic transliterator, not a second model call, so the
+    song sung is exactly the lyric the customer approved. Latin characters pass through,
+    which makes it safe on a chunk that already holds a Latin name candidate. Every other
+    language comes back untouched — Russian in particular stays Cyrillic.
+    """
+    if language is not Language.UZ_CYRL:
+        return text
+    return cyrillic_to_latin(text, language=Language.UZ_CYRL)
 
 
 def _section_text(section: LyricSection) -> str:
@@ -202,6 +222,7 @@ def _assemble_chunks(
                     submitted=candidate.text,
                     duration_ms=name_ms,
                     styles=styles,
+                    language=brief.output_language,
                 )
             )
             continue
@@ -210,7 +231,7 @@ def _assemble_chunks(
             continue
         chunks.append(
             Chunk(
-                text=_section_text(section),
+                text=vendor_text(_section_text(section), brief.output_language),
                 duration_ms=duration_ms,
                 positive_styles=styles,
                 negative_styles=NEGATIVE_STYLES,
@@ -281,10 +302,13 @@ def _name_chunk(
     submitted: str,
     duration_ms: int,
     styles: tuple[str, ...],
+    language: Language,
 ) -> Chunk:
+    # Substitute first, transliterate second: the lyric holds the name as the customer typed
+    # it, and only the original text is guaranteed to contain that spelling.
     text = substitute_name(_section_text(hook), display=display, submitted=submitted)
     return Chunk(
-        text=text,
+        text=vendor_text(text, language),
         duration_ms=duration_ms,
         positive_styles=(*styles, *NAME_CHUNK_STYLES),
         negative_styles=NEGATIVE_STYLES,
@@ -346,9 +370,13 @@ def with_name_candidate(
         )
 
     original = plan.chunks[index]
-    swapped = substitute_name(original.text, display=previous.text, submitted=candidate.text)
+    # The chunk is already in the vendor's script, so both spellings must be too — a
+    # Cyrillic ``previous`` would never be found in a transliterated Uzbek Cyrillic chunk.
+    previous_text = vendor_text(previous.text, plan.language)
+    candidate_text = vendor_text(candidate.text, plan.language)
+    swapped = substitute_name(original.text, display=previous_text, submitted=candidate_text)
     text = swapped
-    if candidate.text not in swapped:
+    if candidate_text not in swapped:
         # The previous spelling is not in the chunk, so there was nothing to swap. Singing
         # the bare name still sells the product; singing the PREVIOUS orthography again
         # does not. So the hook is sacrificed — loudly, because it means an upstream
@@ -363,7 +391,7 @@ def with_name_candidate(
                 "chunk_chars": len(original.text),
             },
         )
-        text = candidate.text
+        text = candidate_text
     try:
         return ok(plan.with_chunk_replaced(index, original.model_copy(update={"text": text})))
     except (ValueError, IndexError) as exc:

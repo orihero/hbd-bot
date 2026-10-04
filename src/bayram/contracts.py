@@ -149,6 +149,16 @@ class Language(StrEnum):
     def script(self) -> Script:
         return Script.CYRILLIC if self in (Language.UZ_CYRL, Language.RU) else Script.LATIN
 
+    @property
+    def vendor_language(self) -> Language:
+        """The language a music vendor is told it is singing.
+
+        Uzbek Cyrillic is shown to the customer but sung from Uzbek Latin: the lyric is
+        transliterated on its way to the vendor (``plan_builder.vendor_text``). Russian keeps
+        its Cyrillic — it is a different language, not a different spelling of Uzbek.
+        """
+        return Language.UZ_LATN if self is Language.UZ_CYRL else self
+
 
 class Script(StrEnum):
     LATIN = "latin"
