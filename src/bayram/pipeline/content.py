@@ -177,29 +177,18 @@ class LlmContentWriter:
             max_output_tokens=self._settings.llm_max_output_tokens,
         )
 
-    def _in_cyrillic(
-        self,
-        sections: tuple[tuple[str, tuple[str, ...], bool], ...],
-        title: str,
-        name_display: str | None,
-    ) -> tuple[tuple[tuple[str, tuple[str, ...], bool], ...], str]:
-        """Hold an Uzbek Cyrillic lyric to its script; logs when the model ignored it."""
-        converted = tuple(
-            (label, tuple(in_uzbek_cyrillic(line, keep=name_display) for line in lines), hook)
-            for label, lines, hook in sections
-        )
-        converted_title = in_uzbek_cyrillic(title, keep=name_display)
-        if converted != sections or converted_title != title:
-            _LOGGER.warning(
-                "the writer answered an Uzbek Cyrillic lyric in Latin; transliterated it",
-                extra={"provider": self._llm.name},
-            )
-        return converted, converted_title
-
     async def write_lyrics(self, brief: Brief) -> Result[LyricDraft]:
-        request = self._request(
-            lyrics_system_prompt(brief.output_language), lyrics_user_prompt(brief)
-        )
+        """Write the lyric. An Uzbek Cyrillic lyric is WRITTEN in Latin and transliterated.
+
+        The writer model was told to write Cyrillic and answered in Latin often enough to
+        reach customers, and its Latin is where the orthography rules are tuned. So it is
+        asked for Uzbek Latin — ``vendor_language`` — and the customer is shown the
+        deterministic Cyrillic of it. The music vendor is sent Latin again by
+        ``plan_builder.vendor_text``, so the song is never re-written for the composer.
+        """
+        writing = brief.output_language.vendor_language
+        prompt_brief = brief.model_copy(update={"output_language": writing})
+        request = self._request(lyrics_system_prompt(writing), lyrics_user_prompt(prompt_brief))
         result = await self._llm.generate_json(
             request, LyricsPayload, timeout_s=self._settings.llm_timeout_s
         )
@@ -224,8 +213,12 @@ class LlmContentWriter:
         recipient = brief.recipient
         name_display = recipient.display if recipient is not None else None
         title = payload.title
-        if brief.output_language is Language.UZ_CYRL:
-            sections, title = self._in_cyrillic(sections, title, name_display)
+        if writing is not brief.output_language:
+            sections = tuple(
+                (label, tuple(in_uzbek_cyrillic(line, keep=name_display) for line in lines), hook)
+                for label, lines, hook in sections
+            )
+            title = in_uzbek_cyrillic(title, keep=name_display)
         draft = build_lyric_draft(
             sections,
             title=title,

@@ -90,10 +90,10 @@ async def test_forces_the_name_into_a_hook_that_forgot_it(settings: Settings) ->
     assert UZBEK_NAME_CANONICAL in draft.name_hook_sections[0].lines
 
 
-async def test_an_uzbek_cyrillic_lyric_answered_in_latin_comes_back_in_cyrillic(
+async def test_an_uzbek_cyrillic_lyric_is_written_in_latin_and_shown_in_cyrillic(
     settings: Settings,
 ) -> None:
-    # Arrange — the cheap writer model ignores "write in Cyrillic" often enough to matter
+    # Arrange — the writer is asked for Latin, which it follows; Cyrillic is derived
     llm = FakeLlmProvider()
     llm.respond_with(
         "LyricsPayload",
@@ -113,6 +113,10 @@ async def test_an_uzbek_cyrillic_lyric_answered_in_latin_comes_back_in_cyrillic(
     draft = value_of(await _writer(llm, settings).write_lyrics(brief))
 
     # Assert — the name keeps the spelling the plan builder will look for
+    prompt = llm.requests[0].system_prompt + llm.requests[0].user_prompt
+    assert "Latin alphabet" in prompt
+    assert "Cyrillic alphabet" not in prompt
+    assert draft.language is Language.UZ_CYRL
     assert draft.title == "Байрам қўшиғи"
     assert draft.sections[0].lines == ("Бугун қуёш порлайди",)
     assert draft.name_hook_sections[0].lines == (f"{UZBEK_NAME_CANONICAL} шодлик",)

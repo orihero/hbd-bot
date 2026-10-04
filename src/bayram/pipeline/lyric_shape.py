@@ -72,10 +72,10 @@ def canonical_text(text: str, language: Language) -> str:
 
 
 def in_uzbek_cyrillic(text: str, *, keep: str | None) -> str:
-    """Transliterate any Latin left in an Uzbek Cyrillic line; Cyrillic passes through.
+    """Transliterate an Uzbek Latin line into Cyrillic; Cyrillic already there passes through.
 
-    The writer is told to write Cyrillic and sometimes answers in Latin anyway — whole
-    lyrics, not stray words. ``keep`` is the recipient's name, left exactly as typed:
+    An Uzbek Cyrillic lyric is written in Latin and converted here for the customer
+    (``ContentWriter.write_lyrics``). ``keep`` is the recipient's name, left exactly as typed:
     ``hook_index`` and the plan builder find the name by that spelling, so converting it
     here would cost the song its name chunk.
     """
