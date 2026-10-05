@@ -147,6 +147,7 @@ class RhmtClient:
         return_url: str,
         language: str = "uz",
         ofd: list[dict[str, Any]] | None = None,
+        ttl_s: int | None = None,
     ) -> Result[RhmtInvoice]:
         """Create a payment invoice at Rahmat and receive the checkout URL.
 
@@ -157,8 +158,10 @@ class RhmtClient:
             "amount": int(amount_minor),
             "invoice_id": str(invoice_id),
             "callback_url": callback_url,
-            "lang": "ru" if language.startswith("ru") else "uz",
+            "lang": _checkout_lang(language),
         }
+        if ttl_s is not None:
+            payload["ttl"] = int(ttl_s)
         # Omitted when blank (the boot could not learn the bot's username) rather than sent empty.
         if return_url.strip():
             payload["return_url"] = return_url
@@ -298,3 +301,12 @@ class RhmtClient:
             return ts if ts > now else now + fallback_seconds
         except Exception:
             return now + fallback_seconds
+
+
+def _checkout_lang(language: str) -> str:
+    """Multicard's checkout page speaks ru, uz and en; Uzbek in either script is ``uz``."""
+    if language.startswith("ru"):
+        return "ru"
+    if language.startswith("en"):
+        return "en"
+    return "uz"

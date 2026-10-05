@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from bayram.checkout import (
@@ -76,7 +76,7 @@ class FakeOpener(PaymentIntentOpener):
                 plan_songs=plan_songs,
                 plan_days=plan_days,
                 state=PaymentIntentState.PENDING,
-                valid_until=now,
+                valid_until=now + timedelta(hours=12),
                 settled_at=None,
                 notified_at=None,
                 resume_order_id=resume_order_id,
@@ -99,9 +99,11 @@ class FakeRhmtClient:
         return_url: str,
         language: str = "uz",
         ofd: list[dict[str, Any]] | None = None,
+        ttl_s: int | None = None,
     ) -> Result[RhmtInvoice]:
         self.invoice_calls.append(
             {
+                "ttl_s": ttl_s,
                 "store_id": store_id,
                 "amount_minor": amount_minor,
                 "invoice_id": invoice_id,
@@ -176,6 +178,9 @@ async def test_rhmt_checkout_provider_charge_single_song_success() -> None:
     assert len(client.invoice_calls) == 1
     assert client.invoice_calls[0]["invoice_id"] == "ref_rhmt_123456"
     assert client.invoice_calls[0]["amount_minor"] == 700000
+    # The invoice dies with the intent: a payment after the intent expired was kept unsettled
+    ttl_s = client.invoice_calls[0]["ttl_s"]
+    assert 12 * 3600 - 60 <= ttl_s <= 12 * 3600
 
 
 async def test_rhmt_checkout_provider_charge_starter_plan() -> None:

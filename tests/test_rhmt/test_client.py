@@ -10,7 +10,7 @@ import pytest
 
 from bayram.contracts import Err, Ok
 from bayram.errors import PaymentError
-from bayram.rhmt.client import RhmtClient, RhmtInvoice
+from bayram.rhmt.client import RhmtClient, RhmtInvoice, _checkout_lang
 
 
 class HandlerTransport(httpx.MockTransport):
@@ -126,6 +126,7 @@ async def test_create_invoice_success(mock_transport: HandlerTransport) -> None:
         assert payload["callback_url"] == "https://pay.bayrambot.uz/rhmt/callback"
         assert payload["return_url"] == "https://t.me/BayramBot"
         assert payload["lang"] == "uz"
+        assert payload["ttl"] == 43_200
 
         return httpx.Response(
             200,
@@ -152,6 +153,7 @@ async def test_create_invoice_success(mock_transport: HandlerTransport) -> None:
         callback_url="https://pay.bayrambot.uz/rhmt/callback",
         return_url="https://t.me/BayramBot",
         language="uz",
+        ttl_s=43_200,
     )
 
     assert isinstance(invoice_res, Ok)
@@ -251,3 +253,10 @@ async def test_get_payment(mock_transport: HandlerTransport) -> None:
     res = await client.get_payment("uuid-test-123")
     assert isinstance(res, Ok)
     assert res.value["status"] == "success"
+
+
+def test_the_checkout_page_language_follows_the_customer() -> None:
+    assert _checkout_lang("ru") == "ru"
+    assert _checkout_lang("en") == "en"
+    assert _checkout_lang("uz_latn") == "uz"
+    assert _checkout_lang("uz_cyrl") == "uz"

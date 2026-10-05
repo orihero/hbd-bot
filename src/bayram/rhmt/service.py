@@ -31,6 +31,13 @@ from bayram.rhmt.ports import (
 )
 from bayram.rhmt.verify import verify_rhmt_webhook
 
+#: Shown to the payer by Multicard on the failed-payment receipt. Uzbek and Russian, because
+#: the intent's language is not threaded this far and these are the two the bot sells in most.
+_NOT_PAYABLE_MESSAGE = (
+    "Toʻlov havolasining muddati tugagan, pul kartangizga qaytariladi. / "
+    "Срок ссылки на оплату истёк, деньги вернутся на карту."
+)
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
@@ -139,11 +146,24 @@ class RhmtWebhookService:
                     )
                 )
                 if rowcount_of(res) != 1:
-                    _LOG.warning(
-                        "rhmt intent could not be claimed; already claimed or expired",
-                        extra={"invoice_id": invoice_id},
+                    state = await session.scalar(
+                        sa.select(PaymentIntentRow.state).where(PaymentIntentRow.id == row.id)
                     )
-                    return 200, {"success": True, "message": "already claimed"}
+                    if state == PaymentIntentState.PAID:
+                        _LOG.info(
+                            "rhmt intent was claimed by a concurrent callback; acknowledging",
+                            extra={"invoice_id": invoice_id},
+                        )
+                        return 200, {"success": True, "message": "already claimed"}
+                    # Expired or cancelled: nothing will be granted for this money. Answering
+                    # success would let Multicard keep it; anything but success makes it
+                    # refund the card, and ``message`` is shown to the payer on the receipt.
+                    _LOG.error(
+                        "rhmt payment arrived for an intent that is no longer payable; "
+                        "refusing so Multicard refunds the card",
+                        extra={"invoice_id": invoice_id, "state": str(state), "uuid": uuid},
+                    )
+                    return 409, {"success": False, "message": _NOT_PAYABLE_MESSAGE}
 
                 # Write receipt & entitlement grant under the intent's idempotency key
                 purchase = Purchase(

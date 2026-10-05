@@ -448,3 +448,36 @@ async def test_legacy_success_md5_scheme_settlement(
         assert intent_row.state == PaymentIntentState.PAID
 
     assert notifier.calls == [intent.public_ref]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("state", [PaymentIntentState.EXPIRED, PaymentIntentState.CANCELLED])
+async def test_a_payment_for_an_intent_that_is_no_longer_payable_is_refused(
+    sessions: async_sessionmaker[AsyncSession],
+    service: RhmtWebhookService,
+    notifier: _RecordingNotifier,
+    state: PaymentIntentState,
+) -> None:
+    """Answering success here let Multicard keep the money while nothing was granted.
+
+    Anything but success makes Multicard refund the card, so the refusal IS the refund.
+    """
+    intent = await _open_intent(sessions)
+    async with sessions.begin() as session:
+        await session.execute(
+            sa.update(PaymentIntentRow)
+            .where(PaymentIntentRow.public_ref == intent.public_ref)
+            .values(state=state)
+        )
+
+    status, body = await service.handle_callback(
+        _make_payload(invoice_id=intent.public_ref, amount=_PRICE)
+    )
+
+    assert status == 409
+    assert body["success"] is False
+    assert body["message"]
+    assert notifier.calls == []
+    async with sessions() as session:
+        topups = await session.scalar(sa.select(sa.func.count()).select_from(TopupPurchaseRow))
+    assert topups == 0

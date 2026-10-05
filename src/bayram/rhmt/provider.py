@@ -9,6 +9,7 @@ Implements ``bayram.checkout.CheckoutProvider``:
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Final
 
 from bayram.checkout import PaymentIntentOpener, Product, Purchase, PurchaseRequest
@@ -114,6 +115,7 @@ class RhmtCheckoutProvider:
             callback_url=self._callback_url,
             return_url=self._return_url,
             language=lang_code,
+            ttl_s=_seconds_left(intent.valid_until),
         )
         if isinstance(invoice_res, Err):
             _LOG.error(
@@ -154,3 +156,18 @@ class RhmtCheckoutProvider:
                 extra={"error": str(exc)},
             )
             return False
+
+
+#: Multicard's floor is not documented; a link that dies inside a minute is not a product.
+_MIN_INVOICE_TTL_S: Final[int] = 60
+
+
+def _seconds_left(valid_until: datetime) -> int:
+    """How long the invoice may stay payable: exactly as long as our intent does.
+
+    Multicard keeps an invoice payable for a day unless told otherwise, while the intent
+    expires sooner. A payment in between reached a callback with nothing left to settle and
+    the customer's money was kept. Matching the two closes that window at the source.
+    """
+    remaining = int((valid_until - datetime.now(UTC)).total_seconds())
+    return max(_MIN_INVOICE_TTL_S, remaining)
