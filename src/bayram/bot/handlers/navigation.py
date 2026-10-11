@@ -184,9 +184,6 @@ async def handle_report_problem(callback: CallbackQuery, state: FSMContext, deps
     and ``source`` plus a null ``order_id`` is how an operator tells them apart.
     """
     await callback.answer()
-    # Said as a NEW message rather than edited over the screen it was tapped from: that
-    # screen is the closing message, and it carries both the order number and the button
-    # for the next song.
     await open_ticket(
         callback, state, deps, source=SupportTicketSource.DELIVERY_BUTTON, order_id=None
     )

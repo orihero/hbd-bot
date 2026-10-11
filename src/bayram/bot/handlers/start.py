@@ -41,7 +41,7 @@ from bayram.bot.handlers.submitting import (
 )
 from bayram.bot.i18n import translate
 from bayram.bot.middleware import resolve_language
-from bayram.bot.screens import menu_screen, onboarding_contact_screen, onboarding_language_screen
+from bayram.bot.screens import menu_screen, onboarding_language_screen
 from bayram.bot.states import Onboarding
 from bayram.channels import parse_channel_param
 from bayram.logging import get_logger
@@ -120,10 +120,6 @@ async def handle_start(
     if not identity.is_language_chosen:
         await state.set_state(Onboarding.language)
         await present(message, onboarding_language_screen(language))
-        return
-    if not identity.is_onboarded:
-        await state.set_state(Onboarding.contact)
-        await present(message, onboarding_contact_screen(language))
         return
     await clear_keeping_identity(state)
     await present(

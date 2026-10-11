@@ -585,6 +585,7 @@ async def run(settings: Settings, *, data_root: Path | None = None) -> None:
         # does not route, or hidden for one it does, is the drift this pair exists to prevent.
         checkout_rails=checkout_rails,
         rail_enabled_reader=rail_switch,
+        order_reader=container.repository,
     )
     # The lock that makes a state filter a real gate. Built from the same Redis as the
     # storage, so it holds across every process that could handle this chat.

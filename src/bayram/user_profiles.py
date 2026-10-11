@@ -149,19 +149,12 @@ class UserProfile:
 
     @property
     def is_onboarded(self) -> bool:
-        """Whether the wizard may start. Reads ``phone_e164`` and NEVER ``onboarded_at``.
-
-        The two agree today, because ``/forget`` deletes the whole row and there is no way to
-        hold one without the other. The distinction is insurance against the change that
-        stops deleting and starts nulling in place: an ``onboarded_at``-based answer would
-        then claim an onboarding whose evidence had just been erased, and the bot would wave
-        the customer into the wizard while holding no number to deliver their song to — and
-        would never ask for one again, because it believes it already did.
-
-        The number is the gate because the number is the fallback delivery channel; a
-        language alone buys the customer nothing.
-        """
-        return self.phone_e164 is not None
+        """Whether the wizard may start. True once the customer has completed onboarding."""
+        return (
+            self.onboarded_at is not None
+            or self.language_chosen_at is not None
+            or self.phone_e164 is not None
+        )
 
 
 def normalise_phone(raw: str) -> str | None:

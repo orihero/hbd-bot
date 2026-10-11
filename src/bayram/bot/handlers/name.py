@@ -29,6 +29,7 @@ from bayram.bot.handlers.common import (
     say,
     show_step,
 )
+from bayram.bot.handlers.lyrics import enter_lyrics_step
 from bayram.bot.i18n import translate
 from bayram.bot.name_entry import resolve_typed_name
 from bayram.bot.states import Wizard, WizardStep
@@ -100,7 +101,9 @@ async def handle_name_not_typed(message: Message, state: FSMContext) -> None:
     await say(message, translate("wizard.name.type_only", draft.ui_language))
 
 
-async def handle_name_confirmed(callback: CallbackQuery, state: FSMContext) -> None:
+async def handle_name_confirmed(
+    callback: CallbackQuery, state: FSMContext, deps: BotDeps
+) -> None:
     await callback.answer()
     draft = await read_draft(state)
     if draft is None:
@@ -108,6 +111,9 @@ async def handle_name_confirmed(callback: CallbackQuery, state: FSMContext) -> N
         return
     if draft.recipient is None:
         await show_step(callback, state, draft, WizardStep.NAME)
+        return
+    if draft.output_language is not None:
+        await enter_lyrics_step(callback, state, deps, draft.updated(lyrics=None))
         return
     await show_step(callback, state, draft, WizardStep.OUTPUT_LANGUAGE)
 

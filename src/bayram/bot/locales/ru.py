@@ -438,6 +438,18 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.to_menu": "🏠 В меню",
     "button.to_settings": "⬅️ К настройкам",
     "button.share_contact": "📱 Отправить номер",
+    "button.edit_song": "✏️ Изменить",
+    "button.edit_lyrics": "📝 Текст",
+    "button.edit_music": "🎵 Музыка",
+    "button.edit_name": "👤 Имя",
+    "button.edit_voice": "🎤 Голос",
+    "button.edit_regenerate": "🔄 Пересоздать всё",
+    "button.copy_lyrics": "📋 Скопировать текст",
+    "button.keep_lyrics": "✅ Оставить текст",
+    "button.support_reason_name": "👤 Ошибка в имени",
+    "button.support_reason_disliked": "👎 Не понравилась песня",
+    "button.support_reason_not_received": "❓ Не получил(а) песню",
+    "button.support_reason_other": "💬 Другое",
     # -- enum labels -------------------------------------------------------
     "occasion.birthday": "🎂 День рождения",
     "occasion.love": "❤️ Признание",
@@ -690,5 +702,31 @@ CATALOGUE: Final[dict[str, str]] = {
     "support.ticket.follow_up": (
         "📨 Добавлено к обращению <code>{ref}</code>. Те, кто им занимается, это видят, а "
         "ответ придёт сюда."
+    ),
+    "edit.prompt": "Что вы хотите изменить?",
+    "edit.lyrics.prompt": (
+        "Чтобы изменить текст песни, нажмите кнопку ниже для копирования, отредактируйте его "
+        "и отправьте обратно в чат:\n\n"
+        "<code>{lyrics}</code>"
+    ),
+    "edit.music.prompt": "Выберите новый стиль музыки:",
+    "edit.voice.prompt": "Выберите новый голос:",
+    "edit.name.prompt": "Для кого эта песня? Напишите новое имя:",
+    "support.reasons.prompt": "Что пошло не так? Пожалуйста, выберите причину:",
+    "support.reason.name_prompt": (
+        "⚠️ [Ошибка в имени]\n"
+        "Пожалуйста, напишите подробно, как должно писаться или звучать имя:"
+    ),
+    "support.reason.disliked_prompt": (
+        "⚠️ [Не понравилась песня]\n"
+        "Пожалуйста, опишите, что именно вам не понравилось (музыка, слова, голос):"
+    ),
+    "support.reason.not_received_prompt": (
+        "⚠️ [Не получил(а) песню]\n"
+        "Пожалуйста, опишите ситуацию (когда заказывали, способ оплаты, что не пришло):"
+    ),
+    "support.reason.other_prompt": (
+        "⚠️ [Другое]\n"
+        "Пожалуйста, опишите проблему подробно:"
     ),
 }

@@ -146,6 +146,9 @@ all-or-nothing operation with its own rollback.
 - [`bakeoff-prompts.md`](research/bakeoff-prompts.md) + `bakeoff-prompts.json` — the
   name-orthography bake-off. The verification command inside is written to run from the
   repository root.
+- [`RESEARCH-user-chat-behaviour-2026-10.md`](research/RESEARCH-user-chat-behaviour-2026-10.md)
+  — the funnel of all 355 users (paid or not) from the chat transcripts, by channel, with a
+  ranked fix list.
 
 ### `audits/`
 

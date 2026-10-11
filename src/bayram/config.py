@@ -138,8 +138,9 @@ VENDOR_SECRET_FIELDS: Final[tuple[str, ...]] = (
     "openrouter_management_key",
     "gemini_api_key",
     # checkout.uz's Bearer key (DECISIONS.md D28). Held by the bot, which creates payments,
-    # and the worker, which polls them — both read ``/etc/bayram/bayram.env``. The admin process and the Payme
-    # gateway need neither half of that, so a production admin or gateway holding it is refused.
+    # and the worker, which polls them — both read ``/etc/bayram/bayram.env``. The admin process
+    # and the Payme gateway need neither half of that, so a production admin or gateway holding
+    # it is refused.
     "checkoutuz_api_key",
 )
 

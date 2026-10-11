@@ -18,6 +18,8 @@ from bayram.contracts import Genre, Language, Occasion, VoiceGender
 __all__ = [
     "NavAction",
     "SupportAction",
+    "SupportReason",
+    "EditAction",
     "LanguageSlot",
     "LanguageCB",
     "OccasionCB",
@@ -25,6 +27,8 @@ __all__ = [
     "VocalGenderCB",
     "NavCB",
     "SupportCB",
+    "SupportReasonCB",
+    "EditSongCB",
     "NO_REFERENCE",
     "pack_reference",
     "read_reference",
@@ -223,3 +227,39 @@ def read_reference(value: str) -> UUID | None:
         return UUID(hex=value)
     except ValueError:
         return None
+
+
+class EditAction(StrEnum):
+    """The five options offered when editing a delivered song, plus menu/cancel."""
+
+    MENU = "menu"
+    LYRICS = "lyrics"
+    MUSIC = "music"
+    NAME = "name"
+    VOICE = "voice"
+    REGENERATE = "regen"
+    CANCEL = "cancel"
+
+
+class EditSongCB(CallbackData, prefix="edit"):
+    """Callback for editing a finished song."""
+
+    action: EditAction
+    ref: str = NO_REFERENCE
+
+
+class SupportReason(StrEnum):
+    """Reasons why something went wrong with a delivered song."""
+
+    NAME_WRONG = "name"
+    DISLIKED = "disliked"
+    NOT_RECEIVED = "not_rcvd"
+    OTHER = "other"
+
+
+class SupportReasonCB(CallbackData, prefix="sup_r"):
+    """Callback carrying the complaint reason and order reference."""
+
+    reason: SupportReason
+    ref: str = NO_REFERENCE
+

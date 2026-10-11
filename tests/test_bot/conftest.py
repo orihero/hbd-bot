@@ -146,6 +146,8 @@ class RecordingSession(BaseSession):
             return self.responses[name]
         if name == "AnswerCallbackQuery":
             return True
+        if name == "GetUserProfilePhotos":
+            return profile_photos(total_count=0)
         return self._message_for(method)
 
     async def stream_content(
@@ -565,7 +567,7 @@ def _fresh_profile(telegram_user_id: int, ui_language: Language) -> UserProfile:
         avatar_stored_at=None,
         language_chosen_at=FIXED_MOMENT,
         phone_shared_at=None,
-        onboarded_at=None,
+        onboarded_at=FIXED_MOMENT,
         created_at=FIXED_MOMENT,
         updated_at=FIXED_MOMENT,
     )
@@ -670,7 +672,8 @@ class FakeProfiles:
             else replace(
                 existing,
                 ui_language=ui_language,
-                language_chosen_at=FIXED_MOMENT,
+                language_chosen_at=existing.language_chosen_at or FIXED_MOMENT,
+                onboarded_at=existing.onboarded_at or FIXED_MOMENT,
                 updated_at=FIXED_MOMENT,
             )
         )

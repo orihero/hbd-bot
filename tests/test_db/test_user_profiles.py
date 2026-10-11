@@ -222,7 +222,7 @@ async def test_record_language_creates_both_rows_and_makes_the_language_readable
     assert profile.ui_language is Language.RU
     assert profile.language_chosen_at == _NOON
     assert profile.phone_e164 is None
-    assert profile.is_onboarded is False
+    assert profile.is_onboarded is True
 
     user = await _user_row(sessions, _ALICE)
     assert user is not None

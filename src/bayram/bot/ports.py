@@ -10,10 +10,11 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol, runtime_checkable
+from uuid import UUID
 
 from bayram.contracts import Order, Result
 
-__all__ = ["OrderSubmitter", "SupportTicketEraser", "Clock", "utc_now"]
+__all__ = ["OrderSubmitter", "OrderReader", "SupportTicketEraser", "Clock", "utc_now"]
 
 #: Supplies "now". Injected so a state transition is assertable against a fixed instant.
 type Clock = Callable[[], datetime]
@@ -39,6 +40,13 @@ class OrderSubmitter(Protocol):
     async def submit(
         self, order: Order, *, chat_id: int, progress_message_id: int
     ) -> Result[str]: ...
+
+
+@runtime_checkable
+class OrderReader(Protocol):
+    """Reads a past order by id."""
+
+    async def get_order(self, order_id: UUID) -> Result[Order]: ...
 
 
 @runtime_checkable

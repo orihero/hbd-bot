@@ -485,6 +485,18 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.to_menu": "🏠 Back to menu",
     "button.to_settings": "⬅️ Back to settings",
     "button.share_contact": "📱 Share my number",
+    "button.edit_song": "✏️ Edit song",
+    "button.edit_lyrics": "📝 Lyrics",
+    "button.edit_music": "🎵 Music",
+    "button.edit_name": "👤 Name",
+    "button.edit_voice": "🎤 Voice",
+    "button.edit_regenerate": "🔄 Regenerate all",
+    "button.copy_lyrics": "📋 Copy lyrics",
+    "button.keep_lyrics": "✅ Keep lyrics",
+    "button.support_reason_name": "👤 Name spelled wrong",
+    "button.support_reason_disliked": "👎 Did not like the song",
+    "button.support_reason_not_received": "❓ I did not receive my song",
+    "button.support_reason_other": "💬 Other",
     # -- enum labels -------------------------------------------------------
     "occasion.birthday": "🎂 Birthday",
     "occasion.love": "❤️ Confession",
@@ -750,4 +762,31 @@ CATALOGUE: Final[dict[str, str]] = {
         "📨 Added to ticket <code>{ref}</code>. The people working on it can see it, and the "
         "answer comes back here."
     ),
+    "edit.prompt": "What would you like to edit?",
+    "edit.lyrics.prompt": (
+        "To edit the lyrics, tap the button below to copy them, make your changes, and send "
+        "them back to the chat:\n\n"
+        "<code>{lyrics}</code>"
+    ),
+    "edit.music.prompt": "Choose a new music style:",
+    "edit.voice.prompt": "Choose a new voice:",
+    "edit.name.prompt": "Who should this song be for? Please enter the new name:",
+    "support.reasons.prompt": "What went wrong? Please select a reason:",
+    "support.reason.name_prompt": (
+        "⚠️ [Name spelled wrong]\n"
+        "Please write details on how the name should be spelled or pronounced:"
+    ),
+    "support.reason.disliked_prompt": (
+        "⚠️ [Did not like the song]\n"
+        "Please describe what you didn't like (music, lyrics, voice):"
+    ),
+    "support.reason.not_received_prompt": (
+        "⚠️ [Did not receive my song]\n"
+        "Please describe the issue (when you ordered, payment method, what wasn't delivered):"
+    ),
+    "support.reason.other_prompt": (
+        "⚠️ [Other]\n"
+        "Please describe what went wrong in detail:"
+    ),
 }
+

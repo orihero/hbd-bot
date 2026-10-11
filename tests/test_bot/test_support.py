@@ -51,6 +51,8 @@ from bayram.bot.callbacks import (
     NavCB,
     SupportAction,
     SupportCB,
+    SupportReason,
+    SupportReasonCB,
     pack_reference,
     read_reference,
 )
@@ -802,6 +804,13 @@ async def test_the_delivered_song_button_files_the_ticket_against_that_song(
         bot,
         callback_update(SupportCB(action=SupportAction.OPEN, ref=pack_reference(order_id)).pack()),
     )
+    # The reason options are shown; customer taps one:
+    await dispatcher.feed_update(
+        bot,
+        callback_update(
+            SupportReasonCB(reason=SupportReason.NAME_WRONG, ref=pack_reference(order_id)).pack()
+        ),
+    )
 
     # Assert
     ticket = support.only()
@@ -809,6 +818,46 @@ async def test_the_delivered_song_button_files_the_ticket_against_that_song(
     assert ticket.source is SupportTicketSource.DELIVERY_BUTTON
     assert ticket.status is SupportTicketStatus.NEW
     assert ticket.body is None and ticket.described_at is None
+
+
+@pytest.mark.parametrize(
+    ("reason", "tag_prefix"),
+    [
+        (SupportReason.NAME_WRONG, "[Name spelled wrong]"),
+        (SupportReason.DISLIKED, "[Did not like the song]"),
+        (SupportReason.NOT_RECEIVED, "[Did not receive song]"),
+        (SupportReason.OTHER, "[Other]"),
+    ],
+)
+async def test_each_support_reason_shows_specific_prompt_and_tags_body(
+    dispatcher: Dispatcher,
+    bot: Bot,
+    support: FakeSupportTickets,
+    reason: SupportReason,
+    tag_prefix: str,
+) -> None:
+    """Each support reason prompts the user with a tailored question and prefixes the ticket body."""
+    order_id = uuid4()
+    await dispatcher.feed_update(
+        bot,
+        callback_update(SupportCB(action=SupportAction.OPEN, ref=pack_reference(order_id)).pack()),
+    )
+    await dispatcher.feed_update(
+        bot,
+        callback_update(
+            SupportReasonCB(reason=reason, ref=pack_reference(order_id)).pack()
+        ),
+    )
+    ticket = support.only()
+    assert ticket.prompt_message_id is not None
+
+    await dispatcher.feed_update(
+        bot,
+        private_reply("Here is the customer explanation", to_message_id=ticket.prompt_message_id),
+    )
+    updated_ticket = support.only()
+    assert updated_ticket.body is not None
+    assert updated_ticket.body.startswith(f"{tag_prefix}\nHere is the customer explanation")
 
 
 async def test_the_order_less_button_still_opens_a_ticket(

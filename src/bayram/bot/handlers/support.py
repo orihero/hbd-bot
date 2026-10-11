@@ -122,12 +122,20 @@ from aiogram.types import (
     TelegramObject,
 )
 
-from bayram.bot.callbacks import SupportAction, SupportCB, read_reference
+from bayram.bot.callbacks import (
+    SupportAction,
+    SupportCB,
+    SupportReason,
+    SupportReasonCB,
+    read_reference,
+)
 from bayram.bot.delivery import MAX_MESSAGE_CHARS, is_blocked_by_customer, order_reference
 from bayram.bot.deps import BotDeps
-from bayram.bot.handlers.common import COMMAND_PREFIX, Event, say, support_text
+from bayram.bot.handlers.common import COMMAND_PREFIX, Event, present, say, support_text
 from bayram.bot.i18n import escape_html, translate
+from bayram.bot.keyboards import support_reasons_keyboard
 from bayram.bot.middleware import resolve_language
+from bayram.bot.screens import Screen
 from bayram.bot.states import Wizard
 from bayram.bot.support_card import card_keyboard, render_card
 from bayram.bot_chats import BotChatDirectory, SupportGroupTarget
@@ -307,6 +315,20 @@ _FOLLOW_UP_CARD_TEMPLATE: Final[str] = (
 #: that MATTERS is the undelivered relay, and that one is always a message.
 _RELAY_ACK: Final[str] = "👌"
 
+REASON_PROMPTS: Final[dict[SupportReason, str]] = {
+    SupportReason.NAME_WRONG: "support.reason.name_prompt",
+    SupportReason.DISLIKED: "support.reason.disliked_prompt",
+    SupportReason.NOT_RECEIVED: "support.reason.not_received_prompt",
+    SupportReason.OTHER: "support.reason.other_prompt",
+}
+
+REASON_TAGS: Final[dict[str, str]] = {
+    SupportReason.NAME_WRONG.value: "Name spelled wrong",
+    SupportReason.DISLIKED.value: "Did not like the song",
+    SupportReason.NOT_RECEIVED.value: "Did not receive song",
+    SupportReason.OTHER.value: "Other",
+}
+
 
 # ---------------------------------------------------------------------------
 # Opening a ticket: the ⚠️ button, /support, and the ForceReply prompt
@@ -318,6 +340,7 @@ async def open_ticket(
     *,
     source: SupportTicketSource,
     order_id: UUID | None,
+    reason: SupportReason | None = None,
 ) -> None:
     """Write the row a complaint starts as, then ask for the words. The one entry point.
 
@@ -404,7 +427,7 @@ async def open_ticket(
             "has_order": order_id is not None,
         },
     )
-    await _ask_for_the_words(event, store, ticket, language=language, now=now)
+    await _ask_for_the_words(event, store, ticket, language=language, now=now, reason=reason)
 
 
 async def _quota_verdict(
@@ -494,6 +517,7 @@ async def _ask_for_the_words(
     *,
     language: Language,
     now: datetime,
+    reason: SupportReason | None = None,
 ) -> None:
     """Send the ForceReply prompt and record which message the ticket is waiting on.
 
@@ -513,7 +537,12 @@ async def _ask_for_the_words(
     It is logged and nothing else is attempted: there is no second channel to apologise
     through, since the failure is precisely that we cannot message this chat.
     """
-    prompt = await _send_prompt(event, translate("support.ticket.prompt", language))
+    prompt_key = (
+        REASON_PROMPTS.get(reason, "support.ticket.prompt")
+        if reason is not None
+        else "support.ticket.prompt"
+    )
+    prompt = await _send_prompt(event, translate(prompt_key, language))
     if prompt is None:
         _LOG.error(
             "the support prompt could not be sent; the ticket is open and undescribed",
@@ -654,7 +683,13 @@ async def _handle_description(
     store = deps.support
     if store is None:  # pragma: no cover - the filter cannot match with no store
         return
-    body = (message.text or "").strip()[:MAX_BODY_CHARS]
+    raw_body = (message.text or "").strip()
+    data = await state.get_data()
+    reason_val = data.get("support_reason")
+    if reason_val and reason_val in REASON_TAGS:
+        raw_body = f"[{REASON_TAGS[reason_val]}]\n{raw_body}"
+        await state.update_data(support_reason=None)
+    body = raw_body[:MAX_BODY_CHARS]
     now = deps.clock()
     described = await store.describe_ticket(ticket.id, body=body, now=now)
     if is_err(described):
@@ -1758,21 +1793,35 @@ async def handle_unresolved_group_callback(callback: CallbackQuery, inbox_is_her
 async def handle_open(
     callback: CallbackQuery, callback_data: SupportCB, state: FSMContext, deps: BotDeps
 ) -> None:
-    """The ⚠️ button under a delivered song, carrying the order it is about.
-
-    The id is read defensively (:func:`~bayram.bot.callbacks.read_reference`): a payload from an
-    older build, or one that never had an order, opens an order-less ticket rather than
-    refusing. A complaint filed against no particular song is still a complaint; refusing it to
-    protect a foreign key would be the product deciding its own bookkeeping matters more than
-    the customer's problem.
-    """
+    """The ⚠️ button under a delivered song: show reason selection buttons."""
     await callback.answer()
+    language = await resolve_language(state)
+    order_id = read_reference(callback_data.ref)
+    await present(
+        callback,
+        Screen(
+            translate("support.reasons.prompt", language),
+            support_reasons_keyboard(language, order_id=order_id),
+        ),
+    )
+
+
+async def handle_reason_chosen(
+    callback: CallbackQuery,
+    callback_data: SupportReasonCB,
+    state: FSMContext,
+    deps: BotDeps,
+) -> None:
+    """A complaint reason was chosen by the customer."""
+    await callback.answer()
+    await state.update_data(support_reason=callback_data.reason.value)
     await open_ticket(
         callback,
         state,
         deps,
         source=SupportTicketSource.DELIVERY_BUTTON,
         order_id=read_reference(callback_data.ref),
+        reason=callback_data.reason,
     )
 
 
@@ -1810,6 +1859,7 @@ def build_router() -> Router:
     router = Router(name="support")
     router.callback_query.filter(~StateFilter(Wizard.submitting))
     router.callback_query.register(handle_open, SupportCB.filter(F.action == SupportAction.OPEN))
+    router.callback_query.register(handle_reason_chosen, SupportReasonCB.filter())
     router.message.register(
         handle_customer_message, F.chat.type == ChatType.PRIVATE, ListeningTicket()
     )

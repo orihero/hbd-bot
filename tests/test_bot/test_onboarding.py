@@ -63,7 +63,6 @@ from tests.test_bot.conftest import (
     contact_update,
     last_reply_keyboard,
     profile_photos,
-    reply_buttons,
     requests_contact,
 )
 from tests.test_bot.test_wizard_flow import complete_onboarding, press, send, tap
@@ -189,22 +188,17 @@ async def test_a_stranger_is_asked_their_language_before_anything_else(
     assert NavCB(action=NavAction.BACK).pack() not in offered
 
 
-async def test_choosing_a_language_persists_it_and_asks_for_the_number(
+async def test_choosing_a_language_persists_it_and_completes_onboarding(
     dispatcher: Dispatcher,
     bot: Bot,
     session: RecordingSession,
     state: FSMContext,
     profiles: FakeProfiles,
 ) -> None:
-    """One tap writes the row, moves the state on, and changes the language of everything.
+    """One tap writes the row, marks user onboarded, and shows the main menu.
 
-    The row is what makes the answer outlive this session; the state is what makes the next
-    update land on the contact handlers rather than back here. Asserting only the screen would
-    let a build that renders the contact prompt without persisting anything pass, and that
-    build re-asks the language on every single session for ever.
-
-    The reply keyboard is read off the recorded call rather than off the canned reply, because
-    ``Message.reply_markup`` cannot carry one — see ``RecordingSession._message_for``.
+    Contact sharing was removed to prevent 50% user drop-off. Choosing language
+    completes onboarding immediately.
     """
     # Arrange
     await send(dispatcher, bot, "/start")
@@ -212,36 +206,14 @@ async def test_choosing_a_language_persists_it_and_asks_for_the_number(
     # Act
     await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.RU).pack())
 
-    # Assert — the row, the state, and the screen, in that order of importance
+    # Assert — the row, the state, and the screen
     row = profiles.rows[USER_ID]
     assert row.ui_language is Language.RU
     assert row.language_chosen_at is not None
-    assert await state.get_state() == Onboarding.contact.state
-    assert translate("onboarding.contact.prompt", Language.RU) in session.last_screen.text
-    markup = last_reply_keyboard(session)
-    assert reply_buttons(markup) == ((translate("button.share_contact", Language.RU),),)
-    assert requests_contact(markup) is True
-
-
-async def test_the_privacy_line_is_shown_with_the_contact_request(
-    dispatcher: Dispatcher, bot: Bot, session: RecordingSession
-) -> None:
-    """A number asked for without saying what happens to it is a notice failure.
-
-    ``privacy.text`` exists so nobody has to guess what this product keeps, and the whole of it
-    is one command away — but the moment the answer matters to the person deciding is THIS
-    screen, with their thumb over the button. The promise and the request therefore travel
-    together, in one message, and a build that moved the line into ``/privacy`` alone would
-    leave the decision uninformed at the only point it is being made.
-    """
-    # Arrange / Act
-    await send(dispatcher, bot, "/start")
-    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack())
-
-    # Assert — one screen carries both halves
-    screen = session.last_screen.text
-    assert translate("onboarding.contact.prompt", Language.EN) in screen
-    assert translate("onboarding.contact.privacy_line", Language.EN) in screen
+    assert row.onboarded_at is not None
+    assert row.is_onboarded is True
+    assert await state.get_state() is None
+    assert translate("menu.prompt", Language.RU) in session.last_screen.text
 
 
 # ---------------------------------------------------------------------------
@@ -269,6 +241,7 @@ async def test_sharing_a_contact_stores_the_number_the_username_and_the_name(
     # Arrange
     await send(dispatcher, bot, "/start")
     await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack())
+    await state.set_state(Onboarding.contact)
 
     # Act
     await dispatcher.feed_update(bot, contact_update_from_a_named_account())
@@ -310,6 +283,7 @@ async def test_a_number_belonging_to_somebody_else_is_refused_and_the_step_stand
     # Arrange
     await send(dispatcher, bot, "/start")
     await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack())
+    await state.set_state(Onboarding.contact)
 
     # Act — a card that belongs to somebody else
     await dispatcher.feed_update(bot, contact_update(contact_user_id=999))
@@ -338,6 +312,7 @@ async def test_a_typed_number_is_not_accepted_in_place_of_the_button(
     # Arrange
     await send(dispatcher, bot, "/start")
     await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack())
+    await state.set_state(Onboarding.contact)
 
     # Act
     await send(dispatcher, bot, TYPED_NUMBER)
@@ -362,6 +337,7 @@ async def test_the_wizard_is_unreachable_until_the_number_is_shared(
     # Arrange
     await send(dispatcher, bot, "/start")
     await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack())
+    await state.set_state(Onboarding.contact)
 
     # Act
     await tap(dispatcher, bot, "menu.generate", Language.EN)
@@ -393,14 +369,13 @@ async def test_a_command_still_works_mid_onboarding(
     """
     # Arrange
     await send(dispatcher, bot, "/start")
-    await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=Language.EN).pack())
 
-    # Act / Assert — the four read-only commands answer normally, in the chosen language
+    # Act / Assert — the four read-only commands answer normally, in the default language
     for command, expected in (
-        ("/help", translate("help.text", Language.EN)),
-        ("/balance", translate("credits.balance_none", Language.EN)),
-        ("/privacy", privacy_text(Language.EN, DEFAULT_RETENTION_POLICY)),
-        ("/support", support_text(Language.EN, settings.support_contact)),
+        ("/help", translate("help.text", FALLBACK_LANGUAGE)),
+        ("/balance", translate("credits.balance_none", FALLBACK_LANGUAGE)),
+        ("/privacy", privacy_text(FALLBACK_LANGUAGE, DEFAULT_RETENTION_POLICY)),
+        ("/support", support_text(FALLBACK_LANGUAGE, settings.support_contact)),
     ):
         session.clear()
         await send(dispatcher, bot, command)
@@ -410,26 +385,23 @@ async def test_a_command_still_works_mid_onboarding(
     session.clear()
     await send(dispatcher, bot, "/cancel")
     # ``finish_with`` reads the DRAFT for its language and there is no draft before the wizard,
-    # so this one sentence lands in the fallback locale rather than in the language chosen two
-    # updates ago. Asserted as it ships rather than as it ought to read: pinning the fallback
-    # here is what makes a later fix to ``common.finish_with`` show up as a failing test
-    # instead of as a silent change to the one screen a mid-onboarding /cancel produces.
+    # so this one sentence lands in the fallback locale.
     assert session.last_screen.text == translate("wizard.cancelled", FALLBACK_LANGUAGE)
     await send(dispatcher, bot, "hello?")
-    assert await state.get_state() == Onboarding.contact.state
-    assert translate("onboarding.contact.prompt", Language.EN) in session.last_screen.text
+    assert await state.get_state() == Onboarding.language.state
+    assert translate("onboarding.language.prompt", FALLBACK_LANGUAGE) in session.last_screen.text
 
 
 # ---------------------------------------------------------------------------
 # The avatar: three round trips, all of them behind the confirmation
 # ---------------------------------------------------------------------------
-async def test_the_avatar_is_fetched_best_effort_after_the_number_lands(
+async def test_the_avatar_is_fetched_best_effort_after_language_chosen(
     dispatcher: Dispatcher, bot: Bot, session: RecordingSession, profiles: FakeProfiles
 ) -> None:
     """The face is stored, and it is stored BEHIND the customer's confirmation.
 
     Three sequential Telegram round trips sit inside this fetch, on the update that has just
-    told somebody their number was saved, inside aiogram's per-chat isolation lock. In front of
+    completed onboarding, inside aiogram's per-chat isolation lock. In front of
     the confirmation they are three chances for the product to appear to hang at the exact
     moment a customer is deciding whether to trust it; behind it they are invisible, and the
     worst outcome is a row with no picture on it in an operator's console.
@@ -445,10 +417,10 @@ async def test_the_avatar_is_fetched_best_effort_after_the_number_lands(
     # Act
     await complete_onboarding(dispatcher, bot, language=Language.EN)
 
-    # Assert — what was stored, and that it happened after the receipt
+    # Assert — what was stored, and that it happened after the menu
     assert profiles.avatars == [(USER_ID, AVATAR_MIME, "u-small", len(AVATAR_BYTES))]
     assert profiles.rows[USER_ID].avatar_stored_at is not None
-    saved_at = index_of_text(session, translate("onboarding.contact.saved", Language.EN))
+    saved_at = index_of_text(session, translate("menu.prompt", Language.EN))
     fetched_at = session.calls.index(session.last_named("GetUserProfilePhotos"))
     assert fetched_at > saved_at, "the customer waited on three round trips for a picture"
 

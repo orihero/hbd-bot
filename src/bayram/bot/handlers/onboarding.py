@@ -66,7 +66,6 @@ from bayram.bot.middleware import resolve_language
 from bayram.bot.screens import (
     Screen,
     menu_screen,
-    onboarding_contact_screen,
     onboarding_language_screen,
 )
 from bayram.bot.states import Onboarding, Wizard
@@ -265,20 +264,18 @@ class NotOnboarded(Filter):
 
 
 async def handle_language_chosen(
-    callback: CallbackQuery, callback_data: LanguageCB, state: FSMContext, deps: BotDeps
+    callback: CallbackQuery,
+    callback_data: LanguageCB,
+    state: FSMContext,
+    deps: BotDeps,
+    bot: Bot,
 ) -> None:
-    """The first answer a customer ever gives. Cache it, persist it, ask for the number.
+    """The first answer a customer ever gives. Cache it, persist it, and complete onboarding.
 
     **The cache is written FIRST, before any store call**, so that a failed row write still
     leaves the interface speaking the language they just picked. The alternative — persist,
     then cache only on success — answers a customer in Uzbek half a second after they tapped
     "Русский", which is the single worst first impression this product can make.
-
-    **An ``Err`` from ``record_language`` is logged and the flow CONTINUES.** The FSM state
-    drives the rest of this session and the contact handlers claim every update in
-    ``Onboarding.contact``, so a failed row write costs a repeated language question on the
-    NEXT session and never a loop inside this one. Refusing to advance would trap the customer
-    on a screen whose only button is the one that just failed.
     """
     language = callback_data.code
     await callback.answer()
@@ -291,16 +288,18 @@ async def handle_language_chosen(
                 "the chosen interface language could not be persisted",
                 extra=recorded.error.to_log_dict(),
             )
-    await state.set_state(Onboarding.contact)
-    # ``settings.language.saved`` and not an onboarding-only twin of it: "✅ Language saved."
-    # is exactly what happened, and inventing a second sentence for one event is how two
-    # catalogues start disagreeing about the same thing. Markup ``None``, so ``_edit_or_send``
-    # EDITS the language screen in place and the four dead language buttons go with it.
-    await present(callback, Screen(text=translate("settings.language.saved", language)))
-    # A new message, necessarily: this screen carries a ``ReplyKeyboardMarkup`` and Telegram's
-    # ``editMessageText`` accepts inline markup only. ``common._edit_or_send`` knows that and
-    # sends; the contact button cannot arrive any other way.
-    await present(callback, onboarding_contact_screen(language))
+    await clear_keeping_identity(state)
+    await state.update_data({ONBOARDED_KEY: ONBOARDED_VALUE, UI_LANGUAGE_KEY: language.value})
+    await present(
+        callback,
+        menu_screen(
+            language,
+            is_first_time=True,
+            teachers_day_enabled=await deps.is_teachers_day_enabled(),
+        ),
+    )
+    if user is not None:
+        await fetch_and_store_avatar(bot, telegram_user_id=user.id, profiles=deps.profiles)
 
 
 async def _reprompt_language(event: Event, state: FSMContext) -> None:
@@ -481,8 +480,15 @@ async def _resume_onboarding(
         await state.set_state(Onboarding.language)
         await present(event, onboarding_language_screen(language))
         return
-    await state.set_state(Onboarding.contact)
-    await present(event, onboarding_contact_screen(language))
+    await clear_keeping_identity(state)
+    await state.update_data({ONBOARDED_KEY: ONBOARDED_VALUE, UI_LANGUAGE_KEY: language.value})
+    await present(
+        event,
+        menu_screen(
+            language,
+            teachers_day_enabled=await deps.is_teachers_day_enabled(),
+        ),
+    )
 
 
 async def handle_blocked_message(

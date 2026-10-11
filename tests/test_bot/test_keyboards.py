@@ -30,7 +30,7 @@ from typing import Final
 import pytest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
 
-from bayram.bot.callbacks import LanguageSlot, NavAction, NavCB
+from bayram.bot.callbacks import EditAction, EditSongCB, LanguageSlot, NavAction, NavCB
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import (
     ALL_PAY_METHODS_LABEL_KEY,
@@ -44,6 +44,8 @@ from bayram.bot.keyboards import (
     checkout_link_keyboard,
     confirm_keyboard,
     contact_request_keyboard,
+    copy_lyrics_keyboard,
+    edit_options_keyboard,
     genre_keyboard,
     language_keyboard,
     lyrics_failed_keyboard,
@@ -59,6 +61,7 @@ from bayram.bot.keyboards import (
     post_delivery_keyboard,
     settings_keyboard,
     start_over_keyboard,
+    support_reasons_keyboard,
     vocal_gender_keyboard,
 )
 from bayram.bot.pricing import CheckoutOffer, Pricing
@@ -243,6 +246,9 @@ def every_keyboard(language: Language) -> Iterator[tuple[str, InlineKeyboardMark
     yield "start_over", start_over_keyboard(language)
     yield "paid_late", paid_late_keyboard(language)
     yield "post_delivery", post_delivery_keyboard(language)
+    yield "edit_options", edit_options_keyboard(language)
+    yield "copy_lyrics", copy_lyrics_keyboard(language, lyric_text="Sample lyrics")
+    yield "support_reasons", support_reasons_keyboard(language)
     yield "settings", settings_keyboard(language)
 
 
@@ -549,6 +555,7 @@ def test_post_delivery_offers_another_song_a_way_to_complain_and_the_way_home() 
     # done" rather than putting an exit between an order and a grievance
     assert [[button.callback_data for button in row] for row in markup.inline_keyboard] == [
         [NavCB(action=NavAction.MAKE_ANOTHER).pack()],
+        [EditSongCB(action=EditAction.MENU).pack()],
         [NavCB(action=NavAction.REPORT_PROBLEM).pack()],
         [NavCB(action=NavAction.TO_MENU).pack()],
     ]

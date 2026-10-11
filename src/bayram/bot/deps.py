@@ -14,7 +14,7 @@ from typing import Final
 
 from bayram.bot.chatlog import ChatRecorder
 from bayram.bot.payment import DEFAULT_CURRENCY, FREE_AMOUNT_MINOR, NoopPaymentProvider
-from bayram.bot.ports import Clock, OrderSubmitter, SupportTicketEraser, utc_now
+from bayram.bot.ports import Clock, OrderReader, OrderSubmitter, SupportTicketEraser, utc_now
 from bayram.bot.pricing import Pricing
 from bayram.bot_chats import BotChatDirectory
 from bayram.channels import ChannelAttributionStore
@@ -298,6 +298,8 @@ class BotDeps:
     #: button drawn before the owner flipped it still cannot sell (``DECISIONS.md D28``).
     #: TRAILING and DEFAULTED.
     rail_enabled_reader: Callable[[str], Awaitable[bool]] | None = None
+    #: Reads past orders to enable editing finished songs. TRAILING and DEFAULTED.
+    order_reader: OrderReader | None = None
 
     async def enabled_rails(self) -> tuple[str, ...]:
         """The wired rails the owner's switch currently allows, in wired order.

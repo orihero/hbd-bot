@@ -33,6 +33,7 @@ from typing import Final
 from uuid import UUID
 
 from aiogram.types import (
+    CopyTextButton,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
@@ -41,6 +42,8 @@ from aiogram.types import (
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from bayram.bot.callbacks import (
+    EditAction,
+    EditSongCB,
     GenreCB,
     LanguageCB,
     LanguageSlot,
@@ -49,6 +52,8 @@ from bayram.bot.callbacks import (
     OccasionCB,
     SupportAction,
     SupportCB,
+    SupportReason,
+    SupportReasonCB,
     VocalGenderCB,
     pack_reference,
 )
@@ -81,6 +86,9 @@ __all__ = [
     "start_over_keyboard",
     "paid_late_keyboard",
     "post_delivery_keyboard",
+    "edit_options_keyboard",
+    "copy_lyrics_keyboard",
+    "support_reasons_keyboard",
     "main_menu_keyboard",
     "contact_request_keyboard",
     "settings_keyboard",
@@ -853,9 +861,18 @@ def post_delivery_keyboard(
     """
     builder = InlineKeyboardBuilder()
     builder.row(_nav_button(NavAction.MAKE_ANOTHER, language))
+    builder.row(_edit_song_button(language, order_id=order_id))
     builder.row(_report_problem_button(language, order_id=order_id))
     builder.row(_nav_button(NavAction.TO_MENU, language))
     return builder.as_markup()
+
+
+def _edit_song_button(language: Language, *, order_id: UUID | None) -> InlineKeyboardButton:
+    """✏️ Edit song, carrying the order reference when known."""
+    return InlineKeyboardButton(
+        text=translate("button.edit_song", language),
+        callback_data=EditSongCB(action=EditAction.MENU, ref=pack_reference(order_id)).pack(),
+    )
 
 
 def _report_problem_button(language: Language, *, order_id: UUID | None) -> InlineKeyboardButton:
@@ -872,6 +889,109 @@ def _report_problem_button(language: Language, *, order_id: UUID | None) -> Inli
         text=translate(f"button.{NavAction.REPORT_PROBLEM.value}", language),
         callback_data=SupportCB(action=SupportAction.OPEN, ref=pack_reference(order_id)).pack(),
     )
+
+
+def edit_options_keyboard(
+    language: Language, *, order_id: UUID | None = None
+) -> InlineKeyboardMarkup:
+    """The menu for editing a finished song."""
+    ref = pack_reference(order_id)
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text=translate("button.edit_lyrics", language),
+            callback_data=EditSongCB(action=EditAction.LYRICS, ref=ref).pack(),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=translate("button.edit_music", language),
+            callback_data=EditSongCB(action=EditAction.MUSIC, ref=ref).pack(),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=translate("button.edit_name", language),
+            callback_data=EditSongCB(action=EditAction.NAME, ref=ref).pack(),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=translate("button.edit_voice", language),
+            callback_data=EditSongCB(action=EditAction.VOICE, ref=ref).pack(),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=translate("button.edit_regenerate", language),
+            callback_data=EditSongCB(action=EditAction.REGENERATE, ref=ref).pack(),
+        )
+    )
+    builder.row(_nav_button(NavAction.TO_MENU, language))
+    return builder.as_markup()
+
+
+def copy_lyrics_keyboard(
+    language: Language, lyric_text: str = ""
+) -> InlineKeyboardMarkup:
+    """Offers 1-tap copy of the lyrics for editing, or keep / back."""
+    builder = InlineKeyboardBuilder()
+    if lyric_text:
+        builder.row(
+            InlineKeyboardButton(
+                text=translate("button.copy_lyrics", language),
+                copy_text=CopyTextButton(text=lyric_text),
+            )
+        )
+    else:
+        builder.row(
+            InlineKeyboardButton(
+                text=translate("button.copy_lyrics", language),
+                callback_data=EditSongCB(action=EditAction.LYRICS).pack(),
+            )
+        )
+    builder.row(
+        InlineKeyboardButton(
+            text=translate("button.keep_lyrics", language),
+            callback_data=NavCB(action=NavAction.CONFIRM).pack(),
+        )
+    )
+    builder.row(_nav_button(NavAction.TO_MENU, language))
+    return builder.as_markup()
+
+
+def support_reasons_keyboard(
+    language: Language, *, order_id: UUID | None = None
+) -> InlineKeyboardMarkup:
+    """The four reasons why something went wrong with a delivered song."""
+    ref = pack_reference(order_id)
+    builder = InlineKeyboardBuilder()
+    builder.row(
+        InlineKeyboardButton(
+            text=translate("button.support_reason_name", language),
+            callback_data=SupportReasonCB(reason=SupportReason.NAME_WRONG, ref=ref).pack(),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=translate("button.support_reason_disliked", language),
+            callback_data=SupportReasonCB(reason=SupportReason.DISLIKED, ref=ref).pack(),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=translate("button.support_reason_not_received", language),
+            callback_data=SupportReasonCB(reason=SupportReason.NOT_RECEIVED, ref=ref).pack(),
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text=translate("button.support_reason_other", language),
+            callback_data=SupportReasonCB(reason=SupportReason.OTHER, ref=ref).pack(),
+        )
+    )
+    builder.row(_nav_button(NavAction.TO_MENU, language))
+    return builder.as_markup()
 
 
 def main_menu_keyboard(

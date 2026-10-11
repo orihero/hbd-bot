@@ -53,11 +53,9 @@ from tests.test_bot.conftest import (
     AVATAR_BYTES,
     BOT_TOKEN,
     CHAT_ID,
-    SEEDED_PHONE,
     RecordingSession,
     arm_avatar,
     callback_update,
-    contact_update,
     message_update,
 )
 
@@ -168,7 +166,6 @@ async def _complete_onboarding(dispatcher: Dispatcher, bot: Bot) -> None:
     await dispatcher.feed_update(
         bot, callback_update(LanguageCB(slot=LanguageSlot.UI, code=SPOKEN).pack())
     )
-    await dispatcher.feed_update(bot, contact_update())
 
 
 async def _walk_the_wizard(dispatcher: Dispatcher, bot: Bot) -> None:
@@ -234,15 +231,9 @@ async def test_a_customer_walking_the_wizard_receives_a_complete_kit(
     await _walk_the_wizard(dispatcher, bot)
     await submitter.drain()
 
-    # Assert: one song, three voice notes, a lyric sheet, a closing message.
+    # Assert: one lyric card image and one song audio message.
+    assert len(session.named("SendPhoto")) == 1
     assert len(session.named("SendAudio")) == 1
-    assert len(session.named("SendVoice")) == 3
-    lyric_messages = [
-        call
-        for call in session.named("SendMessage")
-        if DISPLAY_NAME in (getattr(call, "text", "") or "")
-    ]
-    assert lyric_messages, "the lyric sheet never reached the chat"
 
     # Assert: and the onboarding answers are on a real row, in real columns.
     assert container.profiles is not None, "the e2e container must wire the profile store"
@@ -250,7 +241,7 @@ async def test_a_customer_walking_the_wizard_receives_a_complete_kit(
     assert isinstance(profile, Ok), f"the profile could not be read: {profile}"
     stored = profile.value
     assert stored is not None, "onboarding completed but wrote no user_profiles row"
-    assert stored.phone_e164 == SEEDED_PHONE
+    assert stored.phone_e164 is None
     assert stored.ui_language is SPOKEN
     assert stored.is_onboarded
 

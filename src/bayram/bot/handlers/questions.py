@@ -94,31 +94,42 @@ async def handle_occasion(
     )
 
 
-async def handle_genre(callback: CallbackQuery, callback_data: GenreCB, state: FSMContext) -> None:
-    await callback.answer()
-    draft = await read_draft(state)
-    if draft is None:
-        await expire(callback, state)
-        return
-    await show_step(
-        callback, state, draft.updated(genre=callback_data.value), _after(draft, WizardStep.GENRE)
-    )
-
-
-async def handle_vocal_gender(
-    callback: CallbackQuery, callback_data: VocalGenderCB, state: FSMContext
+async def handle_genre(
+    callback: CallbackQuery, callback_data: GenreCB, state: FSMContext, deps: BotDeps
 ) -> None:
     await callback.answer()
     draft = await read_draft(state)
     if draft is None:
         await expire(callback, state)
         return
-    await show_step(
-        callback,
-        state,
-        draft.updated(vocal_gender=callback_data.value),
-        _after(draft, WizardStep.VOCAL_GENDER),
+    updated = (
+        draft.updated(genre=callback_data.value, lyrics=draft.lyrics)
+        if draft.is_complete
+        else draft.updated(genre=callback_data.value)
     )
+    if draft.is_complete:
+        await show_confirm(callback, state, deps, updated)
+        return
+    await show_step(callback, state, updated, _after(draft, WizardStep.GENRE))
+
+
+async def handle_vocal_gender(
+    callback: CallbackQuery, callback_data: VocalGenderCB, state: FSMContext, deps: BotDeps
+) -> None:
+    await callback.answer()
+    draft = await read_draft(state)
+    if draft is None:
+        await expire(callback, state)
+        return
+    updated = (
+        draft.updated(vocal_gender=callback_data.value, lyrics=draft.lyrics)
+        if draft.is_complete
+        else draft.updated(vocal_gender=callback_data.value)
+    )
+    if draft.is_complete:
+        await show_confirm(callback, state, deps, updated)
+        return
+    await show_step(callback, state, updated, _after(draft, WizardStep.VOCAL_GENDER))
 
 
 async def handle_note_skipped(callback: CallbackQuery, state: FSMContext) -> None:

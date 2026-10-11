@@ -467,6 +467,18 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.to_menu": "🏠 Menyuga qaytish",
     "button.to_settings": "⬅️ Sozlamalarga",
     "button.share_contact": "📱 Raqamni yuborish",
+    "button.edit_song": "✏️ Oʻzgartirish",
+    "button.edit_lyrics": "📝 Matn",
+    "button.edit_music": "🎵 Musiqa",
+    "button.edit_name": "👤 Ism",
+    "button.edit_voice": "🎤 Ovoz",
+    "button.edit_regenerate": "🔄 Hammasini qayta yaratish",
+    "button.copy_lyrics": "📋 Matnni nusxalash",
+    "button.keep_lyrics": "✅ Matn maʼqul",
+    "button.support_reason_name": "👤 Ism notoʻgʻri yozilgan",
+    "button.support_reason_disliked": "👎 Qoʻshiq yoqmadi",
+    "button.support_reason_not_received": "❓ Qoʻshiqni olmadim",
+    "button.support_reason_other": "💬 Boshqa",
     # -- enum labels -------------------------------------------------------
     "occasion.birthday": "🎂 Tugʻilgan kun",
     "occasion.love": "❤️ Sevgi izhori",
@@ -739,4 +751,32 @@ CATALOGUE: Final[dict[str, str]] = {
         "📨 <code>{ref}</code> murojaatiga qoʻshildi. Uni koʻrayotgan odamlar buni ham "
         "koʻradi, javob esa shu yerga keladi."
     ),
+    "edit.prompt": "Nimani oʻzgartirmoqchisiz?",
+    "edit.lyrics.prompt": (
+        "Qoʻshiq matnini oʻzgartirish uchun quyidagi tugmani bosib nusxa oling, tahrirlang va "
+        "botga xabar sifatida yuboring:\n\n"
+        "<code>{lyrics}</code>"
+    ),
+    "edit.music.prompt": "Yangi musiqa uslubini tanlang:",
+    "edit.voice.prompt": "Yangi ovozni tanlang:",
+    "edit.name.prompt": "Qoʻshiq kim uchun? Yangi ismni yozing:",
+    "support.reasons.prompt": "Nima notoʻgʻri boʻldi? Iltimos, sababni tanlang:",
+    "support.reason.name_prompt": (
+        "⚠️ [Ism notoʻgʻri yozilgan]\n"
+        "Iltimos, ism qanday yozilishi yoki aytilishi kerakligini batafsil yozib bering:"
+    ),
+    "support.reason.disliked_prompt": (
+        "⚠️ [Qoʻshiq yoqmadi]\n"
+        "Qoʻshiqning qaysi qismi yoqmaganini batafsil yozib bering (musiqa, soʻzlar, ovoz):"
+    ),
+    "support.reason.not_received_prompt": (
+        "⚠️ [Qoʻshiqni olmadim]\n"
+        "Iltimos, vaziyat haqida batafsil yozib bering (qachon buyurtma berilgan, nima xabar "
+        "kelmadi):"
+    ),
+    "support.reason.other_prompt": (
+        "⚠️ [Boshqa]\n"
+        "Iltimos, muammo haqida batafsil yozib bering:"
+    ),
 }
+

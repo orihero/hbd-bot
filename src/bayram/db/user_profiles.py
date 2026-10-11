@@ -185,6 +185,7 @@ async def upsert_language(
                 "user_id": user_id,
                 "telegram_user_id": telegram_user_id,
                 "language_chosen_at": now,
+                "onboarded_at": now,
                 "created_at": now,
                 "updated_at": now,
             },
@@ -194,6 +195,7 @@ async def upsert_language(
                 "updated_at": now,
                 # The stored value wins whenever there is one — see the docstring.
                 "language_chosen_at": sa.func.coalesce(UserProfileRow.language_chosen_at, now),
+                "onboarded_at": sa.func.coalesce(UserProfileRow.onboarded_at, now),
             },
         )
     )

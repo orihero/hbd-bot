@@ -44,7 +44,6 @@ from tests.test_bot.conftest import (
     RecordingSubmitter,
     buttons,
     callback_update,
-    contact_update,
     message_update,
 )
 
@@ -89,7 +88,6 @@ async def complete_onboarding(
     """
     await send(dispatcher, bot, "/start")
     await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.UI, code=language).pack())
-    await dispatcher.feed_update(bot, contact_update())
 
 
 async def walk_to_name(dispatcher: Dispatcher, bot: Bot) -> None:

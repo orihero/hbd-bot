@@ -464,6 +464,18 @@ CATALOGUE: Final[dict[str, str]] = {
     "button.to_menu": "🏠 Менюга қайтиш",
     "button.to_settings": "⬅️ Созламаларга",
     "button.share_contact": "📱 Рақамни юбориш",
+    "button.edit_song": "✏️ Ўзгартириш",
+    "button.edit_lyrics": "📝 Матн",
+    "button.edit_music": "🎵 Мусиқа",
+    "button.edit_name": "👤 Исм",
+    "button.edit_voice": "🎤 Овоз",
+    "button.edit_regenerate": "🔄 Ҳаммасини қайта яратиш",
+    "button.copy_lyrics": "📋 Матнни нусхалаш",
+    "button.keep_lyrics": "✅ Матн маъқул",
+    "button.support_reason_name": "👤 Исм нотўғри ёзилган",
+    "button.support_reason_disliked": "👎 Қўшиқ ёқмади",
+    "button.support_reason_not_received": "❓ Қўшиқни олмадим",
+    "button.support_reason_other": "💬 Бошқа",
     # -- enum labels -------------------------------------------------------
     "occasion.birthday": "🎂 Туғилган кун",
     "occasion.love": "❤️ Севги изҳори",
@@ -730,5 +742,31 @@ CATALOGUE: Final[dict[str, str]] = {
     "support.ticket.follow_up": (
         "📨 <code>{ref}</code> мурожаатига қўшилди. Уни кўраётган одамлар буни ҳам кўради, "
         "жавоб эса шу ерга келади."
+    ),
+    "edit.prompt": "Нимани ўзгартирмоқчисиз?",
+    "edit.lyrics.prompt": (
+        "Қўшиқ матнини ўзгартириш учун қуйидаги тугмани босиб нусха олинг, таҳрирланг ва "
+        "ботга хабар сифатида юборинг:\n\n"
+        "<code>{lyrics}</code>"
+    ),
+    "edit.music.prompt": "Янги мусиқа услубини танланг:",
+    "edit.voice.prompt": "Янги овозни танланг:",
+    "edit.name.prompt": "Қўшиқ ким учун? Янги исмни ёзинг:",
+    "support.reasons.prompt": "Нима нотўғри бўлди? Илтимос, сабабни танланг:",
+    "support.reason.name_prompt": (
+        "⚠️ [Исм нотўғри ёзилган]\n"
+        "Илтимос, исм қандай ёзилиши ёки айтилиши кераклигини батафсил ёзиб беринг:"
+    ),
+    "support.reason.disliked_prompt": (
+        "⚠️ [Қўшиқ ёқмади]\n"
+        "Қўшиқнинг қайси қисми ёқмаганини батафсил ёзиб беринг (мусиқа, сўзлар, овоз):"
+    ),
+    "support.reason.not_received_prompt": (
+        "⚠️ [Қўшиқни олмадим]\n"
+        "Илтимос, вазият ҳақида батафсил ёзиб беринг (қачон буюртма берилган, нима хабар келмади):"
+    ),
+    "support.reason.other_prompt": (
+        "⚠️ [Бошқа]\n"
+        "Илтимос, муаммо ҳақида батафсил ёзиб беринг:"
     ),
 }
