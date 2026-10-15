@@ -135,6 +135,7 @@ from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.storage.base import BaseStorage, StorageKey
 
+from bayram.bot.cleanup import SCREEN_MESSAGE_ID_KEY, ids_of, retire_message_id
 from bayram.bot.draft import load_draft
 from bayram.bot.handlers.submitting import ORDER_ID_KEY, PROGRESS_MESSAGE_ID_KEY
 from bayram.bot.order_id import order_id_for
@@ -468,7 +469,7 @@ async def _resume(
         return ResumeDecision(False, "enqueue_failed")
 
     # 6. Park the session, AFTER the submit and in ONE write.
-    await _park(plan, order_id=order_id, progress_message_id=sent.message_id)
+    await _park(plan, bot=bot, order_id=order_id, progress_message_id=sent.message_id)
     return ResumeDecision(True, "queued", order_id)
 
 
@@ -500,7 +501,7 @@ async def _still_the_same_draft(plan: ResumePlan, *, telegram_user_id: int) -> t
     return True, "planned"
 
 
-async def _park(plan: ResumePlan, *, order_id: str, progress_message_id: int) -> None:
+async def _park(plan: ResumePlan, *, bot: Bot, order_id: str, progress_message_id: int) -> None:
     """Leave the session waiting on the render, exactly as ``confirm._queue`` leaves it.
 
     **One ``update_data`` and not two writes**, because FSM storage gives no transaction
@@ -533,8 +534,18 @@ async def _park(plan: ResumePlan, *, order_id: str, progress_message_id: int) ->
         await plan.storage.set_state(plan.key, Wizard.submitting)
         await plan.storage.update_data(
             plan.key,
-            {ORDER_ID_KEY: order_id, PROGRESS_MESSAGE_ID_KEY: progress_message_id},
+            {
+                ORDER_ID_KEY: order_id,
+                PROGRESS_MESSAGE_ID_KEY: progress_message_id,
+                SCREEN_MESSAGE_ID_KEY: None,
+            },
         )
+        # The session was on Confirm, so the screen it tracked is the payment-link screen the
+        # customer paid from — superseded now by the progress frame above, and still carrying
+        # live pay buttons. Retired after the write, best effort (``bot.cleanup``).
+        for screen_id in ids_of(data.get(SCREEN_MESSAGE_ID_KEY)):
+            if screen_id != progress_message_id:
+                await retire_message_id(bot, plan.order.telegram_user_id, screen_id)
     except Exception as exc:
         _LOG.warning(
             "a resumed render was queued but its session could not be parked",

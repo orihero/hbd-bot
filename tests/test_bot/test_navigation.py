@@ -38,6 +38,7 @@ from tests.test_bot.conftest import (
     buttons,
     last_reply_keyboard,
     reply_buttons,
+    without_layout,
 )
 from tests.test_bot.test_wizard_flow import (
     UZBEK_DISPLAY,
@@ -62,7 +63,7 @@ async def test_every_step_after_the_first_offers_a_back_button(
     assert back in {data for _, data in buttons(session.last_screen.reply_markup)}
 
 
-async def test_back_from_the_name_step_returns_to_the_note_step(
+async def test_back_from_the_name_step_returns_to_the_voice_step(
     dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
 ) -> None:
     # Arrange
@@ -71,11 +72,26 @@ async def test_back_from_the_name_step_returns_to_the_note_step(
     # Act
     await press(dispatcher, bot, NavCB(action=NavAction.BACK).pack())
 
-    # Assert
+    # Assert — the name is asked before the note now, so Back skips no note
+    assert await state.get_state() == Wizard.vocal_gender.state
+    assert translate("wizard.vocal_gender.prompt", Language.EN) in session.last_screen.text
+
+
+async def test_back_from_the_note_step_returns_to_the_name_with_the_name_echoed(
+    dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
+) -> None:
+    """With no confirmation screen, the name prompt's echo is where the spelling is reread."""
+    # Arrange
+    await walk_to_name(dispatcher, bot)
+    await send(dispatcher, bot, UZBEK_TYPED)
     assert await state.get_state() == Wizard.note.state
-    assert translate("wizard.note.prompt", Language.EN).split("{")[0][:20] in (
-        session.last_screen.text
-    )
+
+    # Act
+    await press(dispatcher, bot, NavCB(action=NavAction.BACK).pack())
+
+    # Assert
+    assert await state.get_state() == Wizard.name.state
+    assert UZBEK_DISPLAY in session.last_screen.text
 
 
 async def test_back_preserves_answers_already_given(
@@ -165,7 +181,7 @@ async def test_cancel_clears_the_session_and_keeps_only_who_the_customer_is(
 
     # Assert
     assert await state.get_state() is None
-    assert await state.get_data() == {
+    assert without_layout(await state.get_data()) == {
         UI_LANGUAGE_KEY: Language.EN.value,
         ONBOARDED_KEY: True,
     }

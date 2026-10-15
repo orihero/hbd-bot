@@ -129,6 +129,7 @@ from bayram.bot.callbacks import (
     SupportReasonCB,
     read_reference,
 )
+from bayram.bot.cleanup import SCREEN_MESSAGE_ID_KEY, retire_message, retire_message_id
 from bayram.bot.delivery import MAX_MESSAGE_CHARS, is_blocked_by_customer, order_reference
 from bayram.bot.deps import BotDeps
 from bayram.bot.handlers.common import COMMAND_PREFIX, Event, present, say, support_text
@@ -507,6 +508,12 @@ async def _reprompt_the_open_ticket(
         _LOG.error(
             "the support re-prompt could not be recorded", extra=listening.error.to_log_dict()
         )
+        return True
+    # Only once the ticket listens on the NEW prompt: deleting the old one first would leave a
+    # window in which the ticket waits on a message that no longer exists.
+    old_prompt = ticket.prompt_message_id
+    if old_prompt is not None and old_prompt != prompt and event.bot is not None:
+        await retire_message_id(event.bot, telegram_user_id, old_prompt)
     return True
 
 
@@ -567,11 +574,10 @@ async def _send_prompt(event: Event, text: str) -> int | None:
     """Put the ForceReply up and return its ``message_id``, or ``None`` if it did not go.
 
     Mirrors :func:`~bayram.bot.handlers.common.say` — a new message, never an edit — and differs
-    from it in the one way this flow needs: it returns the sent message, because the whole
-    mechanism depends on knowing which message the customer will be replying to. ``say`` cannot
-    be reused for that reason and is deliberately not changed to return one; every other caller
-    of it has no use for the value, and a helper that returns something all but one caller
-    ignores is a helper whose return value goes unchecked.
+    from it in the one way this flow needs: the prompt must NOT be recorded as a notice.
+    ``say`` records what it sends so a later update retires it (``bot.cleanup``), and this
+    message is the one the customer replies to — ``ListeningTicket`` matches on its id, so it
+    has to stay until the reply has arrived (``_confirm_filed`` then edits it).
     """
     target = event.message if isinstance(event, CallbackQuery) else event
     if not isinstance(target, Message):
@@ -702,7 +708,9 @@ async def _handle_description(
         )
         return
     filled = described.value
-    await message.answer(translate("support.ticket.filed", language, ref=filled.public_ref))
+    await _confirm_filed(
+        message, ticket, translate("support.ticket.filed", language, ref=filled.public_ref)
+    )
     # Resolved AFTER the customer has been confirmed, and that ordering is the same one the
     # paragraph above states about the send: what the customer is owed became true when the row
     # was written. A directory read that fails, or a deployment where nobody has selected a
@@ -715,6 +723,27 @@ async def _handle_description(
         target=await support_group_target(deps.bot_chats),
         now=now,
     )
+
+
+async def _confirm_filed(message: Message, ticket: TicketSnapshot, text: str) -> None:
+    """Turn the ForceReply prompt the customer just answered into the "filed" sentence.
+
+    An EDIT, not a delete and not a new message: the question has been answered, so it should
+    not stay on the chat asking — but ``ListeningTicket`` matches follow-ups by the id of the
+    message they reply to, so the message itself must survive. A refused edit (too old, or
+    the prompt is gone) falls back to the plain reply this used to be.
+    """
+    prompt_id = ticket.prompt_message_id
+    if prompt_id is not None and message.bot is not None:
+        try:
+            await message.bot.edit_message_text(
+                chat_id=message.chat.id, message_id=prompt_id, text=text
+            )
+        except TelegramAPIError as exc:
+            _LOG.info("could not edit the support prompt", extra={"failure": repr(exc)})
+        else:
+            return
+    await message.answer(text)
 
 
 async def _handle_follow_up(
@@ -1823,6 +1852,12 @@ async def handle_reason_chosen(
         order_id=read_reference(callback_data.ref),
         reason=callback_data.reason,
     )
+    # The reasons screen has been answered: the prompt (or the refusal) is below it now.
+    # Media-guarded, so a reason pressed on anything but that text screen leaves it alone.
+    if isinstance(callback.message, Message):
+        await retire_message(callback.message)
+        if (await state.get_data()).get(SCREEN_MESSAGE_ID_KEY) == callback.message.message_id:
+            await state.update_data({SCREEN_MESSAGE_ID_KEY: None})
 
 
 def build_router() -> Router:

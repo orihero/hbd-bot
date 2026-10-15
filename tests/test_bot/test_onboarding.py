@@ -64,6 +64,7 @@ from tests.test_bot.conftest import (
     last_reply_keyboard,
     profile_photos,
     requests_contact,
+    without_layout,
 )
 from tests.test_bot.test_wizard_flow import complete_onboarding, press, send, tap
 
@@ -751,7 +752,10 @@ async def test_the_identity_cache_survives_a_flow_ending(
     await press(dispatcher, bot, NavCB(action=NavAction.CANCEL).pack())
 
     # Assert — the two keys, and only the two
-    assert await state.get_data() == {UI_LANGUAGE_KEY: Language.EN.value, ONBOARDED_KEY: True}
+    assert without_layout(await state.get_data()) == {
+        UI_LANGUAGE_KEY: Language.EN.value,
+        ONBOARDED_KEY: True,
+    }
 
     # Act — the store forgets everything it knew, and the customer taps 🎵 again
     profiles.rows.clear()

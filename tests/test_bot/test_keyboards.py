@@ -34,12 +34,17 @@ from bayram.bot.callbacks import EditAction, EditSongCB, LanguageSlot, NavAction
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import (
     ALL_PAY_METHODS_LABEL_KEY,
+    GO_STYLE,
     KEEP_NOTE_LABEL_KEY,
+    LEAVE_STYLE,
     MAX_REPLY_ROW_LABEL_CHARS,
     MAX_ROW_BUTTONS,
     MAX_ROW_LABEL_CHARS,
+    NAV_BUTTON_STYLES,
     PAY_NOW_LABEL_KEY,
+    PAY_STYLE,
     SKIP_LABEL_KEY,
+    back_to_settings_keyboard,
     checkout_keyboard,
     checkout_link_keyboard,
     confirm_keyboard,
@@ -52,7 +57,6 @@ from bayram.bot.keyboards import (
     lyrics_keyboard,
     lyrics_writing_keyboard,
     main_menu_keyboard,
-    name_confirm_keyboard,
     name_prompt_keyboard,
     note_keyboard,
     occasion_keyboard,
@@ -195,7 +199,6 @@ def every_keyboard(language: Language) -> Iterator[tuple[str, InlineKeyboardMark
     yield "note", note_keyboard(language)
     yield "note_with_a_note_already_written", note_keyboard(language, is_note_present=True)
     yield "name_prompt", name_prompt_keyboard(language)
-    yield "name_confirm", name_confirm_keyboard(language)
     yield "lyrics", lyrics_keyboard(language)
     yield "lyrics_the_customer_wrote", lyrics_keyboard(language, is_own_lyrics=True)
     yield "own_lyrics_prompt", own_lyrics_keyboard(language)
@@ -250,6 +253,7 @@ def every_keyboard(language: Language) -> Iterator[tuple[str, InlineKeyboardMark
     yield "copy_lyrics", copy_lyrics_keyboard(language, lyric_text="Sample lyrics")
     yield "support_reasons", support_reasons_keyboard(language)
     yield "settings", settings_keyboard(language)
+    yield "back_to_settings", back_to_settings_keyboard(language)
 
 
 def every_reply_keyboard(language: Language) -> Iterator[tuple[str, ReplyKeyboardMarkup]]:
@@ -826,3 +830,97 @@ def test_every_keyboard_builder_is_covered() -> None:
         if not any(entry.startswith(name[: -len("_keyboard")]) for entry in covered)
     }
     assert not missing, f"keyboards built but never measured: {sorted(missing)}"
+
+
+# --- Button colour (Bot API 9.4 ``style``) ---------------------------------------------------
+
+
+def _nav_action(button: InlineKeyboardButton) -> NavAction | None:
+    data = button.callback_data or ""
+    return NavCB.unpack(data).action if data.startswith(NAV_PREFIX) else None
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_every_nav_button_wears_the_colour_its_action_is_given(language: Language) -> None:
+    """One action, one colour, on every screen — the policy lives in ``NAV_BUTTON_STYLES``.
+
+    Walks every keyboard rather than spot-checking one, so a builder that draws a nav button
+    by hand (as ``copy_lyrics_keyboard`` draws its CONFIRM) cannot quietly drop the colour.
+    """
+    for name, markup in every_keyboard(language):
+        for row in markup.inline_keyboard:
+            for button in row:
+                action = _nav_action(button)
+                if action is None:
+                    continue
+                assert button.style == NAV_BUTTON_STYLES.get(action), (name, action)
+
+
+def test_the_policy_is_go_and_pay_green_and_cancel_red() -> None:
+    """Pinned as values, so a change of colour is a decision someone makes in this file."""
+    assert GO_STYLE == "success"
+    assert PAY_STYLE == "success"
+    assert LEAVE_STYLE == "danger"
+    for action in (NavAction.CONFIRM, NavAction.LYRICS_OK, NavAction.MAKE_ANOTHER):
+        assert NAV_BUTTON_STYLES[action] == GO_STYLE
+    for action in (NavAction.PAY, NavAction.SUBSCRIBE, NavAction.PAY_PAYME):
+        assert NAV_BUTTON_STYLES[action] == PAY_STYLE
+    assert NAV_BUTTON_STYLES[NavAction.CANCEL] == LEAVE_STYLE
+    for action in (NavAction.BACK, NavAction.SKIP, NavAction.TO_MENU, NavAction.OWN_LYRICS):
+        assert action not in NAV_BUTTON_STYLES
+
+
+def test_the_confirm_and_checkout_screens_are_coloured() -> None:
+    confirm = confirm_keyboard(Language.EN).inline_keyboard
+    assert confirm[0][0].style == "success"
+    assert {b.style for b in confirm[-1] if _nav_action(b) is NavAction.CANCEL} == {"danger"}
+
+    checkout = checkout_keyboard(Language.EN, sample_offer(is_plan_offered=True))
+    pay_rows = [
+        b
+        for row in checkout.inline_keyboard
+        for b in row
+        if _nav_action(b) in (NavAction.PAY, NavAction.SUBSCRIBE)
+    ]
+    assert len(pay_rows) == 2
+    assert all(b.style == "success" for b in pay_rows)
+
+
+@pytest.mark.parametrize("with_options", [False, True])
+def test_every_pay_link_is_green(with_options: bool) -> None:
+    options = (("click", "https://pay.example/click"), ("payme", "https://pay.example/payme"))
+    markup = checkout_link_keyboard(
+        Language.EN, SAMPLE_CHECKOUT_URL, options=options if with_options else ()
+    )
+    links = [b for row in markup.inline_keyboard for b in row if b.url]
+    assert links
+    assert all(b.style == "success" for b in links)
+
+
+@pytest.mark.parametrize("language", list(Language))
+def test_answers_to_a_question_stay_the_default_colour(language: Language) -> None:
+    """Options are not a rainbow: only nav and pay buttons are ever coloured, and never blue."""
+    for name, markup in every_keyboard(language):
+        for row in markup.inline_keyboard:
+            for button in row:
+                if button.url is None and _nav_action(button) is None:
+                    assert button.style is None, (name, button.text)
+                assert button.style != "primary", (name, button.text)
+
+
+def test_the_menu_paints_only_the_way_to_a_song_green() -> None:
+    rows = main_menu_keyboard(Language.EN, teachers_day_enabled=True).keyboard
+    styles = {b.text: b.style for row in rows for b in row}
+    assert styles[translate("menu.generate", Language.EN)] == "success"
+    assert styles[translate("menu.teachers_day", Language.EN)] == "success"
+    for key in ("menu.balance", "menu.settings", "menu.help"):
+        assert styles[translate(key, Language.EN)] is None
+
+
+def test_the_style_reaches_the_wire_as_a_plain_string() -> None:
+    """What Telegram is sent: ``"style": "success"``, and nothing at all on a plain button."""
+    row = confirm_keyboard(Language.EN).inline_keyboard
+    sent = row[0][0].model_dump(mode="json", exclude_none=True)
+    assert sent["style"] == "success"
+    back = next(b for b in row[-1] if _nav_action(b) is NavAction.BACK)
+    assert "style" not in back.model_dump(mode="json", exclude_none=True)

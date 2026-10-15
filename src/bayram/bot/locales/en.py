@@ -293,6 +293,12 @@ CATALOGUE: Final[dict[str, str]] = {
         "<b>quirks, funny stories, catchphrases</b>, "
         "or the main vibe (<b>love, humor, gratitude</b>)."
     ),
+    "wizard.note.prompt_named": (
+        "🎯 <b>Tell me about {name}!</b>\n\n"
+        "Share <b>details</b> (up to {limit} chars): "
+        "<b>quirks, funny stories, catchphrases</b>, "
+        "or the main vibe (<b>love, humor, gratitude</b>)."
+    ),
     "wizard.note.teachers_day_prompt": (
         "👩‍🏫 <b>Who is this song from?</b>\n\n"
         "For example: <i>Class 9-A, School #56</i> or <i>Class of 2013</i>.\n\n"
@@ -301,22 +307,14 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.note.privacy_line": "",
     "wizard.note.too_long": "That is a bit long. Please keep it under {limit} characters.",
     "wizard.name.prompt": (
-        "Now their name, spelled the way you would write it — the spelling is what decides "
-        "how it is sung.\n\n"
+        "Who is the song for? Type their name the way you would write it — the spelling is "
+        "what decides how it is sung.\n\n"
         "Type it as text, up to {limit} characters. A voice message will not do."
     ),
     "wizard.name.invalid": "I need a name written in letters. Please type it again.",
     "wizard.name.too_long": "That name is too long. Please keep it under {limit} characters.",
     "wizard.name.too_many_words": (
         "That looks like a sentence. Please type just the name — up to {limit} words."
-    ),
-    "wizard.name.confirm": (
-        "I will sing it as:\n"
-        "<blockquote><b>{name}</b></blockquote>\n"
-        "The spelling decides the pronunciation, so it is worth a second look. After the "
-        "song is recorded I listen back to this word and record it again if it came out "
-        "wrong.\n\n"
-        "Is that right?"
     ),
     "wizard.name.unresolved": "I could not read that name. Please type it again.",
     "wizard.output_language.prompt": "Which language should {name}'s song be in?",

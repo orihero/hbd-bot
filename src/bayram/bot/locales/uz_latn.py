@@ -289,6 +289,12 @@ CATALOGUE: Final[dict[str, str]] = {
         "<b>oʻziga xos odatlari, qiziq voqealar, sevimli iboralari</b> "
         "yoki asosiy tilak (<b>mehr, hazil, minnatdorlik</b>)."
     ),
+    "wizard.note.prompt_named": (
+        "🎯 <b>{name} haqida aytib bering!</b>\n\n"
+        "<b>Tafsilotlarni yozing</b> ({limit} belgigacha): "
+        "<b>oʻziga xos odatlari, qiziq voqealar, sevimli iboralari</b> "
+        "yoki asosiy tilak (<b>mehr, hazil, minnatdorlik</b>)."
+    ),
     "wizard.note.teachers_day_prompt": (
         "👩‍🏫 <b>Qoʻshiq kimning nomidan boʻlsin?</b>\n\n"
         "Masalan: <i>56-maktab 9-«A» sinfi</i> yoki <i>2013-yil bitiruvchilari</i>.\n\n"
@@ -297,7 +303,7 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.note.privacy_line": "",
     "wizard.note.too_long": "Biroz uzun boʻldi. Iltimos, {limit} belgidan oshmasin.",
     "wizard.name.prompt": (
-        "Endi ismini — oʻzingiz yozadigan koʻrinishda yozing. Qanday yozilsa, "
+        "Qoʻshiq kim uchun? Ismini oʻzingiz yozadigan koʻrinishda yozing. Qanday yozilsa, "
         "shunday kuylanadi.\n\n"
         "Matn qilib yozing, {limit} belgigacha. Ovozli xabar boʻlmaydi."
     ),
@@ -305,14 +311,6 @@ CATALOGUE: Final[dict[str, str]] = {
     "wizard.name.too_long": "Bu ism juda uzun. Iltimos, {limit} belgidan oshmasin.",
     "wizard.name.too_many_words": (
         "Bu gapga oʻxshaydi. Iltimos, faqat ismni yozing — {limit} tagacha soʻz."
-    ),
-    "wizard.name.confirm": (
-        "Men uni shunday kuylayman:\n"
-        "<blockquote><b>{name}</b></blockquote>\n"
-        "Talaffuzni yozilishi hal qiladi, shuning uchun yana bir bor koʻrib chiqishga "
-        "arziydi. Qoʻshiq yozilgach, shu soʻzni tinglab koʻraman va notoʻgʻri chiqqan "
-        "boʻlsa, qaytadan yozaman.\n\n"
-        "Toʻgʻrimi?"
     ),
     "wizard.name.unresolved": "Bu ismni oʻqiy olmadim. Iltimos, qaytadan yozing.",
     "wizard.output_language.prompt": "{name} uchun qoʻshiq qaysi tilda boʻlsin?",

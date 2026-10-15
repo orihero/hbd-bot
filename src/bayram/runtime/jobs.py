@@ -101,6 +101,7 @@ from arq.cron import cron
 from arq.worker import Retry, func
 from sqlalchemy.exc import SQLAlchemyError
 
+from bayram.bot.cleanup import PROGRESS_MESSAGE_ID_KEY, SCREEN_MESSAGE_ID_KEY, TRACKING_KEYS
 from bayram.bot.delivery import BLOCKED_BY_CUSTOMER_KEY, deliver_kit
 from bayram.bot.handlers.submitting import ORDER_ID_KEY
 from bayram.bot.i18n import translate
@@ -411,7 +412,9 @@ async def _run_pipeline(
     # lost anything") is already true when it arrives rather than eventually true. _settle
     # never raises, so ordering it first cannot cost them the explanation.
     await _settle(container, order, outcome=SettlementOutcome.FAILED)
-    await _tell_the_customer_why(bot, order, key=outcome.error.user_message_key, chat_id=chat_id)
+    await _tell_the_customer_why(
+        bot, order, key=outcome.error.user_message_key, chat_id=chat_id, sink=sink
+    )
     await _release_session(ctx, bot, order, chat_id=chat_id, reason="failed")
     return {
         "order_id": str(order.id),
@@ -422,14 +425,29 @@ async def _run_pipeline(
     }
 
 
-async def _tell_the_customer_why(bot: Bot, order: Order, *, key: str, chat_id: int) -> None:
+async def _tell_the_customer_why(
+    bot: Bot,
+    order: Order,
+    *,
+    key: str,
+    chat_id: int,
+    sink: TelegramProgressSink | None = None,
+) -> None:
     """Say the specific reason the run failed. Never raises.
 
     The progress frame says only that it failed, which is the same sentence for every
     cause. This is the sentence that differs — and for ``error.content_not_allowed`` it is
     the difference between a customer who reworded the note and one who gave up.
+
+    With a ``sink`` the reason is drawn INTO the progress message (with the Start-over
+    keyboard), so the chat holds one message about the failure rather than a dead "failed"
+    frame plus a second message under it. A new message is sent only when that edit fails.
     """
     language = order.brief.ui_language
+    if sink is not None and await sink.replace(
+        translate(key, language), markup=start_over_keyboard(language)
+    ):
+        return
     try:
         await bot.send_message(
             chat_id=chat_id,
@@ -485,7 +503,8 @@ async def _release_session(
         return
     key = StorageKey(bot_id=bot.id, chat_id=chat_id, user_id=order.telegram_user_id)
     try:
-        parked_on = (await storage.get_data(key)).get(ORDER_ID_KEY)
+        data = await storage.get_data(key)
+        parked_on = data.get(ORDER_ID_KEY)
         if parked_on != str(order.id):
             _LOG.info(
                 "session is not waiting on this order; leaving it alone",
@@ -498,7 +517,17 @@ async def _release_session(
             )
             return
         await storage.set_state(key, None)
-        await storage.set_data(key, {})
+        # Everything goes but the chat-layout ids (``bot.cleanup.TRACKING_KEYS``): which
+        # message carries the menu and which notices are still up. Dropping them here would
+        # leave the next menu unable to retire the old one, and "still in the studio" notices
+        # said during the run on the chat for good.
+        layout = {k: data[k] for k in TRACKING_KEYS if k in data}
+        progress = data.get(PROGRESS_MESSAGE_ID_KEY)
+        if reason != "delivered" and isinstance(progress, int):
+            # The progress message now carries the failure and a Start-over keyboard: it is the
+            # live screen, so the next screen drawn retires it like any other.
+            layout[SCREEN_MESSAGE_ID_KEY] = progress
+        await storage.set_data(key, layout)
     except Exception as exc:
         # Storage is Redis in production. A release that fails must not take down a job
         # whose song has already been delivered.
@@ -554,6 +583,7 @@ async def _send_kit(
     container: AppContainer,
     reporter: ProgressReporter,
     chat_id: int,
+    sink: TelegramProgressSink | None = None,
 ) -> bool:
     """Send the finished kit. ``False`` means it was not delivered but must not be retried.
 
@@ -611,7 +641,9 @@ async def _send_kit(
     await reporter.emit(
         PipelineStage.DELIVERING, ProgressStatus.FAILED, now=_utc_now(), error=delivered.error
     )
-    await _tell_the_customer_why(bot, order, key=delivered.error.user_message_key, chat_id=chat_id)
+    await _tell_the_customer_why(
+        bot, order, key=delivered.error.user_message_key, chat_id=chat_id, sink=sink
+    )
     return False
 
 
@@ -734,6 +766,7 @@ async def _run_order(
         container=container,
         reporter=_delivery_reporter(sink, order, settings=container.settings),
         chat_id=chat_id,
+        sink=sink,
     )
     # Settled on BOTH outcomes, and CONSUMED on both — see _settle for why a kit Telegram
     # refused must not be refunded. This is reached only once _send_kit has stopped asking
@@ -743,6 +776,9 @@ async def _run_order(
         order,
         outcome=SettlementOutcome.DELIVERED if is_delivered else SettlementOutcome.NOT_DELIVERED,
     )
+    if is_delivered:
+        # The song and its lyrics are the chat now; the 100% frame above them is not.
+        await sink.delete()
     # Released on BOTH outcomes. A non-retryable send failure is as terminal as a delivery:
     # the customer has been told, and leaving the session parked would answer their next
     # message with "still in the studio" about a run that has stopped.

@@ -19,6 +19,7 @@ from aiogram.fsm.storage.memory import MemoryStorage, SimpleEventIsolation
 from aiogram.fsm.storage.redis import RedisEventIsolation, RedisStorage
 
 from bayram.bot.chatlog import ChatLogInboundMiddleware
+from bayram.bot.cleanup import ScreenTrackingMiddleware
 from bayram.bot.deps import DEPS_KEY, BotDeps
 from bayram.bot.gate import InboundGateMiddleware
 from bayram.bot.handlers import build_router
@@ -135,6 +136,12 @@ def build_dispatcher(
         events_isolation=events_isolation or SimpleEventIsolation(),
     )
     dispatcher[DEPS_KEY] = deps
+    # First, so it wraps the guard too: binds the update's FSM context so ``present``/``say``
+    # — and the guard's own failure notice — can retire the screens they replace. See
+    # ``bayram.bot.cleanup``.
+    tracker = ScreenTrackingMiddleware()
+    dispatcher.message.middleware(tracker)
+    dispatcher.callback_query.middleware(tracker)
     guard = ErrorGuardMiddleware()
     dispatcher.message.middleware(guard)
     dispatcher.callback_query.middleware(guard)

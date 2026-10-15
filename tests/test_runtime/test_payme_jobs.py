@@ -34,6 +34,7 @@ from aiogram.fsm.storage.base import StorageKey
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.methods import SendMessage
 
+from bayram.bot.cleanup import SCREEN_MESSAGE_ID_KEY
 from bayram.bot.draft import WizardDraft
 from bayram.bot.handlers.submitting import ORDER_ID_KEY, PROGRESS_MESSAGE_ID_KEY
 from bayram.bot.i18n import translate
@@ -1201,7 +1202,12 @@ async def test_a_second_wizard_run_is_left_untouched(
 
     # Assert
     assert queue.jobs == []
-    assert await storage.get_data(key) == before
+    # The announcement is recorded as a tracked screen (chat layout, ``bot.cleanup``) so the
+    # bot retires it later; the second run's draft and everything else are untouched.
+    after = await storage.get_data(key)
+    tracked = after.pop(SCREEN_MESSAGE_ID_KEY)
+    assert isinstance(tracked, list) and len(tracked) == 1
+    assert after == before
     assert await storage.get_state(key) == Wizard.confirm.state
 
 

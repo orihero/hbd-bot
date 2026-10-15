@@ -122,6 +122,10 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
         )
         or current
     )
+    if current is WizardStep.NAME_CONFIRM:
+        # A confirmation screen left over from before it was removed: it is in no order, so
+        # it has no predecessor, and Back on it meant "let me look at the name again".
+        target = WizardStep.NAME
     _LOG.info(
         "wizard back",
         extra={
@@ -134,7 +138,11 @@ async def handle_back(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 async def handle_retype(callback: CallbackQuery, state: FSMContext) -> None:
-    """Drop the resolved name and ask for it again. Nothing else in the draft is touched."""
+    """Drop the resolved name and ask for it again. Nothing else in the draft is touched.
+
+    No screen draws this button since the name confirmation was removed; it stays for the
+    ones still on customers' message rolls, which would otherwise match no filter.
+    """
     await callback.answer()
     if await _refuse_while_running(callback, state):
         return

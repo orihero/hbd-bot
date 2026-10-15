@@ -32,6 +32,7 @@ from collections.abc import Mapping, Sequence
 from typing import Final
 from uuid import UUID
 
+from aiogram.enums import ButtonStyle
 from aiogram.types import (
     CopyTextButton,
     InlineKeyboardButton,
@@ -75,7 +76,6 @@ __all__ = [
     "vocal_gender_keyboard",
     "note_keyboard",
     "name_prompt_keyboard",
-    "name_confirm_keyboard",
     "lyrics_keyboard",
     "own_lyrics_keyboard",
     "lyrics_writing_keyboard",
@@ -92,6 +92,7 @@ __all__ = [
     "main_menu_keyboard",
     "contact_request_keyboard",
     "settings_keyboard",
+    "back_to_settings_keyboard",
     "LANGUAGE_COLUMNS",
     "GENRE_COLUMNS",
     "OCCASION_COLUMNS",
@@ -117,6 +118,10 @@ __all__ = [
     "ALL_PAY_METHODS_LABEL_KEY",
     "PAY_METHOD_LABELS",
     "pay_method_label",
+    "GO_STYLE",
+    "PAY_STYLE",
+    "LEAVE_STYLE",
+    "NAV_BUTTON_STYLES",
 ]
 
 #: Layout widths. Telegram truncates a row that is too wide on a narrow phone, and Uzbek
@@ -320,6 +325,43 @@ VOCAL_GENDER_CHOICES: Final[tuple[VoiceGender, ...]] = (
 )
 
 
+#: Button colour (Bot API 9.4 ``style``), as three ROLES rather than per-screen taste, so a
+#: keyboard can never turn into a rainbow: green moves the customer forward or takes their
+#: money, red abandons, and everything else — the options of a question, Back, Skip, menu
+#: rows — stays the client's default. A client older than 9.4 ignores the field and draws
+#: the button as it always did, so there is no fallback to write.
+#:
+#: * ``GO_STYLE`` (success) — the one button per screen that advances the order: 🎬 Record
+#:   it, approve the lyric, and the "next song" / "start again" / "try again" exits;
+#: * ``PAY_STYLE`` (success) — every button that buys: the price rows and the rail links.
+#:   The same green as ``GO_STYLE`` on purpose; on the checkout screen paying IS the way on;
+#: * ``LEAVE_STYLE`` (danger) — Cancel, the only control that throws a run away.
+#:
+#: ``primary`` (blue) is left unused by the customer keyboards; the staff support card is
+#: the one place that draws it.
+GO_STYLE: Final[ButtonStyle] = ButtonStyle.SUCCESS
+PAY_STYLE: Final[ButtonStyle] = ButtonStyle.SUCCESS
+LEAVE_STYLE: Final[ButtonStyle] = ButtonStyle.DANGER
+
+#: The policy above, keyed by the action a nav button carries. An action that is absent is
+#: drawn unstyled, and that is the default for a reason: a new button is neutral until
+#: somebody decides it is the way forward.
+NAV_BUTTON_STYLES: Final[Mapping[NavAction, ButtonStyle]] = {
+    NavAction.CONFIRM: GO_STYLE,
+    NavAction.LYRICS_OK: GO_STYLE,
+    NavAction.MAKE_ANOTHER: GO_STYLE,
+    NavAction.START_OVER: GO_STYLE,
+    NavAction.TRY_AGAIN: GO_STYLE,
+    NavAction.PAY: PAY_STYLE,
+    NavAction.PAY_PAYME: PAY_STYLE,
+    NavAction.PAY_CHECKOUTUZ: PAY_STYLE,
+    NavAction.SUBSCRIBE: PAY_STYLE,
+    NavAction.SUBSCRIBE_PAYME: PAY_STYLE,
+    NavAction.SUBSCRIBE_CHECKOUTUZ: PAY_STYLE,
+    NavAction.CANCEL: LEAVE_STYLE,
+}
+
+
 def _nav_button(
     action: NavAction,
     language: Language,
@@ -338,10 +380,14 @@ def _nav_button(
     template has no matching placeholder silently drops the value (``i18n._SafeParams``),
     so a params dict handed to the wrong button is invisible rather than loud; that is the
     reason this stays keyword-only and is passed at exactly two call sites.
+
+    The colour comes from :data:`NAV_BUTTON_STYLES` and is not a parameter, so the same
+    action is the same colour on every screen that draws it.
     """
     return InlineKeyboardButton(
         text=translate(label_key or f"button.{action.value}", language, **(label_params or {})),
         callback_data=NavCB(action=action).pack(),
+        style=NAV_BUTTON_STYLES.get(action),
     )
 
 
@@ -536,14 +582,6 @@ def note_keyboard(language: Language, *, is_note_present: bool = False) -> Inlin
 def name_prompt_keyboard(language: Language) -> InlineKeyboardMarkup:
     """The name is TYPED. There is no Skip: a kit without a name is not a product."""
     return _with_nav(InlineKeyboardBuilder(), language, is_back_enabled=True)
-
-
-def name_confirm_keyboard(language: Language) -> InlineKeyboardMarkup:
-    """Confirm the canonical DISPLAY spelling before a single token is generated."""
-    builder = InlineKeyboardBuilder()
-    builder.row(_nav_button(NavAction.NAME_OK, language))
-    builder.row(_nav_button(NavAction.RETYPE, language))
-    return _with_nav(builder, language, is_back_enabled=True)
 
 
 def lyrics_keyboard(language: Language, *, is_own_lyrics: bool = False) -> InlineKeyboardMarkup:
@@ -745,16 +783,22 @@ def checkout_link_keyboard(
     """
     builder = InlineKeyboardBuilder()
     if not options:
-        builder.row(InlineKeyboardButton(text=translate(PAY_NOW_LABEL_KEY, language), url=url))
+        builder.row(
+            InlineKeyboardButton(
+                text=translate(PAY_NOW_LABEL_KEY, language), url=url, style=PAY_STYLE
+            )
+        )
     else:
         methods = [
-            InlineKeyboardButton(text=pay_method_label(method), url=page)
+            InlineKeyboardButton(text=pay_method_label(method), url=page, style=PAY_STYLE)
             for method, page in options
         ]
         for start in range(0, len(methods), MAX_ROW_BUTTONS):
             builder.row(*methods[start : start + MAX_ROW_BUTTONS])
         builder.row(
-            InlineKeyboardButton(text=translate(ALL_PAY_METHODS_LABEL_KEY, language), url=url)
+            InlineKeyboardButton(
+                text=translate(ALL_PAY_METHODS_LABEL_KEY, language), url=url, style=PAY_STYLE
+            )
         )
     builder.row(_nav_button(NavAction.TO_MENU, language))
     return builder.as_markup()
@@ -954,6 +998,7 @@ def copy_lyrics_keyboard(
         InlineKeyboardButton(
             text=translate("button.keep_lyrics", language),
             callback_data=NavCB(action=NavAction.CONFIRM).pack(),
+            style=NAV_BUTTON_STYLES[NavAction.CONFIRM],
         )
     )
     builder.row(_nav_button(NavAction.TO_MENU, language))
@@ -1012,14 +1057,19 @@ def main_menu_keyboard(
     Generate and Balance share the first row and Settings and Help the second, so the two
     things a customer came to do are under the thumb and the two they came to read are not.
     When Teachers' Day promo is active, it sits on its own row prominently at the top level.
+
+    The buttons that start a song are green (:data:`GO_STYLE`); Balance, Settings and Help
+    are things to read and stay the default colour.
     """
     rows: list[list[KeyboardButton]] = []
     if teachers_day_enabled:
-        rows.append([KeyboardButton(text=translate(MENU_TEACHERS_DAY_LABEL_KEY, language))])
+        rows.append(
+            [KeyboardButton(text=translate(MENU_TEACHERS_DAY_LABEL_KEY, language), style=GO_STYLE)]
+        )
     rows.extend(
         [
             [
-                KeyboardButton(text=translate(MENU_GENERATE_LABEL_KEY, language)),
+                KeyboardButton(text=translate(MENU_GENERATE_LABEL_KEY, language), style=GO_STYLE),
                 KeyboardButton(text=translate(MENU_BALANCE_LABEL_KEY, language)),
             ],
             [
@@ -1091,4 +1141,15 @@ def settings_keyboard(language: Language) -> InlineKeyboardMarkup:
         NavAction.TO_MENU,
     ):
         builder.row(_nav_button(action, language))
+    return builder.as_markup()
+
+
+def back_to_settings_keyboard(language: Language) -> InlineKeyboardMarkup:
+    """One ⬅️ row under a Settings sub-page (privacy, support) drawn over the Settings screen.
+
+    Those pages used to arrive as new messages under Settings and stay there; drawn in place
+    instead, they need the way back up that the screen they replaced had.
+    """
+    builder = InlineKeyboardBuilder()
+    builder.row(_nav_button(NavAction.TO_SETTINGS, language))
     return builder.as_markup()

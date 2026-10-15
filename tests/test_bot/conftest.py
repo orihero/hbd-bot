@@ -867,6 +867,17 @@ def state(storage: MemoryStorage) -> FSMContext:
     return FSMContext(storage=storage, key=key)
 
 
+def without_layout(data: dict[str, Any]) -> dict[str, Any]:
+    """FSM data minus the chat-layout ids ``bot.cleanup`` keeps (``TRACKING_KEYS``).
+
+    Those record which of the bot's messages are still on the chat — not session state — so a
+    test about what a session REMEMBERS compares the dict without them.
+    """
+    from bayram.bot.cleanup import TRACKING_KEYS
+
+    return {key: value for key, value in data.items() if key not in TRACKING_KEYS}
+
+
 # ---------------------------------------------------------------------------
 # Update builders
 # ---------------------------------------------------------------------------

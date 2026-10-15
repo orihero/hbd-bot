@@ -45,6 +45,7 @@ from tests.test_bot.conftest import (
     RecordingContentWriter,
     RecordingSession,
     RecordingSubmitter,
+    without_layout,
 )
 from tests.test_bot.test_credit_gate import FakeEntitlements, enforcing, wire
 from tests.test_bot.test_wizard_flow import send, walk_to_confirm
@@ -293,14 +294,14 @@ async def test_balance_leaves_a_half_typed_wizard_exactly_where_it_was(
     state = FSMContext(
         storage=storage, key=StorageKey(bot_id=BOT_ID, chat_id=CHAT_ID, user_id=USER_ID)
     )
-    before = await state.get_data()
+    before = without_layout(await state.get_data())
 
     # Act
     await ask_balance(dispatcher, bot, session)
 
-    # Assert
+    # Assert — the session is untouched (which message is on screen is layout, not session)
     assert await state.get_state() == Wizard.confirm.state
-    assert await state.get_data() == before
+    assert without_layout(await state.get_data()) == before
 
 
 # ---------------------------------------------------------------------------

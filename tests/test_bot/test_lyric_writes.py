@@ -40,6 +40,7 @@ from tests.test_bot.conftest import (
     RecordingSession,
     RecordingSubmitter,
     callback_update,
+    without_layout,
 )
 from tests.test_bot.test_lyrics_step import PASTED, current_draft, screen_texts
 from tests.test_bot.test_wizard_flow import press, send, walk_to_lyrics
@@ -157,7 +158,7 @@ async def test_cancelling_during_the_write_is_not_undone_when_the_lyric_arrives(
     # language, and would have re-asked an onboarded customer for their phone number for the
     # crime of cancelling. Spelled as an exact set so a THIRD key surviving — a draft fragment,
     # an order id — still fails, which is the erasure this test is actually about.
-    assert set(await state.get_data()) == {UI_LANGUAGE_KEY, ONBOARDED_KEY}
+    assert set(without_layout(await state.get_data())) == {UI_LANGUAGE_KEY, ONBOARDED_KEY}
 
 
 async def test_a_message_sent_while_the_writer_is_working_cannot_overwrite_the_result(

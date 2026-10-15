@@ -42,6 +42,7 @@ from datetime import datetime
 from typing import Final
 from uuid import UUID
 
+from aiogram.enums import ButtonStyle
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
@@ -139,6 +140,13 @@ _REPLY_HINT: Final[str] = "Reply to this message to answer the customer."
 _CLAIM_LABEL: Final[str] = "✋ Claim"
 _RESOLVE_LABEL: Final[str] = "✅ Resolve"
 _PANEL_LABEL: Final[str] = "🔗 Open in panel"
+#: Claim is blue and Resolve green — the same "green finishes it" reading the customer
+#: keyboards use (``keyboards.GO_STYLE``), with blue for the step before it. The panel link
+#: stays unstyled: it is a way out, not a move on the ticket.
+_STAFF_STYLES: Final[Mapping[SupportAction, ButtonStyle]] = {
+    SupportAction.CLAIM: ButtonStyle.PRIMARY,
+    SupportAction.RESOLVE: ButtonStyle.SUCCESS,
+}
 
 #: Where the panel keeps one ticket, appended to ``Settings.support_panel_base_url``.
 #:
@@ -307,4 +315,5 @@ def _staff_button(label: str, action: SupportAction, ticket_id: UUID) -> InlineK
     return InlineKeyboardButton(
         text=label,
         callback_data=SupportCB(action=action, ref=pack_reference(ticket_id)).pack(),
+        style=_STAFF_STYLES.get(action),
     )

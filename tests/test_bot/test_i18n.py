@@ -169,7 +169,7 @@ def test_interpolated_values_are_html_escaped() -> None:
     hostile = "<b>Aziza</b>"
 
     # Act
-    text = translate("wizard.name.confirm", Language.EN, name=hostile)
+    text = translate("wizard.note.prompt_named", Language.EN, name=hostile, limit=600)
 
     # Assert — our own <b> survives, the user's does not
     assert "&lt;b&gt;Aziza&lt;/b&gt;" in text

@@ -7,13 +7,29 @@ That is what makes Back work at every step: Back is not a special case, it is
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 from uuid import uuid4
 
+from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
+from bayram.bot.cleanup import (
+    MENU_MESSAGE_ID_KEY,
+    NOTICE_MESSAGE_IDS_KEY,
+    PROGRESS_MESSAGE_ID_KEY,
+    SCREEN_MESSAGE_ID_KEY,
+    TRACKING_KEYS,
+    current_state,
+    ids_of,
+    is_media,
+    note_sent,
+    retire_message,
+    retire_message_id,
+    sweep_notices,
+    track_notice,
+)
 from bayram.bot.deps import BotDeps
 from bayram.bot.draft import ONBOARDED_KEY, UI_LANGUAGE_KEY, WizardDraft, load_draft
 from bayram.bot.i18n import FALLBACK_LANGUAGE, translate
@@ -47,6 +63,7 @@ __all__ = [
     "show_step",
     "present",
     "say",
+    "retire_tracked_screen",
     "clear_keeping_identity",
     "finish_with",
     "expire",
@@ -143,21 +160,125 @@ async def show_step(
     return shown
 
 
-async def present(event: Event, screen: Screen) -> None:
-    """Edit in place when we came from a button; send a new message otherwise."""
-    if isinstance(event, CallbackQuery):
-        await _edit_or_send(event, screen)
-        return
-    await event.answer(screen.text, reply_markup=screen.markup)
+async def present(event: Event, screen: Screen) -> Message | None:
+    """Edit in place when we came from a button; send a new message otherwise.
+
+    Returns the message that now SHOWS the screen — which is not always the one the button was
+    pressed on: an edit that Telegram refuses falls back to a send, and a reply-keyboard
+    screen is always a send. ``None`` only when there was nowhere to draw at all.
+
+    Then it tidies the chat (``bot.cleanup``): the screen this one replaces is retired, and so
+    are notices left by earlier updates. A screen carrying the reply keyboard is the one
+    exception to retiring before recording — the old menu goes only once the new one is up.
+    """
+    if screen.markup is not None and not isinstance(screen.markup, InlineKeyboardMarkup):
+        shown = await _send_menu(event, screen)
+        is_menu = True
+    elif isinstance(event, CallbackQuery):
+        shown = await _edit_or_send(event, screen)
+        is_menu = False
+    else:
+        shown = await event.answer(screen.text, reply_markup=screen.markup)
+        is_menu = False
+    if isinstance(shown, Message):
+        await _track_screen(event, shown, is_menu=is_menu)
+        return shown
+    return None
 
 
-async def say(event: Event, text: str) -> None:
-    """Send one plain sentence without disturbing the screen the user is on."""
+async def say(event: Event, text: str) -> Message | None:
+    """Send one plain sentence without disturbing the screen the user is on.
+
+    The sentence is recorded as a notice and retired by the first ``present``/``say`` of a
+    LATER update — never this one, which routinely redraws the screen the notice is about.
+    """
     if isinstance(event, CallbackQuery):
-        if isinstance(event.message, Message):
-            await event.message.answer(text)
+        if not isinstance(event.message, Message):
+            return None
+        sent = await event.message.answer(text)
+    else:
+        sent = await event.answer(text)
+    await track_notice(sent, event.bot)
+    return sent
+
+
+async def _send_menu(event: Event, screen: Screen) -> Message | None:
+    """Send a reply-keyboard screen, then retire the inline screen the button was on.
+
+    A reply keyboard cannot be attached by an edit: Telegram's ``editMessageText`` accepts
+    inline markup only and answers 400 for anything else. ``RecordingSession`` returns a
+    canned ``Message`` for every method name, so that would be a live failure no unit test in
+    this repo could ever see. Send instead — which is also the right UX: the reply keyboard
+    is chat-level state and belongs on a new message, not bolted onto an old one.
+
+    SEND FIRST, retire second. The pressed message is never the one carrying the reply
+    keyboard (that one has no inline buttons to press), so deleting it cannot hide the
+    keyboard; and it is never the song, because ``retire_message`` refuses media — 🏠 on
+    ``post_delivery_keyboard`` arrives on the audio itself.
+    """
+    if isinstance(event, Message):
+        return await event.answer(screen.text, reply_markup=screen.markup)
+    message = event.message
+    if not isinstance(message, Message):
+        return None
+    sent = await message.answer(screen.text, reply_markup=screen.markup)
+    await retire_message(message)
+    return sent
+
+
+async def _track_screen(event: Event, shown: Message, *, is_menu: bool) -> None:
+    """Record ``shown`` as the live screen (or menu) and retire what it replaces."""
+    state = current_state()
+    bot = event.bot or shown.bot
+    if state is None or bot is None:
         return
-    await event.answer(text)
+    note_sent(shown.message_id)
+    data = await state.get_data()
+    chat_id = shown.chat.id
+    source = event.message if isinstance(event, CallbackQuery) else None
+    spared = {shown.message_id}
+    if isinstance(source, Message):
+        # Already edited (it IS ``shown``) or already retired by ``_send_menu``.
+        spared.add(source.message_id)
+    progress = data.get(PROGRESS_MESSAGE_ID_KEY)
+    if isinstance(progress, int):
+        # The Confirm screen became the progress frame the worker is still editing.
+        spared.add(progress)
+    for old in ids_of(data.get(SCREEN_MESSAGE_ID_KEY)):
+        if old not in spared:
+            await retire_message_id(bot, chat_id, old)
+    update: dict[str, Any] = {}
+    if is_menu:
+        # The new keyboard is already up, so the old carrier can go without hiding it.
+        for old in ids_of(data.get(MENU_MESSAGE_ID_KEY)):
+            if old not in spared:
+                await retire_message_id(bot, chat_id, old)
+        update[MENU_MESSAGE_ID_KEY] = shown.message_id
+        update[SCREEN_MESSAGE_ID_KEY] = None
+    else:
+        update[SCREEN_MESSAGE_ID_KEY] = shown.message_id
+    update[NOTICE_MESSAGE_IDS_KEY] = list(
+        await sweep_notices(bot, chat_id, data.get(NOTICE_MESSAGE_IDS_KEY))
+    )
+    await state.update_data(update)
+
+
+async def retire_tracked_screen(
+    state: FSMContext, bot: Bot, chat_id: int, *, spare: int | None = None
+) -> None:
+    """Retire the tracked screen from a path that replaces it WITHOUT ``present``.
+
+    For the few flows that put their next message up by hand — the support ForceReply
+    prompt, the progress frame — so the screen above them does not linger. ``spare`` is the
+    message the caller is turning into something else (Confirm becoming the progress frame),
+    which must not be deleted from under it.
+    """
+    data = await state.get_data()
+    protected = {spare, data.get(PROGRESS_MESSAGE_ID_KEY)}
+    for old in ids_of(data.get(SCREEN_MESSAGE_ID_KEY)):
+        if old not in protected:
+            await retire_message_id(bot, chat_id, old)
+    await state.update_data({SCREEN_MESSAGE_ID_KEY: None})
 
 
 #: Telegram's own words for "this edit would change nothing". Matched as a lower-cased
@@ -181,21 +302,19 @@ def _is_unchanged(exc: TelegramBadRequest) -> bool:
     return _UNCHANGED_MESSAGE in (exc.message or "").lower()
 
 
-async def _edit_or_send(callback: CallbackQuery, screen: Screen) -> None:
+async def _edit_or_send(callback: CallbackQuery, screen: Screen) -> Message | None:
+    """Draw an INLINE screen over the pressed message. ``present`` routes reply screens away."""
     message = callback.message
     if not isinstance(message, Message):
-        return
-    if screen.markup is not None and not isinstance(screen.markup, InlineKeyboardMarkup):
-        # A reply keyboard cannot be attached by an edit: Telegram's ``editMessageText``
-        # accepts inline markup only and answers 400 for anything else. ``RecordingSession``
-        # returns a canned ``Message`` for every method name, so this would be a live failure
-        # no unit test in this repo could ever see. Send instead — which is also the right
-        # UX: the reply keyboard is chat-level state and belongs on a new message, not
-        # bolted onto an old one the customer has already scrolled past.
-        await message.answer(screen.text, reply_markup=screen.markup)
-        return
+        return None
+    markup = screen.markup if isinstance(screen.markup, InlineKeyboardMarkup) else None
+    if is_media(message):
+        # The button was on the delivered song (``post_delivery_keyboard``): Telegram refuses
+        # ``editMessageText`` on an audio with a 400, so do not ask. The song stays exactly
+        # as it is, and the next screen goes under it.
+        return await message.answer(screen.text, reply_markup=markup)
     try:
-        await message.edit_text(screen.text, reply_markup=screen.markup)
+        edited = await message.edit_text(screen.text, reply_markup=markup)
     except TelegramBadRequest as exc:
         if _is_unchanged(exc):
             # The message ALREADY reads exactly as we were about to draw it, so there is
@@ -208,10 +327,14 @@ async def _edit_or_send(callback: CallbackQuery, screen: Screen) -> None:
                 "the screen already reads as we would have drawn it; nothing to edit",
                 extra={"failure": repr(exc)},
             )
-            return
-        # A message too old to edit, or one that is no longer ours. Send.
+            return message
+        # A message too old to edit, or one that is no longer ours. Send, then retire the
+        # old one so its buttons do not stay live above the new screen.
         _LOG.info("could not edit in place, sending a new message", extra={"failure": repr(exc)})
-        await message.answer(screen.text, reply_markup=screen.markup)
+        sent = await message.answer(screen.text, reply_markup=markup)
+        await retire_message(message)
+        return sent
+    return edited if isinstance(edited, Message) else message
 
 
 async def clear_keeping_identity(state: FSMContext) -> None:
@@ -238,12 +361,18 @@ async def clear_keeping_identity(state: FSMContext) -> None:
     customer refused for credits would otherwise lose their language permanently on a
     deployment with no profile store, and pay an extra read on one that has one.
 
+    **The chat-layout ids survive too** (``bot.cleanup.TRACKING_KEYS``). They are not session
+    state: the screen a cancelled run left up is still in the customer's chat, and forgetting
+    its id here is exactly how it would turn into a leftover with live buttons.
+
     ``handlers.commands.handle_forget`` is the deliberate sixth and does NOT call this: it
     keeps a bare ``state.clear()``, because it is the one operation whose whole purpose is to
     return the account to first-contact state, with both questions asked again.
     """
     data = await state.get_data()
-    kept = {key: data[key] for key in (UI_LANGUAGE_KEY, ONBOARDED_KEY) if key in data}
+    kept = {
+        key: data[key] for key in (UI_LANGUAGE_KEY, ONBOARDED_KEY, *TRACKING_KEYS) if key in data
+    }
     await state.clear()
     if kept:
         await state.update_data(kept)

@@ -4,10 +4,10 @@ Rendering is kept apart from handling on purpose. A screen is a pure function of
 so Back is implemented once — "render the previous step" — instead of once per handler,
 and every screen is assertable in a test without a Bot, an Update or an event loop.
 
-``resolve_step`` is the safety net: a step the draft cannot render (a name confirmation
-with no name in it, or a lyric preview with no lyric in it, because storage was cleared
-under us) is downgraded to the nearest step that *can* be rendered, rather than producing a
-screen with a hole in it.
+``resolve_step`` is the safety net: a step the draft cannot render (a note asked about a
+person whose name is not in the draft, or a lyric preview with no lyric in it, because
+storage was cleared under us) is downgraded to the nearest step that *can* be rendered,
+rather than producing a screen with a hole in it.
 
 Two rules the screens themselves hold, both of them learnt the hard way:
 
@@ -57,7 +57,6 @@ from bayram.bot.keyboards import (
     language_keyboard,
     lyrics_keyboard,
     main_menu_keyboard,
-    name_confirm_keyboard,
     name_prompt_keyboard,
     note_keyboard,
     occasion_keyboard,
@@ -140,6 +139,14 @@ def resolve_step(step: WizardStep, draft: WizardDraft) -> WizardStep:
     a different one. That is why the own-lyrics path resolves to LYRICS and never to NAME:
     it has no NAME.
     """
+    if step is WizardStep.NAME_CONFIRM:
+        # No longer a screen: a customer parked here by a release that still had it is
+        # moved FORWARD, to where ✅ would have taken them. See ``states.PARKED_ONLY_STEPS``.
+        # Checked before the per-path branches below, which return a step they do not know
+        # unchanged — and an unchanged NAME_CONFIRM would never stop resolving.
+        if draft.recipient is None and not (draft.is_own_lyrics or draft.is_teachers_day):
+            return WizardStep.NAME
+        return WizardStep.OUTPUT_LANGUAGE
     if draft.is_own_lyrics:
         if step is WizardStep.CONFIRM and not draft.is_complete:
             # LYRICS is second in this order, so it is the earliest thing that can be
@@ -154,7 +161,9 @@ def resolve_step(step: WizardStep, draft: WizardDraft) -> WizardStep:
                 return WizardStep.OUTPUT_LANGUAGE
             return WizardStep.NOTE
         return step
-    if step is WizardStep.NAME_CONFIRM and draft.recipient is None:
+    if step is WizardStep.NOTE and draft.recipient is None:
+        # The name comes before the note now, and the note is asked about the person by
+        # name. A draft parked at the note by the old order (note first) has no name yet.
         return WizardStep.NAME
     if step is WizardStep.LYRICS and draft.lyrics is None:
         return WizardStep.OUTPUT_LANGUAGE
@@ -431,7 +440,12 @@ def render_step(
         case WizardStep.NAME:
             return _name_screen(draft)
         case WizardStep.NAME_CONFIRM:
-            return _name_confirm_screen(draft)
+            # ``resolve_step`` returns the bring-your-own and Teachers' Day drafts unchanged,
+            # and neither path ever had this step; recursing on NAME_CONFIRM would never end.
+            forward = resolve_step(step, draft)
+            if forward is WizardStep.NAME_CONFIRM:
+                forward = WizardStep.OUTPUT_LANGUAGE
+            return render_step(forward, draft)
         case WizardStep.OUTPUT_LANGUAGE:
             return _output_language_screen(draft)
         case WizardStep.LYRICS:
@@ -466,10 +480,17 @@ def _note_screen(draft: WizardDraft) -> Screen:
     """
     language = draft.ui_language
     note = draft.note.strip()
-    prompt_key = (
-        "wizard.note.teachers_day_prompt" if draft.is_teachers_day else "wizard.note.prompt"
-    )
-    parts = [translate(prompt_key, language, limit=MAX_NOTE_CHARS)]
+    recipient = draft.recipient
+    if draft.is_teachers_day:
+        prompt = translate("wizard.note.teachers_day_prompt", language, limit=MAX_NOTE_CHARS)
+    elif recipient is not None:
+        # The name is asked first on the writer's path, so the note can be about somebody.
+        prompt = translate(
+            "wizard.note.prompt_named", language, limit=MAX_NOTE_CHARS, name=recipient.display
+        )
+    else:
+        prompt = translate("wizard.note.prompt", language, limit=MAX_NOTE_CHARS)
+    parts = [prompt]
     if note:
         parts.append(_quoted(note))
     privacy = translate("wizard.note.privacy_line", language).strip()
@@ -485,10 +506,12 @@ def _note_screen(draft: WizardDraft) -> Screen:
 def _name_screen(draft: WizardDraft) -> Screen:
     """Ask for the name, echoing the one already resolved when there is one.
 
-    Only reachable with a name in hand via Back from the confirmation — Retype clears the
-    recipient before it sends the user here — and that is precisely the case worth fixing:
-    somebody who stepped back to check the spelling should be able to READ it rather than
-    reproduce it from memory, since the spelling is what decides the pronunciation.
+    Reachable with a name in hand via Back from the note, or from ✏️ Edit → Name on a
+    finished song, and that is precisely the case worth fixing: somebody who stepped back
+    to check the spelling should be able to READ it rather than reproduce it from memory,
+    since the spelling is what decides the pronunciation. There is no separate confirmation
+    screen any more, so this echo is the one place the resolved spelling is shown before
+    the lyric preview.
 
     The display form is the only spelling that ever reaches a screen; the vendor-facing
     candidates beside it in :class:`RecipientName` are never shown, here or anywhere.
@@ -518,21 +541,6 @@ def _output_language_screen(draft: WizardDraft) -> Screen:
     return Screen(
         text,
         language_keyboard(LanguageSlot.OUTPUT, language, is_back_enabled=True),
-    )
-
-
-def _name_confirm_screen(draft: WizardDraft) -> Screen:
-    """Echo the canonical DISPLAY spelling — the ``ʻ`` intact — for confirmation.
-
-    What goes to the vendor is a different string entirely and is never shown here.
-    """
-    language = draft.ui_language
-    recipient = draft.recipient
-    if recipient is None:
-        return render_step(WizardStep.NAME, draft)
-    return Screen(
-        translate("wizard.name.confirm", language, name=recipient.display),
-        name_confirm_keyboard(language),
     )
 
 

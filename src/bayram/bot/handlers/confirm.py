@@ -64,6 +64,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
 from bayram.bot.callbacks import NavAction, NavCB
+from bayram.bot.cleanup import current_state, retire_message
 from bayram.bot.deps import BotDeps
 from bayram.bot.draft import WizardDraft
 from bayram.bot.handlers.balance import build_offer, show_confirm
@@ -73,6 +74,7 @@ from bayram.bot.handlers.common import (
     expire,
     present,
     read_draft,
+    retire_tracked_screen,
     say,
     support_text,
 )
@@ -594,17 +596,34 @@ async def _is_authorized(
 async def _start_progress(
     callback: CallbackQuery, language: Language, *, name: str | None
 ) -> tuple[int, int] | None:
-    """Turn the confirm screen into the first progress frame. ``None`` if we cannot post."""
+    """Turn the confirm screen into the first progress frame. ``None`` if we cannot post.
+
+    Either way nothing with a live button is left above the run: whatever screen was tracked
+    before this one (a payment-link screen, when the press came from the "payment landed"
+    announcement) is retired, and a Confirm screen that could not be edited is retired once
+    the fresh progress message is up.
+    """
     text = queued_text(language, name=name)
     message = callback.message
+    state = current_state()
     if isinstance(message, Message):
         try:
             await message.edit_text(text, reply_markup=None)
         except TelegramAPIError as exc:
             _LOG.info("could not reuse the confirm message", extra={"failure": repr(exc)})
         else:
+            if state is not None and callback.bot is not None:
+                await retire_tracked_screen(
+                    state, callback.bot, message.chat.id, spare=message.message_id
+                )
             return message.chat.id, message.message_id
-    return await _post_progress(callback, text)
+    posted = await _post_progress(callback, text)
+    if posted is not None:
+        if isinstance(message, Message):
+            await retire_message(message)
+        if state is not None and callback.bot is not None:
+            await retire_tracked_screen(state, callback.bot, posted[0], spare=posted[1])
+    return posted
 
 
 async def _post_progress(callback: CallbackQuery, text: str) -> tuple[int, int] | None:

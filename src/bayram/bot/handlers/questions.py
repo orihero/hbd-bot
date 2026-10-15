@@ -45,8 +45,8 @@ _LOG = get_logger(__name__)
 def _after(draft: WizardDraft, step: WizardStep) -> WizardStep:
     """The step that follows ``step`` on THIS draft's path.
 
-    The two paths diverge after the voice question — the writer's asks for a note and a
-    name, the customer's goes straight to the language — so a handler that named its own
+    The two paths diverge after the voice question — the writer's asks for a name and a
+    note, the customer's goes straight to the language — so a handler that named its own
     successor would be right for one of them and wrong for the other. ``states.next_step``
     owns the answer; this only supplies the fallback for the last step, which no handler
     here can reach because CONFIRM is nobody's successor.

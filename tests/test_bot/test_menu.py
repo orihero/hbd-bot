@@ -57,9 +57,11 @@ from tests.test_bot.conftest import (
     buttons,
     last_reply_keyboard,
     reply_buttons,
+    without_layout,
 )
 from tests.test_bot.test_wizard_flow import (
     UZBEK_DISPLAY,
+    UZBEK_TYPED,
     complete_onboarding,
     press,
     send,
@@ -92,8 +94,8 @@ async def read_draft_of(state: FSMContext) -> WizardDraft:
 async def walk_to_note(dispatcher: Dispatcher, bot: Bot) -> None:
     """Onboarding, 🎵, and the three button steps — stopping ON the free-text note.
 
-    Written here rather than imported because every walker in ``test_wizard_flow`` walks PAST
-    this step: the shortest of them answers the note in the same breath as reaching it. What
+    Written here rather than imported because no walker in ``test_wizard_flow`` stops HERE:
+    ``walk_to_name`` stops before the name, and the next one answers the note. What
     the tests below need is the step with the question still open and the draft's ``note``
     still empty, so that a label stored as the answer is visible as a stored label rather than
     as a changed one.
@@ -103,6 +105,7 @@ async def walk_to_note(dispatcher: Dispatcher, bot: Bot) -> None:
     await press(dispatcher, bot, OccasionCB(value=Occasion.BIRTHDAY).pack())
     await press(dispatcher, bot, GenreCB(value=Genre.UZBEK_POP).pack())
     await press(dispatcher, bot, VocalGenderCB(value=VoiceGender.FEMALE).pack())
+    await send(dispatcher, bot, UZBEK_TYPED)
 
 
 def reply_markups(session: RecordingSession) -> list[Any]:
@@ -322,7 +325,7 @@ async def test_a_menu_tap_while_the_song_is_rendering_does_not_un_park_the_order
     # Arrange — an order at the studio
     await walk_to_confirm(dispatcher, bot)
     await press(dispatcher, bot, NavCB(action=NavAction.CONFIRM).pack())
-    parked = await state.get_data()
+    parked = without_layout(await state.get_data())
     session.clear()
 
     # Act
@@ -330,7 +333,7 @@ async def test_a_menu_tap_while_the_song_is_rendering_does_not_un_park_the_order
 
     # Assert — the park is intact and the wizard did not restart
     assert await state.get_state() == Wizard.submitting.state
-    assert (await state.get_data()) == parked
+    assert without_layout(await state.get_data()) == parked
     assert session.last_screen.text == translate("wizard.queued", Language.EN, name=UZBEK_DISPLAY)
 
     # Act / Assert — and the /cancel that follows still tells the truth
@@ -464,15 +467,17 @@ async def test_changing_the_language_in_settings_writes_everywhere_it_has_to(
     assert (await state.get_data())[UI_LANGUAGE_KEY] == Language.RU.value
     assert (await read_draft_of(state)).ui_language is Language.RU
 
-    # Assert — the toast, the settings screen in the new language, and the new keyboard
+    # Assert — the toast, the new keyboard, and the picker retired once the menu is up. The
+    # picker is NOT redrawn into Settings first: the menu replaces it outright, so that edit
+    # would be one nobody sees.
     assert session.last_named("AnswerCallbackQuery").text == translate(
         "settings.language.saved", Language.RU
     )
-    shown = [getattr(call, "text", None) for call in session.calls]
-    assert any(
-        isinstance(text, str) and language_label(Language.RU, Language.RU) in text for text in shown
-    ), "the settings screen never came back in the new language"
+    assert session.named("EditMessageText") == ()
     assert session.last_screen.text == translate("menu.prompt", Language.RU)
+    names = session.call_names
+    assert "DeleteMessage" in names
+    assert names.index("SendMessage") < names.index("DeleteMessage")
     assert reply_buttons(last_reply_keyboard(session)) == reply_buttons(
         main_menu_keyboard(Language.RU)
     )

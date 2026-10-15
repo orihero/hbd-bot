@@ -74,9 +74,15 @@ from typing import Any, Final
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramAPIError, TelegramForbiddenError
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.fsm.storage.base import BaseStorage, StorageKey
+from aiogram.types import InlineKeyboardMarkup, Message
 from arq.worker import Retry
 
+from bayram.bot.cleanup import (
+    NOTICE_MESSAGE_IDS_KEY,
+    SCREEN_MESSAGE_ID_KEY,
+    ids_of,
+)
 from bayram.bot.delivery import is_blocked_by_customer
 from bayram.bot.i18n import parse_language, translate
 from bayram.bot.keyboards import paid_late_keyboard, start_over_keyboard
@@ -93,6 +99,7 @@ from bayram.payme.protocol import PaymeState
 from bayram.payme.rules import DEFAULT_TRANSACTION_TIMEOUT_MS
 from bayram.runtime.container import AppContainer
 from bayram.runtime.render_resume import (
+    STORAGE_CTX_KEY,
     ResumeAssessment,
     ResumeDecision,
     plan_resume,
@@ -680,7 +687,7 @@ async def _send(
     told apart in the log line rather than by reading an exception's ``str``.
     """
     try:
-        await bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
+        sent = await bot.send_message(chat_id=chat_id, text=text, reply_markup=markup)
     except TelegramForbiddenError as exc:
         _LOG.warning(
             "a settled payment could not be announced; the chat is unreachable",
@@ -700,7 +707,42 @@ async def _send(
         )
         _retry_or_give_up(ctx, public_ref=public_ref, reason="telegram_error")
         return False
+    if isinstance(sent, Message):
+        await _track_announcement(
+            ctx, bot, chat_id=chat_id, message_id=sent.message_id, is_screen=markup is not None
+        )
     return True
+
+
+async def _track_announcement(
+    ctx: Mapping[str, Any], bot: Bot, *, chat_id: int, message_id: int, is_screen: bool
+) -> None:
+    """Record the announcement in the chat-layout keys so the bot retires it later. Never raises.
+
+    The owner's rule (``bot.cleanup``): nothing of ours with a button on it stays on the chat
+    once it has been moved past. This message is sent by the worker, outside any handler, so
+    ``present``/``say`` never saw it. With a keyboard it is recorded as a tracked screen
+    alongside whatever is already tracked (the payment-link screen the customer paid from,
+    usually); the next screen drawn retires both. Without one (a render is about to
+    resume) it is a one-line notice, retired by the customer's next update like any ``say``.
+    """
+    storage = ctx.get(STORAGE_CTX_KEY)
+    if not isinstance(storage, BaseStorage):
+        return
+    key = StorageKey(bot_id=bot.id, chat_id=chat_id, user_id=chat_id)
+    try:
+        data = await storage.get_data(key)
+        if is_screen:
+            # APPENDED, never swapped in: the worker does not know what the customer is
+            # looking at (a payment-link screen, or three screens into a second run), so it
+            # deletes nothing. The next screen the bot draws retires every tracked id at once.
+            previous = ids_of(data.get(SCREEN_MESSAGE_ID_KEY))
+            await storage.update_data(key, {SCREEN_MESSAGE_ID_KEY: [*previous, message_id]})
+        else:
+            notices = [*ids_of(data.get(NOTICE_MESSAGE_IDS_KEY)), message_id]
+            await storage.update_data(key, {NOTICE_MESSAGE_IDS_KEY: notices})
+    except Exception as exc:  # a tidy-up must never cost the customer their announcement
+        _LOG.info("could not record the payment announcement", extra={"failure": repr(exc)})
 
 
 async def _stamp_unreachable(ledger: PaymeLedger, *, public_ref: str) -> None:

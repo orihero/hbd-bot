@@ -44,9 +44,10 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BotCommand, Message
 
+from bayram.bot.cleanup import TRACKING_KEYS
 from bayram.bot.deps import BotDeps
 from bayram.bot.handlers.balance import handle_balance
-from bayram.bot.handlers.common import error_text, privacy_text
+from bayram.bot.handlers.common import error_text, present, privacy_text, say
 from bayram.bot.handlers.submitting import (
     ORDER_ID_KEY,
     PROGRESS_MESSAGE_ID_KEY,
@@ -56,6 +57,7 @@ from bayram.bot.handlers.support import open_ticket
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import start_over_keyboard
 from bayram.bot.middleware import resolve_language
+from bayram.bot.screens import Screen
 from bayram.bot.states import Wizard
 from bayram.contracts import Err, Language, Result, SupportTicketSource, ok
 from bayram.db.retention import DEFAULT_RETENTION_POLICY
@@ -113,7 +115,7 @@ BOT_COMMANDS: Final[tuple[BotCommand, ...]] = tuple(commands_for(Language.EN))
 async def handle_help(message: Message, state: FSMContext) -> None:
     """What the bot does and every command it answers. Leaves the wizard untouched."""
     language = await resolve_language(state)
-    await message.answer(translate("help.text", language))
+    await say(message, translate("help.text", language))
 
 
 async def handle_privacy(message: Message, state: FSMContext) -> None:
@@ -138,7 +140,7 @@ async def handle_privacy(message: Message, state: FSMContext) -> None:
     no matching placeholder would be silently dropped by ``i18n._SafeParams``.
     """
     language = await resolve_language(state)
-    await message.answer(privacy_text(language, DEFAULT_RETENTION_POLICY))
+    await say(message, privacy_text(language, DEFAULT_RETENTION_POLICY))
 
 
 async def handle_support(message: Message, state: FSMContext, deps: BotDeps) -> None:
@@ -268,8 +270,14 @@ async def handle_forget(message: Message, state: FSMContext, deps: BotDeps) -> N
     """
     language = await resolve_language(state)
     order_id = await order_in_flight(state)
-    progress_message_id = (await state.get_data()).get(PROGRESS_MESSAGE_ID_KEY)
+    before = await state.get_data()
+    progress_message_id = before.get(PROGRESS_MESSAGE_ID_KEY)
     await state.clear()  # BARE, and the only one left in the tree. See the docstring.
+    # Message ids, not personal data: which of OUR messages are still on the chat. Put back so
+    # the confirmation below can retire the screen this command interrupted.
+    layout = {key: before[key] for key in TRACKING_KEYS if key in before}
+    if layout:
+        await state.update_data(layout)
     if order_id is not None:
         parked: dict[str, Any] = {ORDER_ID_KEY: order_id}
         if isinstance(progress_message_id, int):
@@ -293,9 +301,9 @@ async def handle_forget(message: Message, state: FSMContext, deps: BotDeps) -> N
         (result for result in (forgotten, erased, torn_up) if isinstance(result, Err)), None
     )
     if isinstance(failure, Err):
-        await message.answer(error_text(failure.error, language), reply_markup=keyboard)
+        await present(message, Screen(error_text(failure.error, language), keyboard))
         return
-    await message.answer(translate("privacy.forgotten", language), reply_markup=keyboard)
+    await present(message, Screen(translate("privacy.forgotten", language), keyboard))
 
 
 async def _forget_profile(deps: BotDeps, telegram_user_id: int | None) -> Result[None]:

@@ -763,6 +763,19 @@ def private_sends(session: RecordingSession) -> list[SendMessage]:
     return [call for call in sends(session) if call.chat_id == CHAT_ID]
 
 
+def private_texts(session: RecordingSession) -> list[str]:
+    """Every sentence put on the customer's chat, sent OR edited in.
+
+    The "filed" confirmation is drawn over the ForceReply prompt it answers (an edit), so a
+    test that read sends alone would find the prompt and not the confirmation.
+    """
+    return [
+        call.text
+        for call in session.calls
+        if isinstance(call, SendMessage | EditMessageText) and call.chat_id == CHAT_ID
+    ]
+
+
 def group_sends(session: RecordingSession) -> list[SendMessage]:
     return [call for call in sends(session) if call.chat_id == GROUP_CHAT_ID]
 
@@ -844,9 +857,7 @@ async def test_each_support_reason_shows_specific_prompt_and_tags_body(
     )
     await dispatcher.feed_update(
         bot,
-        callback_update(
-            SupportReasonCB(reason=reason, ref=pack_reference(order_id)).pack()
-        ),
+        callback_update(SupportReasonCB(reason=reason, ref=pack_reference(order_id)).pack()),
     )
     ticket = support.only()
     assert ticket.prompt_message_id is not None
@@ -1037,7 +1048,7 @@ async def test_the_reply_fills_the_body_and_the_confirmation_quotes_the_referenc
     assert ticket.body == "She is Dilnora, not Dilnoza"
     assert ticket.described_at is not None
     assert SupportTicketEventKind.DESCRIBED in support.kinds()
-    assert ticket.public_ref in private_sends(session)[-1].text
+    assert ticket.public_ref in private_texts(session)[-1]
 
 
 async def test_answering_the_same_prompt_twice_does_not_overwrite_the_first_complaint(
@@ -1164,9 +1175,9 @@ async def test_a_refused_group_post_costs_the_group_a_card_and_never_costs_the_t
     assert ticket.described_at is not None, "the complaint is recorded"
     assert not ticket.is_posted, "the latch is free for a retry"
     confirmations = [
-        call.text
-        for call in private_sends(session)
-        if call.text.startswith(translate("support.ticket.filed", Language.EN)[:12])
+        text
+        for text in private_texts(session)
+        if text.startswith(translate("support.ticket.filed", Language.EN)[:12])
     ]
     assert confirmations, "the customer is confirmed even though the group post failed"
 

@@ -31,6 +31,7 @@ from aiogram import Router
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 
+from bayram.bot.cleanup import PROGRESS_MESSAGE_ID_KEY
 from bayram.bot.handlers.common import Event, expire, read_draft, say
 from bayram.bot.i18n import translate
 from bayram.bot.middleware import resolve_language
@@ -69,10 +70,9 @@ _LOG = get_logger(__name__)
 #: returning the account to first-contact state is precisely what that command promises.
 ORDER_ID_KEY: Final[str] = "order_id"
 
-#: FSM-data key holding the message the worker is editing its progress frames into. Kept
-#: because a session that outlives its own progress message is a session nobody can find
-#: their way back to, and an operator reading a log wants both ids together.
-PROGRESS_MESSAGE_ID_KEY: Final[str] = "progress_message_id"
+#: ``PROGRESS_MESSAGE_ID_KEY`` — the message the worker is editing its progress frames into —
+#: is declared in ``bayram.bot.cleanup`` (the screen tracker must skip it and may not import
+#: this package) and re-exported here, where every caller already looks for it.
 
 #: Said while the studio has the order. Takes the recipient's name.
 QUEUED_KEY: Final[str] = "wizard.queued"

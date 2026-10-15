@@ -7,7 +7,7 @@ rather than crashing a handler.
 
 The draft is frozen. Every step returns a NEW draft via :meth:`WizardDraft.updated`.
 
-FSM data holds NINE keys, and they are listed here because this is where "what may live in
+FSM data holds TWELVE keys, and they are listed here because this is where "what may live in
 that dict" is documented and because the list has been wrong in a comment before — it went
 wrong three times while the checkout was landing, at five, then six, then eight, which is the
 whole argument for keeping the list in one place and counting it out loud:
@@ -24,8 +24,14 @@ whole argument for keeping the list in one place and counting it out loud:
   for each lives. The last two are one marker in two keys and are always written together:
   a timestamp found without a product beside it is read as "assume this press is a double
   tap", so splitting the write would refuse the other button for five seconds;
-* :data:`UI_LANGUAGE_KEY` and :data:`ONBOARDED_KEY` — the two caches below, and the only
-  two that survive ``handlers.common.clear_keeping_identity``.
+* ``SCREEN_MESSAGE_ID_KEY``, ``MENU_MESSAGE_ID_KEY`` and ``NOTICE_MESSAGE_IDS_KEY`` (all
+  three ``bot.cleanup``) — which of the bot's own messages are still on the chat: the live
+  inline screen, the message carrying the reply keyboard, and one-sentence notices waiting to
+  be retired. Chat layout rather than session state, so they survive
+  ``handlers.common.clear_keeping_identity`` and the worker's post-delivery wipe; the
+  ``PROGRESS_MESSAGE_ID_KEY`` above is now declared in ``bot.cleanup`` too;
+* :data:`UI_LANGUAGE_KEY` and :data:`ONBOARDED_KEY` — the two caches below, and, with the
+  three layout ids above, the only keys that survive ``handlers.common.clear_keeping_identity``.
 
 That last distinction is the point of putting the two caches here. ``state.clear()`` wipes
 the dict, and it is called at the end of every run and at every refusal; clearing a
@@ -33,9 +39,9 @@ customer's language and their onboarded flag along with a cancelled draft would 
 question they have already answered, in a language we were told not to speak.
 
 The four checkout keys are on the OTHER side of that line and must stay there:
-``clear_keeping_identity`` keeps exactly ``UI_LANGUAGE_KEY`` and ``ONBOARDED_KEY``, so all
-four are dropped with the draft and the next run starts the counter at zero again. That is
-correct rather than merely tolerable, because the key the counter feeds is
+``clear_keeping_identity`` keeps exactly ``UI_LANGUAGE_KEY``, ``ONBOARDED_KEY`` and the three
+layout ids, so all four are dropped with the draft and the next run starts the counter at
+zero again. That is correct rather than merely tolerable, because the key the counter feeds is
 ``{product}:{tg}:{scope}:{seq}`` and the same clear is what makes ``reset_to_welcome`` mint
 a fresh ``session_id`` — a restarted counter can only collide with an old purchase if the
 scope it is qualified by came back too, which it cannot. (The scope is that ``session_id``

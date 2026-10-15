@@ -7,8 +7,8 @@ silence, which is the same experience as a crashed bot even when nothing is wron
 how this module used to do damage:
 
 * a button from a screen the wizard has moved past. The toast alone left the dead keyboard
-  sitting there to be pressed again, so the message it came from is edited into the expired
-  copy with a way forward on it, and the toast stays as the immediate cue;
+  sitting there to be pressed again, so the message it came from is retired (deleted, or
+  stripped of its keyboard) and the toast is the cue;
 * text where a button was expected. The session is alive; say which.
 * text from someone with no session at all. This is NO LONGER first contact, and the change
   matters enough to be spelled out rather than left for a reader to infer: since the
@@ -26,14 +26,13 @@ from __future__ import annotations
 from typing import Final
 
 from aiogram import Router
-from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import CallbackQuery, Message
 
+from bayram.bot.cleanup import retire_message
 from bayram.bot.deps import BotDeps
 from bayram.bot.handlers.common import present, say, ui_language
 from bayram.bot.i18n import translate
-from bayram.bot.keyboards import start_over_keyboard
 from bayram.bot.middleware import resolve_language
 from bayram.bot.screens import menu_screen
 from bayram.logging import get_logger
@@ -49,15 +48,11 @@ _USE_BUTTONS_KEY: Final[str] = "wizard.use_buttons"
 async def handle_stale_callback(callback: CallbackQuery, state: FSMContext) -> None:
     """A button from a screen the wizard has already moved past.
 
-    Both cues are wanted. The toast answers the press where the user is looking, and the
-    edit retires the keyboard so the same dead button cannot be pressed a third time — and
-    replaces it with one that works.
-
-    ``start_over_keyboard`` now carries a 🏠 Back to menu row of its own beneath the
-    Start-over button, so retiring a dead screen offers both the next song and the way home.
-    That is what stops this from being one of the places a flow used to end with no exit at
-    all: a customer who does not want another song had nothing to press, and "send /start" is
-    not an answer a person reads on a screen that has just told them something went stale.
+    The toast answers the press where the user is looking, and the dead screen is then
+    RETIRED — deleted, or stripped of its keyboard once it is too old to delete — so the
+    same dead button cannot be pressed a third time. It used to be edited into an "expired"
+    screen with a Start-over keyboard, which was one more message with live buttons left on
+    the chat for good; the persistent menu is the way on, and it is already there.
     """
     language = await resolve_language(state)
     _LOG.info(
@@ -68,24 +63,8 @@ async def handle_stale_callback(callback: CallbackQuery, state: FSMContext) -> N
     await callback.answer(text)
     message = callback.message
     if isinstance(message, Message):
-        await _retire(message, text, start_over_keyboard(language))
-
-
-async def _retire(message: Message, text: str, markup: InlineKeyboardMarkup) -> None:
-    """Edit a dead screen into a live one. A refused edit is not worth failing over.
-
-    It takes an :class:`~aiogram.types.InlineKeyboardMarkup` rather than a
-    ``screens.Screen``, and that narrowing is deliberate rather than incidental. ``Screen.markup``
-    widened to include ``ReplyKeyboardMarkup`` when the menu arrived, and Telegram's
-    ``editMessageText`` accepts INLINE markup only — it answers 400 for anything else. This
-    function edits and never falls back to sending (a dead screen that could not be retired is
-    not worth a second message), so unlike ``common._edit_or_send`` it has nowhere to put a
-    reply keyboard and must be unable to be handed one. The type is the guard.
-    """
-    try:
-        await message.edit_text(text, reply_markup=markup)
-    except TelegramAPIError as exc:
-        _LOG.info("could not retire the stale screen", extra={"failure": repr(exc)})
+        # Media-guarded: a stale button on the delivered song leaves the song alone.
+        await retire_message(message)
 
 
 async def handle_stray_message(message: Message, state: FSMContext, deps: BotDeps) -> None:

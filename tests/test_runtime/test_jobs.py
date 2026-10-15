@@ -215,6 +215,62 @@ async def test_a_finished_kit_is_sent_to_the_chat_that_asked_for_it(
     assert not session.named("SendVoice")
 
 
+async def test_the_progress_message_is_deleted_once_the_song_has_landed(
+    order: Order, kit: Kit, bot: Bot, session: RecordingSession, tmp_path: Path
+) -> None:
+    """The chat ends with the song and its lyrics; the 100% frame above them goes.
+
+    Deleted only AFTER the audio is sent, so a delete that lands early can never leave the
+    customer with nothing on screen while the kit is still going out.
+    """
+    # Arrange
+    container = _Container(order=order, outcome=ok(_outcome(kit)), root=tmp_path)
+
+    # Act
+    await generate_and_deliver(_ctx(container, bot), str(order.id), CHAT_ID, MESSAGE_ID)
+
+    # Assert
+    deletes = session.named("DeleteMessage")
+    assert [(call.chat_id, call.message_id) for call in deletes] == [(CHAT_ID, MESSAGE_ID)]
+    names = session.call_names
+    assert names.index("SendAudio") < names.index("DeleteMessage")
+
+
+async def test_a_failed_run_never_deletes_the_progress_message(
+    order: Order, bot: Bot, session: RecordingSession, tmp_path: Path
+) -> None:
+    # Arrange
+    failure = PipelineError("no", user_message_key="error.provider_generic")
+    container = _Container(order=order, outcome=err(failure), root=tmp_path)
+
+    # Act
+    await generate_and_deliver(_ctx(container, bot), str(order.id), CHAT_ID, MESSAGE_ID)
+
+    # Assert — the failure reason lives in it now
+    assert session.named("DeleteMessage") == ()
+
+
+async def test_a_failure_reason_falls_back_to_a_new_message_when_the_edit_is_refused(
+    order: Order, bot: Bot, session: RecordingSession, tmp_path: Path
+) -> None:
+    # Arrange
+    from aiogram.exceptions import TelegramBadRequest
+
+    session.failures["EditMessageText"] = TelegramBadRequest(
+        method=None,  # type: ignore[arg-type]
+        message="Bad Request: message to edit not found",
+    )
+    failure = PipelineError("moderator refused", user_message_key="error.content_not_allowed")
+    container = _Container(order=order, outcome=err(failure), root=tmp_path)
+
+    # Act
+    await generate_and_deliver(_ctx(container, bot), str(order.id), CHAT_ID, MESSAGE_ID)
+
+    # Assert
+    sent = session.last_named("SendMessage")
+    assert sent.text == translate("error.content_not_allowed", order.brief.ui_language)
+
+
 async def test_the_progress_sink_targets_the_message_the_wizard_already_posted(
     order: Order, kit: Kit, bot: Bot, tmp_path: Path
 ) -> None:
@@ -281,9 +337,12 @@ async def test_the_customer_is_told_why_the_run_failed(
     # Act
     await generate_and_deliver(_ctx(container, bot), str(order.id), CHAT_ID, MESSAGE_ID)
 
-    # Assert — the reason reaches the chat, in the language the order was placed in
-    sent = session.last_named("SendMessage")
+    # Assert — the reason reaches the chat, in the language the order was placed in, drawn
+    # INTO the progress message rather than sent under a dead "failed" frame
+    assert session.named("SendMessage") == ()
+    sent = session.last_named("EditMessageText")
     assert sent.chat_id == CHAT_ID
+    assert sent.message_id == MESSAGE_ID
     assert sent.text == translate("error.content_not_allowed", order.brief.ui_language)
     # and a dead end owes the reader BOTH ways out: start again, or go home.
     assert buttons(sent.reply_markup) == (

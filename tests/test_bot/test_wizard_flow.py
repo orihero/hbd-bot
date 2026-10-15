@@ -27,6 +27,7 @@ from bayram.bot.callbacks import (
     OccasionCB,
     VocalGenderCB,
 )
+from bayram.bot.draft import DRAFT_KEY, MAX_NOTE_CHARS
 from bayram.bot.i18n import translate
 from bayram.bot.states import Wizard
 from bayram.contracts import (
@@ -97,7 +98,6 @@ async def walk_to_name(dispatcher: Dispatcher, bot: Bot) -> None:
     await press(dispatcher, bot, OccasionCB(value=Occasion.BIRTHDAY).pack())
     await press(dispatcher, bot, GenreCB(value=Genre.UZBEK_POP).pack())
     await press(dispatcher, bot, VocalGenderCB(value=VoiceGender.FEMALE).pack())
-    await send(dispatcher, bot, "Loves plov and the mountains")
 
 
 async def approve_lyrics(dispatcher: Dispatcher, bot: Bot) -> None:
@@ -115,7 +115,7 @@ async def walk_to_lyrics(dispatcher: Dispatcher, bot: Bot) -> None:
     """/start through to the lyric preview, with a lyric already on screen."""
     await walk_to_name(dispatcher, bot)
     await send(dispatcher, bot, UZBEK_TYPED)
-    await press(dispatcher, bot, NavCB(action=NavAction.NAME_OK).pack())
+    await send(dispatcher, bot, "Loves plov and the mountains")
     await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.UZ_LATN).pack())
 
 
@@ -173,13 +173,37 @@ async def test_typed_name_is_echoed_in_its_canonical_display_form(
     # Act — the user types the phone-keyboard apostrophe
     await send(dispatcher, bot, UZBEK_TYPED)
 
-    # Assert — the confirmation shows U+02BB, never the typed variant
+    # Assert — the next screen (the note, asked by name) shows U+02BB, never the typed variant
     text = session.last_screen.text
     assert UZBEK_DISPLAY in text
     assert UZBEK_TYPED not in text
 
 
-async def test_confirming_the_name_moves_on_to_the_output_language(
+async def test_a_typed_name_goes_straight_to_the_note_with_no_confirmation(
+    dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
+) -> None:
+    """The owner removed the "is this spelling right?" screen: the name is the answer.
+
+    The vendor-facing candidates are built when the name is typed, so the draft already
+    holds the whole resolved recipient by the time the note is asked — about them, by name.
+    """
+    # Arrange
+    await walk_to_name(dispatcher, bot)
+
+    # Act
+    await send(dispatcher, bot, UZBEK_TYPED)
+
+    # Assert
+    assert await state.get_state() == Wizard.note.state
+    assert session.last_screen.text.startswith(
+        translate("wizard.note.prompt_named", Language.EN, name=UZBEK_DISPLAY, limit=MAX_NOTE_CHARS)
+    )
+    recipient = (await state.get_data())[DRAFT_KEY]["recipient"]
+    assert recipient["display"] == UZBEK_DISPLAY
+    assert recipient["candidates"], "the candidates must be resolved without a confirm tap"
+
+
+async def test_the_note_moves_on_to_the_output_language(
     dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
 ) -> None:
     # Arrange
@@ -187,7 +211,7 @@ async def test_confirming_the_name_moves_on_to_the_output_language(
     await send(dispatcher, bot, UZBEK_TYPED)
 
     # Act
-    await press(dispatcher, bot, NavCB(action=NavAction.NAME_OK).pack())
+    await send(dispatcher, bot, "Loves plov and the mountains")
 
     # Assert
     assert await state.get_state() == Wizard.output_language.state
@@ -362,6 +386,7 @@ async def test_note_longer_than_the_limit_is_rejected_without_losing_the_step(
     await press(dispatcher, bot, OccasionCB(value=Occasion.BIRTHDAY).pack())
     await press(dispatcher, bot, GenreCB(value=Genre.POP).pack())
     await press(dispatcher, bot, VocalGenderCB(value=VoiceGender.MALE).pack())
+    await send(dispatcher, bot, UZBEK_TYPED)
 
     # Act
     await send(dispatcher, bot, "x" * 601)
@@ -380,16 +405,16 @@ async def test_the_skip_button_keeps_a_note_that_was_already_written(
     ``note_keyboard`` relabels Skip to "Keep this note" once a note exists, so Back into
     the note step has an obvious way onwards that is not retyping it. The handler wrote
     ``note=""`` regardless, which made the second label a lie: the customer pressed Keep
-    and the note they had written was deleted on the way to the name step.
+    and the note they had written was deleted on the way to the next step.
     """
     # Arrange — write a note, then come back to the step it was written on
     await walk_to_name(dispatcher, bot)
+    await send(dispatcher, bot, UZBEK_TYPED)
+    await send(dispatcher, bot, "Loves plov and the mountains")
     await press(dispatcher, bot, NavCB(action=NavAction.BACK).pack())
 
     # Act — press the button that now reads "Keep this note"
     await press(dispatcher, bot, NavCB(action=NavAction.SKIP).pack())
-    await send(dispatcher, bot, UZBEK_TYPED)
-    await press(dispatcher, bot, NavCB(action=NavAction.NAME_OK).pack())
     await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.EN).pack())
     await approve_lyrics(dispatcher, bot)
     await press(dispatcher, bot, NavCB(action=NavAction.CONFIRM).pack())
@@ -402,12 +427,13 @@ async def test_the_skip_button_keeps_a_note_that_was_already_written(
 async def test_a_command_at_the_note_step_is_never_stored_as_the_note(
     dispatcher: Dispatcher, bot: Bot, state: FSMContext, session: RecordingSession
 ) -> None:
-    # Arrange — at the note step, one answer short of the name
+    # Arrange — at the note step, the name already given
     await complete_onboarding(dispatcher, bot, language=Language.EN)
     await tap(dispatcher, bot, "menu.generate", Language.EN)
     await press(dispatcher, bot, OccasionCB(value=Occasion.BIRTHDAY).pack())
     await press(dispatcher, bot, GenreCB(value=Genre.POP).pack())
     await press(dispatcher, bot, VocalGenderCB(value=VoiceGender.MALE).pack())
+    await send(dispatcher, bot, UZBEK_TYPED)
 
     # Act — a command nothing else claims, so it reaches the free-text handler
     await send(dispatcher, bot, "/halp me write this")
@@ -454,9 +480,8 @@ async def test_skip_leaves_the_note_empty(
     await press(dispatcher, bot, VocalGenderCB(value=VoiceGender.DUET).pack())
 
     # Act
-    await press(dispatcher, bot, NavCB(action=NavAction.SKIP).pack())
     await send(dispatcher, bot, UZBEK_TYPED)
-    await press(dispatcher, bot, NavCB(action=NavAction.NAME_OK).pack())
+    await press(dispatcher, bot, NavCB(action=NavAction.SKIP).pack())
     await press(dispatcher, bot, LanguageCB(slot=LanguageSlot.OUTPUT, code=Language.RU).pack())
     await approve_lyrics(dispatcher, bot)
     await press(dispatcher, bot, NavCB(action=NavAction.CONFIRM).pack())

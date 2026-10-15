@@ -7,9 +7,12 @@ list to keep in sync.
 
 There are two orders, because there are two products behind one wizard.
 
-:data:`WIZARD_ORDER` is the bot writing a song for a named person: four structured
-questions, a note about them, their name, and the language it is sung in — and the name is
-asked for because the name being pronounced correctly IS the product.
+:data:`WIZARD_ORDER` is the bot writing a song for a named person: three structured
+questions, their name, a note about them, and the language it is sung in — and the name is
+asked for because the name being pronounced correctly IS the product. The name comes BEFORE
+the note so the note can be asked about somebody by name ("tell me about Gulnora") rather
+than about an anonymous "them". It is not confirmed on a screen of its own any more: see
+:data:`PARKED_ONLY_STEPS` for what happened to :attr:`WizardStep.NAME_CONFIRM`.
 
 :data:`OWN_LYRICS_ORDER` is the customer writing the song. It asks for the words
 immediately, second screen, and then asks only what is still genuinely unanswered: the
@@ -19,7 +22,7 @@ three steps it drops are dropped because they have stopped meaning anything:
 * **NOTE** existed to feed the lyric writer ("tell me one thing about them — I write it
   into the words"). Nothing writes the words now, so the question is a promise the bot
   cannot keep.
-* **NAME** and **NAME_CONFIRM** existed to put the recipient's name into a hook section and
+* **NAME** existed to put the recipient's name into a hook section and
   verify its pronunciation acoustically. A customer who wrote their own lyric already put
   whatever name they wanted where they wanted it, and a name we asked for separately would
   be woven into their words on top of that — so the whole name subsystem is skipped for
@@ -70,6 +73,8 @@ class WizardStep(StrEnum):
     VOCAL_GENDER = "vocal_gender"
     NOTE = "note"
     NAME = "name"
+    #: No longer a screen of any run either — the typed name is accepted without an echo to
+    #: confirm. Kept for the same stale-Redis reason as UI_LANGUAGE; see PARKED_ONLY_STEPS.
     NAME_CONFIRM = "name_confirm"
     OUTPUT_LANGUAGE = "output_language"
     LYRICS = "lyrics"
@@ -125,9 +130,8 @@ WIZARD_ORDER: Final[tuple[WizardStep, ...]] = (
     WizardStep.OCCASION,
     WizardStep.GENRE,
     WizardStep.VOCAL_GENDER,
-    WizardStep.NOTE,
     WizardStep.NAME,
-    WizardStep.NAME_CONFIRM,
+    WizardStep.NOTE,
     WizardStep.OUTPUT_LANGUAGE,
     WizardStep.LYRICS,
     WizardStep.CONFIRM,
@@ -164,7 +168,7 @@ TEACHERS_DAY_ORDER: Final[tuple[WizardStep, ...]] = (
 
 #: Steps that no longer belong to either order but whose STATE must still resolve.
 #:
-#: There is exactly one, and it is :attr:`WizardStep.UI_LANGUAGE`. The interface language is
+#: There are two. The first is :attr:`WizardStep.UI_LANGUAGE`. The interface language is
 #: asked once, at first contact, by :class:`Onboarding`; it stopped being a wizard step and
 #: left both orders above. The enum member, ``Wizard.ui_language``, its
 #: :data:`_STATE_BY_STEP` entry and ``screens.render_step``'s arm for it all survive anyway,
@@ -188,6 +192,16 @@ TEACHERS_DAY_ORDER: Final[tuple[WizardStep, ...]] = (
 #: discarded when onboarding ends. The one live reader of the arm is an already-onboarded
 #: customer holding a stale Redis state.
 #:
+#: The second is :attr:`WizardStep.NAME_CONFIRM`, for the same fourteen-day reason. The
+#: confirmation screen echoed the display spelling and asked "is this right?"; the owner
+#: removed it, and the typed name now advances the wizard directly. Nothing it guarded is
+#: lost: every vendor-facing candidate was built by ``name_entry.resolve_typed_name`` when
+#: the name was TYPED, never on the confirm tap, so the recipient the pipeline reads is the
+#: same object it always was. A customer parked in ``Wizard:name_confirm`` is mapped
+#: FORWARD — ``screens.resolve_step`` sends that state to the language question (or back to
+#: NAME when the draft lost its recipient), and a stale ✅ tap on an old confirm message is
+#: still answered by ``handlers.name.handle_name_confirmed``, which does the same.
+#:
 #: This constant exists so the exception is WRITTEN DOWN in the source rather than
 #: subtracted inside a test: ``test_every_step_has_a_state_and_a_place_in_the_order``
 #: asserts ``set(WIZARD_ORDER) | PARKED_ONLY_STEPS == set(WizardStep)``, which still fails
@@ -195,7 +209,9 @@ TEACHERS_DAY_ORDER: Final[tuple[WizardStep, ...]] = (
 #: that simply subtracted this member, would quietly allow. No special case is needed in
 #: :func:`previous_step` or :func:`next_step`, and a reader will look for one: both already
 #: answer ``None`` for a step that is not in the order they were handed.
-PARKED_ONLY_STEPS: Final[frozenset[WizardStep]] = frozenset({WizardStep.UI_LANGUAGE})
+PARKED_ONLY_STEPS: Final[frozenset[WizardStep]] = frozenset(
+    {WizardStep.UI_LANGUAGE, WizardStep.NAME_CONFIRM}
+)
 
 _STATE_BY_STEP: Final[dict[WizardStep, State]] = {
     WizardStep.UI_LANGUAGE: Wizard.ui_language,

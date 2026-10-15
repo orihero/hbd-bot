@@ -7,7 +7,7 @@ import re
 import pytest
 
 from bayram.bot.callbacks import NavAction, NavCB
-from bayram.bot.draft import MAX_NOTE_CHARS, WizardDraft
+from bayram.bot.draft import MAX_NOTE_CHARS, LyricSource, WizardDraft
 from bayram.bot.i18n import translate
 from bayram.bot.keyboards import KEEP_NOTE_LABEL_KEY, SKIP_LABEL_KEY
 from bayram.bot.screens import (
@@ -379,18 +379,26 @@ def test_the_name_step_states_its_character_limit() -> None:
     assert str(MAX_RECIPIENT_NAME_CHARS) in screen.text
 
 
-def test_name_confirmation_shows_the_display_spelling() -> None:
+def test_the_note_is_asked_about_the_recipient_by_display_name() -> None:
+    """The name is asked BEFORE the note now, so the note can be about somebody."""
     # Arrange
-    draft = full_draft()
+    draft = full_draft(note="")
 
     # Act
-    screen = render_step(WizardStep.NAME_CONFIRM, draft)
+    screen = render_step(WizardStep.NOTE, draft)
 
     # Assert
-    assert UZBEK_NAME_CANONICAL in screen.text
+    assert screen.text.startswith(
+        translate(
+            "wizard.note.prompt_named",
+            Language.EN,
+            name=UZBEK_NAME_CANONICAL,
+            limit=MAX_NOTE_CHARS,
+        )
+    )
 
 
-def test_name_confirmation_never_shows_a_submitted_candidate() -> None:
+def test_the_note_never_shows_a_submitted_candidate() -> None:
     # Arrange
     draft = full_draft()
     submitted = [
@@ -400,11 +408,50 @@ def test_name_confirmation_never_shows_a_submitted_candidate() -> None:
     ]
 
     # Act
-    screen = render_step(WizardStep.NAME_CONFIRM, draft)
+    screen = render_step(WizardStep.NOTE, draft)
 
     # Assert
     for spelling in submitted:
         assert spelling not in screen.text
+
+
+def test_a_parked_name_confirmation_is_moved_forward_to_the_language_question() -> None:
+    """NAME_CONFIRM is no longer a screen; a customer parked there by an older release
+    is sent where ✅ would have sent them, never shown the removed screen."""
+    # Arrange
+    draft = full_draft(output_language=None, lyrics=None)
+
+    # Act
+    resolved = resolve_step(WizardStep.NAME_CONFIRM, draft)
+    screen = render_step(WizardStep.NAME_CONFIRM, draft)
+
+    # Assert
+    assert resolved is WizardStep.OUTPUT_LANGUAGE
+    assert screen.text == render_step(WizardStep.OUTPUT_LANGUAGE, draft).text
+
+
+def test_a_parked_name_confirmation_on_the_own_lyrics_path_terminates() -> None:
+    """The per-path branches of ``resolve_step`` return a step they do not know unchanged;
+    NAME_CONFIRM must be resolved before them or ``render_step`` recurses forever."""
+    # Arrange
+    draft = full_draft(recipient=None, lyrics_source=LyricSource.OWN)
+
+    # Act
+    resolved = resolve_step(WizardStep.NAME_CONFIRM, draft)
+    screen = render_step(WizardStep.NAME_CONFIRM, draft)
+
+    # Assert
+    assert resolved is WizardStep.OUTPUT_LANGUAGE
+    assert screen.text == render_step(WizardStep.OUTPUT_LANGUAGE, draft).text
+
+
+def test_resolve_step_sends_a_nameless_note_back_to_the_name() -> None:
+    """A draft parked at the note by the old order (note first) has no name to ask about."""
+    # Arrange
+    draft = full_draft(recipient=None)
+
+    # Act / Assert
+    assert resolve_step(WizardStep.NOTE, draft) is WizardStep.NAME
 
 
 def test_summary_renders_an_empty_note_as_a_dash() -> None:

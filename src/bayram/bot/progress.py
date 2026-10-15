@@ -176,6 +176,51 @@ class TelegramProgressSink:
             timed_out_text(self._language, ratio=self._high_water), event=None, markup=markup
         )
 
+    async def replace(self, text: str, *, markup: InlineKeyboardMarkup | None = None) -> bool:
+        """Turn the progress message into a final sentence. True when it now reads ``text``.
+
+        Used for the terminal failure reason, so the customer is left with ONE message that
+        says what went wrong and offers a way on, not a frozen "failed" frame with a second
+        message under it. ``False`` tells the caller to fall back to sending.
+        """
+        try:
+            await self._bot.edit_message_text(
+                text=text, chat_id=self._chat_id, message_id=self._message_id, reply_markup=markup
+            )
+        except TelegramAPIError as exc:
+            if "message is not modified" not in str(exc).lower():
+                _LOG.info(
+                    "could not replace the progress message",
+                    extra={
+                        "chat_id": self._chat_id,
+                        "message_id": self._message_id,
+                        "failure": repr(exc),
+                    },
+                )
+                return False
+        self._last_text = text
+        return True
+
+    async def delete(self) -> None:
+        """Remove the progress message once the song has landed. Never raises.
+
+        The chat is meant to end with the song and its lyrics and nothing of ours beside
+        them; a 100% frame above the audio is a status that has stopped being news. Best
+        effort: a delete Telegram refuses (gone already, or past 48 hours) leaves the "done"
+        frame, which is still a true sentence.
+        """
+        try:
+            await self._bot.delete_message(chat_id=self._chat_id, message_id=self._message_id)
+        except TelegramAPIError as exc:
+            _LOG.info(
+                "could not delete the progress message",
+                extra={
+                    "chat_id": self._chat_id,
+                    "message_id": self._message_id,
+                    "failure": repr(exc),
+                },
+            )
+
     async def _push(
         self,
         text: str,

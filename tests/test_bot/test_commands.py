@@ -50,6 +50,7 @@ from tests.test_bot.conftest import (
     RecordingSession,
     RecordingSubmitter,
     make_message,
+    without_layout,
 )
 from tests.test_bot.test_credit_gate import FakeEntitlements
 from tests.test_bot.test_wizard_flow import (
@@ -72,9 +73,10 @@ CREDIT_RECORD_MARKER = "🧾"
 async def walk_to_note(dispatcher: Dispatcher, bot: Bot) -> None:
     """Onboarding, then 🎵, then through to the note prompt — the free-text step under test.
 
-    Kept local rather than folded into ``test_wizard_flow``'s walkers because it stops one step
-    SHORT of them: ``walk_to_name`` answers the note, and this file's subject is what happens
-    when a command arrives while the note is still unanswered. The onboarding preamble is
+    Kept local rather than folded into ``test_wizard_flow``'s walkers because it stops at a
+    step none of them stops at: ``walk_to_name`` stops before the name and ``walk_to_lyrics``
+    answers the note, and this file's subject is what happens when a command arrives while
+    the note is still unanswered. The onboarding preamble is
     ``complete_onboarding``'s, not a second copy of it, so a change to either screen is one
     edit and this walk cannot drift into testing a flow the product no longer has.
     """
@@ -83,6 +85,7 @@ async def walk_to_note(dispatcher: Dispatcher, bot: Bot) -> None:
     await press(dispatcher, bot, OccasionCB(value=Occasion.BIRTHDAY).pack())
     await press(dispatcher, bot, GenreCB(value=Genre.UZBEK_POP).pack())
     await press(dispatcher, bot, VocalGenderCB(value=VoiceGender.FEMALE).pack())
+    await send(dispatcher, bot, UZBEK_TYPED)
 
 
 async def read_note(state: FSMContext) -> str:
@@ -173,13 +176,14 @@ async def test_privacy_does_not_disturb_a_half_typed_wizard(
 ) -> None:
     """Reading the privacy notice must not cost the user the answers they have given."""
     # Arrange
-    await walk_to_name(dispatcher, bot)
+    await walk_to_note(dispatcher, bot)
+    await send(dispatcher, bot, "Loves plov and the mountains")
 
     # Act
     await handle_privacy(bound_message("/privacy", bot), state)
 
     # Assert
-    assert await state.get_state() == Wizard.name.state
+    assert await state.get_state() == Wizard.output_language.state
     assert await read_note(state) == "Loves plov and the mountains"
 
 
@@ -245,7 +249,7 @@ async def test_forget_erases_the_draft_and_offers_a_way_back(
 
     # Assert
     assert await state.get_state() is None
-    assert await state.get_data() == {}
+    assert without_layout(await state.get_data()) == {}
     screen = session.last_screen
     assert screen.text == translate("privacy.forgotten", Language.EN)
     assert screen.reply_markup is not None, "a command that ends a flow must offer a way on"

@@ -29,6 +29,7 @@ from bayram.bot.i18n import translate
 from bayram.bot.states import Wizard
 from bayram.config import Settings
 from bayram.contracts import MAX_RECIPIENT_NAME_CHARS, Genre, Language, Occasion, VoiceGender
+from tests.conftest import make_name
 from tests.test_bot.conftest import (
     CHAT_ID,
     USER_ID,
@@ -161,6 +162,48 @@ async def test_name_confirmation_with_a_draft_that_lost_its_name_asks_again(
     assert session.last_screen.text == translate(
         "wizard.name.prompt", Language.EN, limit=MAX_RECIPIENT_NAME_CHARS
     )
+    assert await state.get_state() == Wizard.name.state
+
+
+async def test_a_stale_name_confirmation_tap_moves_a_parked_customer_forward(
+    dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
+) -> None:
+    """The confirmation screen was removed, but Redis keeps ``Wizard:name_confirm`` for
+    fourteen days. ✅ on the old screen still goes where it always went: the language."""
+    # Arrange — a named draft (the old order had already asked the note) parked on confirm
+    from bayram.bot.draft import WizardDraft
+
+    draft = WizardDraft(
+        ui_language=Language.EN,
+        occasion=Occasion.BIRTHDAY,
+        genre=Genre.POP,
+        vocal_gender=VoiceGender.MALE,
+        recipient=make_name(),
+    )
+    await state.set_state(Wizard.name_confirm)
+    await state.update_data(**draft.to_state_data())
+
+    # Act
+    await press(dispatcher, bot, NavCB(action=NavAction.NAME_OK).pack())
+
+    # Assert
+    assert await state.get_state() == Wizard.output_language.state
+
+
+async def test_back_on_a_parked_name_confirmation_returns_to_the_name(
+    dispatcher: Dispatcher, bot: Bot, session: RecordingSession, state: FSMContext
+) -> None:
+    # Arrange
+    from bayram.bot.draft import WizardDraft
+
+    draft = WizardDraft(ui_language=Language.EN, recipient=make_name())
+    await state.set_state(Wizard.name_confirm)
+    await state.update_data(**draft.to_state_data())
+
+    # Act
+    await press(dispatcher, bot, NavCB(action=NavAction.BACK).pack())
+
+    # Assert
     assert await state.get_state() == Wizard.name.state
 
 

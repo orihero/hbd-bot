@@ -54,8 +54,8 @@ from bayram.bot.handlers.common import (
     write_draft,
 )
 from bayram.bot.i18n import SUPPORTED_LANGUAGES, translate
-from bayram.bot.keyboards import ALL_MENU_BUTTON_KEYS, MENU_LABELS
-from bayram.bot.screens import menu_screen, settings_language_screen, settings_screen
+from bayram.bot.keyboards import ALL_MENU_BUTTON_KEYS, MENU_LABELS, back_to_settings_keyboard
+from bayram.bot.screens import Screen, menu_screen, settings_language_screen, settings_screen
 from bayram.bot.states import Wizard, WizardStep
 from bayram.contracts import Err, Occasion
 from bayram.db.retention import DEFAULT_RETENTION_POLICY
@@ -116,7 +116,7 @@ async def handle_menu_label(message: Message, state: FSMContext, deps: BotDeps) 
         case "menu.balance":
             await handle_balance(message, state, deps)
         case "menu.help":
-            await message.answer(translate("help.text", await ui_language(state, deps)))
+            await say(message, translate("help.text", await ui_language(state, deps)))
         case "menu.settings":
             await present(message, settings_screen(await ui_language(state, deps)))
         case _:
@@ -153,20 +153,31 @@ async def handle_set_language(callback: CallbackQuery, state: FSMContext, deps: 
 async def handle_show_privacy(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:
     """The retention notice, rendered by the same helper ``/privacy`` uses.
 
-    Said as a NEW message rather than edited over the Settings screen, so the customer still
-    has the Settings keyboard under it and can go straight on to the next thing — the same
-    reason ``navigation.handle_report_problem`` gives for the identical choice.
+    Drawn OVER the Settings screen with a ⬅️ back to it, rather than as a new message under
+    it: a notice per tap stacked up under Settings and never went away, and the chat is meant
+    to keep nothing of ours that has been read and moved past.
     """
     await callback.answer()
     language = await ui_language(state, deps)
-    await say(callback, privacy_text(language, DEFAULT_RETENTION_POLICY))
+    await present(
+        callback,
+        Screen(
+            privacy_text(language, DEFAULT_RETENTION_POLICY), back_to_settings_keyboard(language)
+        ),
+    )
 
 
 async def handle_show_support(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:
     """Where to write when something is wrong, from the same helper ``/support`` uses."""
     await callback.answer()
     language = await ui_language(state, deps)
-    await say(callback, support_text(language, deps.settings.support_contact))
+    await present(
+        callback,
+        Screen(
+            support_text(language, deps.settings.support_contact),
+            back_to_settings_keyboard(language),
+        ),
+    )
 
 
 async def handle_to_settings(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:
@@ -178,11 +189,10 @@ async def handle_to_settings(callback: CallbackQuery, state: FSMContext, deps: B
 async def handle_to_menu(callback: CallbackQuery, state: FSMContext, deps: BotDeps) -> None:
     """🏠 Back to menu, from Settings and from the two dead-end keyboards.
 
-    This necessarily arrives as a NEW message and leaves the inline screen it was tapped from
-    sitting on the roll above it. That is not a compromise: an inline screen cannot become a
+    This necessarily arrives as a NEW message: an inline screen cannot become a
     reply-keyboard screen by editing, because ``editMessageText`` accepts inline markup only.
-    ``common._edit_or_send`` makes that decision once, from the markup type, so no caller has
-    to remember it.
+    ``common.present`` makes that decision once, from the markup type, and then retires the
+    inline screen the button was on — unless that was the delivered song, which stays.
     """
     await callback.answer()
     await present(
@@ -199,8 +209,8 @@ async def handle_settings_language_chosen(
 ) -> None:
     """Change the interface language. Three writes, then the two screens that show it took.
 
-    **The confirmation is the TOAST**, not a message. One tap then costs one edit and one send
-    instead of three messages stacking up in the chat, and Telegram truncates a callback
+    **The confirmation is the TOAST**, not a message. One tap then costs one send and one
+    delete instead of three messages stacking up in the chat, and Telegram truncates a callback
     answer at 200 characters, which ``settings.language.saved`` is far inside.
 
     **The FSM cache is written ALWAYS, even with no store wired.** This is the whole of the
@@ -237,9 +247,9 @@ async def handle_settings_language_chosen(
                 "the interface language could not be persisted",
                 extra=recorded.error.to_log_dict(),
             )
-    # Edits the picker in place back into the Settings screen, now in the new language, so the
-    # change lands on the screen the customer is looking at.
-    await present(callback, settings_screen(language))
+    # No redraw of Settings first: the menu below replaces the picker outright (``present``
+    # retires it once the menu is up), so editing it into Settings would be an edit nobody
+    # sees. The toast above is the confirmation.
     # THE ONE AND ONLY PLACE THE REPLY KEYBOARD IS RE-SENT. ``is_persistent=True`` makes it
     # chat-level state that survives on its own, so a re-send is needed exactly where the
     # LABELS changed and nowhere else; every other flow end is served by the 🏠 row on

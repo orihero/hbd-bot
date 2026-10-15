@@ -5,9 +5,13 @@ Three things make it different from every other step:
 * the name is **typed**. It is never transcribed from a voice message — a speech model's
   guess at a name is exactly the error we are here to eliminate — so a voice note at this
   step gets a polite "please type it";
-* what comes back is echoed as the canonical **display** spelling (U+02BB intact) and must
-  be confirmed before a single token is generated. The vendor-facing candidates are built
-  at the same moment and are never shown;
+* what comes back is resolved into the canonical **display** spelling (U+02BB intact) and
+  the ranked vendor-facing candidates in one go, and the wizard moves straight on. There
+  used to be a confirmation screen echoing the display spelling; the owner removed it. It
+  computed nothing — every candidate the pipeline reads is built by
+  ``name_entry.resolve_typed_name`` at the moment the name is TYPED — so dropping the
+  screen drops a tap, not a check. The spelling is still shown back: in the note prompt
+  that follows ("Tell me about Gulnora!"), on the lyric preview and on the summary;
 * an unreadable name is a normal outcome, not an error page: the user is told what is wrong
   and stays on the step.
 """
@@ -32,7 +36,7 @@ from bayram.bot.handlers.common import (
 from bayram.bot.handlers.lyrics import enter_lyrics_step
 from bayram.bot.i18n import translate
 from bayram.bot.name_entry import resolve_typed_name
-from bayram.bot.states import Wizard, WizardStep
+from bayram.bot.states import Wizard, WizardStep, next_step
 from bayram.contracts import Err
 from bayram.logging import get_logger
 
@@ -46,7 +50,7 @@ async def handle_name_typed(message: Message, state: FSMContext, deps: BotDeps) 
 
     This step had no guard at all until now, and it is the step that most needed one: the
     word stored here is the word the whole product exists to pronounce correctly. It is
-    echoed for confirmation, transliterated into vendor-facing candidates, sung in the hook
+    transliterated into vendor-facing candidates, sung in the hook
     and printed on the card. "🎵 Qoʻshiq yasash" going through as somebody's name is not a
     validation error with a nice message — it is a birthday song addressed to a button.
 
@@ -81,14 +85,23 @@ async def handle_name_typed(message: Message, state: FSMContext, deps: BotDeps) 
         return
     recipient = result.value
     _LOG.info(
-        "name accepted, awaiting confirmation",
+        "name accepted",
         extra={
             "lookup_key": recipient.lookup_key,
             "name_language": str(recipient.language),
             "candidate_count": len(recipient.candidates),
         },
     )
-    await show_step(message, state, draft.updated(recipient=recipient), WizardStep.NAME_CONFIRM)
+    updated = draft.updated(recipient=recipient)
+    if updated.output_language is not None:
+        # Every other answer is already in hand — ✏️ Edit → Name on a finished song, or Back
+        # all the way here from the preview — so the lyric is rewritten for the new name
+        # rather than walking the customer through the note and the language again. This is
+        # what ✅ on the old confirmation screen did, minus the screen.
+        await enter_lyrics_step(message, state, deps, updated.updated(lyrics=None))
+        return
+    following = next_step(WizardStep.NAME) or WizardStep.OUTPUT_LANGUAGE
+    await show_step(message, state, updated, following)
 
 
 async def handle_name_not_typed(message: Message, state: FSMContext) -> None:
@@ -104,6 +117,13 @@ async def handle_name_not_typed(message: Message, state: FSMContext) -> None:
 async def handle_name_confirmed(
     callback: CallbackQuery, state: FSMContext, deps: BotDeps
 ) -> None:
+    """✅ on a confirmation screen drawn by a release that still had one.
+
+    No screen draws this button now. It stays registered for the customer parked in
+    ``Wizard.name_confirm`` when this deployed (see ``states.PARKED_ONLY_STEPS``): on the
+    old order the note had ALREADY been answered by then, so the way forward is the
+    language question, exactly as before — not the note.
+    """
     await callback.answer()
     draft = await read_draft(state)
     if draft is None:

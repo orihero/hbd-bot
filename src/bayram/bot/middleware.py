@@ -20,6 +20,7 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message, TelegramObject
 
+from bayram.bot.cleanup import track_notice
 from bayram.bot.draft import UI_LANGUAGE_KEY, load_draft
 from bayram.bot.i18n import FALLBACK_LANGUAGE, translate
 from bayram.contracts import Language, is_ok
@@ -140,14 +141,28 @@ def _user_id(event: TelegramObject) -> int | None:
 
 
 async def _tell_user(event: TelegramObject, text: str) -> None:
-    """Best effort. If even this fails, the log above is all we get — and that is fine."""
-    try:
-        if isinstance(event, CallbackQuery):
+    """Best effort. If even this fails, the log above is all we get — and that is fine.
+
+    The callback is answered in its OWN try: most handlers answer first thing, so by the time
+    an exception reaches here a second answer is usually refused — and that refusal used to
+    abort the send below it, so the customer was never told anything at all. The notice is
+    recorded like any ``say`` (``bot.cleanup``), so the next screen retires it.
+    """
+    if isinstance(event, CallbackQuery):
+        try:
             await event.answer()
-            if isinstance(event.message, Message):
-                await event.message.answer(text)
-            return
-        if isinstance(event, Message):
-            await event.answer(text)
+        except TelegramAPIError as exc:
+            _LOG.debug("the failed callback was already answered", extra={"failure": repr(exc)})
+    target = event.message if isinstance(event, CallbackQuery) else event
+    if not isinstance(target, Message):
+        return
+    try:
+        sent = await target.answer(text)
     except TelegramAPIError as exc:
         _LOG.error("could not deliver the failure message", extra={"failure": repr(exc)})
+        return
+    if isinstance(sent, Message):
+        try:
+            await track_notice(sent, event.bot)
+        except Exception as exc:  # a tidy-up must never fail the error path
+            _LOG.debug("could not record the failure notice", extra={"failure": repr(exc)})

@@ -361,11 +361,8 @@ async def test_edit_name_prompts_new_name_and_regenerates_lyrics(
         EditSongCB(action=EditAction.NAME, ref=pack_reference(order.id)).pack(),
     )
 
-    # Send new name
+    # Send new name — accepted as typed, no confirmation screen in between
     await send(edit_dispatcher, bot, "Toshmat")
-
-    # Confirm candidate name
-    await press(edit_dispatcher, bot, NavCB(action=NavAction.NAME_OK).pack())
 
     # Assert new name was set and lyrics step was entered with fresh lyrics
     draft = await read_draft(state)
